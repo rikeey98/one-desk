@@ -1,16 +1,11 @@
-import { useEffect, useState } from 'react'
-import type { Workspace } from '@shared/models'
+import { useState } from 'react'
+import { useClient } from './client/ClientProvider'
+import { useWorkspaces } from './hooks/useWorkspaces'
 
 function App(): React.JSX.Element {
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const client = useClient()
+  const { workspaces, refresh } = useWorkspaces()
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    window.oneDesk.workspaces
-      .list()
-      .then(setWorkspaces)
-      .catch((e: unknown) => setError(String(e)))
-  }, [])
 
   return (
     <div style={{ padding: 24, fontFamily: 'system-ui' }}>
@@ -19,10 +14,9 @@ function App(): React.JSX.Element {
       <p>workspace {workspaces.length}개</p>
       <button
         onClick={() => {
-          window.oneDesk.workspaces
+          client.workspaces
             .create({ name: `테스트 ${Date.now()}` })
-            .then(() => window.oneDesk.workspaces.list())
-            .then(setWorkspaces)
+            .then(() => refresh())
             .catch((e: unknown) => setError(String(e)))
         }}
       >

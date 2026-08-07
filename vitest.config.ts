@@ -17,7 +17,12 @@ export default defineConfig({
       },
       {
         extends: true,
-        test: { name: 'renderer', environment: 'jsdom', include: ['renderer/**/*.test.tsx'] }
+        test: {
+          name: 'renderer',
+          environment: 'jsdom',
+          include: ['renderer/**/*.test.tsx'],
+          setupFiles: ['./renderer/vitest.setup.ts']
+        }
       }
     ]
   }
