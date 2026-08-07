@@ -1,5 +1,11 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'node:path'
+import { createCore } from '@core/index'
+import { registerIpc } from './ipc'
+
+function resolveMigrationsDir(): string {
+  return app.isPackaged ? join(process.resourcesPath, 'drizzle') : join(app.getAppPath(), 'drizzle')
+}
 
 function createWindow(): void {
   // Create the browser window.
@@ -10,7 +16,9 @@ function createWindow(): void {
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
-      sandbox: false
+      sandbox: false,
+      nodeIntegration: false,
+      contextIsolation: true
     }
   })
 
@@ -36,8 +44,11 @@ function createWindow(): void {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
-  // IPC test
-  ipcMain.on('ping', () => console.log('pong'))
+  const core = createCore({
+    dataDir: app.getPath('userData'),
+    migrationsDir: resolveMigrationsDir()
+  })
+  registerIpc(core)
 
   createWindow()
 

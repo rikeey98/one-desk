@@ -1,0 +1,5 @@
+extraResources:
+  - from: drizzle
+    to: drizzle
+asarUnpack:
+  - '**/node_modules/better-sqlite3/**'
