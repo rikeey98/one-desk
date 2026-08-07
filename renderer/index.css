@@ -1,0 +1,28 @@
+* { box-sizing: border-box; }
+body { margin: 0; background: #ffffff; color: #18181b; }
+
+.app { display: flex; height: 100vh; font-family: system-ui, sans-serif; }
+.sidebar { flex: 0 0 180px; background: #f4f4f5; border-right: 1px solid #e4e4e7; padding: 12px 10px; }
+.sidebar-label { font-size: 10px; letter-spacing: .07em; text-transform: uppercase; opacity: .55; font-weight: 700; margin-bottom: 8px; }
+.sidebar ul { list-style: none; margin: 0; padding: 0; }
+.ws { display: block; width: 100%; text-align: left; padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; font-size: 13px; }
+.ws:hover { background: #e4e4e7; }
+.ws-selected { background: #dbeafe; font-weight: 700; }
+.main { flex: 1; display: flex; flex-direction: column; padding: 12px; gap: 10px; min-width: 0; }
+.repo-strip { display: flex; gap: 8px; }
+.repo-card { flex: 1; text-align: left; padding: 8px 11px; border: 1px solid #e4e4e7; border-radius: 7px; background: #fafafa; cursor: pointer; }
+.repo-card-selected { border-color: #60a5fa; background: #eff6ff; }
+.repo-name { display: block; font-weight: 600; font-size: 13px; }
+.repo-path { display: block; font-family: ui-monospace, monospace; font-size: 10px; opacity: .55; }
+.columns { flex: 1; display: flex; gap: 8px; min-height: 0; }
+.panel { flex: 1; display: flex; flex-direction: column; border: 1px solid #e4e4e7; border-radius: 7px; background: #fafafa; min-width: 0; }
+.panel-header { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; border-bottom: 1px solid #e4e4e7; }
+.panel-title { font-size: 10px; letter-spacing: .07em; text-transform: uppercase; opacity: .58; font-weight: 700; }
+.panel-body { flex: 1; overflow-y: auto; padding: 7px; }
+.panel-empty, .repo-empty, .sidebar-empty, .blank { font-size: 12px; opacity: .5; padding: 10px; }
+.item-list { list-style: none; margin: 0; padding: 0; }
+.item { display: flex; justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: 5px; margin-bottom: 3px; background: #f4f4f5; font-size: 13px; }
+.item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status { font-size: 10px; padding: 1px 7px; border-radius: 9px; background: #e4e4e7; flex: 0 0 auto; }
+.status-doing { background: #fef3c7; }
+.status-done { background: #d1fae5; }

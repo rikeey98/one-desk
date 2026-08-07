@@ -1,34 +1,35 @@
 import { useState } from 'react'
-import { useClient } from './client/ClientProvider'
-import { useWorkspaces } from './hooks/useWorkspaces'
+import { Sidebar } from './components/Sidebar'
+import { RepoStrip } from './components/RepoStrip'
+import { IssuePanel } from './components/IssuePanel'
+import { MemoPanel } from './components/MemoPanel'
+import { AssetPanel } from './components/AssetPanel'
 
-function App(): React.JSX.Element {
-  const client = useClient()
-  const { workspaces, refresh } = useWorkspaces()
-  const [error, setError] = useState<string | null>(null)
+export default function App() {
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null)
+  const [repoId, setRepoId] = useState<string | null>(null)
+
+  function selectWorkspace(id: string) {
+    setWorkspaceId(id)
+    setRepoId(null)   // workspace가 바뀌면 이전 repo 필터는 무의미하다
+  }
 
   return (
-    <div style={{ padding: 24, fontFamily: 'system-ui' }}>
-      <h1>one-desk</h1>
-      {error && <p style={{ color: 'crimson' }}>{error}</p>}
-      <p>workspace {workspaces.length}개</p>
-      <button
-        onClick={() => {
-          client.workspaces
-            .create({ name: `테스트 ${Date.now()}` })
-            .then(() => refresh())
-            .catch((e: unknown) => setError(String(e)))
-        }}
-      >
-        workspace 추가
-      </button>
-      <ul>
-        {workspaces.map((w) => (
-          <li key={w.id}>{w.name}</li>
-        ))}
-      </ul>
+    <div className="app">
+      <Sidebar selectedId={workspaceId} onSelect={selectWorkspace} />
+      <main className="main">
+        {!workspaceId && <div className="blank">왼쪽에서 workspace를 선택하세요</div>}
+        {workspaceId && (
+          <>
+            <RepoStrip workspaceId={workspaceId} selectedRepoId={repoId} onSelect={setRepoId} />
+            <div className="columns">
+              <IssuePanel workspaceId={workspaceId} repoId={repoId} />
+              <MemoPanel workspaceId={workspaceId} repoId={repoId} />
+              <AssetPanel />
+            </div>
+          </>
+        )}
+      </main>
     </div>
   )
 }
-
-export default App
