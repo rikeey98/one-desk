@@ -1,11 +1,12 @@
 import { useRepos } from '../hooks/useRepos'
+import { AddRepoForm } from './AddRepoForm'
 
 export function RepoStrip({ workspaceId, selectedRepoId, onSelect }: {
   workspaceId: string
   selectedRepoId: string | null
   onSelect: (repoId: string | null) => void
 }) {
-  const { repos } = useRepos(workspaceId)
+  const { repos, refresh } = useRepos(workspaceId)
 
   return (
     <div className="repo-strip">
@@ -21,6 +22,7 @@ export function RepoStrip({ workspaceId, selectedRepoId, onSelect }: {
         </button>
       ))}
       {repos.length === 0 && <div className="repo-empty">등록된 repo가 없습니다</div>}
+      <AddRepoForm workspaceId={workspaceId} onAdded={refresh} />
     </div>
   )
 }

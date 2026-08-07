@@ -26,3 +26,7 @@ body { margin: 0; background: #ffffff; color: #18181b; }
 .status { font-size: 10px; padding: 1px 7px; border-radius: 9px; background: #e4e4e7; flex: 0 0 auto; }
 .status-doing { background: #fef3c7; }
 .status-done { background: #d1fae5; }
+.add-form { margin-bottom: 7px; }
+.add-form input { width: 100%; padding: 6px 9px; border: 1px solid #e4e4e7; border-radius: 5px; font-size: 12px; font-family: inherit; }
+.add-form input:disabled { opacity: .5; }
+button.status { border: 0; cursor: pointer; font-family: inherit; }

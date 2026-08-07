@@ -1,14 +1,23 @@
 import { useWorkspaces } from '../hooks/useWorkspaces'
+import { AddForm } from './AddForm'
+import { useClient } from '../client/ClientProvider'
 
 export function Sidebar({ selectedId, onSelect }: {
   selectedId: string | null
   onSelect: (id: string) => void
 }) {
-  const { workspaces, loading } = useWorkspaces()
+  const client = useClient()
+  const { workspaces, loading, refresh } = useWorkspaces()
+
+  async function addWorkspace(name: string) {
+    await client.workspaces.create({ name })
+    await refresh()
+  }
 
   return (
     <nav className="sidebar">
       <div className="sidebar-label">Workspaces</div>
+      <AddForm placeholder="새 workspace 이름…" onSubmit={addWorkspace} />
       {loading && <div className="sidebar-empty">불러오는 중…</div>}
       {!loading && workspaces.length === 0 && (
         <div className="sidebar-empty">workspace가 없습니다</div>
