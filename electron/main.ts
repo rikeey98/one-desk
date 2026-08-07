@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, dialog, shell, BrowserWindow } from 'electron'
 import { join } from 'node:path'
 import { createCore } from '@core/index'
 import { registerIpc } from './ipc'
@@ -44,10 +44,19 @@ function createWindow(): void {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
-  const core = createCore({
-    dataDir: app.getPath('userData'),
-    migrationsDir: resolveMigrationsDir()
-  })
+  let core: ReturnType<typeof createCore>
+  try {
+    core = createCore({
+      dataDir: app.getPath('userData'),
+      migrationsDir: resolveMigrationsDir()
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    dialog.showErrorBox('one-desk를 시작할 수 없습니다', message)
+    app.quit()
+    return
+  }
+
   registerIpc(core)
 
   createWindow()
