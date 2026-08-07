@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { openDb } from './db/open'
 import { createWorkspaceRepository } from './db/repositories/workspace'
 import { createRepoRepository } from './db/repositories/repo'
+import { createIssueRepository } from './db/repositories/issue'
 
 export interface CoreOptions {
   /** DB와 로그를 둘 디렉토리. Electron의 userData 경로를 main이 넘긴다. */
@@ -18,7 +19,8 @@ export function createCore(opts: CoreOptions) {
 
   return {
     workspaces: createWorkspaceRepository(db),
-    repos: createRepoRepository(db)
+    repos: createRepoRepository(db),
+    issues: createIssueRepository(db)
   }
 }
 
