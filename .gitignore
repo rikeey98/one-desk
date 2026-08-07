@@ -1,0 +1,21 @@
+node_modules/
+out/
+dist/
+*.log
+
+# Electron / build
+.vite/
+release/
+
+# 로컬 DB 백업
+*.db
+*.db-shm
+*.db-wal
+*.bak
+
+# 브레인스토밍 세션 산출물 (목업 HTML, 서버 상태)
+.superpowers/
+.playwright-mcp/
+onedesk-*.png
+
+.DS_Store
