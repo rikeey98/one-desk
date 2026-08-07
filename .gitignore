@@ -6,6 +6,7 @@ dist/
 # Electron / build
 .vite/
 release/
+*.tsbuildinfo
 
 # 로컬 DB 백업
 *.db
