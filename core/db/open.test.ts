@@ -54,7 +54,6 @@ describe('openDb 백업', () => {
 
       const db1 = openDb({ file, migrationsDir: 'drizzle' })
       db1.insert(workspace).values({ id: 'ws-1', name: '백업 테스트' }).run()
-      // WAL 내용을 메인 db 파일로 완전히 반영해야 백업 파일이 데이터를 담는다.
       db1.$client.pragma('wal_checkpoint(TRUNCATE)')
       db1.$client.close()
       const originalBytes = readFileSync(file)
@@ -73,6 +72,38 @@ describe('openDb 백업', () => {
       try {
         const rows = backupDb.prepare('SELECT id, name FROM workspace').all()
         expect(rows).toEqual([{ id: 'ws-1', name: '백업 테스트' }])
+      } finally {
+        backupDb.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('크래시로 정상 종료되지 않아 WAL이 체크포인트되지 않았어도 백업에 전체 데이터가 담긴다', () => {
+    const dir = makeTempDir()
+    try {
+      const file = join(dir, 'test.db')
+
+      const db1 = openDb({ file, migrationsDir: 'drizzle' })
+      db1.insert(workspace).values({ id: 'ws-1', name: '크래시 테스트' }).run()
+      // 의도적으로 close()를 호출하지 않는다. better-sqlite3는 마지막 연결을
+      // close()할 때 자동으로 체크포인트하므로, 정상 종료 시나리오만으로는
+      // 이 결함(WAL 미체크포인트 상태의 백업)을 재현할 수 없다.
+      // SIGKILL로 프로세스가 죽으면 close()가 호출되지 않아 데이터가
+      // -wal 파일에만 남는데, 그 상황을 그대로 흉내낸다.
+
+      const db2 = openDb({ file, migrationsDir: 'drizzle' })
+      db2.$client.close()
+
+      const [bakName] = listBakFiles(dir)
+      if (!bakName) throw new Error('백업 파일이 생성되지 않았다')
+      const backupPath = join(dir, bakName)
+
+      const backupDb = new BetterSqlite3(backupPath, { readonly: true })
+      try {
+        const rows = backupDb.prepare('SELECT id, name FROM workspace').all()
+        expect(rows).toEqual([{ id: 'ws-1', name: '크래시 테스트' }])
       } finally {
         backupDb.close()
       }

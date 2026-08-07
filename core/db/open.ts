@@ -31,6 +31,18 @@ export function openDb(opts: OpenDbOptions) {
  */
 function backupIfNeeded(file: string) {
   if (file === ':memory:' || !existsSync(file)) return
+
+  // WAL 모드에서는 체크포인트되지 않은 데이터가 -wal 파일에만 있을 수 있다
+  // (자동 체크포인트 임계값은 기본 1000페이지). 크래시 등으로 정상 종료되지
+  // 않았다면 .db 파일만 복사해서는 테이블조차 없는 백업이 만들어진다.
+  // 복사 전에 짧게 열어 WAL 내용을 메인 파일로 합친다.
+  const walDb = new BetterSqlite3(file)
+  try {
+    walDb.pragma('wal_checkpoint(TRUNCATE)')
+  } finally {
+    walDb.close()
+  }
+
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   copyFileSync(file, `${file}.${stamp}.bak`)
 }
