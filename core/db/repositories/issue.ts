@@ -47,7 +47,7 @@ export function createIssueRepository(db: Database) {
         : eq(issue.workspaceId, query.workspaceId)
 
       const rows = db.select().from(issue).where(where)
-        .orderBy(desc(issue.updatedAt)).all()
+        .orderBy(desc(issue.updatedAt), desc(issue.createdAt)).all()
 
       const tagMap = loadRepoIds(rows.map((r) => r.id))
       return rows.map((r) => ({ ...r, repoIds: tagMap.get(r.id) ?? [] }))
@@ -55,11 +55,14 @@ export function createIssueRepository(db: Database) {
 
     create(input: CreateIssueInput): Issue {
       const id = randomUUID()
+      const now = Date.now()
       db.insert(issue).values({
         id,
         workspaceId: input.workspaceId,
         title: input.title,
-        body: input.body ?? ''
+        body: input.body ?? '',
+        createdAt: now,
+        updatedAt: now
       }).run()
       replaceTags(id, input.repoIds ?? [])
       return getById(id)

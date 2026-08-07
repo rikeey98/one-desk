@@ -62,4 +62,15 @@ describe('IssueRepository', () => {
     const updated = issues.update({ id: created.id, repoIds: [webRepoId] })
     expect(updated.repoIds).toEqual([webRepoId])
   })
+
+  it('연달아 생성한 이슈가 최신순으로 정렬된다', async () => {
+    issues.create({ workspaceId, title: 'A' })
+    await new Promise((r) => setTimeout(r, 5))
+    issues.create({ workspaceId, title: 'B' })
+    await new Promise((r) => setTimeout(r, 5))
+    issues.create({ workspaceId, title: 'C' })
+
+    const titles = issues.list({ workspaceId }).map((i) => i.title)
+    expect(titles).toEqual(['C', 'B', 'A'])
+  })
 })

@@ -11,12 +11,15 @@ export function createWorkspaceRepository(db: Database) {
     },
 
     create(input: CreateWorkspaceInput): Workspace {
+      const now = Date.now()
       const [row] = db
         .insert(workspace)
         .values({
           id: randomUUID(),
           name: input.name,
-          description: input.description ?? null
+          description: input.description ?? null,
+          createdAt: now,
+          updatedAt: now
         })
         .returning()
         .all()

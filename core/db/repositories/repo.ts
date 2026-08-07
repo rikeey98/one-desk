@@ -19,7 +19,8 @@ export function createRepoRepository(db: Database) {
         workspaceId: input.workspaceId,
         name: input.name,
         path: input.path,
-        description: input.description ?? null
+        description: input.description ?? null,
+        createdAt: Date.now()
       }).returning().all()
       if (!row) throw new Error('repo 생성에 실패했습니다')
       return row

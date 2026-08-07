@@ -45,18 +45,21 @@ export function createMemoRepository(db: Database) {
         : eq(memo.workspaceId, query.workspaceId)
 
       const rows = db.select().from(memo).where(where)
-        .orderBy(desc(memo.updatedAt)).all()
+        .orderBy(desc(memo.updatedAt), desc(memo.createdAt)).all()
       const tagMap = loadRepoIds(rows.map((r) => r.id))
       return rows.map((r) => ({ ...r, repoIds: tagMap.get(r.id) ?? [] }))
     },
 
     create(input: CreateMemoInput): Memo {
       const id = randomUUID()
+      const now = Date.now()
       db.insert(memo).values({
         id,
         workspaceId: input.workspaceId,
         title: input.title,
-        body: input.body ?? ''
+        body: input.body ?? '',
+        createdAt: now,
+        updatedAt: now
       }).run()
       replaceTags(id, input.repoIds ?? [])
       return getById(id)

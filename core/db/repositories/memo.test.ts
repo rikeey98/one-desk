@@ -42,4 +42,15 @@ describe('MemoRepository', () => {
     expect(updated.title).toBe('후')
     expect(updated.updatedAt).toBeGreaterThanOrEqual(created.updatedAt)
   })
+
+  it('연달아 생성한 메모가 최신순으로 정렬된다', async () => {
+    memos.create({ workspaceId, title: 'A' })
+    await new Promise((r) => setTimeout(r, 5))
+    memos.create({ workspaceId, title: 'B' })
+    await new Promise((r) => setTimeout(r, 5))
+    memos.create({ workspaceId, title: 'C' })
+
+    const titles = memos.list({ workspaceId }).map((m) => m.title)
+    expect(titles).toEqual(['C', 'B', 'A'])
+  })
 })
