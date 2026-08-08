@@ -47,7 +47,7 @@ CLI 형태의 코딩 agent는 이 문제를 부분적으로 덜어주지만, 새
 
 ### 프로세스 구성
 
-Electron main 프로세스가 단일 백엔드 역할을 한다. SQLite, agent 프로세스 오케스트레이션, 로컬 MCP 서버를 모두 소유한다. 렌더러는 Next.js 정적 export이며 UI만 담당한다.
+Electron main 프로세스가 단일 백엔드 역할을 한다. SQLite, agent 프로세스 오케스트레이션, 로컬 MCP 서버를 모두 소유한다. 렌더러는 Vite + React이며 UI만 담당한다.
 
 ```
 one-desk/
