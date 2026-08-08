@@ -94,3 +94,54 @@ export interface ListQuery {
   workspaceId: string
   repoId?: string
 }
+
+export type RunStatus =
+  | 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'interrupted'
+
+export type ContextItemType = 'repo' | 'issue' | 'memo' | 'asset'
+
+export interface ContextItemRef {
+  type: ContextItemType
+  id: string
+}
+
+export interface Run {
+  id: string
+  workspaceId: string
+  agentKind: AgentKind
+  model: string | null
+  cwd: string
+  permission: Permission
+  userPrompt: string
+  assembledPrompt: string
+  status: RunStatus
+  externalSessionId: string | null
+  parentRunId: string | null
+  resultText: string | null
+  needsAnswer: boolean
+  timeoutMs: number | null
+  exitCode: number | null
+  errorMessage: string | null
+  logPath: string
+  reviewedAt: number | null
+  reviewedKind: 'confirmed' | 'archived' | null
+  startedAt: number | null
+  endedAt: number | null
+  createdAt: number
+  contextItems: ContextItemRef[]
+}
+
+/** 렌더러가 실행을 요청할 때 넘기는 것 */
+export interface StartRunInput {
+  workspaceId: string
+  agentKind: AgentKind
+  model?: string | null
+  /** 작업 디렉토리. repo를 고르지 않으면 workspace의 첫 repo 경로 */
+  cwd: string
+  permission: Permission
+  userPrompt: string
+  context: ContextItemRef[]
+  /** 이어서 실행할 원본 run */
+  parentRunId?: string
+  timeoutMs?: number | null
+}
