@@ -73,4 +73,47 @@ describe('IssueRepository', () => {
     const titles = issues.list({ workspaceId }).map((i) => i.title)
     expect(titles).toEqual(['C', 'B', 'A'])
   })
+
+  it('태그 삽입이 실패하면 이슈 본문도 저장되지 않는다', () => {
+    expect(() =>
+      issues.create({ workspaceId, title: '고아 이슈', repoIds: ['존재하지-않는-repo'] })
+    ).toThrow()
+
+    expect(issues.list({ workspaceId })).toHaveLength(0)
+  })
+
+  it('다른 workspace의 repo는 태그로 붙일 수 없다', () => {
+    const other = createWorkspaceRepository(db).create({ name: 'other' })
+    const otherRepo = createRepoRepository(db)
+      .create({ workspaceId: other.id, name: '남의repo', path: '/tmp/other' })
+
+    expect(() =>
+      issues.create({ workspaceId, title: '경계 침범', repoIds: [otherRepo.id] })
+    ).toThrow(/workspace/)
+
+    expect(issues.list({ workspaceId })).toHaveLength(0)
+  })
+
+  it('update가 경계 위반으로 거부되면 제목·상태 변경도 롤백된다', () => {
+    const other = createWorkspaceRepository(db).create({ name: 'other' })
+    const otherRepo = createRepoRepository(db)
+      .create({ workspaceId: other.id, name: '남의repo', path: '/tmp/other' })
+    const created = issues.create({ workspaceId, title: '원래제목', repoIds: [apiRepoId] })
+
+    expect(() =>
+      issues.update({ id: created.id, title: '바뀐제목', status: 'done', repoIds: [otherRepo.id] })
+    ).toThrow(/workspace/)
+
+    const after = issues.list({ workspaceId })[0]!
+    expect(after.title).toBe('원래제목')
+    expect(after.status).toBe('open')
+    expect(after.repoIds).toEqual([apiRepoId])
+  })
+
+  it('같은 repo를 중복해서 넘겨도 거부하지 않는다', () => {
+    const created = issues.create({
+      workspaceId, title: '중복 태그', repoIds: [apiRepoId, apiRepoId]
+    })
+    expect(created.repoIds).toEqual([apiRepoId])
+  })
 })

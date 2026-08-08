@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { and, desc, eq, inArray, notInArray, or } from 'drizzle-orm'
 import type { Database } from '../open'
-import { issue, issueRepo } from '../schema'
+import { issue, issueRepo, repo } from '../schema'
 import type { Issue, CreateIssueInput, UpdateIssueInput, ListQuery } from '@shared/models'
+
+/** db.transaction()의 콜백이 받는 runner. db와 같은 쿼리 빌더 API를 갖는다. */
+type Runner = Parameters<Parameters<Database['transaction']>[0]>[0]
 
 export function createIssueRepository(db: Database) {
   /** 여러 이슈의 repoIds를 한 번의 쿼리로 모아온다 (N+1 방지). */
@@ -19,10 +22,30 @@ export function createIssueRepository(db: Database) {
     return map
   }
 
-  function replaceTags(issueId: string, repoIds: string[]) {
-    db.delete(issueRepo).where(eq(issueRepo.issueId, issueId)).run()
-    if (repoIds.length > 0) {
-      db.insert(issueRepo).values(repoIds.map((repoId) => ({ issueId, repoId }))).run()
+  /**
+   * 태그로 붙이려는 repo가 전부 같은 workspace 소속인지 확인한다.
+   * 외래키는 repo의 존재만 보장하고 소속은 보지 않으므로, 이 검증이 없으면
+   * 다른 workspace의 repo id를 그대로 붙일 수 있다 (설계 §8의 보안 경계).
+   */
+  function assertReposInWorkspace(runner: Runner, workspaceId: string, repoIds: string[]) {
+    if (repoIds.length === 0) return
+    const found = runner
+      .select({ id: repo.id })
+      .from(repo)
+      .where(and(eq(repo.workspaceId, workspaceId), inArray(repo.id, repoIds)))
+      .all()
+    const known = new Set(found.map((r) => r.id))
+    const outside = repoIds.filter((id) => !known.has(id))
+    if (outside.length > 0) {
+      throw new Error(`이 workspace에 속하지 않는 repo입니다: ${outside.join(', ')}`)
+    }
+  }
+
+  function replaceTags(runner: Runner, issueId: string, repoIds: string[]) {
+    const unique = [...new Set(repoIds)]
+    runner.delete(issueRepo).where(eq(issueRepo.issueId, issueId)).run()
+    if (unique.length > 0) {
+      runner.insert(issueRepo).values(unique.map((repoId) => ({ issueId, repoId }))).run()
     }
   }
 
@@ -56,19 +79,29 @@ export function createIssueRepository(db: Database) {
     create(input: CreateIssueInput): Issue {
       const id = randomUUID()
       const now = Date.now()
-      db.insert(issue).values({
-        id,
-        workspaceId: input.workspaceId,
-        title: input.title,
-        body: input.body ?? '',
-        createdAt: now,
-        updatedAt: now
-      }).run()
-      replaceTags(id, input.repoIds ?? [])
+      db.transaction((tx) => {
+        assertReposInWorkspace(tx, input.workspaceId, input.repoIds ?? [])
+        tx.insert(issue).values({
+          id,
+          workspaceId: input.workspaceId,
+          title: input.title,
+          body: input.body ?? '',
+          createdAt: now,
+          updatedAt: now
+        }).run()
+        replaceTags(tx, id, input.repoIds ?? [])
+      })
       return getById(id)
     },
 
     update(input: UpdateIssueInput): Issue {
+      const owner = db
+        .select({ workspaceId: issue.workspaceId })
+        .from(issue)
+        .where(eq(issue.id, input.id))
+        .get()
+      if (!owner) throw new Error(`이슈를 찾을 수 없습니다: ${input.id}`)
+
       const patch: Record<string, unknown> = { updatedAt: Date.now() }
       if (input.title !== undefined) patch['title'] = input.title
       if (input.body !== undefined) patch['body'] = input.body
@@ -78,8 +111,13 @@ export function createIssueRepository(db: Database) {
         patch['closedAt'] = input.status === 'done' ? Date.now() : null
       }
 
-      db.update(issue).set(patch).where(eq(issue.id, input.id)).run()
-      if (input.repoIds !== undefined) replaceTags(input.id, input.repoIds)
+      db.transaction((tx) => {
+        tx.update(issue).set(patch).where(eq(issue.id, input.id)).run()
+        if (input.repoIds !== undefined) {
+          assertReposInWorkspace(tx, owner.workspaceId, input.repoIds)
+          replaceTags(tx, input.id, input.repoIds)
+        }
+      })
       return getById(input.id)
     },
 
