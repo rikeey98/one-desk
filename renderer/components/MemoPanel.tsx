@@ -2,10 +2,13 @@ import { Panel } from './Panel'
 import { AddForm } from './AddForm'
 import { useMemos } from '../hooks/useMemos'
 import { useClient } from '../client/ClientProvider'
+import { chipKey, type ContextChip } from '../context'
 
-export function MemoPanel({ workspaceId, repoId }: {
+export function MemoPanel({ workspaceId, repoId, chipKeys, onToggleContext }: {
   workspaceId: string
   repoId: string | null
+  chipKeys: Set<string>
+  onToggleContext: (chip: ContextChip) => void
 }) {
   const client = useClient()
   const { memos, error: listError, refresh } = useMemos(workspaceId, repoId)
@@ -27,7 +30,14 @@ export function MemoPanel({ workspaceId, repoId }: {
       <ul className="item-list">
         {memos.map((m) => (
           <li key={m.id} className="item">
-            <span className="item-title">{m.title}</span>
+            <button
+              type="button"
+              className={chipKeys.has(chipKey({ type: 'memo', id: m.id }))
+                ? 'item-title item-picked' : 'item-title'}
+              onClick={() => onToggleContext({ type: 'memo', id: m.id, label: m.title })}
+            >
+              {m.title}
+            </button>
           </li>
         ))}
       </ul>

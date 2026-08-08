@@ -3,11 +3,14 @@ import { Panel } from './Panel'
 import { AddForm } from './AddForm'
 import { useIssues } from '../hooks/useIssues'
 import { useClient } from '../client/ClientProvider'
+import { chipKey, type ContextChip } from '../context'
 import type { IssueStatus } from '@shared/models'
 
-export function IssuePanel({ workspaceId, repoId }: {
+export function IssuePanel({ workspaceId, repoId, chipKeys, onToggleContext }: {
   workspaceId: string
   repoId: string | null
+  chipKeys: Set<string>
+  onToggleContext: (chip: ContextChip) => void
 }) {
   const client = useClient()
   const { issues, error: listError, refresh } = useIssues(workspaceId, repoId)
@@ -43,7 +46,14 @@ export function IssuePanel({ workspaceId, repoId }: {
       <ul className="item-list">
         {issues.map((i) => (
           <li key={i.id} className="item">
-            <span className="item-title">{i.title}</span>
+            <button
+              type="button"
+              className={chipKeys.has(chipKey({ type: 'issue', id: i.id }))
+                ? 'item-title item-picked' : 'item-title'}
+              onClick={() => onToggleContext({ type: 'issue', id: i.id, label: i.title })}
+            >
+              {i.title}
+            </button>
             <button
               type="button"
               className={`status status-${i.status}`}
