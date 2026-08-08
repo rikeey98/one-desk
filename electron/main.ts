@@ -79,8 +79,15 @@ app.whenReady().then(() => {
   })
 })
 
-// 종료 직전에 DB를 닫는다. 2단계에서는 여기에 실행 중인 agent 프로세스 정리도 붙는다.
-app.on('before-quit', () => {
+// will-quit에서 DB를 닫는다 (before-quit이 아니다).
+// Electron 종료 순서: before-quit → 각 창의 close → will-quit → quit.
+// 창의 close가 취소되면(예: "실행 중인 run이 있습니다" 확인 대화상자) 종료 자체가
+// 취소되는데, before-quit에서 이미 DB를 닫아버리면 앱이 죽은 DB 연결로 계속
+// 살아남아 이후 모든 읽기/쓰기가 "The database connection is not open"으로
+// 실패한다. will-quit은 모든 창이 닫힌 뒤에만 실행되므로 취소 경로가 없다.
+// 2단계에서 실행 중인 agent 프로세스 정리를 추가할 때도 반드시 여기(will-quit)에
+// 붙여라 — before-quit으로 되돌리지 말 것.
+app.on('will-quit', () => {
   core?.close()
   core = null
 })
