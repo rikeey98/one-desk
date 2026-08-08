@@ -1,17 +1,27 @@
 import { app, dialog, shell, BrowserWindow } from 'electron'
 import { join } from 'node:path'
-import { createCore } from '@core/index'
+import { createCore, type Core } from '@core/index'
 import { registerIpc } from './ipc'
+
+let mainWindow: BrowserWindow | null = null
+let core: Core | null = null
 
 function resolveMigrationsDir(): string {
   return app.isPackaged ? join(process.resourcesPath, 'drizzle') : join(app.getAppPath(), 'drizzle')
 }
 
+/**
+ * 실행 중인 창. 2단계에서 run 이벤트를 webContents.send로 흘릴 때 쓴다.
+ * 창이 닫히면 null이 되므로 호출자는 항상 존재 여부를 확인해야 한다.
+ */
+export function getMainWindow(): BrowserWindow | null {
+  return mainWindow
+}
+
 function createWindow(): void {
-  // Create the browser window.
-  const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+  mainWindow = new BrowserWindow({
+    width: 1440,
+    height: 900,
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -23,7 +33,11 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+    mainWindow?.show()
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -31,8 +45,6 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
-  // HMR for renderer base on electron-vite cli.
-  // Load the remote URL for development or the local html file for production.
   if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
@@ -40,11 +52,7 @@ function createWindow(): void {
   }
 }
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
-  let core: ReturnType<typeof createCore>
   try {
     core = createCore({
       dataDir: app.getPath('userData'),
@@ -58,24 +66,27 @@ app.whenReady().then(() => {
   }
 
   registerIpc(core)
-
   createWindow()
 
-  app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  app.on('activate', () => {
+    // macOS에서 dock 아이콘을 눌렀을 때. 창이 살아 있으면 새로 만들지 않고 포커스만 준다.
+    const existing = getMainWindow()
+    if (existing) {
+      existing.focus()
+    } else {
+      createWindow()
+    }
   })
 })
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
+// 종료 직전에 DB를 닫는다. 2단계에서는 여기에 실행 중인 agent 프로세스 정리도 붙는다.
+app.on('before-quit', () => {
+  core?.close()
+  core = null
+})
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
 })
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.

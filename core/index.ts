@@ -22,7 +22,16 @@ export function createCore(opts: CoreOptions) {
     workspaces: createWorkspaceRepository(db),
     repos: createRepoRepository(db),
     issues: createIssueRepository(db),
-    memos: createMemoRepository(db)
+    memos: createMemoRepository(db),
+
+    /**
+     * DB 연결을 닫는다. better-sqlite3는 마지막 연결이 정상적으로 닫힐 때
+     * WAL을 체크포인트하므로, 이걸 부르면 종료 시점의 데이터가 메인 DB 파일에
+     * 반영된다. 백업(openDb의 backupIfNeeded)이 온전한 상태를 복사하게 된다.
+     */
+    close(): void {
+      db.$client.close()
+    }
   }
 }
 
