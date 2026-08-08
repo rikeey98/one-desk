@@ -73,4 +73,12 @@ describe('IssueRepository', () => {
     const titles = issues.list({ workspaceId }).map((i) => i.title)
     expect(titles).toEqual(['C', 'B', 'A'])
   })
+
+  it('태그 삽입이 실패하면 이슈 본문도 저장되지 않는다', () => {
+    expect(() =>
+      issues.create({ workspaceId, title: '고아 이슈', repoIds: ['존재하지-않는-repo'] })
+    ).toThrow()
+
+    expect(issues.list({ workspaceId })).toHaveLength(0)
+  })
 })

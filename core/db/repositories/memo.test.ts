@@ -53,4 +53,12 @@ describe('MemoRepository', () => {
     const titles = memos.list({ workspaceId }).map((m) => m.title)
     expect(titles).toEqual(['C', 'B', 'A'])
   })
+
+  it('태그 삽입이 실패하면 메모 본문도 저장되지 않는다', () => {
+    expect(() =>
+      memos.create({ workspaceId, title: '고아 메모', repoIds: ['존재하지-않는-repo'] })
+    ).toThrow()
+
+    expect(memos.list({ workspaceId })).toHaveLength(0)
+  })
 })

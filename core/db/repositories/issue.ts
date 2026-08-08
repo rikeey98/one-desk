@@ -4,6 +4,9 @@ import type { Database } from '../open'
 import { issue, issueRepo } from '../schema'
 import type { Issue, CreateIssueInput, UpdateIssueInput, ListQuery } from '@shared/models'
 
+/** db.transaction()의 콜백이 받는 runner. db와 같은 쿼리 빌더 API를 갖는다. */
+type Runner = Parameters<Parameters<Database['transaction']>[0]>[0]
+
 export function createIssueRepository(db: Database) {
   /** 여러 이슈의 repoIds를 한 번의 쿼리로 모아온다 (N+1 방지). */
   function loadRepoIds(issueIds: string[]): Map<string, string[]> {
@@ -19,10 +22,10 @@ export function createIssueRepository(db: Database) {
     return map
   }
 
-  function replaceTags(issueId: string, repoIds: string[]) {
-    db.delete(issueRepo).where(eq(issueRepo.issueId, issueId)).run()
+  function replaceTags(runner: Runner, issueId: string, repoIds: string[]) {
+    runner.delete(issueRepo).where(eq(issueRepo.issueId, issueId)).run()
     if (repoIds.length > 0) {
-      db.insert(issueRepo).values(repoIds.map((repoId) => ({ issueId, repoId }))).run()
+      runner.insert(issueRepo).values(repoIds.map((repoId) => ({ issueId, repoId }))).run()
     }
   }
 
@@ -56,15 +59,17 @@ export function createIssueRepository(db: Database) {
     create(input: CreateIssueInput): Issue {
       const id = randomUUID()
       const now = Date.now()
-      db.insert(issue).values({
-        id,
-        workspaceId: input.workspaceId,
-        title: input.title,
-        body: input.body ?? '',
-        createdAt: now,
-        updatedAt: now
-      }).run()
-      replaceTags(id, input.repoIds ?? [])
+      db.transaction((tx) => {
+        tx.insert(issue).values({
+          id,
+          workspaceId: input.workspaceId,
+          title: input.title,
+          body: input.body ?? '',
+          createdAt: now,
+          updatedAt: now
+        }).run()
+        replaceTags(tx, id, input.repoIds ?? [])
+      })
       return getById(id)
     },
 
@@ -78,8 +83,10 @@ export function createIssueRepository(db: Database) {
         patch['closedAt'] = input.status === 'done' ? Date.now() : null
       }
 
-      db.update(issue).set(patch).where(eq(issue.id, input.id)).run()
-      if (input.repoIds !== undefined) replaceTags(input.id, input.repoIds)
+      db.transaction((tx) => {
+        tx.update(issue).set(patch).where(eq(issue.id, input.id)).run()
+        if (input.repoIds !== undefined) replaceTags(tx, input.id, input.repoIds)
+      })
       return getById(input.id)
     },
 

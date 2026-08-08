@@ -4,6 +4,9 @@ import type { Database } from '../open'
 import { memo, memoRepo } from '../schema'
 import type { Memo, CreateMemoInput, UpdateMemoInput, ListQuery } from '@shared/models'
 
+/** db.transaction()의 콜백이 받는 runner. db와 같은 쿼리 빌더 API를 갖는다. */
+type Runner = Parameters<Parameters<Database['transaction']>[0]>[0]
+
 export function createMemoRepository(db: Database) {
   function loadRepoIds(memoIds: string[]): Map<string, string[]> {
     const map = new Map<string, string[]>()
@@ -18,10 +21,10 @@ export function createMemoRepository(db: Database) {
     return map
   }
 
-  function replaceTags(memoId: string, repoIds: string[]) {
-    db.delete(memoRepo).where(eq(memoRepo.memoId, memoId)).run()
+  function replaceTags(runner: Runner, memoId: string, repoIds: string[]) {
+    runner.delete(memoRepo).where(eq(memoRepo.memoId, memoId)).run()
     if (repoIds.length > 0) {
-      db.insert(memoRepo).values(repoIds.map((repoId) => ({ memoId, repoId }))).run()
+      runner.insert(memoRepo).values(repoIds.map((repoId) => ({ memoId, repoId }))).run()
     }
   }
 
@@ -53,15 +56,17 @@ export function createMemoRepository(db: Database) {
     create(input: CreateMemoInput): Memo {
       const id = randomUUID()
       const now = Date.now()
-      db.insert(memo).values({
-        id,
-        workspaceId: input.workspaceId,
-        title: input.title,
-        body: input.body ?? '',
-        createdAt: now,
-        updatedAt: now
-      }).run()
-      replaceTags(id, input.repoIds ?? [])
+      db.transaction((tx) => {
+        tx.insert(memo).values({
+          id,
+          workspaceId: input.workspaceId,
+          title: input.title,
+          body: input.body ?? '',
+          createdAt: now,
+          updatedAt: now
+        }).run()
+        replaceTags(tx, id, input.repoIds ?? [])
+      })
       return getById(id)
     },
 
@@ -69,8 +74,11 @@ export function createMemoRepository(db: Database) {
       const patch: Record<string, unknown> = { updatedAt: Date.now() }
       if (input.title !== undefined) patch['title'] = input.title
       if (input.body !== undefined) patch['body'] = input.body
-      db.update(memo).set(patch).where(eq(memo.id, input.id)).run()
-      if (input.repoIds !== undefined) replaceTags(input.id, input.repoIds)
+
+      db.transaction((tx) => {
+        tx.update(memo).set(patch).where(eq(memo.id, input.id)).run()
+        if (input.repoIds !== undefined) replaceTags(tx, input.id, input.repoIds)
+      })
       return getById(input.id)
     },
 
