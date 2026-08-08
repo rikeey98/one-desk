@@ -1,5 +1,5 @@
 import type { AgentKind, Permission } from '@shared/models'
-import type { RunEvent } from '@shared/events'
+import type { RunEventInit } from '@shared/events'
 
 export interface PreflightResult {
   ok: boolean
@@ -39,5 +39,5 @@ export interface AgentAdapter {
    * seq는 호출자가 채운다 — 순번 관리는 runner의 책임이다.
    * 어댑터가 seq를 매기면 여러 run이 돌 때 순번이 꼬인다.
    */
-  parseLine(line: string, runId: string): Omit<RunEvent, 'seq'>[]
+  parseLine(line: string, runId: string): RunEventInit[]
 }

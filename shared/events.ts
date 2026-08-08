@@ -34,3 +34,15 @@ export type RunEvent =
   | (Base & { type: 'raw'; line: string })
 
 export type RunEventType = RunEvent['type']
+
+/**
+ * seq를 채우기 전의 이벤트. 어댑터가 만들고 runner가 순번을 붙인다.
+ *
+ * `Omit<RunEvent, 'seq'>`를 그냥 쓰면 안 된다. Omit은 유니온에 분배되지 않고
+ * `keyof`가 멤버들의 교집합(runId·seq·at·type)만 주기 때문에, 결과 타입이
+ * `{ runId; at; type }`으로 쪼그라들어 text·toolUseId 같은 payload가 전부 사라진다.
+ * 조건부 타입으로 감싸 유니온 각 멤버에 분배시킨다.
+ */
+type OmitSeq<T> = T extends unknown ? Omit<T, 'seq'> : never
+
+export type RunEventInit = OmitSeq<RunEvent>
