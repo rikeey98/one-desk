@@ -4,10 +4,13 @@ import { RepoStrip } from './components/RepoStrip'
 import { IssuePanel } from './components/IssuePanel'
 import { MemoPanel } from './components/MemoPanel'
 import { AssetPanel } from './components/AssetPanel'
+import { Dock } from './components/Dock'
+import { useRuns } from './hooks/useRuns'
 
 export default function App() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const [repoId, setRepoId] = useState<string | null>(null)
+  const { runs, error: runsError } = useRuns(workspaceId)
 
   function selectWorkspace(id: string) {
     setWorkspaceId(id)
@@ -27,6 +30,7 @@ export default function App() {
               <MemoPanel workspaceId={workspaceId} repoId={repoId} />
               <AssetPanel />
             </div>
+            <Dock runs={runs} error={runsError} />
           </>
         )}
       </main>
