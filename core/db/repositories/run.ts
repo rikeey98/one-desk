@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
 import { desc, eq, inArray, sql } from 'drizzle-orm'
 import type { Database } from '../open'
 import { issue, memo, repo, run, runContextItem } from '../schema'
 import type { Run, ContextItemRef, RunStatus, AgentKind, Permission } from '@shared/models'
+import type { RunEvent } from '@shared/events'
 
 /** db.transaction()의 콜백이 받는 runner. db와 같은 쿼리 빌더 API를 갖는다. */
 type Runner = Parameters<Parameters<Database['transaction']>[0]>[0]
@@ -134,6 +136,26 @@ export function createRunRepository(db: Database) {
     markFinished(id: string, input: FinishRunInput): Run {
       db.update(run).set({ ...input, endedAt: Date.now() }).where(eq(run.id, id)).run()
       return get(id)
+    },
+
+    /**
+     * 종료된 run의 로그를 파일에서 되살린다.
+     * 메모리 스토어는 상한이 있고 앱 재시작이면 비어 있으므로, 지난 run의 탭을
+     * 다시 열 때는 여기가 유일한 출처다. 깨진 줄은 건너뛴다.
+     */
+    readLog(id: string): RunEvent[] {
+      const { logPath } = get(id)
+      if (!existsSync(logPath)) return []
+      const events: RunEvent[] = []
+      for (const line of readFileSync(logPath, 'utf8').split('\n')) {
+        if (!line.trim()) continue
+        try {
+          events.push(JSON.parse(line) as RunEvent)
+        } catch {
+          // 쓰다 만 마지막 줄일 수 있다. 나머지를 살린다.
+        }
+      }
+      return events
     },
 
     /**

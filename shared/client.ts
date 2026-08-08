@@ -1,10 +1,13 @@
 import type {
-  Workspace, Repo, Issue, Memo,
+  Workspace, Repo, Issue, Memo, Run,
   CreateWorkspaceInput, CreateRepoInput,
   CreateIssueInput, UpdateIssueInput,
   CreateMemoInput, UpdateMemoInput,
-  ListQuery
+  ListQuery, StartRunInput
 } from './models'
+import type { RunEvent } from './events'
+
+export type Unsubscribe = () => void
 
 export interface OneDeskClient {
   workspaces: {
@@ -28,5 +31,16 @@ export interface OneDeskClient {
     create(input: CreateMemoInput): Promise<Memo>
     update(input: UpdateMemoInput): Promise<Memo>
     remove(id: string): Promise<void>
+  }
+  runs: {
+    list(workspaceId: string): Promise<Run[]>
+    /** 완료를 기다리지 않는다. running 상태의 run이 곧바로 돌아온다. */
+    start(input: StartRunInput): Promise<Run>
+    cancel(runId: string): Promise<void>
+    readLog(runId: string): Promise<RunEvent[]>
+  }
+  events: {
+    onRunEvent(cb: (event: RunEvent) => void): Unsubscribe
+    onRunUpdate(cb: (run: Run) => void): Unsubscribe
   }
 }

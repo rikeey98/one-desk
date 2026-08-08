@@ -1,4 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { makeTestDb } from './testing'
 import { createWorkspaceRepository } from './workspace'
 import { createRepoRepository } from './repo'
@@ -79,5 +82,41 @@ describe('RunRepository', () => {
     expect(runs.reapStale()).toBe(2)
     expect(runs.get(a.id).status).toBe('interrupted')
     expect(runs.get(b.id).status).toBe('interrupted')
+  })
+
+  describe('readLog', () => {
+    let dir: string
+
+    beforeEach(() => { dir = mkdtempSync(resolve(tmpdir(), 'one-desk-log-')) })
+    afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
+
+    function runWithLog(logPath: string) {
+      return runs.create({ ...baseInput(), logPath })
+    }
+
+    it('로그 파일의 JSONL을 이벤트 배열로 읽는다', () => {
+      const logPath = join(dir, 'stream.jsonl')
+      writeFileSync(logPath, [
+        JSON.stringify({ type: 'session', runId: 'r', seq: 0, at: 1, sessionId: 's' }),
+        JSON.stringify({ type: 'text', runId: 'r', seq: 1, at: 2, text: '안녕' })
+      ].join('\n') + '\n')
+
+      const events = runs.readLog(runWithLog(logPath).id)
+      expect(events).toHaveLength(2)
+      expect(events[1]).toMatchObject({ type: 'text', text: '안녕' })
+    })
+
+    it('로그 파일이 없으면 빈 배열을 준다', () => {
+      // 취소되거나 spawn 전에 끝난 run은 파일이 없을 수 있다
+      expect(runs.readLog(runWithLog(join(dir, '없는.jsonl')).id)).toEqual([])
+    })
+
+    it('깨진 줄이 있어도 나머지를 읽는다', () => {
+      const logPath = join(dir, 'stream.jsonl')
+      writeFileSync(logPath, '{깨진 줄\n' + JSON.stringify({ type: 'text', runId: 'r', seq: 1, at: 2, text: '살아남음' }) + '\n')
+      const events = runs.readLog(runWithLog(logPath).id)
+      expect(events).toHaveLength(1)
+      expect(events[0]).toMatchObject({ text: '살아남음' })
+    })
   })
 })

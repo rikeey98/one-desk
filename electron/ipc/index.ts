@@ -4,6 +4,7 @@ import { registerWorkspaceHandlers } from './workspaces'
 import { registerRepoHandlers } from './repos'
 import { registerIssueHandlers } from './issues'
 import { registerMemoHandlers } from './memos'
+import { registerRunHandlers } from './runs'
 
 /**
  * 창 접근자. main.ts에서 import하면 main → ipc/index → ipc/runs → main 순환이 생기고,
@@ -17,5 +18,5 @@ export function registerIpc(core: Core, getWindow: GetWindow) {
   registerRepoHandlers(core)
   registerIssueHandlers(core)
   registerMemoHandlers(core)
-  void getWindow // Task 12에서 run 이벤트 중계에 쓴다
+  registerRunHandlers(core, getWindow)
 }
