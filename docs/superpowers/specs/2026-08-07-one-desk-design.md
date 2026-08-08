@@ -235,6 +235,14 @@ DB와 로그는 Electron의 `app.getPath('userData')` 아래에 둔다.
 
 **실행 로그는 DB가 아니라 파일에 쓴다.** agent 실행 한 번에 수천 개의 스트리밍 이벤트가 발생한다. 이를 모두 SQLite에 넣으면 DB가 빠르게 비대해지고 쓰기 부하가 커진다. `logs/<run_id>/stream.jsonl`에 append하고, DB의 `run` 행에는 로그 경로와 결과 요약, 종료 코드만 저장한다.
 
+#### `run_context_item`에는 cascade를 적용하지 않는다
+
+1단계의 외래키는 전부 `ON DELETE cascade`다. workspace를 지우면 그 안의 repo·issue·memo가 함께 사라지는 것이 맞기 때문이다.
+
+**`run_context_item`은 예외다.** 같은 관례를 적용하면 이슈를 지웠을 때 그 이슈를 첨부했던 과거 run의 기록이 조용히 사라진다. run 기록은 "무엇을 근거로 이 작업을 시켰는가"의 증거이고, 근거가 된 항목이 지워졌다고 증거까지 지울 이유가 없다.
+
+`ON DELETE SET NULL`로 두고 `item_id`를 nullable로 만든다. 화면에서는 "삭제된 이슈"로 표시한다. 무엇이 첨부됐었는지는 `item_type`과 run의 `assembled_prompt`에 남아 있다.
+
 ## 6. Agent 실행 파이프라인
 
 ### 흐름

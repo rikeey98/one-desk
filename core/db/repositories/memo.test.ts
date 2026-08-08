@@ -10,12 +10,14 @@ describe('MemoRepository', () => {
   let memos: ReturnType<typeof createMemoRepository>
   let workspaceId: string
   let apiRepoId: string
+  let webRepoId: string
 
   beforeEach(() => {
     db = makeTestDb()
     workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
-    apiRepoId = createRepoRepository(db)
-      .create({ workspaceId, name: 'api', path: '/tmp/api' }).id
+    const repos = createRepoRepository(db)
+    apiRepoId = repos.create({ workspaceId, name: 'api', path: '/tmp/api' }).id
+    webRepoId = repos.create({ workspaceId, name: 'web', path: '/tmp/web' }).id
     memos = createMemoRepository(db)
   })
 
@@ -41,6 +43,12 @@ describe('MemoRepository', () => {
     const updated = memos.update({ id: created.id, title: '후' })
     expect(updated.title).toBe('후')
     expect(updated.updatedAt).toBeGreaterThanOrEqual(created.updatedAt)
+  })
+
+  it('repoIds를 갱신하면 기존 태그를 대체한다', () => {
+    const created = memos.create({ workspaceId, title: 'x', repoIds: [apiRepoId] })
+    const updated = memos.update({ id: created.id, repoIds: [webRepoId] })
+    expect(updated.repoIds).toEqual([webRepoId])
   })
 
   it('연달아 생성한 메모가 최신순으로 정렬된다', async () => {
