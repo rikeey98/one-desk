@@ -128,6 +128,48 @@ Vite 7은 `server.host`를 지정하지 않으면 IPv6 `[::1]`에만 바인딩�
 
 특히 짚어둘 것이 하나 있다. **트랜잭션을 넣을 때 심은 회귀 테스트가, 그 다음 태스크에서 경계 검증을 추가하자 무력화됐다.** 존재하지 않는 repo id도 검증에서 먼저 걸려 INSERT 자체가 실행되지 않게 됐고, 롤백할 것이 없어졌다. 그 결과 트랜잭션 4개를 통째로 지워도 테스트가 전부 통과하는 상태가 한동안 유지됐다. `update` 경로는 UPDATE가 검증보다 먼저 실행되므로, **update 경계 위반 롤백 테스트만이 트랜잭션을 실제로 검증한다.** 이 테스트를 지우지 말 것.
 
+## 2단계 구현 중 드러난 것 (2026-08-09, `feature/stage2-agent-execution`)
+
+계획서(`plans/2026-08-08-stage2-agent-execution.md`)를 실행하면서 나온 결함과 결정이다. 계획서 본문은 고치지 않았으므로 다음에 읽을 때 여기를 함께 볼 것.
+
+### 계획서의 결함 넷
+
+1. **`Omit<RunEvent, 'seq'>`가 payload를 전부 날린다.** Omit은 유니온에 분배되지 않고 `keyof`가 멤버들의 교집합만 주므로 결과가 `{ runId; at; type }`으로 쪼그라든다. 런타임 테스트는 전부 통과하는데 타입만 무의미해지는 종류의 결함이다. `shared/events.ts`에 분배형 `RunEventInit`을 두고 어댑터 반환 타입으로 쓴다.
+2. **`renderer/store/runEvents.test.ts`가 실행되지 않는다.** vitest renderer 프로젝트가 `*.test.tsx`만 포함해서, `.ts` 테스트는 core·renderer 어느 쪽에도 안 잡히고 **없는 채로 성공 보고된다**(실측: 93 vs 102). include를 `*.test.{ts,tsx}`로 넓혔다.
+3. **`logPath`가 두 곳에서 따로 계산됐다.** 게다가 계획서의 실행 서비스는 `randomUUID()`로 만든 id로 경로를 조립한 뒤 `runs.create()`가 **또 다른 id**를 만들게 되어 있어, DB의 `log_path`가 존재하지 않는 디렉토리를 가리켰다. `manager.logPathFor(runId)`를 단일 출처로 삼고 `CreateRunInput.id`로 id를 먼저 정한다.
+4. **`manager.start()` 거부 시 run이 영원히 `running`으로 남았다.** `markStarted` 뒤 예외가 나면 `markFinished`가 없어 재시작 전까지 정리되지 않는다. 실패 경로에서 `failed`로 기록한다.
+
+(계획서가 스스로 경고한 `cancels.set` 위치 버그도 지적대로 존재했다. 등록을 spawn 직후로 옮기고 종료 시 지운다.)
+
+### 설계 §5의 구멍 — `ON DELETE SET NULL`은 표현할 수 없다
+
+설계 §5는 `run_context_item`에 `ON DELETE SET NULL`을 요구하지만, `item_id`는 repo·issue·memo·asset을 함께 가리키는 **다형 참조라 외래키 자체를 걸 수 없다.** 그래서 이슈를 지워도 죽은 id가 그대로 남는다.
+
+읽는 시점에 걸러내 같은 관측 동작(run 기록은 남고 맥락 항목만 빠짐)을 만들었다. **다만 설계가 약속한 "화면에서 '삭제된 이슈'로 표시한다"는 이 방식으로는 불가능하다** — 표시하려면 지워졌다는 사실을 API가 실어 날라야 한다. 3단계에서 인박스가 지난 run의 맥락을 렌더링할 때 다시 판단할 것.
+
+### 바꾼 계약 — `execution.start()`는 완료를 기다리지 않는다
+
+계획서 Task 11은 `start()`가 끝난 run을 돌려주게 되어 있었다. 그러면 IPC 한 번이 몇 분씩 막히고, 그동안 렌더러는 run의 id를 몰라 **도크 탭도 취소 버튼도 만들 수 없다.** 설계 §9의 "탭 하나가 run 하나"와 어긋난다.
+
+`markStarted` 직후의 `running` run을 즉시 반환하고, 완료는 `core.onRunUpdate` → `event:runUpdate` 채널로 알린다. 3단계의 대기 큐(`pending` 표시)도 이 형태를 그대로 쓴다.
+
+### 종단 검증 결과
+
+실제 Claude Code(v2.1.226)로 확인했다. 검증 스크립트는 스위트에 포함하지 않았다(실행마다 진짜 CLI를 부른다).
+
+| 확인 | 결과 |
+|---|---|
+| 읽기 전용 실행이 끝까지 흐른다 | `succeeded`, 세션 id 확보, `result` 수신 |
+| seq 단조 증가 | 통과 |
+| DB `log_path`에 실제 JSONL 파일 | 통과 (2줄 이상) |
+| 앱 재시작 후 로그 재현 | `readLog`가 `result` 포함해 재현 |
+| 실제 프로세스 취소 | SIGTERM으로 `canceled` |
+| 프리플라이트 | PATH 탐색 성공 / 잘못된 경로 거부 |
+| 유령 run 정리 | 재시작 시 `interrupted` |
+| `pnpm dev` | `127.0.0.1:5173` 바인딩, Electron 기동, `ERR_TIMED_OUT` 없음 |
+
+**GUI 클릭 경로는 사람이 확인해야 한다** — 항목을 눌러 칩이 담기는지, 도크에 로그가 실시간으로 흐르는지, 탭 전환, 취소 버튼. 그 아래 계층은 전부 자동 검증했다.
+
 ## 2단계 착수 시 남은 장애물
 
 1. **`registerIpc` 시그니처.** `getMainWindow()`가 `electron/main.ts`에서 export되어 있어, `electron/ipc/runs.ts`가 이를 import하면 `main.ts → ipc/index.ts → ipc/runs.ts → main.ts` 순환이 생긴다. 호이스팅 덕에 대개 동작하지만 `main.ts`는 최상위 부수효과를 가진 진입점이라 평가 순서에 기대는 구조가 된다. `registerIpc(core, getWindow)`로 주입하는 편이 낫다.
