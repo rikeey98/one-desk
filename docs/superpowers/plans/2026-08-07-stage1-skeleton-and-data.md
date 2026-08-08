@@ -2451,8 +2451,10 @@ Run: `pnpm dev`
 - [ ] **Step 5: 패키징 확인**
 
 ```bash
-pnpm pack
+pnpm run pack
 ```
+
+`run`을 빼면 안 된다. `pnpm pack`은 pnpm 내장 명령(소스 `.tgz` 생성)이라 같은 이름의 스크립트를 가린다. `dist/`가 생기지 않고 `.tgz` 하나만 나오는데, 그걸 보고 패키징이 됐다고 착각하기 쉽다.
 
 Expected: `dist/` 아래에 앱이 만들어진다. 그 앱을 직접 실행해서 **workspace를 만들 수 있는지** 확인한다.
 
