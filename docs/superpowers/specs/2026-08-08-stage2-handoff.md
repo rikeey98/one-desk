@@ -56,15 +56,34 @@ issues.create({ workspaceId, title: '고아 이슈', repoIds: ['없는-repo'] })
 
 1단계에서는 실질적 트리거가 디스크 오류 정도라 위험이 낮다. **2단계는 프리플라이트 실패·spawn 실패·CLI 미발견처럼 오류가 정상 흐름이므로 반드시 필요하다.**
 
-## 확인만 하면 되는 것
+## 해결된 것 — dev 서버 `ERR_TIMED_OUT`
 
-### `pnpm dev`의 Vite 경로
+1단계 종료 직후 `pnpm dev`가 다음으로 실패했다.
 
-샌드박스에서 localhost 접속이 막혀 개발 서버 경로를 검증하지 못했다. 프로덕션 빌드(`loadFile`)로는 전 구간이 실증됐다.
+```
+electron: Failed to load URL: http://localhost:5173/ with error: ERR_TIMED_OUT
+```
 
-한 가지 의심 지점이 있다. dev 모드에서 Vite가 `index.html`의 `<head>` 앞머리에 react-refresh 프리앰블을 **인라인** `<script type="module">`로 주입하는데, `renderer/index.html`의 CSP가 `script-src 'self'`(unsafe-inline·nonce 없음)다. 주입 위치가 CSP `<meta>`보다 앞이라 정책 설치 전에 실행돼 통과할 가능성이 높지만 단정할 수 없다.
+**원인은 IPv4/IPv6 주소 계열 불일치였다.** `lsof`로 확인한 결과:
 
-**흰 화면 + 콘솔에 `Refused to execute inline script`가 뜨면 이 문제다.** 해결은 dev에서만 `'unsafe-inline'`을 허용하거나 CSP를 `session.webRequest` 헤더로 옮기는 것.
+```
+node ... IPv6 ... TCP [::1]:5173 (LISTEN)
+```
+
+Vite 7은 `server.host`를 지정하지 않으면 IPv6 `[::1]`에만 바인딩한다. 그런데 macOS의 `/etc/hosts`는 `localhost`를 IPv4(`127.0.0.1`)와 IPv6(`::1`) 양쪽으로 해석하므로, Electron이 `http://localhost:5173/`을 열 때 IPv4를 먼저 시도했다가 응답 없이 타임아웃했다.
+
+`ERR_CONNECTION_REFUSED`가 아니라 `ERR_TIMED_OUT`이었던 것이 단서였다 — 프록시도 방화벽도 아니었고(둘 다 확인함), 주소 계열이 어긋난 것이었다.
+
+**해결**: `electron.vite.config.ts`의 renderer에 `server: { host: '127.0.0.1', port: 5173, strictPort: true }`를 추가해 IPv4로 고정했다. 검증:
+
+| 설정 | 바인딩 |
+|---|---|
+| 기본값 (host 미지정) | `IPv6 [::1]:5173` |
+| `host: '127.0.0.1'` | `IPv4 127.0.0.1:5199` |
+
+`strictPort: true`를 함께 넣은 이유는, 포트가 점유됐을 때 Vite가 조용히 다른 포트로 옮겨가면 Electron이 예전 URL을 열어 같은 증상이 다시 나타나기 때문이다. 그럴 땐 차라리 실패하는 편이 낫다.
+
+**같은 증상이 다시 나오면 먼저 `lsof -nP -iTCP:5173 -sTCP:LISTEN`으로 바인딩 주소부터 확인할 것.**
 
 ## 이월된 사소한 것들
 
