@@ -104,7 +104,7 @@ if (!app.requestSingleInstanceLock()) {
   // 실행 중인 agent 프로세스 정리도 반드시 여기(will-quit)에 붙여라
   // — before-quit으로 되돌리지 말 것.
   app.on('will-quit', () => {
-    core?.close()
+    core?.shutdown()
     core = null
   })
 
