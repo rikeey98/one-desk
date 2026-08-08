@@ -8,7 +8,7 @@ export function MemoPanel({ workspaceId, repoId }: {
   repoId: string | null
 }) {
   const client = useClient()
-  const { memos, refresh } = useMemos(workspaceId, repoId)
+  const { memos, error: listError, refresh } = useMemos(workspaceId, repoId)
 
   async function addMemo(title: string) {
     await client.memos.create({
@@ -21,8 +21,9 @@ export function MemoPanel({ workspaceId, repoId }: {
 
   return (
     <Panel title="Memos">
+      {listError && <div role="alert" className="form-error">{listError}</div>}
       <AddForm placeholder="새 메모 제목…" onSubmit={addMemo} />
-      {memos.length === 0 && <div className="panel-empty">메모가 없습니다</div>}
+      {!listError && memos.length === 0 && <div className="panel-empty">메모가 없습니다</div>}
       <ul className="item-list">
         {memos.map((m) => (
           <li key={m.id} className="item">

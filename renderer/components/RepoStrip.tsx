@@ -6,10 +6,11 @@ export function RepoStrip({ workspaceId, selectedRepoId, onSelect }: {
   selectedRepoId: string | null
   onSelect: (repoId: string | null) => void
 }) {
-  const { repos, refresh } = useRepos(workspaceId)
+  const { repos, error, refresh } = useRepos(workspaceId)
 
   return (
     <div className="repo-strip">
+      {error && <div role="alert" className="form-error">{error}</div>}
       {repos.map((r) => (
         <button
           key={r.id}
@@ -21,7 +22,7 @@ export function RepoStrip({ workspaceId, selectedRepoId, onSelect }: {
           <span className="repo-path">{r.path}</span>
         </button>
       ))}
-      {repos.length === 0 && <div className="repo-empty">등록된 repo가 없습니다</div>}
+      {!error && repos.length === 0 && <div className="repo-empty">등록된 repo가 없습니다</div>}
       <AddRepoForm workspaceId={workspaceId} onAdded={refresh} />
     </div>
   )

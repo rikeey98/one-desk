@@ -10,8 +10,10 @@ export function IssuePanel({ workspaceId, repoId }: {
   repoId: string | null
 }) {
   const client = useClient()
-  const { issues, refresh } = useIssues(workspaceId, repoId)
+  const { issues, error: listError, refresh } = useIssues(workspaceId, repoId)
   const [error, setError] = useState<string | null>(null)
+  // 목록 조회 실패와 패널 동작 실패를 한 자리에서 보여준다.
+  const shown = error ?? listError
 
   async function addIssue(title: string) {
     await client.issues.create({
@@ -35,9 +37,9 @@ export function IssuePanel({ workspaceId, repoId }: {
 
   return (
     <Panel title="Issues">
-      {error && <div role="alert" className="form-error">{error}</div>}
+      {shown && <div role="alert" className="form-error">{shown}</div>}
       <AddForm placeholder="새 이슈 제목…" onSubmit={addIssue} />
-      {issues.length === 0 && <div className="panel-empty">이슈가 없습니다</div>}
+      {!listError && issues.length === 0 && <div className="panel-empty">이슈가 없습니다</div>}
       <ul className="item-list">
         {issues.map((i) => (
           <li key={i.id} className="item">
