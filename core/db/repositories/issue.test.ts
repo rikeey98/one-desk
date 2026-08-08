@@ -94,6 +94,22 @@ describe('IssueRepository', () => {
     expect(issues.list({ workspaceId })).toHaveLength(0)
   })
 
+  it('update가 경계 위반으로 거부되면 제목·상태 변경도 롤백된다', () => {
+    const other = createWorkspaceRepository(db).create({ name: 'other' })
+    const otherRepo = createRepoRepository(db)
+      .create({ workspaceId: other.id, name: '남의repo', path: '/tmp/other' })
+    const created = issues.create({ workspaceId, title: '원래제목', repoIds: [apiRepoId] })
+
+    expect(() =>
+      issues.update({ id: created.id, title: '바뀐제목', status: 'done', repoIds: [otherRepo.id] })
+    ).toThrow(/workspace/)
+
+    const after = issues.list({ workspaceId })[0]!
+    expect(after.title).toBe('원래제목')
+    expect(after.status).toBe('open')
+    expect(after.repoIds).toEqual([apiRepoId])
+  })
+
   it('같은 repo를 중복해서 넘겨도 거부하지 않는다', () => {
     const created = issues.create({
       workspaceId, title: '중복 태그', repoIds: [apiRepoId, apiRepoId]
