@@ -47,6 +47,46 @@
 | `assistant` 하나에 `text`와 `tool_use` 블록이 함께 온다 | `parseLine`이 배열을 반환해야 하는 이유 |
 | `thinking` 블록의 `signature`가 3~5KB | 버려야 로그가 안 부푼다 |
 | `--permission-mode acceptEdits`는 MCP 도구를 승인하지 않는다 | 4단계에서 `--allowedTools` 필요 |
+| **Dynamic Workflows는 `claude -p`에서 실행되지 않는다** | 아래 참고 |
+| **프롬프트를 인자로 줘도 stdin을 읽는다** | 닫지 않으면 3초 대기 후 진행 |
+
+### Dynamic Workflows와 one-desk (2026-08-08 실측)
+
+Claude Code v2.1.226에서 `claude -p`로 세 가지를 시도해 확인했다.
+
+| 시도 | 결과 |
+|---|---|
+| 프롬프트에 `ultracode:` 키워드 | 워크플로 안 뜸. 평범한 도구 호출로 처리 |
+| `--effort ultracode` | 플래그는 수용되나(`--help`에는 없음) 워크플로 안 뜸 |
+| `init` 이벤트의 도구 목록 | **워크플로 도구가 아예 없음.** `Task`(서브에이전트)만 있음 |
+
+**결론: one-desk가 띄우는 헤드리스 실행에서는 워크플로가 돌지 않는다.** Claude에게 워크플로를 시작할 도구 자체가 주어지지 않기 때문이다. 공식 문서는 `ultracode` 키워드가 `-p`에서 opt-in으로 동작하지 않는다고 명시하고 있고, `--effort ultracode`도 실측상 무력했다.
+
+이것이 2단계 설계에 주는 영향은 셋이다.
+
+1. **하단 도크가 워크플로 단계를 다룰 필요가 없다.** Task 13은 지금 계획대로 정규화 이벤트만 렌더링하면 된다.
+2. **"승인 없이 1,000개 에이전트가 도는" 위험은 없다.** `CLAUDE_CODE_DISABLE_WORKFLOWS` 같은 방어를 넣을 이유가 없다.
+3. **대신 제품상의 한계로 남는다.** 사용자가 one-desk를 통해 워크플로를 쓸 수 없다. 큰 fan-out 작업이 필요하면 터미널에서 직접 Claude Code를 열어야 한다. 이걸 뒤집으려면 `-p`가 아닌 다른 실행 경로(Agent SDK 등)를 써야 하는데, 그건 이번 스펙 밖이다.
+
+**이 결론은 CLI 버전에 묶여 있다.** Claude Code가 `-p`에 워크플로 도구를 노출하기 시작하면 1·2번이 뒤집힌다. 2단계 구현 중 `init` 이벤트의 `tools` 배열에 워크플로 관련 항목이 보이면 이 절을 다시 검토할 것.
+
+### 실측된 이벤트 종류 (계획서 파서 대조)
+
+세 번의 실행에서 관찰된 전부다.
+
+| 이벤트 | 파서 처리 |
+|---|---|
+| `system/init` | `session` 이벤트로 변환 |
+| `assistant` | `text` / `tool_use`로 분해 |
+| `user` | `tool_result`로 변환 |
+| `result/success` | `result`로 변환 |
+| `system/thinking_tokens` | 무시 (`default` 분기) |
+| `system/hook_started`, `system/hook_response` | 무시 |
+| `rate_limit_event` | 무시 |
+
+**사용자의 전역 훅이 one-desk가 띄운 실행에서도 발화한다.** `SessionStart` 훅이 있으면 그 출력이 `hook_response` 이벤트로 스트림에 섞인다. 파서가 무시하므로 동작에는 영향이 없지만, 로그 파일에는 남지 않으므로 디버깅 시 이 점을 기억할 것.
+
+`result` 이벤트에는 계획서가 쓰는 필드 외에 `duration_api_ms`, `stop_reason`, `total_cost_usd`, `usage`(토큰 상세)가 함께 온다. **`total_cost_usd`와 `usage`는 3단계의 비용 표시에 쓸 수 있으니 로그 파일에는 남겨두는 편이 좋다.**
 
 ## File Structure
 

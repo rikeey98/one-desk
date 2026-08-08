@@ -48,6 +48,10 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **`--output-format stream-json`은 `--verbose` 없이는 실행이 거부된다.** Claude Code 실측 확인.
 
+**Claude Code는 프롬프트를 인자로 줘도 stdin을 읽는다.** 닫지 않으면 3초 대기 후 진행한다. 프로세스를 띄운 뒤 반드시 `stdin.end()`를 부를 것.
+
+**Dynamic Workflows는 `claude -p`에서 돌지 않는다.** 헤드리스에는 워크플로 도구가 노출되지 않아 `ultracode` 키워드도 `--effort ultracode`도 무력하다(v2.1.226 실측). one-desk가 띄우는 실행에는 해당 없음.
+
 **생성하는 권한 설정에 `ask`를 절대 넣지 않는다.** 헤드리스에서 물어보면 응답할 사람이 없어 프로세스가 그대로 멈춘다. 모든 정책은 `allow` 아니면 `deny`로만 떨어져야 한다.
 
 **Vite dev 서버는 `127.0.0.1`로 고정돼 있다.** 기본값으로 두면 IPv6 `[::1]`에만 바인딩하는데 macOS는 `localhost`를 양쪽으로 해석해서 Electron이 `ERR_TIMED_OUT`으로 멈춘다. `electron.vite.config.ts`의 `server.host`를 지우지 말 것.
