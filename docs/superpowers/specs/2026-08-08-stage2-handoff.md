@@ -107,3 +107,32 @@ Vite 7은 `server.host`를 지정하지 않으면 IPv6 `[::1]`에만 바인딩�
 **의도된 중복이 실제로 "동일한" 중복이다.** `issue.ts`와 `memo.ts`의 공통 항목 필터 쿼리가 완전히 일치하고 `useIssues`/`useMemos`도 대칭이다. 승인된 중복이 드리프트하지 않는 것이 이 결정을 정당화한다. 한쪽을 고치면 반드시 다른 쪽도 고쳐야 한다.
 
 **`closedAt`이 `status`에서 파생된다.** 호출자가 둘을 어긋나게 만들 수 없다. `needs_answer`를 추가할 때도 같은 원칙을 지키는 게 좋다.
+
+---
+
+## 처리 완료 (2026-08-08, `feature/stage1-hardening`)
+
+위 6가지 선행 작업은 모두 처리됐다. 최종 브랜치 리뷰에서 태스크 경계 문제 4건이 추가로 나와 함께 고쳤다.
+
+| 항목 | 커밋 |
+|---|---|
+| 리포지토리 트랜잭션 | `d2ac723` |
+| workspace 경계 검증 | `bb3d931` |
+| 렌더러 오류 표시 | `5bbd01d` |
+| 윈도우 참조 + 생명주기 | `d70f0e9` |
+| minor 정리 + cascade 기록 | `6003bdc` |
+| update 경로 롤백 회귀 테스트 | `49fef57` |
+| 전송 계층 오류 문자열 언래핑 | `d4352c0` |
+| DB close를 `will-quit`으로 이동 | `53b9e7d` |
+| prettier 무시 범위 정정 | `400ac34` |
+
+특히 짚어둘 것이 하나 있다. **트랜잭션을 넣을 때 심은 회귀 테스트가, 그 다음 태스크에서 경계 검증을 추가하자 무력화됐다.** 존재하지 않는 repo id도 검증에서 먼저 걸려 INSERT 자체가 실행되지 않게 됐고, 롤백할 것이 없어졌다. 그 결과 트랜잭션 4개를 통째로 지워도 테스트가 전부 통과하는 상태가 한동안 유지됐다. `update` 경로는 UPDATE가 검증보다 먼저 실행되므로, **update 경계 위반 롤백 테스트만이 트랜잭션을 실제로 검증한다.** 이 테스트를 지우지 말 것.
+
+## 2단계 착수 시 남은 장애물
+
+1. **`registerIpc` 시그니처.** `getMainWindow()`가 `electron/main.ts`에서 export되어 있어, `electron/ipc/runs.ts`가 이를 import하면 `main.ts → ipc/index.ts → ipc/runs.ts → main.ts` 순환이 생긴다. 호이스팅 덕에 대개 동작하지만 `main.ts`는 최상위 부수효과를 가진 진입점이라 평가 순서에 기대는 구조가 된다. `registerIpc(core, getWindow)`로 주입하는 편이 낫다.
+2. **`OneDeskClient`에 구독 API가 없다.** 현재 preload는 invoke 전용이다. 설계 §4의 `events: { onRunEvent(cb): Unsubscribe }`를 넣으려면 `ipcRenderer.on` + unsubscribe 함수를 contextBridge로 되돌리는 패턴이 필요한데 아직 선례가 없다.
+3. **읽기 경로 오류가 조용히 사라진다.** `useIssues`/`useMemos`/`useRepos`/`useWorkspaces`가 `useEffect(() => { void refresh() }, [refresh])` 패턴이라 `list()` 실패 시 unhandled rejection만 남고 화면은 빈 목록이 된다. `useWorkspaces`는 더 나쁘다 — `setLoading(false)`가 `await` 뒤에 있어 실패하면 `loading`이 영원히 true, 사이드바가 "불러오는 중…"에서 멈춘다. **이 패턴이 run 목록 로딩에 그대로 복제될 것이다.**
+4. **단일 인스턴스 잠금이 없다.** `app.requestSingleInstanceLock()`이 없다. 지금은 두 인스턴스가 같은 SQLite를 열어도 WAL이 감당하지만, agent 프로세스와 run 상태가 붙으면 두 인스턴스가 같은 run을 spawn하고 서로의 종료 정리가 상대를 덮어쓴다.
+5. **`backupIfNeeded`가 이름과 달리 "needed"를 판정하지 않는다.** 마이그레이션 필요 여부와 무관하게 매 오픈마다 전체 파일을 복사하고 정리 로직이 없다. 지금 DB가 90KB라 실해는 없다.
+6. **패키징 빌드의 종료 경로가 미검증이다.** dev 모드에서만 WAL 체크포인트를 확인했다. agent 프로세스 정리가 붙으면 패키징 종료를 한 번 실측할 것.
