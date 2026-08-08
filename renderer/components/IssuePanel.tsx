@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { Panel } from './Panel'
 import { AddForm } from './AddForm'
 import { useIssues } from '../hooks/useIssues'
 import { useClient } from '../client/ClientProvider'
+import type { IssueStatus } from '@shared/models'
 
 export function IssuePanel({ workspaceId, repoId }: {
   workspaceId: string
@@ -9,6 +11,7 @@ export function IssuePanel({ workspaceId, repoId }: {
 }) {
   const client = useClient()
   const { issues, refresh } = useIssues(workspaceId, repoId)
+  const [error, setError] = useState<string | null>(null)
 
   async function addIssue(title: string) {
     await client.issues.create({
@@ -19,8 +22,20 @@ export function IssuePanel({ workspaceId, repoId }: {
     await refresh()
   }
 
+  async function cycleStatus(id: string, current: IssueStatus) {
+    const next = current === 'open' ? 'doing' : current === 'doing' ? 'done' : 'open'
+    setError(null)
+    try {
+      await client.issues.update({ id, status: next })
+      await refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   return (
     <Panel title="Issues">
+      {error && <div role="alert" className="form-error">{error}</div>}
       <AddForm placeholder="새 이슈 제목…" onSubmit={addIssue} />
       {issues.length === 0 && <div className="panel-empty">이슈가 없습니다</div>}
       <ul className="item-list">
@@ -30,11 +45,7 @@ export function IssuePanel({ workspaceId, repoId }: {
             <button
               type="button"
               className={`status status-${i.status}`}
-              onClick={async () => {
-                const next = i.status === 'open' ? 'doing' : i.status === 'doing' ? 'done' : 'open'
-                await client.issues.update({ id: i.id, status: next })
-                await refresh()
-              }}
+              onClick={() => cycleStatus(i.id, i.status)}
             >
               {i.status}
             </button>
