@@ -81,4 +81,23 @@ describe('IssueRepository', () => {
 
     expect(issues.list({ workspaceId })).toHaveLength(0)
   })
+
+  it('다른 workspace의 repo는 태그로 붙일 수 없다', () => {
+    const other = createWorkspaceRepository(db).create({ name: 'other' })
+    const otherRepo = createRepoRepository(db)
+      .create({ workspaceId: other.id, name: '남의repo', path: '/tmp/other' })
+
+    expect(() =>
+      issues.create({ workspaceId, title: '경계 침범', repoIds: [otherRepo.id] })
+    ).toThrow(/workspace/)
+
+    expect(issues.list({ workspaceId })).toHaveLength(0)
+  })
+
+  it('같은 repo를 중복해서 넘겨도 거부하지 않는다', () => {
+    const created = issues.create({
+      workspaceId, title: '중복 태그', repoIds: [apiRepoId, apiRepoId]
+    })
+    expect(created.repoIds).toEqual([apiRepoId])
+  })
 })
