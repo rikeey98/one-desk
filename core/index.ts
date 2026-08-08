@@ -7,8 +7,11 @@ import { createIssueRepository } from './db/repositories/issue'
 import { createMemoRepository } from './db/repositories/memo'
 import { createRunRepository } from './db/repositories/run'
 import { createRunManager } from './runner/manager'
+import { createExecutionService } from './execution'
 import { claudeCodeAdapter } from './runner/adapters/claudeCode'
+import type { AgentAdapter } from './runner/types'
 import type { RunEvent } from '@shared/events'
+import type { AgentKind, Run } from '@shared/models'
 
 export interface CoreOptions {
   /** DB와 로그를 둘 디렉토리. Electron의 userData 경로를 main이 넘긴다. */
@@ -18,6 +21,7 @@ export interface CoreOptions {
 }
 
 const RUN_EVENT = 'run-event'
+const RUN_UPDATE = 'run-update'
 
 export function createCore(opts: CoreOptions) {
   const db = openDb({
@@ -25,31 +29,56 @@ export function createCore(opts: CoreOptions) {
     migrationsDir: opts.migrationsDir
   })
 
+  const workspaces = createWorkspaceRepository(db)
   const runs = createRunRepository(db)
   // 앱 시작 시 유령 run 정리 (설계 §11). 프로세스가 없는데 running/pending으로
   // 남아 있는 run은 이전 실행이 비정상 종료된 흔적이다.
   runs.reapStale()
 
+  // opencode에 claudeCodeAdapter를 매핑하는 것은 임시다 (5단계에 OpenCode 어댑터).
+  // 그때까지 UI에서 OpenCode를 고를 수 없게 막는다.
+  const adapters: Record<AgentKind, AgentAdapter> = {
+    'claude-code': claudeCodeAdapter,
+    opencode: claudeCodeAdapter
+  }
+
   const emitter = new EventEmitter()
   const manager = createRunManager({
-    // opencode에 claudeCodeAdapter를 매핑하는 것은 임시다 (5단계에 OpenCode 어댑터).
-    // 그때까지 UI에서 OpenCode를 고를 수 없게 막는다.
-    adapters: { 'claude-code': claudeCodeAdapter, opencode: claudeCodeAdapter },
+    adapters,
     logDir: join(opts.dataDir, 'logs'),
     onEvent: (event) => emitter.emit(RUN_EVENT, event)
   })
 
+  const execution = createExecutionService({
+    db,
+    runs,
+    manager,
+    resolveExecutable: async (agentKind, workspaceId) => {
+      const ws = workspaces.list().find((w) => w.id === workspaceId)
+      const explicit = agentKind === 'claude-code' ? ws?.claudePath : ws?.opencodePath
+      return adapters[agentKind].preflight(explicit ?? null)
+    },
+    onRunUpdate: (run) => emitter.emit(RUN_UPDATE, run)
+  })
+
   return {
-    workspaces: createWorkspaceRepository(db),
+    workspaces,
     repos: createRepoRepository(db),
     issues: createIssueRepository(db),
     memos: createMemoRepository(db),
     runs,
+    execution,
 
     /** 스트림 이벤트 구독. 반환된 함수를 부르면 해제된다. */
     onRunEvent(cb: (event: RunEvent) => void): () => void {
       emitter.on(RUN_EVENT, cb)
       return () => { emitter.off(RUN_EVENT, cb) }
+    },
+
+    /** run 행의 변화 구독. 시작 이후의 상태 변화는 이 경로로만 알 수 있다. */
+    onRunUpdate(cb: (run: Run) => void): () => void {
+      emitter.on(RUN_UPDATE, cb)
+      return () => { emitter.off(RUN_UPDATE, cb) }
     },
 
     /**

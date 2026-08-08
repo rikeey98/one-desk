@@ -8,6 +8,11 @@ import type { Run, ContextItemRef, RunStatus, AgentKind, Permission } from '@sha
 type Runner = Parameters<Parameters<Database['transaction']>[0]>[0]
 
 export interface CreateRunInput {
+  /**
+   * 미리 정한 id. 로그 경로가 run id를 포함하므로 호출자가 먼저 id를 알아야
+   * DB의 log_path와 실제 파일 위치가 일치한다. 없으면 여기서 만든다.
+   */
+  id?: string
   workspaceId: string
   agentKind: AgentKind
   model: string | null
@@ -95,7 +100,7 @@ export function createRunRepository(db: Database) {
     },
 
     create(input: CreateRunInput): Run {
-      const id = randomUUID()
+      const id = input.id ?? randomUUID()
       db.transaction((tx: Runner) => {
         tx.insert(run).values({
           id,
