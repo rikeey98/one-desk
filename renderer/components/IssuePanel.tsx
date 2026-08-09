@@ -3,15 +3,20 @@ import { Panel } from './Panel'
 import { AddForm } from './AddForm'
 import { useIssues } from '../hooks/useIssues'
 import { useClient } from '../client/ClientProvider'
+import { chipKey, type ContextChip } from '../context'
 import type { IssueStatus } from '@shared/models'
 
-export function IssuePanel({ workspaceId, repoId }: {
+export function IssuePanel({ workspaceId, repoId, chipKeys, onToggleContext }: {
   workspaceId: string
   repoId: string | null
+  chipKeys: Set<string>
+  onToggleContext: (chip: ContextChip) => void
 }) {
   const client = useClient()
-  const { issues, refresh } = useIssues(workspaceId, repoId)
+  const { issues, error: listError, refresh } = useIssues(workspaceId, repoId)
   const [error, setError] = useState<string | null>(null)
+  // 목록 조회 실패와 패널 동작 실패를 한 자리에서 보여준다.
+  const shown = error ?? listError
 
   async function addIssue(title: string) {
     await client.issues.create({
@@ -35,13 +40,20 @@ export function IssuePanel({ workspaceId, repoId }: {
 
   return (
     <Panel title="Issues">
-      {error && <div role="alert" className="form-error">{error}</div>}
+      {shown && <div role="alert" className="form-error">{shown}</div>}
       <AddForm placeholder="새 이슈 제목…" onSubmit={addIssue} />
-      {issues.length === 0 && <div className="panel-empty">이슈가 없습니다</div>}
+      {!listError && issues.length === 0 && <div className="panel-empty">이슈가 없습니다</div>}
       <ul className="item-list">
         {issues.map((i) => (
           <li key={i.id} className="item">
-            <span className="item-title">{i.title}</span>
+            <button
+              type="button"
+              className={chipKeys.has(chipKey({ type: 'issue', id: i.id }))
+                ? 'item-title item-picked' : 'item-title'}
+              onClick={() => onToggleContext({ type: 'issue', id: i.id, label: i.title })}
+            >
+              {i.title}
+            </button>
             <button
               type="button"
               className={`status status-${i.status}`}

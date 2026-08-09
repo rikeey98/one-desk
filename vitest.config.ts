@@ -20,7 +20,9 @@ export default defineConfig({
         test: {
           name: 'renderer',
           environment: 'jsdom',
-          include: ['renderer/**/*.test.tsx'],
+          // .tsx만 잡으면 JSX 없는 렌더러 테스트(.ts)가 어느 프로젝트에도
+          // 걸리지 않아 실행되지 않은 채로 통과한 것처럼 보인다.
+          include: ['renderer/**/*.test.{ts,tsx}'],
           setupFiles: ['./renderer/vitest.setup.ts']
         }
       }

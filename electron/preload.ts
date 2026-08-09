@@ -1,7 +1,8 @@
-import { contextBridge, ipcRenderer } from 'electron'
-import { CHANNELS } from '@shared/channels'
-import type { OneDeskClient } from '@shared/client'
-import type { Workspace, Repo, Issue, Memo } from '@shared/models'
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
+import type { OneDeskClient, Unsubscribe } from '@shared/client'
+import type { Workspace, Repo, Issue, Memo, Run } from '@shared/models'
+import type { RunEvent } from '@shared/events'
 
 /**
  * ipcRenderer.invoke가 실패하면 Electron이 오류를
@@ -42,6 +43,25 @@ const client: OneDeskClient = {
     create: (input) => call<Memo>(CHANNELS.memosCreate, input),
     update: (input) => call<Memo>(CHANNELS.memosUpdate, input),
     remove: (id) => call<void>(CHANNELS.memosRemove, id)
+  },
+  runs: {
+    list: (workspaceId) => call<Run[]>(CHANNELS.runsList, workspaceId),
+    start: (input) => call<Run>(CHANNELS.runsStart, input),
+    cancel: (runId) => call<void>(CHANNELS.runsCancel, runId),
+    readLog: (runId) => call<RunEvent[]>(CHANNELS.runsReadLog, runId)
+  },
+  events: {
+    // contextBridge는 함수를 프록시로 넘기므로 이 클로저가 렌더러에서 호출 가능하다.
+    onRunEvent(cb: (event: RunEvent) => void): Unsubscribe {
+      const listener = (_e: IpcRendererEvent, event: RunEvent) => cb(event)
+      ipcRenderer.on(EVENT_CHANNELS.runEvent, listener)
+      return () => { ipcRenderer.off(EVENT_CHANNELS.runEvent, listener) }
+    },
+    onRunUpdate(cb: (run: Run) => void): Unsubscribe {
+      const listener = (_e: IpcRendererEvent, run: Run) => cb(run)
+      ipcRenderer.on(EVENT_CHANNELS.runUpdate, listener)
+      return () => { ipcRenderer.off(EVENT_CHANNELS.runUpdate, listener) }
+    }
   }
 }
 
