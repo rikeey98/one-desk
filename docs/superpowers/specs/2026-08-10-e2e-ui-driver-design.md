@@ -149,7 +149,7 @@ launchApp()
 
 - [ ] `pnpm test:e2e`가 핵심 한 바퀴를 통과한다
 - [ ] 일부러 실패시킨 e2e가 실제로 실패로 보고된다 (러너가 도는지 확인 후 제거)
-- [ ] `pnpm test`가 여전히 125개다 (e2e가 섞여 들어가지 않았다)
+- [ ] `pnpm test`에 e2e 파일이 잡히지 않는다 — 개수는 이음매에 붙는 단위 테스트만큼만 늘어난다
 - [ ] `pnpm typecheck`, `pnpm lint` 통과 — `e2e/`도 대상에 든다
 - [ ] `pnpm dev`가 떠 있는 상태에서 `pnpm test:e2e`가 돈다
 - [ ] 실패 시 `e2e/artifacts/`에 스크린샷이 남는다
