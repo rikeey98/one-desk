@@ -107,6 +107,17 @@ describe('Dock', () => {
     expect(screen.queryByRole('button', { name: '취소' })).toBeNull()
   })
 
+  it('답변을 기다리는 run은 탭에 표시한다', () => {
+    // succeeded로 끝나지만 agent가 질문하고 멈춘 상태다. 배지가 없으면 구분이 안 된다.
+    renderDock([makeRun({ status: 'succeeded', needsAnswer: true })], makeClient())
+    expect(screen.getByText('답변 필요')).toBeInTheDocument()
+  })
+
+  it('평범하게 끝난 run에는 답변 필요 배지가 없다', () => {
+    renderDock([makeRun({ status: 'succeeded', needsAnswer: false })], makeClient())
+    expect(screen.queryByText('답변 필요')).toBeNull()
+  })
+
   it('run의 오류 메시지를 표시한다', async () => {
     renderDock([makeRun({ status: 'failed', errorMessage: 'claude를 찾을 수 없습니다' })], makeClient())
     await userEvent.click(screen.getByText('토큰 버그 고쳐줘'))

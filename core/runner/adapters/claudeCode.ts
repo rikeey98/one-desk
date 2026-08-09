@@ -39,6 +39,18 @@ function readBlocks(obj: Record<string, unknown>): Record<string, unknown>[] {
 
 const NEEDS_ANSWER_MARK = '[NEEDS_ANSWER]'
 
+/**
+ * 첫 줄의 [NEEDS_ANSWER] 표식을 떼어낸다.
+ *
+ * 같은 내용이 assistant 텍스트 블록으로 먼저 흐르고 result에 다시 담기므로,
+ * result에서만 벗겨내면 표식이 도크 로그에 날것으로 새어나온다. 두 경로 모두 여기를 쓴다.
+ */
+function stripNeedsAnswer(raw: string): { text: string; marked: boolean } {
+  const trimmed = raw.trimStart()
+  if (!trimmed.startsWith(NEEDS_ANSWER_MARK)) return { text: raw, marked: false }
+  return { text: trimmed.slice(NEEDS_ANSWER_MARK.length).trimStart(), marked: true }
+}
+
 async function findExecutable(name: string): Promise<string | null> {
   const paths = (process.env['PATH'] ?? '').split(delimiter).filter(Boolean)
   for (const dir of paths) {
@@ -117,7 +129,8 @@ export const claudeCodeAdapter: AgentAdapter = {
         const events: RawEvent[] = []
         for (const block of readBlocks(obj)) {
           if (block['type'] === 'text') {
-            events.push({ type: 'text', runId, at, text: String(block['text'] ?? '') })
+            const { text } = stripNeedsAnswer(String(block['text'] ?? ''))
+            events.push({ type: 'text', runId, at, text })
           } else if (block['type'] === 'tool_use') {
             const name = String(block['name'] ?? '')
             events.push({
@@ -151,10 +164,7 @@ export const claudeCodeAdapter: AgentAdapter = {
 
       case 'result': {
         const raw = typeof obj['result'] === 'string' ? obj['result'] : ''
-        const needsAnswer = raw.trimStart().startsWith(NEEDS_ANSWER_MARK)
-        const resultText = needsAnswer
-          ? raw.trimStart().slice(NEEDS_ANSWER_MARK.length).trimStart()
-          : raw
+        const { text: resultText, marked: needsAnswer } = stripNeedsAnswer(raw)
         return [{
           type: 'result', runId, at,
           status: obj['is_error'] === true ? 'failed' : 'succeeded',

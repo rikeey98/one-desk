@@ -69,6 +69,8 @@ export function Dock({ runs, error, workspaceId, chips, onRemoveChip, onRunStart
             onClick={() => { setPickedId(run.id); setView('log'); setOpen(true) }}
           >
             <span className={`status status-${run.status}`}>{run.status}</span>
+            {/* succeeded로 끝나도 agent가 질문하고 멈춘 것일 수 있다. 배지가 없으면 구분이 안 된다. */}
+            {run.needsAnswer && <span className="needs-answer">답변 필요</span>}
             {label(run)}
           </button>
         ))}

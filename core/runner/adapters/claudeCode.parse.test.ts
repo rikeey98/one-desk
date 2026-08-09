@@ -63,6 +63,26 @@ describe('claudeCodeAdapter.parseLine', () => {
     })
   })
 
+  it('text 블록의 [NEEDS_ANSWER] 표식도 제거한다', () => {
+    // 실측: 같은 내용이 assistant 텍스트 블록으로 먼저 흐르고 result에 다시 담긴다.
+    // result에서만 벗겨내면 표식이 도크 로그에 날것으로 새어나온다.
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: '[NEEDS_ANSWER]\nA와 B 중 어느 쪽인가요?' }] }
+    })
+    const [ev] = claudeCodeAdapter.parseLine(line, 'r1')
+    expect(ev).toMatchObject({ type: 'text', text: 'A와 B 중 어느 쪽인가요?' })
+  })
+
+  it('표식이 없는 text는 그대로 둔다', () => {
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: '  들여쓴 그대로  ' }] }
+    })
+    const [ev] = claudeCodeAdapter.parseLine(line, 'r1')
+    expect(ev).toMatchObject({ text: '  들여쓴 그대로  ' })
+  })
+
   it('관심 없는 줄은 빈 배열을 반환한다', () => {
     expect(claudeCodeAdapter.parseLine(LINES[5]!, 'r1')).toEqual([])
   })

@@ -48,6 +48,7 @@ button.status { border: 0; cursor: pointer; font-family: inherit; }
 .log-error { color: #991b1b; }
 .log-result { font-weight: 600; }
 .log-divider { border: 0; border-top: 1px solid #e4e4e7; margin: 8px 0; }
+.needs-answer { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 9px; background: #fde68a; color: #78350f; margin-right: 5px; }
 .status-running { background: #dbeafe; }
 .status-pending { background: #e4e4e7; }
 .status-succeeded { background: #d1fae5; }
