@@ -9,6 +9,7 @@ import { createRunRepository } from './db/repositories/run'
 import { createRunManager } from './runner/manager'
 import { createExecutionService } from './execution'
 import { claudeCodeAdapter } from './runner/adapters/claudeCode'
+import { resolveAgentPath } from './runner/agentPath'
 import type { AgentAdapter } from './runner/types'
 import type { RunEvent } from '@shared/events'
 import type { AgentKind, Run } from '@shared/models'
@@ -54,9 +55,8 @@ export function createCore(opts: CoreOptions) {
     runs,
     manager,
     resolveExecutable: async (agentKind, workspaceId) => {
-      const ws = workspaces.list().find((w) => w.id === workspaceId)
-      const explicit = agentKind === 'claude-code' ? ws?.claudePath : ws?.opencodePath
-      return adapters[agentKind].preflight(explicit ?? null)
+      const ws = workspaces.list().find((w) => w.id === workspaceId) ?? null
+      return adapters[agentKind].preflight(resolveAgentPath(agentKind, ws))
     },
     onRunUpdate: (run) => emitter.emit(RUN_UPDATE, run)
   })

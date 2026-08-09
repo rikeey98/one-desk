@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // 인자로 받은 시나리오대로 stream-json을 흉내낸다.
 // --scenario success | fail | hang | slow
 const scenario = process.argv[process.argv.indexOf('--scenario') + 1] ?? 'success'
@@ -32,7 +33,11 @@ if (scenario === 'hang') {
   emit({ type: 'result', subtype: 'error', is_error: true, result: '실패함', session_id: 'fake-session' })
   finish(1)
 } else {
+  // e2e가 running 상태를 관찰할 수 있도록 결과를 늦출 수 있다. 기본은 0(즉시).
+  const delayMs = Number(process.env.ONE_DESK_FAKE_DELAY_MS ?? 0)
   emit({ type: 'assistant', message: { content: [{ type: 'text', text: '작업 중' }] } })
-  emit({ type: 'result', subtype: 'success', is_error: false, result: '끝남', session_id: 'fake-session' })
-  finish(0)
+  setTimeout(() => {
+    emit({ type: 'result', subtype: 'success', is_error: false, result: '끝남', session_id: 'fake-session' })
+    finish(0)
+  }, delayMs)
 }
