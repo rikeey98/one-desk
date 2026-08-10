@@ -53,11 +53,18 @@ function createWindow(): void {
   }
 }
 
+// e2e와 개발용으로 데이터 디렉토리를 갈아끼운다. app 이벤트 등록보다 먼저 해야 한다.
+const testDataDir = process.env['ONE_DESK_USER_DATA']
+if (testDataDir) app.setPath('userData', testDataDir)
+
 // 두 인스턴스가 같은 SQLite를 열면 서로의 종료 정리가 상대를 덮어쓴다.
 // 2단계부터는 같은 run을 두 번 spawn하는 문제까지 생긴다.
 // 잠금을 얻지 못하면 quit만 하고 아무것도 초기화하지 않는다 —
 // 아래 초기화 전체가 else 안에 있어야 하는 이유다.
-if (!app.requestSingleInstanceLock()) {
+//
+// 데이터 디렉토리를 따로 지정했다면(testDataDir) 공유 자체가 없으므로 잠금을 건너뛴다 —
+// 이 분기가 없으면 pnpm dev가 떠 있는 동안 e2e가 즉시 종료된다.
+if (!testDataDir && !app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => {
