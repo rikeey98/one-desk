@@ -59,12 +59,30 @@ export async function launchApp(): Promise<AppSession> {
   //
   // 여러 번 불려도 안전해야 한다(idempotent) — 아래 onTestFinished가 테스트 종료 시
   // 자동으로 부르고, 테스트가 명시적으로도 close()를 부를 수 있어 겹칠 수 있다.
+  //
+  // 세 단계(앱 종료, dataDir 삭제, repoDir 삭제)는 서로의 성공에 기대지 않는다 — 하나가
+  // 던져도 나머지가 반드시 실행된다. 예전엔 app.close()가 던지면 그 아래 rmSync 두 줄이
+  // 통째로 스킵됐는데, closed는 이미 true라 이후 재호출도 조용히 빠져나가 버렸다.
+  // 즉 "정리를 시도했다"가 "정리에 성공했다"로 둔갑해 Electron 프로세스와 임시
+  // 디렉토리가 고아로 남았다 — 이 태스크를 진단하다 실제로 겪은 경로다.
   async function close(): Promise<void> {
     if (closed) return
     closed = true
-    await app.close()
-    rmSync(dataDir, { recursive: true, force: true })
-    rmSync(repoDir, { recursive: true, force: true })
+
+    try {
+      await app.close()
+    } catch (error) {
+      // 조용히 삼키지 않는다 — 앱이 이미 죽어 있었거나 IPC가 끊긴 경우 등 원인 파악용.
+      console.error('one-desk e2e: Electron 앱 종료 실패 (임시 디렉토리 정리는 계속한다)', error)
+    }
+
+    for (const dir of [dataDir, repoDir]) {
+      try {
+        rmSync(dir, { recursive: true, force: true })
+      } catch (error) {
+        console.error(`one-desk e2e: 임시 디렉토리 삭제 실패: ${dir}`, error)
+      }
+    }
   }
 
   // onTestFailed + onTestFinished 조합을 실측했더니 스크린샷이 안 남았다: 이 Vitest
@@ -78,8 +96,15 @@ export async function launchApp(): Promise<AppSession> {
   // 때만 스크린샷을 찍고, 그다음에 닫는다. 이러면 실행 순서에 기대지 않는다.
   onTestFinished(async (context) => {
     if (context.task.result?.state === 'fail') {
-      mkdirSync(ARTIFACTS, { recursive: true })
-      await page.screenshot({ path: join(ARTIFACTS, `fail-${Date.now()}.png`) })
+      try {
+        mkdirSync(ARTIFACTS, { recursive: true })
+        await page.screenshot({ path: join(ARTIFACTS, `fail-${Date.now()}.png`) })
+      } catch (error) {
+        // 스크린샷이 타임아웃/창 굳음 등으로 던지더라도 아래 close()는 반드시 돌아야
+        // 한다 — 안 그러면 디버깅용 스크린샷 하나 놓치는 대가로 Electron 프로세스와
+        // 임시 디렉토리가 고아로 남는다. 여기서도 조용히 삼키지 않는다.
+        console.error('one-desk e2e: 실패 스크린샷 찍기 실패 (정리는 계속 진행한다)', error)
+      }
     }
     await close()
   })
