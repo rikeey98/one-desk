@@ -1,5 +1,5 @@
 import { app, dialog, shell, BrowserWindow } from 'electron'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { createCore, type Core } from '@core/index'
 import { registerIpc } from './ipc'
 
@@ -53,18 +53,36 @@ function createWindow(): void {
   }
 }
 
-// e2e와 개발용으로 데이터 디렉토리를 갈아끼운다. app 이벤트 등록보다 먼저 해야 한다.
-const testDataDir = process.env['ONE_DESK_USER_DATA']
-if (testDataDir) app.setPath('userData', testDataDir)
+// e2e와 개발용으로 데이터 디렉토리를 갈아끼운다. app 이벤트 등록보다,
+// 그리고 아래 requestSingleInstanceLock()보다 먼저 해야 한다 — 잠금이 userData
+// 디렉토리를 기준으로 걸리기 때문이다(아래 주석 참고).
+//
+// 공백만 있는 값은 지정하지 않은 것으로 본다. 상대 경로는 여기서 걸러낸다:
+// app.setPath에 그대로 넘기면 "Path must be absolute"가 모듈 최상위에서 던져지는데,
+// 그 자리는 아래 createCore의 try/catch 바깥이라 아무 메시지도 남기지 않고 종료도
+// 하지 않는 앱이 된다(실측). dialog.showErrorBox는 whenReady 전에도 부를 수 있으므로
+// 나머지 실패와 같은 경로(showErrorBox + quit)로 보낸다.
+const testDataDir = process.env['ONE_DESK_USER_DATA']?.trim()
+const dataDirError = testDataDir && !isAbsolute(testDataDir)
+  ? `ONE_DESK_USER_DATA는 절대 경로여야 합니다: ${testDataDir}`
+  : null
+if (testDataDir && !dataDirError) app.setPath('userData', testDataDir)
 
 // 두 인스턴스가 같은 SQLite를 열면 서로의 종료 정리가 상대를 덮어쓴다.
 // 2단계부터는 같은 run을 두 번 spawn하는 문제까지 생긴다.
 // 잠금을 얻지 못하면 quit만 하고 아무것도 초기화하지 않는다 —
 // 아래 초기화 전체가 else 안에 있어야 하는 이유다.
 //
-// 데이터 디렉토리를 따로 지정했다면(testDataDir) 공유 자체가 없으므로 잠금을 건너뛴다 —
-// 이 분기가 없으면 pnpm dev가 떠 있는 동안 e2e가 즉시 종료된다.
-if (!testDataDir && !app.requestSingleInstanceLock()) {
+// 데이터 디렉토리를 돌린 인스턴스에도 잠금을 똑같이 건다. Electron의 단일 인스턴스
+// 잠금은 userData 디렉토리를 기준으로 잡히고 위의 app.setPath가 그보다 먼저 실행되므로,
+// ONE_DESK_USER_DATA를 준 인스턴스는 기본 디렉토리의 잠금과 애초에 경쟁하지 않는다
+// (Electron 43.3.0 실측). 즉 pnpm dev가 떠 있어도 e2e는 정상적으로 뜬다.
+// 반대로 같은 ONE_DESK_USER_DATA를 공유하는 두 인스턴스는 이 잠금이 막아준다 —
+// 위에 적은 위험이 정확히 그 경우이므로 여기를 건너뛰게 만들지 말 것.
+if (dataDirError) {
+  dialog.showErrorBox('one-desk를 시작할 수 없습니다', dataDirError)
+  app.quit()
+} else if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => {
