@@ -34,8 +34,14 @@ export function RunPanel({ workspaceId, repos, reposError, chips, onRemoveChip, 
     if (workspace) setPermission(workspace.defaultPermission)
   }, [workspace])
 
+  // cwd가 지금 workspace의 repo 목록에 없으면 첫 repo로 되돌린다(없으면 비운다).
+  // "비어 있을 때만 채운다"로는 부족하다 — RunPanel은 workspace가 바뀌어도 다시
+  // 마운트되지 않으므로(App이 key를 주지 않는다) 이전 workspace의 경로가 그대로 남고,
+  // ready도 계속 true라 다른 workspace의 디렉토리에서 agent가 실행된다.
+  // core/execution.ts는 맥락 항목의 소속만 검증하고 cwd는 보지 않는다.
   useEffect(() => {
-    if (!cwd && repos.length > 0) setCwd(repos[0]!.path)
+    if (repos.some((r) => r.path === cwd)) return
+    setCwd(repos.length > 0 ? repos[0]!.path : '')
   }, [repos, cwd])
 
   const ready = cwd !== '' && prompt.trim() !== '' && !busy
