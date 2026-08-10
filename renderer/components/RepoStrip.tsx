@@ -1,16 +1,17 @@
-import { useRepos } from '../hooks/useRepos'
 import { AddRepoForm } from './AddRepoForm'
 import { chipKey, type ContextChip } from '../context'
+import type { Repo } from '@shared/models'
 
-export function RepoStrip({ workspaceId, selectedRepoId, onSelect, chipKeys, onToggleContext }: {
+export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, onSelect, chipKeys, onToggleContext }: {
   workspaceId: string
+  repos: Repo[]
+  error: string | null
+  refresh: () => Promise<void>
   selectedRepoId: string | null
   onSelect: (repoId: string | null) => void
   chipKeys: Set<string>
   onToggleContext: (chip: ContextChip) => void
 }) {
-  const { repos, error, refresh } = useRepos(workspaceId)
-
   return (
     <div className="repo-strip">
       {error && <div role="alert" className="form-error">{error}</div>}

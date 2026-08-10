@@ -6,8 +6,12 @@ import { RunEventProvider } from '../store/RunEventContext'
 import { createRunEventStore, type RunEventStore } from '../store/runEvents'
 import { Dock } from './Dock'
 import type { OneDeskClient } from '@shared/client'
-import type { Run } from '@shared/models'
+import type { Repo, Run } from '@shared/models'
 import type { RunEvent } from '@shared/events'
+
+const repos: Repo[] = [
+  { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, createdAt: 0 }
+]
 
 function makeRun(over: Partial<Run> = {}): Run {
   return {
@@ -49,6 +53,8 @@ function renderDock(runs: Run[], client: OneDeskClient, store: RunEventStore = c
           runs={runs}
           error={null}
           workspaceId="w1"
+          repos={repos}
+          reposError={null}
           chips={[]}
           onRemoveChip={vi.fn()}
           onRunStarted={vi.fn()}

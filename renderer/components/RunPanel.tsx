@@ -1,8 +1,7 @@
 import { useEffect, useState, type KeyboardEvent } from 'react'
 import { useClient } from '../client/ClientProvider'
-import { useRepos } from '../hooks/useRepos'
 import { useWorkspaces } from '../hooks/useWorkspaces'
-import type { Permission, Run } from '@shared/models'
+import type { Permission, Repo, Run } from '@shared/models'
 import type { ContextChip } from '../context'
 
 const PERMISSION_LABELS: Record<Permission, string> = {
@@ -11,14 +10,15 @@ const PERMISSION_LABELS: Record<Permission, string> = {
   full: '전체 허용'
 }
 
-export function RunPanel({ workspaceId, chips, onRemoveChip, onStarted }: {
+export function RunPanel({ workspaceId, repos, reposError, chips, onRemoveChip, onStarted }: {
   workspaceId: string
+  repos: Repo[]
+  reposError: string | null
   chips: ContextChip[]
   onRemoveChip: (chip: ContextChip) => void
   onStarted: (run: Run) => void
 }) {
   const client = useClient()
-  const { repos, error: reposError } = useRepos(workspaceId)
   const { workspaces } = useWorkspaces()
   const workspace = workspaces.find((w) => w.id === workspaceId) ?? null
 

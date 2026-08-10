@@ -21,7 +21,6 @@ function makeWorkspace(defaultPermission: Permission): Workspace {
 
 function makeClient(opts: {
   defaultPermission?: Permission
-  repos?: Repo[]
   start?: ReturnType<typeof vi.fn>
 } = {}): OneDeskClient {
   return {
@@ -29,7 +28,9 @@ function makeClient(opts: {
       list: vi.fn().mockResolvedValue([makeWorkspace(opts.defaultPermission ?? 'edit')]),
       create: vi.fn(), remove: vi.fn()
     },
-    repos: { list: vi.fn().mockResolvedValue(opts.repos ?? repos), create: vi.fn(), remove: vi.fn() },
+    // repos는 이제 App이 useRepos로 조회해 prop으로 내려준다 (RepoStrip과 상태를
+    // 공유하기 위해서다). RunPanel은 더 이상 client.repos를 직접 부르지 않는다.
+    repos: { list: vi.fn(), create: vi.fn(), remove: vi.fn() },
     runs: {
       list: vi.fn().mockResolvedValue([]),
       start: opts.start ?? vi.fn().mockResolvedValue({ id: 'run-1' } as Run),
@@ -39,10 +40,22 @@ function makeClient(opts: {
   } as unknown as OneDeskClient
 }
 
-function renderPanel(client: OneDeskClient, chips: ContextChip[] = [], onStarted = vi.fn()) {
+function renderPanel(
+  client: OneDeskClient,
+  panelRepos: Repo[] = repos,
+  chips: ContextChip[] = [],
+  onStarted = vi.fn()
+) {
   render(
     <ClientProvider client={client}>
-      <RunPanel workspaceId="w1" chips={chips} onRemoveChip={vi.fn()} onStarted={onStarted} />
+      <RunPanel
+        workspaceId="w1"
+        repos={panelRepos}
+        reposError={null}
+        chips={chips}
+        onRemoveChip={vi.fn()}
+        onStarted={onStarted}
+      />
     </ClientProvider>
   )
   return onStarted
@@ -66,6 +79,7 @@ describe('RunPanel', () => {
     const start = vi.fn().mockResolvedValue({ id: 'run-1' } as Run)
     const onStarted = renderPanel(
       makeClient({ start, defaultPermission: 'read_only' }),
+      repos,
       [{ type: 'issue', id: 'i1', label: '토큰 버그' }]
     )
 
@@ -100,7 +114,7 @@ describe('RunPanel', () => {
   })
 
   it('repo가 없으면 안내하고 실행을 막는다', async () => {
-    renderPanel(makeClient({ repos: [] }))
+    renderPanel(makeClient(), [])
     expect(await screen.findByText(/repo를 먼저 등록/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '▶ 실행' })).toBeDisabled()
   })

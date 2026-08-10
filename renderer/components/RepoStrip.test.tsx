@@ -19,7 +19,16 @@ describe('RepoStrip', () => {
   it('repo 카드를 모두 보여준다', async () => {
     render(
       <ClientProvider client={client}>
-        <RepoStrip workspaceId="w1" selectedRepoId={null} onSelect={vi.fn()} chipKeys={new Set()} onToggleContext={vi.fn()} />
+        <RepoStrip
+          workspaceId="w1"
+          repos={repos}
+          error={null}
+          refresh={vi.fn()}
+          selectedRepoId={null}
+          onSelect={vi.fn()}
+          chipKeys={new Set()}
+          onToggleContext={vi.fn()}
+        />
       </ClientProvider>
     )
     expect(await screen.findByText('api-server')).toBeTruthy()
@@ -32,6 +41,9 @@ describe('RepoStrip', () => {
       <ClientProvider client={client}>
         <RepoStrip
           workspaceId="w1"
+          repos={repos}
+          error={null}
+          refresh={vi.fn()}
           selectedRepoId="r1"
           onSelect={onSelect}
           chipKeys={new Set()}

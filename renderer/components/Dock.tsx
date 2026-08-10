@@ -4,17 +4,19 @@ import { useRunEvents } from '../hooks/useRunEvents'
 import { RunLog } from './RunLog'
 import { RunPanel } from './RunPanel'
 import type { ContextChip } from '../context'
-import type { Run } from '@shared/models'
+import type { Repo, Run } from '@shared/models'
 
 function label(run: Run): string {
   const text = run.userPrompt.trim().split('\n')[0] ?? ''
   return text.length > 24 ? `${text.slice(0, 24)}…` : text || '(빈 지시)'
 }
 
-export function Dock({ runs, error, workspaceId, chips, onRemoveChip, onRunStarted }: {
+export function Dock({ runs, error, workspaceId, repos, reposError, chips, onRemoveChip, onRunStarted }: {
   runs: Run[]
   error: string | null
   workspaceId: string
+  repos: Repo[]
+  reposError: string | null
   chips: ContextChip[]
   onRemoveChip: (chip: ContextChip) => void
   onRunStarted: (run: Run) => void
@@ -87,6 +89,8 @@ export function Dock({ runs, error, workspaceId, chips, onRemoveChip, onRunStart
           {view === 'new' ? (
             <RunPanel
               workspaceId={workspaceId}
+              repos={repos}
+              reposError={reposError}
               chips={chips}
               onRemoveChip={onRemoveChip}
               onStarted={started}

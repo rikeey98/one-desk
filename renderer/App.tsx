@@ -6,6 +6,7 @@ import { MemoPanel } from './components/MemoPanel'
 import { AssetPanel } from './components/AssetPanel'
 import { Dock } from './components/Dock'
 import { useRuns } from './hooks/useRuns'
+import { useRepos } from './hooks/useRepos'
 import { chipKey, type ContextChip } from './context'
 
 export default function App() {
@@ -13,6 +14,10 @@ export default function App() {
   const [repoId, setRepoId] = useState<string | null>(null)
   const [chips, setChips] = useState<ContextChip[]>([])
   const { runs, error: runsError } = useRuns(workspaceId)
+  // RepoStrip과 RunPanel(Dock 아래)이 각자 useRepos를 부르면 서로의 상태를 모른다 —
+  // repo를 등록해도 RunPanel의 작업 디렉토리 select가 영원히 비는 실제 결함이었다.
+  // useRuns와 같은 패턴으로 여기서 한 번만 불러 양쪽에 내려준다.
+  const { repos, error: reposError, refresh: refreshRepos } = useRepos(workspaceId)
 
   const chipKeys = useMemo(() => new Set(chips.map(chipKey)), [chips])
 
@@ -37,6 +42,9 @@ export default function App() {
           <>
             <RepoStrip
               workspaceId={workspaceId}
+              repos={repos}
+              error={reposError}
+              refresh={refreshRepos}
               selectedRepoId={repoId}
               onSelect={setRepoId}
               chipKeys={chipKeys}
@@ -61,6 +69,8 @@ export default function App() {
               runs={runs}
               error={runsError}
               workspaceId={workspaceId}
+              repos={repos}
+              reposError={reposError}
               chips={chips}
               onRemoveChip={toggleChip}
               // 담은 맥락은 그 run에만 적용된다. 다음 실행은 빈 상태에서 시작한다.
