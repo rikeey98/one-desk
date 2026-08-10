@@ -14,7 +14,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
  * electron/main.ts의 resolveMigrationsDir()이 drizzle/를 out/main/drizzle에서 찾다가
  * 실패한다. DB 파일은 생기는데 마이그레이션이 안 돌아 테이블이 0개인 채로 앱이
  * 멈춘다(창도 안 뜬다) — 로그도 안 남아 원인을 찾기 어렵다.
- * `electron out/main/index.js` → 테이블 0개, `electron .`(루트, main 필드 경유) → 8개.
+ * `electron out/main/index.js` → 테이블 0개, `electron .`(루트, main 필드 경유) → 10개.
  * pnpm dev와 패키징된 앱 둘 다 "main" 필드를 거치므로, 여기서도 같은 경로를 타야
  * e2e가 실제 사용자가 겪는 실행 경로를 검증한다.
  */
