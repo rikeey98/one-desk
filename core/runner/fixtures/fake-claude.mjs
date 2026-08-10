@@ -34,7 +34,10 @@ if (scenario === 'hang') {
   finish(1)
 } else {
   // e2e가 running 상태를 관찰할 수 있도록 결과를 늦출 수 있다. 기본은 0(즉시).
-  const delayMs = Number(process.env.ONE_DESK_FAKE_DELAY_MS ?? 0)
+  // 값이 이상하면 Number()가 NaN을 내고 setTimeout(fn, NaN)은 즉시 실행된다 —
+  // 오타 하나가 "지연 없음"으로 조용히 둔갑해 running 탭 단언이 간헐적으로 깨진다.
+  const parsedDelay = Number(process.env.ONE_DESK_FAKE_DELAY_MS ?? 0)
+  const delayMs = Number.isFinite(parsedDelay) ? parsedDelay : 0
   emit({ type: 'assistant', message: { content: [{ type: 'text', text: '작업 중' }] } })
   setTimeout(() => {
     emit({ type: 'result', subtype: 'success', is_error: false, result: '끝남', session_id: 'fake-session' })
