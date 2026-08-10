@@ -2,7 +2,9 @@
 
 workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 골라 CLI 코딩 agent(Claude Code, OpenCode)에게 넘겨 헤드리스로 실행한 뒤 결과를 앱에 기록하는 Electron 데스크톱 앱.
 
-**현재 상태:** 1단계 완료(맥락 관리 앱). 2단계(agent 실행 파이프라인) 착수 전.
+**현재 상태:** 2단계 완료(맥락 관리 앱 + 단일 agent 실행 파이프라인). 3단계(동시 실행과 인박스) 착수 전.
+
+핵심 한 바퀴(맥락 담기 → 실행 → 로그 → 완료)는 `pnpm test:e2e`가 빌드된 앱을 실제로 클릭해 검증한다. 3단계에서 붙일 것은 `RunManager`의 동시 실행 상한과 대기 큐, 결과 인박스, 사이드바 배지, 세션 이어서 실행이다. `needs_answer` 컬럼은 이미 스키마에 있고 UI만 없다.
 
 ## 명령어
 
@@ -11,6 +13,7 @@ workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 
 ```bash
 pnpm dev          # 개발 실행
 pnpm test         # Vitest (core=node, renderer=jsdom)
+pnpm test:e2e     # 빌드 후 Playwright로 실제 앱을 띄워 클릭 (pnpm test와 섞이지 않는다)
 pnpm typecheck    # tsc --build
 pnpm lint         # eslint
 pnpm db:generate  # Drizzle 마이그레이션 생성
@@ -85,5 +88,7 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 | `docs/superpowers/specs/2026-08-07-implementation-notes.md` | 실측으로 검증된 CLI 사실과 파싱 코드 (큰 파일, 필요한 부분만 grep) |
 | `docs/superpowers/specs/2026-08-08-stage2-handoff.md` | 2단계 착수 전 남은 장애물 |
 | `docs/superpowers/plans/2026-08-08-stage2-agent-execution.md` | 2단계 구현 계획 (14개 태스크) |
+| `docs/superpowers/specs/2026-08-10-e2e-ui-driver-design.md` | e2e UI 드라이버 설계 |
+| `docs/superpowers/plans/2026-08-10-e2e-ui-driver.md` | e2e UI 드라이버 구현 계획 (완료) |
 
 **설계 문서의 결정을 코드에서 임의로 바꾸지 않는다.** 설계에 구멍이 보이면 고치지 말고 지적할 것 — 그게 더 값지다.

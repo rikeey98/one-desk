@@ -8,7 +8,7 @@ import { createWorkspaceRepository } from './db/repositories/workspace'
 import { createRepoRepository } from './db/repositories/repo'
 import { createIssueRepository } from './db/repositories/issue'
 import { createRunRepository } from './db/repositories/run'
-import { createRunManager } from './runner/manager'
+import { createRunManager, type RunManager, type RunOutcome } from './runner/manager'
 import { claudeCodeAdapter } from './runner/adapters/claudeCode'
 import { createExecutionService } from './execution'
 import type { Run } from '@shared/models'
@@ -17,7 +17,7 @@ import type { PreflightResult } from './runner/types'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FAKE = resolve(HERE, 'runner/fixtures/fake-claude.mjs')
 
-function setup(preflight?: () => Promise<PreflightResult>) {
+function setup(preflight?: () => Promise<PreflightResult>, managerOverride?: RunManager) {
   const db = makeTestDb()
   const logDir = mkdtempSync(resolve(tmpdir(), 'one-desk-exec-'))
   const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
@@ -25,7 +25,7 @@ function setup(preflight?: () => Promise<PreflightResult>) {
   const issueId = createIssueRepository(db).create({ workspaceId, title: '토큰 버그', body: '설명' }).id
   const runs = createRunRepository(db)
   const updates: Run[] = []
-  const manager = createRunManager({
+  const manager = managerOverride ?? createRunManager({
     adapters: { 'claude-code': claudeCodeAdapter, opencode: claudeCodeAdapter },
     logDir,
     onEvent: () => {}
@@ -119,4 +119,81 @@ describe('ExecutionService', () => {
     expect(ctx.runs.get(second.id).errorMessage).toMatch(/실행 중/)
     await vi.waitFor(() => expect(ctx.runs.get(first.id).status).toBe('succeeded'))
   })
+
+  it('manager.start()가 아직 끝나지 않았는데도 start()가 먼저 돌아온다', async () => {
+    // 위의 '완료를 기다리지 않고 running 상태로 즉시 돌아온다'는 이 계약을 못 지킨다.
+    // 반환값은 markStarted가 만든 스냅샷이라, start()를 완료까지 await하도록 바꿔도
+    // status는 여전히 'running'이라서 그 테스트는 통과한다. 계약을 실제로 고정하려면
+    // 값의 모양이 아니라 시간 순서를 봐야 한다.
+    //
+    // e2e(core-loop)도 이 자리를 대신하지 못한다. 화면이 보는 running 탭은
+    // notify(markStarted)가 만드는데 그건 manager.start() 호출보다 먼저 실행되므로,
+    // 완료까지 기다리는 회귀가 생겨도 화면에는 드러나지 않는다.
+    const managerStarted = createDeferredManager()
+    const local = setup(undefined, managerStarted.manager)
+
+    const run = await withTimeout(
+      local.service.start({
+        workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+        permission: 'edit', userPrompt: 'x', context: []
+      }),
+      1_000,
+      'start()가 manager.start()의 완료를 기다리고 있다 — 완료를 기다리지 않는다는 계약이 깨졌다'
+    )
+
+    expect(managerStarted.calledOnce()).toBe(true)
+    expect(managerStarted.settled()).toBe(false)
+    expect(run.status).toBe('running')
+
+    // 풀어주면 그제야 종료 처리가 돈다 — 체인이 연결돼 있다는 것까지 확인한다.
+    managerStarted.resolve({
+      status: 'succeeded',
+      resultText: '끝남',
+      externalSessionId: 'fake-session',
+      needsAnswer: false,
+      exitCode: 0,
+      errorMessage: null,
+      logPath: run.logPath
+    })
+    await vi.waitFor(() => expect(local.runs.get(run.id).status).toBe('succeeded'))
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
 })
+
+/**
+ * manager.start()가 우리가 풀어줄 때까지 끝나지 않는 가짜 manager.
+ * 타이머로 흉내내면 느리고 불안정하다 — 보류된 프로미스를 직접 쥐면 결정적이다.
+ */
+function createDeferredManager() {
+  let settle: ((outcome: RunOutcome) => void) | null = null
+  let done = false
+  let calls = 0
+  const pending = new Promise<RunOutcome>((r) => {
+    settle = (outcome) => { done = true; r(outcome) }
+  })
+
+  const manager: RunManager = {
+    logPathFor: (runId) => resolve(tmpdir(), `one-desk-deferred-${runId}.jsonl`),
+    start: () => { calls += 1; return pending },
+    cancel: () => {},
+    cancelAll: () => {},
+    isRunning: () => calls > 0 && !done
+  }
+
+  return {
+    manager,
+    calledOnce: () => calls === 1,
+    settled: () => done,
+    resolve: (outcome: RunOutcome) => settle?.(outcome)
+  }
+}
+
+/** 계약이 깨지면 무한 대기 대신 이유가 적힌 실패로 끝나게 한다. */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(message)), ms).unref()
+    })
+  ])
+}
