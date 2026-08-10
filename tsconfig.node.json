@@ -1,6 +1,6 @@
 {
   "extends": "./tsconfig.base.json",
-  "include": ["electron/**/*", "core/**/*", "shared/**/*", "*.config.ts"],
+  "include": ["electron/**/*", "core/**/*", "shared/**/*", "e2e/**/*", "*.config.ts"],
   "compilerOptions": {
     "composite": true,
     "lib": ["ES2023"],

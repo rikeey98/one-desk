@@ -19,4 +19,7 @@ release/
 .playwright-mcp/
 onedesk-*.png
 
+# e2e 실행 산출물 (스크린샷 등)
+e2e/artifacts/
+
 .DS_Store
