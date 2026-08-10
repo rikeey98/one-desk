@@ -53,8 +53,9 @@ describe('핵심 한 바퀴', () => {
     //    이 단언이 검증하지 "않는" 것: execution.start()가 manager.start()의 완료를
     //    기다리는지 여부. notify(markStarted)가 manager.start() 호출보다 먼저 실행되므로,
     //    execution.start()가 manager.start()를 통째로 await하도록 바뀌어도(즉 완료까지
-    //    기다리는 회귀가 생겨도) 이 위치에서는 잡히지 않는다 — 실측으로 확인했다
-    //    (task-5-report.md Step 3). 그 계약은 core 단위 테스트가 잡아야 할 자리다.
+    //    기다리는 회귀가 생겨도) 이 위치에서는 잡히지 않는다 — 실제로 manager.start()를
+    //    그대로 await하도록 고쳐놓고 돌려봐도 이 단언은 그대로 통과했다(커밋 40f7f93).
+    //    그 계약은 core 단위 테스트가 잡아야 할 자리다.
     const runningTab = page.getByRole('button', { name: new RegExp(`running.*${PROMPT}`) })
     await runningTab.waitFor({ state: 'visible', timeout: 5_000 })
 

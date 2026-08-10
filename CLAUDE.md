@@ -58,6 +58,8 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **better-sqlite3는 외래키를 기본으로 끄고 시작한다.** `openDb`의 `pragma('foreign_keys = ON')`이 없으면 스키마의 `onDelete: 'cascade'`가 전부 무효가 된다.
 
+**`pnpm test:e2e`와 `pnpm dev`를 동시에 돌리지 말 것.** `test:e2e`는 `electron-vite build`로 시작하는데, 그 산출물 디렉토리가 `electron-vite dev --watch`가 감시하는 `out/`과 같아서 실행 중인 dev 앱의 main/preload가 e2e용 빌드로 갈아끼워진다. 반대 방향(dev가 떠 있어도 e2e는 정상 동작)은 검증돼 있으니, 손해를 보는 쪽은 항상 dev다.
+
 **`dev` 스크립트의 `--watch`를 지우지 말 것.** `electron-vite dev`는 `--watch` 없이는 **main과 preload를 시작할 때 딱 한 번만 빌드한다.** 렌더러는 HMR로 즉시 반영되므로 화면은 멀쩡해 보이는데, `core/`나 `electron/`을 고쳐도 앱은 낡은 코드를 계속 돌린다. 2단계에서 어댑터를 고치고도 반영이 안 돼 한참 헤맸다 — `out/main/index.js`의 mtime이 소스보다 오래됐는지 보면 바로 드러난다.
 
 ## 데이터 규칙
