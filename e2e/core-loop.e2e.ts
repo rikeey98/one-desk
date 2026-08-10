@@ -48,8 +48,13 @@ describe('핵심 한 바퀴', () => {
     await page.getByRole('button', { name: '▶ 실행' }).click()
 
     // 7. 탭이 즉시 생긴다.
-    //    execution.start()가 완료를 기다리지 않는다는 계약을 화면에서 고정한다 —
-    //    종료까지 await했다면 여기서 몇 분을 기다리다 실패한다.
+    //    이 단언이 실제로 검증하는 것: markStarted 직후의 상태 push(onRunUpdate)가
+    //    runs:start의 IPC 응답과는 무관한 별도 채널로 화면에 곧바로 반영된다는 것.
+    //    이 단언이 검증하지 "않는" 것: execution.start()가 manager.start()의 완료를
+    //    기다리는지 여부. notify(markStarted)가 manager.start() 호출보다 먼저 실행되므로,
+    //    execution.start()가 manager.start()를 통째로 await하도록 바뀌어도(즉 완료까지
+    //    기다리는 회귀가 생겨도) 이 위치에서는 잡히지 않는다 — 실측으로 확인했다
+    //    (task-5-report.md Step 3). 그 계약은 core 단위 테스트가 잡아야 할 자리다.
     const runningTab = page.getByRole('button', { name: new RegExp(`running.*${PROMPT}`) })
     await runningTab.waitFor({ state: 'visible', timeout: 5_000 })
 
