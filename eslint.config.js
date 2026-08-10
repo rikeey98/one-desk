@@ -26,5 +26,15 @@ export default tseslint.config(
         ]
       }]
     }
+  },
+  {
+    files: ['e2e/**/*.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          { group: ['**/core/**', '@core/*', '**/shared/**', '@shared/*'], message: 'e2e/는 core/와 shared/를 직접 import하지 않는다. 빌드된 앱을 UI로만 조작한다. tsconfig.node.json에는 @core/* 별칭이 있어 타입 검사는 통과하지만 vitest.e2e.config.ts에는 별칭이 없어 런타임에 해석 실패한다.' }
+        ]
+      }]
+    }
   }
 )

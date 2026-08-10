@@ -61,7 +61,7 @@ importers:
         specifier: 26.0.0
         version: 26.0.0
       playwright-core:
-        specifier: ^1.62.1
+        specifier: 1.62.1
         version: 1.62.1
       prettier:
         specifier: 3.4.2
