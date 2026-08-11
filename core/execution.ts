@@ -180,6 +180,10 @@ export function createExecutionService(opts: ExecutionOptions) {
    *
    * manager는 프로세스가 있는 run만 안다 — 대기 중인 run을 manager.cancel에
    * 넘기면 아무 일도 일어나지 않고 사용자는 취소가 안 된다고 느낀다.
+   *
+   * 어느 쪽이든 **사용자가 스스로 한 일이므로 그 자리에서 확인 표시를 찍는다.**
+   * 그래야 인박스에 남는 canceled가 앱이 재시작하며 취소한 것만 남고,
+   * "대기 중 취소됨"이라는 이름이 정확해진다 (설계 §5).
    */
   function cancel(runId: string): void {
     if (opts.queue.remove(runId)) {
@@ -192,8 +196,13 @@ export function createExecutionService(opts: ExecutionOptions) {
         exitCode: null,
         errorMessage: null
       }))
+      notify(opts.runs.markReviewed(runId, 'archived'))
       return
     }
+
+    // 실행 중이다. 종료 기록은 manager의 결과가 오면 finish가 쓴다.
+    // 확인 표시는 지금 찍는다 — markFinished는 reviewedAt을 건드리지 않으므로 살아남는다.
+    notify(opts.runs.markReviewed(runId, 'archived'))
     opts.manager.cancel(runId)
   }
 

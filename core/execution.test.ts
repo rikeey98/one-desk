@@ -308,6 +308,45 @@ describe('ExecutionService', () => {
     logs.restore()
     rmSync(local.logDir, { recursive: true, force: true })
   })
+
+  it('사용자가 대기 중인 run을 취소하면 인박스에 뜨지 않는다', async () => {
+    // 본인이 알아서 한 일이니 이미 "확인됨"이다. 인박스에 남는 canceled는
+    // 앱이 재시작하며 취소한 것뿐이어야 한다.
+    const local = setup({ limit: 1 })
+    const first = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '첫째', context: []
+    })
+    const waiting = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '대기', context: []
+    })
+    expect(waiting.status).toBe('pending')
+
+    local.service.cancel(waiting.id)
+
+    expect(local.runs.get(waiting.id).status).toBe('canceled')
+    expect(local.runs.get(waiting.id).reviewedKind).toBe('archived')
+    expect(local.runs.inbox().map((r) => r.id)).not.toContain(waiting.id)
+    // 첫째는 여전히 실제 프로세스로 돌고 있다. 끝나기 전에 로그 디렉터리를
+    // 지우면 그 프로세스가 남은 로그를 쓰다 ENOENT로 죽어 테스트 출력이 지저분해진다.
+    await vi.waitFor(() => expect(local.runs.get(first.id).status).toBe('succeeded'))
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
+  it('사용자가 실행 중인 run을 취소하면 인박스에 뜨지 않는다', async () => {
+    // 실행 경로는 SIGTERM만 보내고 종료 기록은 나중에 온다. 그 시점에 run이
+    // 아직 running이지만 reviewedAt을 미리 찍어도 무해하다 — 인박스는 종료
+    // 상태만 보고, markFinished는 reviewedAt을 건드리지 않는다.
+    const run = await startBase()
+    expect(run.status).toBe('running')
+
+    ctx.service.cancel(run.id)
+
+    expect(ctx.runs.get(run.id).reviewedKind).toBe('archived')
+    await vi.waitFor(() => expect(ctx.runs.get(run.id).endedAt).toBeTypeOf('number'))
+    expect(ctx.runs.inbox().map((r) => r.id)).not.toContain(run.id)
+  })
 })
 
 /** console.error로 새는 것을 모아 두고 테스트 출력은 조용하게 유지한다. */
