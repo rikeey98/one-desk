@@ -23,6 +23,8 @@ export default function App() {
   // 훅을 공통 부모에 둔다. RepoStrip과 RunPanel이 각자 useRepos 인스턴스를 갖는 바람에
   // repo를 등록해도 한쪽만 갱신된 사고가 있었다(커밋 fbcd0e6).
   const { snapshot: queue, error: queueError } = useQueue()
+  // 상한 변경 실패도 큐 오류와 같은 자리에 뜬다. 방금 누른 것이 더 급하므로 앞에 온다.
+  const [limitError, setLimitError] = useState<string | null>(null)
   const client = useClient()
 
   const chipKeys = useMemo(() => new Set(chips.map(chipKey)), [chips])
@@ -40,8 +42,13 @@ export default function App() {
   }
 
   function changeLimit(n: number) {
-    // 결과 스냅샷은 event:queueUpdate로도 오므로 여기서 상태를 따로 쓰지 않는다.
-    void client.runs.setConcurrencyLimit(n)
+    // 성공한 스냅샷은 event:queueUpdate로도 오므로 여기서 따로 쓰지 않는다.
+    // 실패는 삼키지 않는다 — 삼키면 표시기가 그냥 안 움직이고 사용자는 이유를
+    // 알 길이 없다. Dock이 queueError를 그리는 기존 배너로 흘려 보낸다.
+    setLimitError(null)
+    client.runs.setConcurrencyLimit(n).catch((err: unknown) => {
+      setLimitError(err instanceof Error ? err.message : String(err))
+    })
   }
 
   return (
@@ -83,7 +90,7 @@ export default function App() {
               repos={repos}
               reposError={reposError}
               queue={queue}
-              queueError={queueError}
+              queueError={limitError ?? queueError}
               onChangeLimit={changeLimit}
               chips={chips}
               onRemoveChip={toggleChip}

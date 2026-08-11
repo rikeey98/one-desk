@@ -19,7 +19,7 @@ const workspace: Workspace = {
  * 버그는 백엔드가 아니라 화면 쪽 상태 동기화에 있었으므로, mock은 항상 진실을
  * 돌려주되 각 컴포넌트가 그 진실을 다시 조회하는지를 테스트가 가려낸다.
  */
-function makeClient(): OneDeskClient {
+function makeClient(runsOver: Record<string, unknown> = {}): OneDeskClient {
   let repos: Repo[] = []
   return {
     workspaces: { list: vi.fn().mockResolvedValue([workspace]), create: vi.fn(), remove: vi.fn() },
@@ -43,7 +43,8 @@ function makeClient(): OneDeskClient {
       cancel: vi.fn(),
       readLog: vi.fn(),
       queueSnapshot: vi.fn().mockResolvedValue({ running: 0, limit: 3, waiting: 0 }),
-      setConcurrencyLimit: vi.fn().mockResolvedValue({ running: 0, limit: 3, waiting: 0 })
+      setConcurrencyLimit: vi.fn().mockResolvedValue({ running: 0, limit: 3, waiting: 0 }),
+      ...runsOver
     },
     events: {
       onRunEvent: vi.fn(() => () => {}),
@@ -78,5 +79,28 @@ describe('App', () => {
 
     await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '고쳐줘')
     expect(screen.getByRole('button', { name: '▶ 실행' })).toBeEnabled()
+  })
+
+  it('상한 변경이 거부되면 오류를 화면에 보여준다', async () => {
+    // void로 던져두면 표시기가 그냥 안 움직이고 사용자는 아무것도 못 본다 —
+    // 렌더러에는 unhandled rejection만 남는다. 새 UI 없이 기존 배너로 흘려야 한다.
+    const client = makeClient({
+      setConcurrencyLimit: vi.fn().mockRejectedValue(new Error('상한을 저장하지 못했습니다'))
+    })
+    render(
+      <ClientProvider client={client}>
+        <RunEventProvider store={createRunEventStore()}>
+          <App />
+        </RunEventProvider>
+      </ClientProvider>
+    )
+
+    await userEvent.click(await screen.findByRole('button', { name: 'ws1' }))
+    await userEvent.click(await screen.findByRole('button', { name: '실행 슬롯' }))
+    const input = screen.getByLabelText('동시 실행 상한')
+    await userEvent.clear(input)
+    await userEvent.type(input, '5{Enter}')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('상한을 저장하지 못했습니다')
   })
 })

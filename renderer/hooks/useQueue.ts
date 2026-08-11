@@ -21,7 +21,13 @@ export function useQueue() {
     return () => { alive = false }
   }, [client])
 
-  useEffect(() => client.events.onQueueUpdate(setSnapshot), [client])
+  useEffect(() => client.events.onQueueUpdate((s) => {
+    setSnapshot(s)
+    // push가 도착했다는 것은 큐가 다시 말을 걸고 있다는 뜻이다. 여기서 지우지 않으면
+    // 부팅 때의 일시적 조회 실패가 영영 남고, Dock이 queueError를 logError보다
+    // 앞에 두므로 이후 모든 run 로그 오류를 그 낡은 문구가 덮어 가린다.
+    setError(null)
+  }), [client])
 
   return { snapshot, error }
 }
