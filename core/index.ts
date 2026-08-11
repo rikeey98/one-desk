@@ -10,9 +10,11 @@ import { createRunManager } from './runner/manager'
 import { createExecutionService } from './execution'
 import { claudeCodeAdapter } from './runner/adapters/claudeCode'
 import { resolveAgentPath } from './runner/agentPath'
+import { createSettingRepository } from './db/repositories/setting'
+import { createRunQueue } from './runner/queue'
 import type { AgentAdapter } from './runner/types'
 import type { RunEvent } from '@shared/events'
-import type { AgentKind, Run } from '@shared/models'
+import type { AgentKind, QueueSnapshot, Run } from '@shared/models'
 
 export interface CoreOptions {
   /** DB와 로그를 둘 디렉토리. Electron의 userData 경로를 main이 넘긴다. */
@@ -23,6 +25,7 @@ export interface CoreOptions {
 
 const RUN_EVENT = 'run-event'
 const RUN_UPDATE = 'run-update'
+const QUEUE_UPDATE = 'queue-update'
 
 export function createCore(opts: CoreOptions) {
   const db = openDb({
@@ -44,6 +47,13 @@ export function createCore(opts: CoreOptions) {
   }
 
   const emitter = new EventEmitter()
+
+  const settings = createSettingRepository(db)
+  const queue = createRunQueue({
+    limit: settings.concurrencyLimit(),
+    onChange: (snapshot) => emitter.emit(QUEUE_UPDATE, snapshot)
+  })
+
   const manager = createRunManager({
     adapters,
     logDir: join(opts.dataDir, 'logs'),
@@ -54,6 +64,7 @@ export function createCore(opts: CoreOptions) {
     db,
     runs,
     manager,
+    queue,
     resolveExecutable: async (agentKind, workspaceId) => {
       const ws = workspaces.list().find((w) => w.id === workspaceId) ?? null
       return adapters[agentKind].preflight(resolveAgentPath(agentKind, ws))
@@ -69,6 +80,18 @@ export function createCore(opts: CoreOptions) {
     runs,
     execution,
 
+    /** 전역 실행 슬롯. workspace와 무관하다 (설계 §6 — 제약의 근거가 머신 자원이다). */
+    queue: {
+      snapshot: (): QueueSnapshot => queue.snapshot(),
+
+      /** 상한을 바꾸고 저장한다. 검증은 setting 저장소가 하므로 잘못된 값은 여기서 던진다. */
+      setLimit(n: number): QueueSnapshot {
+        settings.setConcurrencyLimit(n)
+        queue.setLimit(n)
+        return queue.snapshot()
+      }
+    },
+
     /** 스트림 이벤트 구독. 반환된 함수를 부르면 해제된다. */
     onRunEvent(cb: (event: RunEvent) => void): () => void {
       emitter.on(RUN_EVENT, cb)
@@ -79,6 +102,12 @@ export function createCore(opts: CoreOptions) {
     onRunUpdate(cb: (run: Run) => void): () => void {
       emitter.on(RUN_UPDATE, cb)
       return () => { emitter.off(RUN_UPDATE, cb) }
+    },
+
+    /** 큐가 바뀔 때마다 새 스냅샷을 준다. run 하나 단위인 onRunUpdate로는 표현되지 않는다. */
+    onQueueUpdate(cb: (snapshot: QueueSnapshot) => void): () => void {
+      emitter.on(QUEUE_UPDATE, cb)
+      return () => { emitter.off(QUEUE_UPDATE, cb) }
     },
 
     /**
