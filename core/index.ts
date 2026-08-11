@@ -14,7 +14,7 @@ import { createSettingRepository } from './db/repositories/setting'
 import { createRunQueue } from './runner/queue'
 import type { AgentAdapter } from './runner/types'
 import type { RunEvent } from '@shared/events'
-import type { AgentKind, QueueSnapshot, Run } from '@shared/models'
+import type { AgentKind, InboxCounts, QueueSnapshot, Run } from '@shared/models'
 
 export interface CoreOptions {
   /** DB와 로그를 둘 디렉토리. Electron의 userData 경로를 main이 넘긴다. */
@@ -26,6 +26,7 @@ export interface CoreOptions {
 const RUN_EVENT = 'run-event'
 const RUN_UPDATE = 'run-update'
 const QUEUE_UPDATE = 'queue-update'
+const INBOX_UPDATE = 'inbox-update'
 
 export function createCore(opts: CoreOptions) {
   const db = openDb({
@@ -69,8 +70,21 @@ export function createCore(opts: CoreOptions) {
       const ws = workspaces.list().find((w) => w.id === workspaceId) ?? null
       return adapters[agentKind].preflight(resolveAgentPath(agentKind, ws))
     },
-    onRunUpdate: (run) => emitter.emit(RUN_UPDATE, run)
+    onRunUpdate: (run) => {
+      emitter.emit(RUN_UPDATE, run)
+      // 종료·취소·확인 표시가 전부 이 경로를 지난다.
+      emitInbox()
+    }
   })
+
+  /**
+   * 인박스 소속이 바뀔 수 있는 쓰기 뒤마다 부른다.
+   * 배지는 항상 보이므로 push가 필요하다 — run 하나 단위인 onRunUpdate로는
+   * 전역 카운트를 표현할 수 없고, 렌더러는 현재 workspace의 run만 안다.
+   */
+  function emitInbox(): void {
+    emitter.emit(INBOX_UPDATE, runs.inboxCounts())
+  }
 
   return {
     workspaces,
@@ -92,6 +106,19 @@ export function createCore(opts: CoreOptions) {
       }
     },
 
+    /** 지금 사용자의 손이 필요한 run. 모든 workspace를 가로지른다 (설계 §4). */
+    inbox: {
+      list: (): Run[] => runs.inbox(),
+      counts: (): InboxCounts => runs.inboxCounts(),
+
+      markReviewed(runId: string, kind: 'confirmed' | 'archived'): Run {
+        const reviewed = runs.markReviewed(runId, kind)
+        emitter.emit(RUN_UPDATE, reviewed)
+        emitInbox()
+        return reviewed
+      }
+    },
+
     /** 스트림 이벤트 구독. 반환된 함수를 부르면 해제된다. */
     onRunEvent(cb: (event: RunEvent) => void): () => void {
       emitter.on(RUN_EVENT, cb)
@@ -108,6 +135,12 @@ export function createCore(opts: CoreOptions) {
     onQueueUpdate(cb: (snapshot: QueueSnapshot) => void): () => void {
       emitter.on(QUEUE_UPDATE, cb)
       return () => { emitter.off(QUEUE_UPDATE, cb) }
+    },
+
+    /** 인박스 건수가 바뀔 때마다 준다. 사이드바 배지가 이걸로 산다. */
+    onInboxUpdate(cb: (counts: InboxCounts) => void): () => void {
+      emitter.on(INBOX_UPDATE, cb)
+      return () => { emitter.off(INBOX_UPDATE, cb) }
     },
 
     /**
