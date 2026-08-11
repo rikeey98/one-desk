@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -208,8 +208,15 @@ describe('RunRepository', () => {
     it('이미 확인한 run에 다시 불러도 처음 시각을 덮어쓰지 않는다', () => {
       // 처음 확인한 때가 기록으로서 의미가 있다.
       const done = finished('succeeded')
+      // 두 markReviewed 호출이 실제로는 같은 밀리초에 떨어질 수 있어 시각이
+      // 우연히 같아 보일 수 있다. Date.now를 통제해 서로 다른 값을 물려야
+      // 가드가 없을 때 둘째 값으로 덮이는 회귀를 확실히 잡는다.
+      const nowSpy = vi.spyOn(Date, 'now').mockReturnValueOnce(1000).mockReturnValueOnce(2000)
       const first = runs.markReviewed(done.id, 'confirmed')
       const second = runs.markReviewed(done.id, 'archived')
+      nowSpy.mockRestore()
+
+      expect(first.reviewedAt).toBe(1000)
       expect(second.reviewedAt).toBe(first.reviewedAt)
       expect(second.reviewedKind).toBe('confirmed')
     })
@@ -242,8 +249,14 @@ describe('RunRepository', () => {
       expect(counts.byWorkspace[other]).toBe(1)
     })
 
-    it('미처리가 없는 workspace는 키가 없다', () => {
+    it('미처리가 없는 workspace는 키가 없다 (회귀 가드가 아니라 계약 진술)', () => {
       // 0을 키로 넣으면 배지가 0을 그리게 되고, 0이 상시 붙으면 눈이 걸러낸다.
+      //
+      // 정직하게 밝혀둔다: 이 단언은 한 줄 회귀를 잡지 못한다. inboxCounts가
+      // 지금처럼 GROUP BY 결과 행만으로 byWorkspace를 채우는 한, 매칭 행이
+      // 0인 workspace는 애초에 결과 행이 될 수 없어 키도 생길 수 없다 —
+      // 구조적으로 항상 성립한다. 이 테스트가 실제로 잡는 것은 나중에 누군가
+      // "모든 workspace를 미리 훑어 0으로 채우는" 식으로 구현을 다시 쓸 때뿐이다.
       const other = createWorkspaceRepository(db).create({ name: 'ws2' }).id
       finished('succeeded')
       expect(runs.inboxCounts().byWorkspace[other]).toBeUndefined()
