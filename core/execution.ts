@@ -3,8 +3,9 @@ import { and, eq, inArray } from 'drizzle-orm'
 import type { Database } from './db/open'
 import { issue, memo, repo } from './db/schema'
 import { assemblePrompt } from './context/assemble'
-import type { RunRepository } from './db/repositories/run'
+import type { FinishRunInput, RunRepository } from './db/repositories/run'
 import type { RunManager } from './runner/manager'
+import type { RunQueue } from './runner/queue'
 import type { PreflightResult } from './runner/types'
 import type { AgentKind, Run, StartRunInput } from '@shared/models'
 
@@ -12,6 +13,8 @@ export interface ExecutionOptions {
   db: Database
   runs: RunRepository
   manager: RunManager
+  /** 전역 동시 실행 상한과 대기열 */
+  queue: RunQueue
   resolveExecutable: (agentKind: AgentKind, workspaceId: string) => Promise<PreflightResult>
   /** run 행이 바뀔 때마다 불린다. 시작 이후의 상태 변화는 이 경로로만 알 수 있다. */
   onRunUpdate?: (run: Run) => void
@@ -26,11 +29,80 @@ export function createExecutionService(opts: ExecutionOptions) {
   }
 
   /**
-   * 실행을 시작하고 **완료를 기다리지 않고** 돌아온다.
+   * 종료를 기록하고 슬롯을 돌려준다.
    *
-   * 종료까지 await하면 IPC 한 번이 몇 분씩 막히고, 그동안 렌더러는 run의 id를
-   * 모르므로 도크에 탭을 만들 수도 취소 버튼을 붙일 수도 없다(설계 §9).
-   * 완료는 onRunUpdate로 알린다.
+   * 기록에 실패해도 release는 반드시 부른다 — run 행이 사라진 경우(workspace 삭제)
+   * 여기서 던지면 슬롯이 영구히 줄어든다.
+   */
+  function finish(runId: string, input: FinishRunInput): void {
+    try {
+      notify(opts.runs.markFinished(runId, input))
+    } catch {
+      // 기록할 곳이 없다. 슬롯만 돌려주고 넘어간다.
+    } finally {
+      opts.queue.release(runId)
+    }
+  }
+
+  /** 슬롯을 얻은 run을 실제로 띄운다. 큐가 부른다. */
+  function beginRun(runId: string, spec: {
+    agentKind: AgentKind
+    cwd: string
+    model: string | null
+    permission: Run['permission']
+    prompt: string
+    executable: string
+    timeoutMs: number | null
+  }): void {
+    try {
+      notify(opts.runs.markStarted(runId))
+    } catch {
+      // 유령 run — 대기 중에 workspace가 지워져 행이 cascade로 사라졌다.
+      // 던지면 큐가 그대로 멈춘다. 슬롯만 돌려주고 다음으로 넘어간다.
+      opts.queue.release(runId)
+      return
+    }
+
+    // 여기서 await하지 않는다. 종료 처리는 아래 체인이 맡는다.
+    void opts.manager.start({
+      runId,
+      agentKind: spec.agentKind,
+      cwd: spec.cwd,
+      model: spec.model,
+      permission: spec.permission,
+      prompt: spec.prompt,
+      resumeSessionId: null,
+      executable: spec.executable,
+      timeoutMs: spec.timeoutMs,
+      ...(opts.extraArgs ? { extraArgs: opts.extraArgs } : {})
+    }).then(
+      (outcome) => finish(runId, {
+        status: outcome.status,
+        resultText: outcome.resultText,
+        externalSessionId: outcome.externalSessionId,
+        needsAnswer: outcome.needsAnswer,
+        exitCode: outcome.exitCode,
+        errorMessage: outcome.errorMessage
+      }),
+      // spawn 거부를 여기서 잡지 않으면 run이 영원히 running으로 남는다.
+      (err: unknown) => finish(runId, {
+        status: 'failed',
+        resultText: null,
+        externalSessionId: null,
+        needsAnswer: false,
+        exitCode: null,
+        errorMessage: err instanceof Error ? err.message : String(err)
+      })
+    )
+  }
+
+  /**
+   * 실행을 등록하고 **완료를 기다리지 않고** 돌아온다.
+   *
+   * 슬롯이 있으면 running run을, 상한에 걸리면 pending run을 돌려준다.
+   * 어느 쪽이든 종료까지 기다리지 않는다 — 기다리면 IPC 한 번이 몇 분씩 막히고,
+   * 그동안 렌더러는 run의 id를 모르므로 도크에 탭을 만들 수도 취소 버튼을
+   * 붙일 수도 없다(설계 §9). 완료는 onRunUpdate로 알린다.
    */
   async function start(input: StartRunInput): Promise<Run> {
     const { repos, issues, memos } = collectContext(opts.db, input)
@@ -60,6 +132,8 @@ export function createExecutionService(opts: ExecutionOptions) {
     })
     notify(created)
 
+    // preflight는 큐에 넣기 전에 본다. 실행 파일이 없는 run이 슬롯을 잡았다
+    // 놓는 낭비가 없고, "preflight 실패는 startedAt이 null"이라는 성질도 남는다.
     const preflight = await opts.resolveExecutable(input.agentKind, input.workspaceId)
     if (!preflight.ok || !preflight.executable) {
       return notify(opts.runs.markFinished(created.id, {
@@ -72,45 +146,44 @@ export function createExecutionService(opts: ExecutionOptions) {
       }))
     }
 
-    const started = notify(opts.runs.markStarted(created.id))
-
-    // 여기서 await하지 않는다. 종료 처리는 아래 체인이 맡는다.
-    void opts.manager.start({
-      runId: created.id,
+    const executable = preflight.executable
+    opts.queue.enqueue(created.id, () => beginRun(created.id, {
       agentKind: input.agentKind,
       cwd: input.cwd,
       model: input.model ?? null,
       permission: input.permission,
       prompt: assembled,
-      resumeSessionId: null,
-      executable: preflight.executable,
-      timeoutMs: input.timeoutMs ?? null,
-      ...(opts.extraArgs ? { extraArgs: opts.extraArgs } : {})
-    }).then(
-      (outcome) => notify(opts.runs.markFinished(created.id, {
-        status: outcome.status,
-        resultText: outcome.resultText,
-        externalSessionId: outcome.externalSessionId,
-        needsAnswer: outcome.needsAnswer,
-        exitCode: outcome.exitCode,
-        errorMessage: outcome.errorMessage
-      })),
-      // spawn 거부(동시 실행 상한 등)를 여기서 잡지 않으면 run이 영원히
-      // running으로 남아 재시작 전까지 정리되지 않는다.
-      (err: unknown) => notify(opts.runs.markFinished(created.id, {
-        status: 'failed',
+      executable,
+      timeoutMs: input.timeoutMs ?? null
+    }))
+
+    // 슬롯이 있었으면 beginRun이 동기로 끝나 running이고, 없었으면 pending이다.
+    return opts.runs.get(created.id)
+  }
+
+  /**
+   * 대기 중이면 큐에서 빼고 canceled로 끝낸다. 실행 중이면 프로세스를 죽인다.
+   *
+   * manager는 프로세스가 있는 run만 안다 — 대기 중인 run을 manager.cancel에
+   * 넘기면 아무 일도 일어나지 않고 사용자는 취소가 안 된다고 느낀다.
+   */
+  function cancel(runId: string): void {
+    if (opts.queue.remove(runId)) {
+      // 슬롯을 쥔 적이 없으므로 돌려줄 것도 없다.
+      notify(opts.runs.markFinished(runId, {
+        status: 'canceled',
         resultText: null,
         externalSessionId: null,
         needsAnswer: false,
         exitCode: null,
-        errorMessage: err instanceof Error ? err.message : String(err)
+        errorMessage: null
       }))
-    )
-
-    return started
+      return
+    }
+    opts.manager.cancel(runId)
   }
 
-  return { start, cancel: opts.manager.cancel }
+  return { start, cancel }
 }
 
 /** 맥락 항목이 이 workspace 소속인지 확인하며 실제 데이터를 모은다. */

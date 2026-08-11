@@ -9,6 +9,7 @@ import { createRepoRepository } from './db/repositories/repo'
 import { createIssueRepository } from './db/repositories/issue'
 import { createRunRepository } from './db/repositories/run'
 import { createRunManager, type RunManager, type RunOutcome } from './runner/manager'
+import { createRunQueue } from './runner/queue'
 import { claudeCodeAdapter } from './runner/adapters/claudeCode'
 import { createExecutionService } from './execution'
 import type { Run } from '@shared/models'
@@ -17,7 +18,11 @@ import type { PreflightResult } from './runner/types'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FAKE = resolve(HERE, 'runner/fixtures/fake-claude.mjs')
 
-function setup(preflight?: () => Promise<PreflightResult>, managerOverride?: RunManager) {
+function setup(
+  preflight?: () => Promise<PreflightResult>,
+  managerOverride?: RunManager,
+  limit = 3
+) {
   const db = makeTestDb()
   const logDir = mkdtempSync(resolve(tmpdir(), 'one-desk-exec-'))
   const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
@@ -30,13 +35,14 @@ function setup(preflight?: () => Promise<PreflightResult>, managerOverride?: Run
     logDir,
     onEvent: () => {}
   })
+  const queue = createRunQueue({ limit })
   const service = createExecutionService({
-    db, runs, manager,
+    db, runs, manager, queue,
     resolveExecutable: preflight ?? (async () => ({ ok: true, executable: process.execPath })),
     onRunUpdate: (run) => updates.push(run),
     extraArgs: [FAKE, '--scenario', 'success']
   })
-  return { db, service, runs, updates, workspaceId, repoId, issueId, logDir }
+  return { db, service, runs, queue, updates, workspaceId, repoId, issueId, logDir }
 }
 
 describe('ExecutionService', () => {
@@ -112,14 +118,6 @@ describe('ExecutionService', () => {
     })).rejects.toThrow()
   })
 
-  it('이미 실행 중일 때 시작하면 run이 running으로 방치되지 않고 failed로 끝난다', async () => {
-    const first = await startBase()
-    const second = await startBase()
-    await vi.waitFor(() => expect(ctx.runs.get(second.id).status).toBe('failed'))
-    expect(ctx.runs.get(second.id).errorMessage).toMatch(/실행 중/)
-    await vi.waitFor(() => expect(ctx.runs.get(first.id).status).toBe('succeeded'))
-  })
-
   it('manager.start()가 아직 끝나지 않았는데도 start()가 먼저 돌아온다', async () => {
     // 위의 '완료를 기다리지 않고 running 상태로 즉시 돌아온다'는 이 계약을 못 지킨다.
     // 반환값은 markStarted가 만든 스냅샷이라, start()를 완료까지 await하도록 바꿔도
@@ -156,6 +154,71 @@ describe('ExecutionService', () => {
       logPath: run.logPath
     })
     await vi.waitFor(() => expect(local.runs.get(run.id).status).toBe('succeeded'))
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
+  it('상한을 넘으면 두 번째 run이 pending으로 대기한다', async () => {
+    const local = setup(undefined, undefined, 1)
+    const first = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '첫째', context: []
+    })
+    const second = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '둘째', context: []
+    })
+
+    expect(first.status).toBe('running')
+    expect(second.status).toBe('pending')
+    expect(second.startedAt).toBeNull()
+    expect(local.queue.snapshot()).toEqual({ running: 1, limit: 1, waiting: 1 })
+
+    // 앞이 끝나면 뒤가 시작해서 끝난다.
+    await vi.waitFor(() => expect(local.runs.get(second.id).status).toBe('succeeded'))
+    expect(local.runs.get(first.id).status).toBe('succeeded')
+    expect(local.queue.snapshot()).toEqual({ running: 0, limit: 1, waiting: 0 })
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
+  it('run이 끝날 때마다 슬롯을 돌려준다', async () => {
+    // 한 번이라도 빠뜨리면 상한이 영구히 줄고, 증상은
+    // "언젠가부터 N개까지만 돈다"라서 원인을 찾기 어렵다.
+    for (let i = 0; i < 3; i += 1) {
+      const run = await startBase()
+      await vi.waitFor(() => expect(ctx.runs.get(run.id).status).toBe('succeeded'))
+    }
+    expect(ctx.queue.snapshot()).toEqual({ running: 0, limit: 3, waiting: 0 })
+  })
+
+  it('preflight가 실패하면 슬롯을 쓰지 않는다', async () => {
+    const local = setup(async () => ({ ok: false, reason: 'claude를 찾을 수 없습니다' }), undefined, 1)
+    const run = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: 'x', context: []
+    })
+    expect(run.status).toBe('failed')
+    expect(local.queue.snapshot()).toEqual({ running: 0, limit: 1, waiting: 0 })
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
+  it('대기 중인 run을 취소하면 canceled로 끝나고 다음이 시작한다', async () => {
+    const local = setup(undefined, undefined, 1)
+    const first = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '첫째', context: []
+    })
+    const waiting = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '대기', context: []
+    })
+    expect(waiting.status).toBe('pending')
+
+    local.service.cancel(waiting.id)
+
+    expect(local.runs.get(waiting.id).status).toBe('canceled')
+    // 슬롯을 쥔 적이 없으므로 돌려줄 것도 없다.
+    expect(local.queue.snapshot()).toEqual({ running: 1, limit: 1, waiting: 0 })
+    await vi.waitFor(() => expect(local.runs.get(first.id).status).toBe('succeeded'))
     rmSync(local.logDir, { recursive: true, force: true })
   })
 })

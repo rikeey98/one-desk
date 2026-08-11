@@ -58,8 +58,10 @@ export function createRunManager(opts: RunManagerOptions) {
   }
 
   async function start(spec: StartSpec): Promise<RunOutcome> {
-    if (active.size > 0) {
-      throw new Error('이미 실행 중인 run이 있습니다. 끝날 때까지 기다리거나 취소하세요.')
+    // 동시 실행 상한은 RunQueue가 본다. 여기 남은 것은 같은 run을 두 번 띄우지
+    // 않는다는 방어선뿐이다 — 두 번 띄우면 로그 파일 하나에 두 프로세스가 쓴다.
+    if (active.has(spec.runId)) {
+      throw new Error(`이미 실행 중인 run입니다: ${spec.runId}`)
     }
 
     const adapter = opts.adapters[spec.agentKind]

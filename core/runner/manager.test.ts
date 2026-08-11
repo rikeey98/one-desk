@@ -82,11 +82,13 @@ describe('RunManager', () => {
     cleanup()
   })
 
-  it('이미 실행 중이면 두 번째 시작을 거부한다', async () => {
+  it('같은 run을 두 번 띄우면 두 번째 시작을 거부한다', async () => {
+    // 동시 실행 상한은 RunQueue가 본다. manager에 남은 가드는 같은 run을
+    // 두 번 띄우지 않는다는 방어선뿐이다 — 서로 다른 run은 동시에 돌 수 있다.
     const { manager, cleanup } = makeManager()
     const first = manager.start(spec('slow'))
     await vi.waitFor(() => expect(manager.isRunning('r-slow')).toBe(true))
-    await expect(manager.start(spec('success'))).rejects.toThrow(/실행 중/)
+    await expect(manager.start(spec('slow'))).rejects.toThrow(/실행 중인 run입니다: r-slow/)
     await first
     cleanup()
   })
