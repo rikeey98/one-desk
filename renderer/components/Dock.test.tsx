@@ -51,7 +51,12 @@ function makeClient(over: Partial<OneDeskClient['runs']> = {}): OneDeskClient {
   } as unknown as OneDeskClient
 }
 
-function renderDock(runs: Run[], client: OneDeskClient, store: RunEventStore = createRunEventStore()) {
+function renderDock(
+  runs: Run[],
+  client: OneDeskClient,
+  store: RunEventStore = createRunEventStore(),
+  queueError: string | null = null
+) {
   render(
     <ClientProvider client={client}>
       <RunEventProvider store={store}>
@@ -62,6 +67,7 @@ function renderDock(runs: Run[], client: OneDeskClient, store: RunEventStore = c
           repos={repos}
           reposError={null}
           queue={null}
+          queueError={queueError}
           onChangeLimit={vi.fn()}
           chips={[]}
           onRemoveChip={vi.fn()}
@@ -136,6 +142,13 @@ describe('Dock', () => {
     renderDock([makeRun({ status: 'failed', errorMessage: 'claude를 찾을 수 없습니다' })], makeClient())
     await userEvent.click(screen.getByText('토큰 버그 고쳐줘'))
     expect(await screen.findByRole('alert')).toHaveTextContent('claude를 찾을 수 없습니다')
+  })
+
+  it('큐 조회 오류도 기존 배너로 보여준다', () => {
+    // 실패하면 표시기가 그냥 안 보이는데, 이 기능이 메우려던 "왜 안 보이지" 공백이
+    // 오류 상황에서 되살아난다. 새 배너를 만들지 않고 기존 alert 경로로 흘려야 한다.
+    renderDock([], makeClient(), createRunEventStore(), '큐 상태를 불러오지 못했습니다')
+    expect(screen.getByRole('alert')).toHaveTextContent('큐 상태를 불러오지 못했습니다')
   })
 
   it('도크를 접으면 본문이 사라진다', async () => {

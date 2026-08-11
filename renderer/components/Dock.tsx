@@ -12,13 +12,14 @@ function label(run: Run): string {
   return text.length > 24 ? `${text.slice(0, 24)}…` : text || '(빈 지시)'
 }
 
-export function Dock({ runs, error, workspaceId, repos, reposError, queue, onChangeLimit, chips, onRemoveChip, onRunStarted }: {
+export function Dock({ runs, error, workspaceId, repos, reposError, queue, queueError, onChangeLimit, chips, onRemoveChip, onRunStarted }: {
   runs: Run[]
   error: string | null
   workspaceId: string
   repos: Repo[]
   reposError: string | null
   queue: QueueSnapshot | null
+  queueError: string | null
   onChangeLimit: (n: number) => void
   chips: ContextChip[]
   onRemoveChip: (chip: ContextChip) => void
@@ -35,7 +36,9 @@ export function Dock({ runs, error, workspaceId, repos, reposError, queue, onCha
   // 고른 적이 없으면 가장 최근 run을 보여준다.
   const selected = runs.find((r) => r.id === pickedId) ?? runs[0] ?? null
   const { events, error: logError } = useRunEvents(view === 'log' ? selected?.id ?? null : null)
-  const shown = actionError ?? error ?? logError
+  // 큐 조회가 실패하면 표시기가 그냥 안 보인다 — 이 기능이 메우려던 "왜 안 보이지"라는
+  // 공백이 오류 상황에서 되살아난다. 새 배너를 만들지 않고 기존 경로로 흘려 보인다.
+  const shown = actionError ?? error ?? queueError ?? logError
 
   async function cancel(runId: string) {
     setActionError(null)

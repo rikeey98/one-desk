@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useRef, useState, type KeyboardEvent } from 'react'
 import type { QueueSnapshot } from '@shared/models'
 
 /**
@@ -13,23 +13,47 @@ export function SlotIndicator({ snapshot, onChangeLimit }: {
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
+  // Enter/Escape로 editing을 false로 만들면 input이 언마운트된다. 브라우저는
+  // 포커스된 요소가 DOM에서 제거되면 네이티브 blur를 발생시키고, React가 그걸 잡아
+  // 아직 붙어 있는 onBlur={commit}을 다시 실행한다 — Escape가 취소한 값을 되살리거나
+  // Enter의 commit이 두 번 실행되는 사고로 이어진다. 이 플래그로 "keydown이 이미
+  // 처리한 close"에 뒤이어 오는 그 blur만 무시한다.
+  const suppressBlurRef = useRef(false)
 
   if (!snapshot) return null
+  // 닫힌(nested) 함수 안에서 좁혀진 타입을 유지하려면 const로 옮겨 담아야 한다 —
+  // 매개변수는 재할당 가능하다고 간주돼 TS가 클로저 너머로 null 배제를 보존하지 않는다.
+  const limit = snapshot.limit
 
   function open() {
-    setDraft(String(snapshot!.limit))
+    setDraft(String(limit))
     setEditing(true)
   }
 
   function commit() {
     const n = Number(draft)
     setEditing(false)
-    if (Number.isInteger(n) && n >= 1 && n !== snapshot!.limit) onChangeLimit(n)
+    if (Number.isInteger(n) && n >= 1 && n !== limit) onChangeLimit(n)
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter') commit()
-    if (e.key === 'Escape') setEditing(false)
+    if (e.key === 'Enter') {
+      suppressBlurRef.current = true
+      commit()
+    }
+    if (e.key === 'Escape') {
+      // 취소다 — 절대 커밋하지 않는다.
+      suppressBlurRef.current = true
+      setEditing(false)
+    }
+  }
+
+  function onBlur() {
+    if (suppressBlurRef.current) {
+      suppressBlurRef.current = false
+      return
+    }
+    commit()
   }
 
   return (
@@ -54,7 +78,7 @@ export function SlotIndicator({ snapshot, onChangeLimit }: {
           autoFocus
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
-          onBlur={commit}
+          onBlur={onBlur}
         />
       )}
     </span>

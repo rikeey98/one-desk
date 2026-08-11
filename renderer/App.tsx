@@ -22,7 +22,7 @@ export default function App() {
   const { repos, error: reposError, refresh: refreshRepos } = useRepos(workspaceId)
   // 훅을 공통 부모에 둔다. RepoStrip과 RunPanel이 각자 useRepos 인스턴스를 갖는 바람에
   // repo를 등록해도 한쪽만 갱신된 사고가 있었다(커밋 fbcd0e6).
-  const { snapshot: queue } = useQueue()
+  const { snapshot: queue, error: queueError } = useQueue()
   const client = useClient()
 
   const chipKeys = useMemo(() => new Set(chips.map(chipKey)), [chips])
@@ -83,6 +83,7 @@ export default function App() {
               repos={repos}
               reposError={reposError}
               queue={queue}
+              queueError={queueError}
               onChangeLimit={changeLimit}
               chips={chips}
               onRemoveChip={toggleChip}
