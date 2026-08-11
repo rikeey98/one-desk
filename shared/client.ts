@@ -3,7 +3,7 @@ import type {
   CreateWorkspaceInput, CreateRepoInput,
   CreateIssueInput, UpdateIssueInput,
   CreateMemoInput, UpdateMemoInput,
-  ListQuery, StartRunInput
+  ListQuery, StartRunInput, QueueSnapshot
 } from './models'
 import type { RunEvent } from './events'
 
@@ -34,13 +34,20 @@ export interface OneDeskClient {
   }
   runs: {
     list(workspaceId: string): Promise<Run[]>
-    /** 완료를 기다리지 않는다. running 상태의 run이 곧바로 돌아온다. */
+    /**
+     * 완료를 기다리지 않는다. 슬롯이 있으면 running, 상한에 걸리면 pending run이
+     * 곧바로 돌아온다. 이후 상태 변화는 events.onRunUpdate로만 알 수 있다.
+     */
     start(input: StartRunInput): Promise<Run>
     cancel(runId: string): Promise<void>
     readLog(runId: string): Promise<RunEvent[]>
+    /** 전역 실행 슬롯 현황. workspace와 무관하다. */
+    queueSnapshot(): Promise<QueueSnapshot>
+    setConcurrencyLimit(n: number): Promise<QueueSnapshot>
   }
   events: {
     onRunEvent(cb: (event: RunEvent) => void): Unsubscribe
     onRunUpdate(cb: (run: Run) => void): Unsubscribe
+    onQueueUpdate(cb: (snapshot: QueueSnapshot) => void): Unsubscribe
   }
 }

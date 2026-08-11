@@ -9,6 +9,8 @@ export function registerRunHandlers(core: Core, getWindow: GetWindow) {
   ipcMain.handle(CHANNELS.runsStart, (_e, input: StartRunInput) => core.execution.start(input))
   ipcMain.handle(CHANNELS.runsCancel, (_e, runId: string) => core.execution.cancel(runId))
   ipcMain.handle(CHANNELS.runsReadLog, (_e, runId: string) => core.runs.readLog(runId))
+  ipcMain.handle(CHANNELS.runsQueueSnapshot, () => core.queue.snapshot())
+  ipcMain.handle(CHANNELS.runsSetConcurrencyLimit, (_e, n: number) => core.queue.setLimit(n))
 
   // core의 이벤트를 렌더러로 중계한다. 데몬화 시 바뀌는 곳은 여기 한 지점뿐이다.
   core.onRunEvent((event) => {
@@ -16,5 +18,8 @@ export function registerRunHandlers(core: Core, getWindow: GetWindow) {
   })
   core.onRunUpdate((run) => {
     getWindow()?.webContents.send(EVENT_CHANNELS.runUpdate, run)
+  })
+  core.onQueueUpdate((snapshot) => {
+    getWindow()?.webContents.send(EVENT_CHANNELS.queueUpdate, snapshot)
   })
 }

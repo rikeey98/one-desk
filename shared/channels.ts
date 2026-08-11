@@ -16,7 +16,9 @@ export const CHANNELS = {
   runsList: 'runs:list',
   runsStart: 'runs:start',
   runsCancel: 'runs:cancel',
-  runsReadLog: 'runs:readLog'
+  runsReadLog: 'runs:readLog',
+  runsQueueSnapshot: 'runs:queueSnapshot',
+  runsSetConcurrencyLimit: 'runs:setConcurrencyLimit'
 } as const
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS]
@@ -24,7 +26,8 @@ export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS]
 /** main → renderer 단방향 이벤트 채널 */
 export const EVENT_CHANNELS = {
   runEvent: 'event:run',
-  runUpdate: 'event:runUpdate'
+  runUpdate: 'event:runUpdate',
+  queueUpdate: 'event:queueUpdate'
 } as const
 
 export type EventChannelName = (typeof EVENT_CHANNELS)[keyof typeof EVENT_CHANNELS]

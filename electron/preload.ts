@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { OneDeskClient, Unsubscribe } from '@shared/client'
-import type { Workspace, Repo, Issue, Memo, Run } from '@shared/models'
+import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot } from '@shared/models'
 import type { RunEvent } from '@shared/events'
 
 /**
@@ -48,7 +48,9 @@ const client: OneDeskClient = {
     list: (workspaceId) => call<Run[]>(CHANNELS.runsList, workspaceId),
     start: (input) => call<Run>(CHANNELS.runsStart, input),
     cancel: (runId) => call<void>(CHANNELS.runsCancel, runId),
-    readLog: (runId) => call<RunEvent[]>(CHANNELS.runsReadLog, runId)
+    readLog: (runId) => call<RunEvent[]>(CHANNELS.runsReadLog, runId),
+    queueSnapshot: () => call<QueueSnapshot>(CHANNELS.runsQueueSnapshot),
+    setConcurrencyLimit: (n) => call<QueueSnapshot>(CHANNELS.runsSetConcurrencyLimit, n)
   },
   events: {
     // contextBridge는 함수를 프록시로 넘기므로 이 클로저가 렌더러에서 호출 가능하다.
@@ -61,6 +63,11 @@ const client: OneDeskClient = {
       const listener = (_e: IpcRendererEvent, run: Run) => cb(run)
       ipcRenderer.on(EVENT_CHANNELS.runUpdate, listener)
       return () => { ipcRenderer.off(EVENT_CHANNELS.runUpdate, listener) }
+    },
+    onQueueUpdate(cb: (snapshot: QueueSnapshot) => void): Unsubscribe {
+      const listener = (_e: IpcRendererEvent, snapshot: QueueSnapshot) => cb(snapshot)
+      ipcRenderer.on(EVENT_CHANNELS.queueUpdate, listener)
+      return () => { ipcRenderer.off(EVENT_CHANNELS.queueUpdate, listener) }
     }
   }
 }
