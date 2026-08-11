@@ -1829,11 +1829,24 @@ describe('InboxPanel', () => {
     expect(screen.getByText('권한 거부')).toBeInTheDocument()
   })
 
-  it('첨부된 이슈가 있을 때만 관련 이슈 닫기를 보여준다', () => {
-    const without = run({ id: 'a', contextItems: [] })
-    const { onCloseIssue } = renderPanel([without])
-    expect(screen.queryByRole('button', { name: /관련 이슈 닫기/ })).toBeNull()
-    expect(onCloseIssue).not.toHaveBeenCalled()
+  it('첨부된 이슈가 없으면 관련 이슈 닫기를 보여주지 않는다', () => {
+    renderPanel([run({ contextItems: [] })])
+    expect(screen.queryByRole('button', { name: '관련 이슈 닫기' })).toBeNull()
+  })
+
+  it('첨부된 이슈마다 관련 이슈 닫기를 보여주고 그 id로 알린다', () => {
+    const item = run({ contextItems: [{ type: 'issue', id: 'i1' }, { type: 'issue', id: 'i2' }] })
+    const { onCloseIssue } = renderPanel([item])
+    const buttons = screen.getAllByRole('button', { name: '관련 이슈 닫기' })
+    expect(buttons).toHaveLength(2)
+    buttons[0]!.click()
+    expect(onCloseIssue).toHaveBeenCalledWith(item, 'i1')
+  })
+
+  it('repo 맥락은 관련 이슈 닫기를 만들지 않는다', () => {
+    // contextItems에는 repo·memo도 섞여 온다. 이슈만 골라야 한다.
+    renderPanel([run({ contextItems: [{ type: 'repo', id: 'p1' }] })])
+    expect(screen.queryByRole('button', { name: '관련 이슈 닫기' })).toBeNull()
   })
 
   it('확인함을 누르면 confirmed로 알린다', async () => {
@@ -1959,7 +1972,7 @@ export function InboxPanel({
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `pnpm vitest run renderer/components/InboxPanel.test.tsx`
-Expected: PASS (10개)
+Expected: PASS (12개)
 
 - [ ] **Step 5: App에 붙인다**
 
@@ -2094,7 +2107,7 @@ git add renderer/
 git commit -m "feat: add the inbox screen with per-category actions"
 ```
 
-Expected: `pnpm test` 215개 (205 + 10)
+Expected: `pnpm test` 217개 (205 + 12)
 
 ---
 
@@ -2187,7 +2200,7 @@ pnpm test:e2e
 pgrep -fl "Electron.app/Contents/MacOS/Electron"
 ```
 
-Expected: 215개 / e2e 5개 / `pgrep` 출력 없음. `/tmp/one-desk-e2e-*`도 남지 않아야 한다.
+Expected: 217개 / e2e 5개 / `pgrep` 출력 없음. `/tmp/one-desk-e2e-*`도 남지 않아야 한다.
 
 - [ ] **Step 5: 커밋**
 
@@ -2200,7 +2213,7 @@ git commit -m "test: cover the inbox end to end"
 
 ## 완료 기준
 
-- [ ] `pnpm test`가 215개다 — e2e가 섞이지 않았다
+- [ ] `pnpm test`가 217개다 — e2e가 섞이지 않았다
 - [ ] `pnpm test:e2e`가 5개 통과한다
 - [ ] `pnpm typecheck`, `pnpm lint` 통과
 - [ ] **변이 M1~M19를 전부 되돌려 각각 해당 테스트가 실패하는 것을 확인했다.** 하나라도 실패하지 않으면 보고됐다
