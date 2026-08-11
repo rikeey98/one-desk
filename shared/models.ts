@@ -145,3 +145,11 @@ export interface StartRunInput {
   parentRunId?: string
   timeoutMs?: number | null
 }
+
+/** 도크의 슬롯 표시기가 쓰는 전역 실행 현황. workspace와 무관하다. */
+export interface QueueSnapshot {
+  /** 지금 슬롯을 쥔 run 수. 상한을 낮추면 일시적으로 limit보다 클 수 있다. */
+  running: number
+  limit: number
+  waiting: number
+}
