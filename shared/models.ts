@@ -153,3 +153,10 @@ export interface QueueSnapshot {
   limit: number
   waiting: number
 }
+
+/** 사이드바 배지가 쓰는 미처리 건수. 인박스는 모든 workspace를 가로지른다. */
+export interface InboxCounts {
+  total: number
+  /** workspace id → 그 workspace의 미처리 건수. 0인 workspace는 키가 없다. */
+  byWorkspace: Record<string, number>
+}

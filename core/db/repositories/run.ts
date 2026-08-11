@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { Database } from '../open'
 import { issue, memo, repo, run, runContextItem } from '../schema'
-import type { Run, ContextItemRef, RunStatus, AgentKind, Permission } from '@shared/models'
+import type {
+  Run, ContextItemRef, RunStatus, AgentKind, Permission, InboxCounts
+} from '@shared/models'
 import type { RunEvent } from '@shared/events'
 
 /** db.transaction()의 콜백이 받는 runner. db와 같은 쿼리 빌더 API를 갖는다. */
@@ -38,6 +40,14 @@ export interface FinishRunInput {
 }
 
 export function createRunRepository(db: Database) {
+  /**
+   * 인박스에 들어올 수 있는 상태 (설계 §4).
+   * canceled가 들어 있는 이유: 3a부터 앱이 재시작하며 대기 중이던 run을 취소한다.
+   * 사용자가 스스로 취소한 것은 execution.cancel이 reviewedAt을 찍어 제외되므로,
+   * 여기 남는 canceled는 앱이 취소한 것뿐이다.
+   */
+  const INBOX_STATUSES: RunStatus[] = ['succeeded', 'failed', 'interrupted', 'canceled']
+
   /**
    * 아직 살아 있는 id만 남긴다.
    *
@@ -193,6 +203,46 @@ export function createRunRepository(db: Database) {
         }
       })
       return stale.length
+    },
+
+    /**
+     * 지금 사용자의 손이 필요한 run만 모은다 (설계 §4).
+     * 모든 workspace를 가로지른다 — 어디에 쌓였는지는 사이드바 배지가 보여준다.
+     */
+    inbox(): Run[] {
+      const rows = db.select().from(run)
+        .where(and(isNull(run.reviewedAt), inArray(run.status, INBOX_STATUSES)))
+        // endedAt만으로는 같은 밀리초에 끝난 항목들의 순서가 흔들린다.
+        // rowid가 삽입 순서를 결정적으로 갈라준다.
+        .orderBy(desc(run.endedAt), desc(sql`rowid`)).all()
+      return hydrate(rows)
+    },
+
+    inboxCounts(): InboxCounts {
+      const rows = db.select({ workspaceId: run.workspaceId, n: count() }).from(run)
+        .where(and(isNull(run.reviewedAt), inArray(run.status, INBOX_STATUSES)))
+        .groupBy(run.workspaceId).all()
+
+      const byWorkspace: Record<string, number> = {}
+      let total = 0
+      for (const row of rows) {
+        byWorkspace[row.workspaceId] = row.n
+        total += row.n
+      }
+      return { total, byWorkspace }
+    },
+
+    /**
+     * 인박스에서 내린다. 확인함과 보관은 reviewedKind로만 갈린다.
+     *
+     * 이미 확인된 run의 시각은 덮어쓰지 않는다 — 처음 확인한 때가 기록으로서
+     * 의미가 있고, 나중에 컬럼을 추가해도 그 이전 기록은 복구할 수 없다.
+     */
+    markReviewed(id: string, kind: 'confirmed' | 'archived'): Run {
+      db.update(run)
+        .set({ reviewedAt: Date.now(), reviewedKind: kind })
+        .where(and(eq(run.id, id), isNull(run.reviewedAt))).run()
+      return get(id)
     }
   }
 }

@@ -152,4 +152,92 @@ describe('RunRepository', () => {
       expect(events[0]).toMatchObject({ text: '살아남음' })
     })
   })
+
+  describe('인박스', () => {
+    /** 끝난 run을 하나 만든다. 인박스 조건은 종료 상태만 본다. */
+    function finished(status: 'succeeded' | 'failed' | 'interrupted' | 'canceled', extra: {
+      needsAnswer?: boolean
+      workspaceId?: string
+    } = {}) {
+      const created = runs.create({
+        ...baseInput(),
+        ...(extra.workspaceId ? { workspaceId: extra.workspaceId } : {})
+      })
+      return runs.markFinished(created.id, {
+        status,
+        resultText: null,
+        externalSessionId: null,
+        needsAnswer: extra.needsAnswer ?? false,
+        exitCode: null,
+        errorMessage: null
+      })
+    }
+
+    it('종료된 run 중 확인하지 않은 것만 담는다', () => {
+      const done = finished('succeeded')
+      const failed = finished('failed')
+      const stopped = finished('interrupted')
+      // 앱이 재시작하며 취소한 대기 run — 사용자가 취소한 것이 아니므로 알려야 한다.
+      const dropped = finished('canceled')
+      // 아직 도는 중인 run은 인박스가 아니다.
+      const running = runs.create(baseInput())
+      runs.markStarted(running.id)
+
+      const ids = runs.inbox().map((r) => r.id)
+      expect(ids).toContain(done.id)
+      expect(ids).toContain(failed.id)
+      expect(ids).toContain(stopped.id)
+      expect(ids).toContain(dropped.id)
+      expect(ids).not.toContain(running.id)
+    })
+
+    it('확인한 run은 목록에서 빠진다', () => {
+      const done = finished('succeeded')
+      expect(runs.inbox().map((r) => r.id)).toContain(done.id)
+
+      runs.markReviewed(done.id, 'confirmed')
+
+      expect(runs.inbox().map((r) => r.id)).not.toContain(done.id)
+      const after = runs.get(done.id)
+      expect(after.reviewedAt).toBeTypeOf('number')
+      expect(after.reviewedKind).toBe('confirmed')
+    })
+
+    it('이미 확인한 run에 다시 불러도 처음 시각을 덮어쓰지 않는다', () => {
+      // 처음 확인한 때가 기록으로서 의미가 있다.
+      const done = finished('succeeded')
+      const first = runs.markReviewed(done.id, 'confirmed')
+      const second = runs.markReviewed(done.id, 'archived')
+      expect(second.reviewedAt).toBe(first.reviewedAt)
+      expect(second.reviewedKind).toBe('confirmed')
+    })
+
+    it('최신 종료 순으로 정렬하고 같은 밀리초는 삽입 순의 역순으로 가른다', () => {
+      // endedAt만으로는 같은 밀리초에 끝난 항목들의 순서가 흔들린다.
+      const a = finished('succeeded')
+      const b = finished('succeeded')
+      const c = finished('succeeded')
+      const listed = runs.inbox().map((r) => r.id)
+      expect(listed.slice(0, 3)).toEqual([c.id, b.id, a.id])
+    })
+
+    it('전체와 workspace별 건수를 센다', () => {
+      const other = createWorkspaceRepository(db).create({ name: 'ws2' }).id
+      finished('succeeded')
+      finished('failed')
+      finished('succeeded', { workspaceId: other })
+
+      const counts = runs.inboxCounts()
+      expect(counts.total).toBe(3)
+      expect(counts.byWorkspace[workspaceId]).toBe(2)
+      expect(counts.byWorkspace[other]).toBe(1)
+    })
+
+    it('미처리가 없는 workspace는 키가 없다', () => {
+      // 0을 키로 넣으면 배지가 0을 그리게 되고, 0이 상시 붙으면 눈이 걸러낸다.
+      const other = createWorkspaceRepository(db).create({ name: 'ws2' }).id
+      finished('succeeded')
+      expect(runs.inboxCounts().byWorkspace[other]).toBeUndefined()
+    })
+  })
 })
