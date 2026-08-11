@@ -7,6 +7,8 @@ import { AssetPanel } from './components/AssetPanel'
 import { Dock } from './components/Dock'
 import { useRuns } from './hooks/useRuns'
 import { useRepos } from './hooks/useRepos'
+import { useQueue } from './hooks/useQueue'
+import { useClient } from './client/ClientProvider'
 import { chipKey, type ContextChip } from './context'
 
 export default function App() {
@@ -18,6 +20,10 @@ export default function App() {
   // repo를 등록해도 RunPanel의 작업 디렉토리 select가 영원히 비는 실제 결함이었다.
   // useRuns와 같은 패턴으로 여기서 한 번만 불러 양쪽에 내려준다.
   const { repos, error: reposError, refresh: refreshRepos } = useRepos(workspaceId)
+  // 훅을 공통 부모에 둔다. RepoStrip과 RunPanel이 각자 useRepos 인스턴스를 갖는 바람에
+  // repo를 등록해도 한쪽만 갱신된 사고가 있었다(커밋 fbcd0e6).
+  const { snapshot: queue } = useQueue()
+  const client = useClient()
 
   const chipKeys = useMemo(() => new Set(chips.map(chipKey)), [chips])
 
@@ -31,6 +37,11 @@ export default function App() {
     setChips((prev) => prev.some((c) => chipKey(c) === chipKey(chip))
       ? prev.filter((c) => chipKey(c) !== chipKey(chip))
       : [...prev, chip])
+  }
+
+  function changeLimit(n: number) {
+    // 결과 스냅샷은 event:queueUpdate로도 오므로 여기서 상태를 따로 쓰지 않는다.
+    void client.runs.setConcurrencyLimit(n)
   }
 
   return (
@@ -71,6 +82,8 @@ export default function App() {
               workspaceId={workspaceId}
               repos={repos}
               reposError={reposError}
+              queue={queue}
+              onChangeLimit={changeLimit}
               chips={chips}
               onRemoveChip={toggleChip}
               // 담은 맥락은 그 run에만 적용된다. 다음 실행은 빈 상태에서 시작한다.

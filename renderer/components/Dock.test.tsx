@@ -39,9 +39,15 @@ function makeClient(over: Partial<OneDeskClient['runs']> = {}): OneDeskClient {
       start: vi.fn(),
       cancel: vi.fn().mockResolvedValue(undefined),
       readLog: vi.fn().mockResolvedValue([]),
+      queueSnapshot: vi.fn().mockResolvedValue({ running: 0, limit: 3, waiting: 0 }),
+      setConcurrencyLimit: vi.fn().mockResolvedValue({ running: 0, limit: 3, waiting: 0 }),
       ...over
     },
-    events: { onRunEvent: vi.fn(() => () => {}), onRunUpdate: vi.fn(() => () => {}) }
+    events: {
+      onRunEvent: vi.fn(() => () => {}),
+      onRunUpdate: vi.fn(() => () => {}),
+      onQueueUpdate: vi.fn(() => () => {})
+    }
   } as unknown as OneDeskClient
 }
 
@@ -55,6 +61,8 @@ function renderDock(runs: Run[], client: OneDeskClient, store: RunEventStore = c
           workspaceId="w1"
           repos={repos}
           reposError={null}
+          queue={null}
+          onChangeLimit={vi.fn()}
           chips={[]}
           onRemoveChip={vi.fn()}
           onRunStarted={vi.fn()}

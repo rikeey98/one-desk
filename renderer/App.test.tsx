@@ -37,8 +37,19 @@ function makeClient(): OneDeskClient {
     },
     issues: { list: vi.fn().mockResolvedValue([]), create: vi.fn(), update: vi.fn(), remove: vi.fn() },
     memos: { list: vi.fn().mockResolvedValue([]), create: vi.fn(), update: vi.fn(), remove: vi.fn() },
-    runs: { list: vi.fn().mockResolvedValue([]), start: vi.fn(), cancel: vi.fn(), readLog: vi.fn() },
-    events: { onRunEvent: vi.fn(() => () => {}), onRunUpdate: vi.fn(() => () => {}) }
+    runs: {
+      list: vi.fn().mockResolvedValue([]),
+      start: vi.fn(),
+      cancel: vi.fn(),
+      readLog: vi.fn(),
+      queueSnapshot: vi.fn().mockResolvedValue({ running: 0, limit: 3, waiting: 0 }),
+      setConcurrencyLimit: vi.fn().mockResolvedValue({ running: 0, limit: 3, waiting: 0 })
+    },
+    events: {
+      onRunEvent: vi.fn(() => () => {}),
+      onRunUpdate: vi.fn(() => () => {}),
+      onQueueUpdate: vi.fn(() => () => {})
+    }
   } as unknown as OneDeskClient
 }
 

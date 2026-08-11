@@ -3,20 +3,23 @@ import { useClient } from '../client/ClientProvider'
 import { useRunEvents } from '../hooks/useRunEvents'
 import { RunLog } from './RunLog'
 import { RunPanel } from './RunPanel'
+import { SlotIndicator } from './SlotIndicator'
 import type { ContextChip } from '../context'
-import type { Repo, Run } from '@shared/models'
+import type { QueueSnapshot, Repo, Run } from '@shared/models'
 
 function label(run: Run): string {
   const text = run.userPrompt.trim().split('\n')[0] ?? ''
   return text.length > 24 ? `${text.slice(0, 24)}…` : text || '(빈 지시)'
 }
 
-export function Dock({ runs, error, workspaceId, repos, reposError, chips, onRemoveChip, onRunStarted }: {
+export function Dock({ runs, error, workspaceId, repos, reposError, queue, onChangeLimit, chips, onRemoveChip, onRunStarted }: {
   runs: Run[]
   error: string | null
   workspaceId: string
   repos: Repo[]
   reposError: string | null
+  queue: QueueSnapshot | null
+  onChangeLimit: (n: number) => void
   chips: ContextChip[]
   onRemoveChip: (chip: ContextChip) => void
   onRunStarted: (run: Run) => void
@@ -56,6 +59,7 @@ export function Dock({ runs, error, workspaceId, repos, reposError, chips, onRem
         <button type="button" className="dock-toggle" onClick={() => setOpen(!open)}>
           {open ? '▾' : '▴'} 실행
         </button>
+        <SlotIndicator snapshot={queue} onChangeLimit={onChangeLimit} />
         <button
           type="button"
           className={view === 'new' ? 'dock-tab dock-tab-selected' : 'dock-tab'}
@@ -76,7 +80,8 @@ export function Dock({ runs, error, workspaceId, repos, reposError, chips, onRem
             {label(run)}
           </button>
         ))}
-        {view === 'log' && selected?.status === 'running' && (
+        {/* 대기 중인 run도 취소할 수 있어야 한다 — 프로세스가 없을 뿐 사용자에겐 똑같이 걸려 있다. */}
+        {view === 'log' && (selected?.status === 'running' || selected?.status === 'pending') && (
           <button type="button" className="dock-cancel" onClick={() => void cancel(selected.id)}>
             취소
           </button>
