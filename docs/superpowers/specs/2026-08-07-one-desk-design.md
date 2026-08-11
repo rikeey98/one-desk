@@ -349,6 +349,8 @@ UI와 저장 로직은 agent 종류를 알 필요가 없다. 세 번째 agent를
 
 `RunManager`가 실행 중인 프로세스를 Map으로 관리한다. 기본 동시 실행 상한은 3이며, 앱 설정에서 변경할 수 있다. 초과분은 `pending` 상태로 대기하다가 슬롯이 나면 FIFO 순으로 시작한다. 상한이 없으면 이슈 몇 개를 던져놓고 머신이 멎는 상황이 실제로 발생한다.
 
+> **상한과 대기열의 위치는 3단계에서 달리 갔다.** 여기 적힌 대로 `RunManager`에 두지 않고 별도의 `core/runner/queue.ts`로 분리했다 — 근거는 `docs/superpowers/specs/2026-08-10-stage3a-run-queue-design.md` §10에 있다. 이 문단의 나머지 결정(기본 3, 앱 전역, FIFO, 초과분은 `pending`)은 그대로다.
+
 상한은 workspace가 아니라 앱 전역에 적용된다. 제약의 근거가 머신의 자원이기 때문이다.
 
 취소는 SIGTERM 후 유예를 두고 SIGKILL. 앱 종료 시 실행 중인 모든 프로세스를 정리한다.

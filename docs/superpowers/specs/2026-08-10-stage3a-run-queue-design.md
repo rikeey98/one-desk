@@ -190,7 +190,9 @@ IPC 핸들러는 얇게 유지한다 — core 메서드 호출만 한다(전체 
 
 전체 설계 §6은 큐를 `RunManager`에 둔다고 적었다. 이 스펙은 `RunQueue`로 분리한다.
 
-근거는 이렇다. 실제 `RunManager`는 **DB를 모른다** — `adapters`, `logDir`, `onEvent`만 받는다. DB 상태 전이는 전부 `ExecutionService`에 있다. 큐의 핵심 순간은 "슬롯이 나서 꺼낼 때"인데 바로 그 순간에 `pending → running`을 DB에 써야 한다. 큐를 `RunManager`에 두면 그 시점을 밖으로 콜백해야 하고, `RunManager`가 프로세스와 무관한 상태를 떠안으며, 취소 경로가 둘로 갈라진다.
+근거는 이렇다. 실제 `RunManager`는 **DB를 모른다** — `adapters`, `logDir`, `onEvent`만 받는다. DB 상태 전이는 전부 `ExecutionService`에 있다. 큐의 핵심 순간은 "슬롯이 나서 꺼낼 때"인데 바로 그 순간에 `pending → running`을 DB에 써야 한다. 큐를 `RunManager`에 두면 그 시점을 밖으로 콜백해야 하고, `RunManager`가 프로세스와 무관한 상태를 떠안는다.
+
+취소에 대해서는 처음에 "큐를 `RunManager`에 두면 취소 경로가 둘로 갈라진다"고 적었는데 **그건 사실이 아니다.** 분리한 지금도 `execution.cancel`은 대기 중(큐에서 빼고 `canceled`)과 실행 중(프로세스에 SIGTERM)으로 갈라진다. 그 분기는 run이 가질 수 있는 상태가 둘이라서 생기는 것이지 큐의 위치 때문이 아니다. 분리해서 실제로 얻은 것은 분기가 사라지는 것이 아니라 **그 분기가 `execution.ts` 한 곳에 모인다는 것**이다 — 호출자는 여전히 `cancel(runId)` 하나만 안다.
 
 분리하면 상한·FIFO·재진입을 **프로세스 없이 결정적으로 테스트할 수 있다.** 이 저장소에서는 실제로 무는 테스트를 쓸 수 있는 구조인지가 크게 갈린다.
 
@@ -213,11 +215,18 @@ IPC 핸들러는 얇게 유지한다 — core 메서드 호출만 한다(전체 
 - 앞 run이 끝나면 다음이 시작한다
 - preflight 실패는 슬롯을 소모하지 않는다
 - 대기 중 취소가 `canceled`로 끝난다
+- **유령 run은 건너뛰되 슬롯을 돌려준다** — 대기 중이던 run의 `markStarted`가 던져도 큐가 멈추지 않고 다음 대기분이 시작한다. §9가 위험으로 지목한 두 경로 중 `beginRun` 쪽이며, 실패는 조용히 넘어가지 않고 로그로 남는다 (큐의 `catch`가 삼키므로 그 로그가 유일한 흔적이다)
+- 시작을 알리다 실패한 것을 "시작 기록 실패"로 보고하지 않는다 — DB 쓰기와 알림은 서로 다른 실패다
+
+**`core/index.test.ts`** — 조립부의 배선은 로직이 아니라 한 줄짜리 연결이라서 조용히 끊긴다. 각 조각을 아무리 잘 덮어도 그 사이를 잇는 줄은 덮이지 않는다.
+
+- 바꾼 상한이 `app_setting`에 저장되고 재기동 후 큐에 다시 실린다 (저장→재기동 왕복)
+- 잘못된 상한은 거부되고 저장된 값이 그대로 남는다
 
 **복구**
 
-- `running` → `interrupted`, `pending` → `canceled`
-- **복구가 아무것도 시작하지 않는다**
+- `running` → `interrupted`, `pending` → `canceled` (`run.test.ts`)
+- **복구가 아무것도 시작하지 않는다** — 임시 dataDir로 `createCore`를 두 번 만들어, 남아 있던 run이 정리되기만 하고 프로세스는 뜨지 않는 것을 본다 (`core/index.test.ts`)
 
 **e2e**
 
