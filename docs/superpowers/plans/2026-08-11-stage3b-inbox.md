@@ -822,58 +822,80 @@ Expected: `pnpm test` 187개 (183 + 4)
 
 `core/index.test.ts`의 마지막 `})` 직전에 넣는다.
 
-```ts
-  it('run이 끝나면 인박스 카운트를 push한다', async () => {
-    const { core, dataDir } = makeCore()
-    const seen: InboxCounts[] = []
-    core.onInboxUpdate((counts) => seen.push(counts))
+`core/index.test.ts`는 이미 헬퍼 셋을 갖고 있다 — `makeDataDir()`, `open(dataDir)`, `close(core)`. `afterEach`가 열린 core를 전부 닫고 임시 디렉토리를 지우므로 **테스트가 직접 정리하지 않는다.** 그대로 쓴다.
 
-    const ws = core.workspaces.create({ name: 'ws' }).id
-    core.repos.create({ workspaceId: ws, name: 'api', path: process.cwd() })
-    const run = await core.execution.start({
-      workspaceId: ws, agentKind: 'claude-code', cwd: process.cwd(),
-      permission: 'edit', userPrompt: 'x', context: []
-    })
-    await vi.waitFor(() => expect(core.runs.get(run.id).endedAt).toBeTypeOf('number'))
-
-    await vi.waitFor(() => {
-      expect(seen.at(-1)?.total).toBe(1)
-      expect(seen.at(-1)?.byWorkspace[ws]).toBe(1)
-    })
-    core.shutdown()
-    rmSync(dataDir, { recursive: true, force: true })
-  })
-
-  it('확인함을 누르면 카운트가 줄어든 것을 push한다', async () => {
-    const { core, dataDir } = makeCore()
-    const seen: InboxCounts[] = []
-
-    const ws = core.workspaces.create({ name: 'ws' }).id
-    core.repos.create({ workspaceId: ws, name: 'api', path: process.cwd() })
-    const run = await core.execution.start({
-      workspaceId: ws, agentKind: 'claude-code', cwd: process.cwd(),
-      permission: 'edit', userPrompt: 'x', context: []
-    })
-    await vi.waitFor(() => expect(core.runs.get(run.id).endedAt).toBeTypeOf('number'))
-    await vi.waitFor(() => expect(core.inbox.counts().total).toBe(1))
-
-    core.onInboxUpdate((counts) => seen.push(counts))
-    core.inbox.markReviewed(run.id, 'confirmed')
-
-    expect(seen.at(-1)).toEqual({ total: 0, byWorkspace: {} })
-    expect(core.inbox.list()).toHaveLength(0)
-    core.shutdown()
-    rmSync(dataDir, { recursive: true, force: true })
-  })
-```
-
-`core/index.test.ts` 위쪽의 import에 타입을 더한다.
+파일 위쪽 import에 셋을 더한다.
 
 ```ts
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import type { InboxCounts } from '@shared/models'
 ```
 
-> **참고:** `makeCore()`는 3a가 만든 헬퍼다. 임시 dataDir로 `createCore`를 만들고 `{ core, dataDir }`를 돌려주며, 가짜 CLI를 물리도록 이미 배선돼 있다. 파일 위쪽에서 확인하고 그대로 쓴다. 이름이 다르면 그 파일의 실제 헬퍼를 쓰고 리포트에 적는다.
+`MIGRATIONS_DIR` 옆에 가짜 CLI 경로를 더한다.
+
+```ts
+const FAKE_AGENT = resolve(HERE, 'runner/fixtures/fake-claude.mjs')
+```
+
+`describe('createCore')` 안 맨 끝에 넣는다.
+
+```ts
+  /**
+   * 실제로 프로세스를 띄우는 유일한 테스트다.
+   *
+   * emitInbox는 execution의 onRunUpdate 경로에 있으므로, runs.markFinished를 직접
+   * 불러서는 그 경로를 지나지 않아 아무것도 검증하지 못한다. 그래서 가짜 CLI를 실제로
+   * 돌린다 — resolveAgentPath가 ONE_DESK_AGENT_PATH를 먼저 보므로 그 이음매로 물린다.
+   */
+  it('run이 끝나면 인박스 카운트를 push한다', async () => {
+    const previous = process.env['ONE_DESK_AGENT_PATH']
+    process.env['ONE_DESK_AGENT_PATH'] = FAKE_AGENT
+    try {
+      const dataDir = makeDataDir()
+      const core = open(dataDir)
+      const seen: InboxCounts[] = []
+      core.onInboxUpdate((counts) => seen.push(counts))
+
+      const ws = core.workspaces.create({ name: 'ws' }).id
+      const run = await core.execution.start({
+        workspaceId: ws, agentKind: 'claude-code', cwd: dataDir,
+        permission: 'edit', userPrompt: 'x', context: []
+      })
+      await vi.waitFor(() => expect(core.runs.get(run.id).endedAt).toBeTypeOf('number'))
+
+      await vi.waitFor(() => {
+        expect(seen.at(-1)?.total).toBe(1)
+        expect(seen.at(-1)?.byWorkspace[ws]).toBe(1)
+      })
+    } finally {
+      // 전역을 건드렸으니 반드시 되돌린다. 남기면 뒤 테스트가 가짜 CLI를 쓴다.
+      if (previous === undefined) delete process.env['ONE_DESK_AGENT_PATH']
+      else process.env['ONE_DESK_AGENT_PATH'] = previous
+    }
+  })
+
+  it('확인함을 누르면 카운트가 줄어든 것을 push한다', () => {
+    // 여기서는 프로세스를 띄울 필요가 없다. seedRun으로 행을 만들고 끝난 상태로
+    // 바꾼 뒤, inbox.markReviewed가 스스로 push하는지만 본다.
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const seeded = seedRun(core, dataDir, '확인 대상')
+    core.runs.markFinished(seeded.id, {
+      status: 'succeeded', resultText: null, externalSessionId: null,
+      needsAnswer: false, exitCode: 0, errorMessage: null
+    })
+    expect(core.inbox.counts().total).toBe(1)
+
+    const seen: InboxCounts[] = []
+    core.onInboxUpdate((counts) => seen.push(counts))
+    core.inbox.markReviewed(seeded.id, 'confirmed')
+
+    expect(seen.at(-1)).toEqual({ total: 0, byWorkspace: {} })
+    expect(core.inbox.list()).toHaveLength(0)
+  })
+```
+
+> **주의:** 첫 테스트가 이 파일에서 **유일하게 실제 프로세스를 띄운다.** 기존 테스트들은 `seedRun`으로 행만 만들고 `logs/` 디렉토리의 부재로 "아무것도 시작하지 않았다"를 판정한다 — 그 단언을 깨지 않도록 새 테스트는 자기 `dataDir`를 따로 쓴다(`makeDataDir()`가 매번 새로 만든다).
 
 - [ ] **Step 2: 테스트 실패 확인**
 
