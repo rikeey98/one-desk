@@ -160,16 +160,38 @@ export function createRunRepository(db: Database) {
 
     /**
      * 앱 시작 시 유령 run을 정리한다 (설계 §11).
-     * pending도 함께 정리한다 — 대기 큐는 메모리에만 있으므로
-     * 재시작하면 영원히 시작되지 않는다.
+     *
+     * running은 실행 중 끊긴 것이므로 interrupted다.
+     * pending은 시작도 못 한 것이므로 canceled다 — 대기 큐는 메모리에만 있어
+     * 재시작하면 어차피 사라지고, 여기서 자동으로 다시 시작하지도 않는다.
+     * 앱을 여는 행위가 agent 실행을 부르면 안 되고(전체 설계 §14의 자율 실행),
+     * 조립된 프롬프트도 그 사이 낡았을 수 있다.
      */
     reapStale(): number {
-      const stale = db.select({ id: run.id }).from(run)
+      const stale = db.select({ id: run.id, status: run.status }).from(run)
         .where(inArray(run.status, ['running', 'pending'])).all()
       if (stale.length === 0) return 0
-      db.update(run)
-        .set({ status: 'interrupted', endedAt: Date.now(), errorMessage: '앱이 종료되어 중단되었습니다.' })
-        .where(inArray(run.id, stale.map((s) => s.id))).run()
+
+      const wasRunning = stale.filter((s) => s.status === 'running').map((s) => s.id)
+      const wasPending = stale.filter((s) => s.status === 'pending').map((s) => s.id)
+      const endedAt = Date.now()
+
+      db.transaction((tx: Runner) => {
+        if (wasRunning.length > 0) {
+          tx.update(run).set({
+            status: 'interrupted',
+            endedAt,
+            errorMessage: '앱이 종료되어 중단되었습니다.'
+          }).where(inArray(run.id, wasRunning)).run()
+        }
+        if (wasPending.length > 0) {
+          tx.update(run).set({
+            status: 'canceled',
+            endedAt,
+            errorMessage: '앱이 종료되어 대기 중이던 실행이 취소되었습니다.'
+          }).where(inArray(run.id, wasPending)).run()
+        }
+      })
       return stale.length
     }
   }
