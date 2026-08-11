@@ -82,14 +82,37 @@ describe('createRunQueue', () => {
     expect(queue.snapshot()).toEqual({ running: 1, limit: 1, waiting: 0 })
   })
 
-  it('start 안에서 release를 불러도 큐가 꼬이지 않는다', () => {
-    // 유령 run 경로다 — run 행이 사라지면 execution이 곧바로 release한다.
-    const started: string[] = []
+  it('start 안에서 release를 불러도 재귀가 쌓이지 않는다', () => {
+    // 유령 run 경로다 — run 행이 사라지면 execution이 start 안에서 곧바로 release한다.
+    // 가드가 없으면 release가 다시 pump를 부르며 대기열 길이만큼 스택이 깊어지고,
+    // 충분히 길면 스택 오버플로가 pump의 catch에 삼켜져 큐가 조용히 멈춘다.
+    //
+    // 재진입 시점에 대기열이 비어 있으면 가드가 있으나 없으나 결과가 같다.
+    // 그래서 슬롯을 점유만 하는 run을 먼저 넣어 뒤의 유령들을 대기시킨 뒤 풀어준다.
     const queue = createRunQueue({ limit: 1 })
-    queue.enqueue('a', () => { started.push('a'); queue.release('a') })
-    queue.enqueue('b', () => { started.push('b') })
-    expect(started).toEqual(['a', 'b'])
-    expect(queue.snapshot().waiting).toBe(0)
+    const started: string[] = []
+    let depth = 0
+    let maxDepth = 0
+
+    const ghost = (id: string) => () => {
+      depth += 1
+      maxDepth = Math.max(maxDepth, depth)
+      started.push(id)
+      queue.release(id)
+      depth -= 1
+    }
+
+    queue.enqueue('holder', () => { started.push('holder') })
+    queue.enqueue('a', ghost('a'))
+    queue.enqueue('b', ghost('b'))
+    queue.enqueue('c', ghost('c'))
+
+    queue.release('holder')
+
+    expect(started).toEqual(['holder', 'a', 'b', 'c'])
+    // 가드가 없으면 a→b→c가 서로의 안에서 시작해 3까지 깊어진다.
+    expect(maxDepth).toBe(1)
+    expect(queue.snapshot()).toEqual({ running: 0, limit: 1, waiting: 0 })
   })
 
   it('바뀔 때마다 onChange로 새 스냅샷을 준다', () => {
