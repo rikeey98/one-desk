@@ -59,8 +59,11 @@ export function createExecutionService(opts: ExecutionOptions) {
     executable: string
     timeoutMs: number | null
   }): void {
+    // DB 쓰기와 알림을 한 try에 묶지 않는다. 리스너가 던진 것뿐인데(종료 중 파괴된
+    // webContents 등) "시작 기록 실패"라고 로그가 말하면 조사가 DB 쪽으로 헛돈다.
+    let started: Run
     try {
-      notify(opts.runs.markStarted(runId))
+      started = opts.runs.markStarted(runId)
     } catch (err) {
       // 유령 run(대기 중에 workspace가 지워져 행이 cascade로 사라진 경우)이거나
       // DB 오류로 시작 기록 자체가 실패했다. 던지면 큐가 그대로 멈추므로 슬롯만
@@ -72,6 +75,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       opts.queue.release(runId)
       return
     }
+    notify(started)
 
     // 여기서 await하지 않는다. 종료 처리는 아래 체인이 맡는다.
     void opts.manager.start({

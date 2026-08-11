@@ -7,7 +7,7 @@ import { makeTestDb } from './db/repositories/testing'
 import { createWorkspaceRepository } from './db/repositories/workspace'
 import { createRepoRepository } from './db/repositories/repo'
 import { createIssueRepository } from './db/repositories/issue'
-import { createRunRepository } from './db/repositories/run'
+import { createRunRepository, type RunRepository } from './db/repositories/run'
 import { createRunManager, type RunManager, type RunOutcome } from './runner/manager'
 import { createRunQueue } from './runner/queue'
 import { claudeCodeAdapter } from './runner/adapters/claudeCode'
@@ -18,31 +18,43 @@ import type { PreflightResult } from './runner/types'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FAKE = resolve(HERE, 'runner/fixtures/fake-claude.mjs')
 
-function setup(
-  preflight?: () => Promise<PreflightResult>,
-  managerOverride?: RunManager,
-  limit = 3
-) {
+interface SetupOptions {
+  preflight?: () => Promise<PreflightResult>
+  manager?: RunManager
+  limit?: number
+  /** run 저장소를 감싸 특정 호출만 던지게 만드는 통로 (유령 run 재현) */
+  wrapRuns?: (runs: RunRepository) => RunRepository
+  /** 알림 리스너가 던지는 상황을 재현하는 통로 */
+  onRunUpdate?: (run: Run) => void
+}
+
+function setup(options: SetupOptions = {}) {
   const db = makeTestDb()
   const logDir = mkdtempSync(resolve(tmpdir(), 'one-desk-exec-'))
   const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
   const repoId = createRepoRepository(db).create({ workspaceId, name: 'api', path: process.cwd() }).id
   const issueId = createIssueRepository(db).create({ workspaceId, title: '토큰 버그', body: '설명' }).id
-  const runs = createRunRepository(db)
+  const real = createRunRepository(db)
+  const runs = options.wrapRuns ? options.wrapRuns(real) : real
   const updates: Run[] = []
-  const manager = managerOverride ?? createRunManager({
+  const manager = options.manager ?? createRunManager({
     adapters: { 'claude-code': claudeCodeAdapter, opencode: claudeCodeAdapter },
     logDir,
     onEvent: () => {}
   })
-  const queue = createRunQueue({ limit })
+  const queue = createRunQueue({ limit: options.limit ?? 3 })
   const service = createExecutionService({
     db, runs, manager, queue,
-    resolveExecutable: preflight ?? (async () => ({ ok: true, executable: process.execPath })),
-    onRunUpdate: (run) => updates.push(run),
+    resolveExecutable: options.preflight ?? (async () => ({ ok: true, executable: process.execPath })),
+    onRunUpdate: (run) => {
+      updates.push(run)
+      options.onRunUpdate?.(run)
+    },
     extraArgs: [FAKE, '--scenario', 'success']
   })
-  return { db, service, runs, queue, updates, workspaceId, repoId, issueId, logDir }
+  // 단언은 감싸지 않은 저장소로 읽는다 — 감싼 쪽이 던지게 만든 테스트에서
+  // 단언까지 같이 넘어져 실패 원인이 흐려진다.
+  return { db, service, runs: real, queue, updates, workspaceId, repoId, issueId, logDir }
 }
 
 describe('ExecutionService', () => {
@@ -99,7 +111,7 @@ describe('ExecutionService', () => {
   })
 
   it('preflight가 실패하면 프로세스를 띄우지 않고 failed로 기록한다', async () => {
-    const local = setup(async () => ({ ok: false, reason: 'claude를 찾을 수 없습니다' }))
+    const local = setup({ preflight: async () => ({ ok: false, reason: 'claude를 찾을 수 없습니다' }) })
     const run = await local.service.start({
       workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
       permission: 'edit', userPrompt: 'x', context: []
@@ -128,7 +140,7 @@ describe('ExecutionService', () => {
     // notify(markStarted)가 만드는데 그건 manager.start() 호출보다 먼저 실행되므로,
     // 완료까지 기다리는 회귀가 생겨도 화면에는 드러나지 않는다.
     const managerStarted = createDeferredManager()
-    const local = setup(undefined, managerStarted.manager)
+    const local = setup({ manager: managerStarted.manager })
 
     const run = await withTimeout(
       local.service.start({
@@ -158,7 +170,7 @@ describe('ExecutionService', () => {
   })
 
   it('상한을 넘으면 두 번째 run이 pending으로 대기한다', async () => {
-    const local = setup(undefined, undefined, 1)
+    const local = setup({ limit: 1 })
     const first = await local.service.start({
       workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
       permission: 'edit', userPrompt: '첫째', context: []
@@ -191,7 +203,7 @@ describe('ExecutionService', () => {
   })
 
   it('preflight가 실패하면 슬롯을 쓰지 않는다', async () => {
-    const local = setup(async () => ({ ok: false, reason: 'claude를 찾을 수 없습니다' }), undefined, 1)
+    const local = setup({ preflight: async () => ({ ok: false, reason: 'claude를 찾을 수 없습니다' }), limit: 1 })
     const run = await local.service.start({
       workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
       permission: 'edit', userPrompt: 'x', context: []
@@ -202,7 +214,7 @@ describe('ExecutionService', () => {
   })
 
   it('대기 중인 run을 취소하면 canceled로 끝나고 다음이 시작한다', async () => {
-    const local = setup(undefined, undefined, 1)
+    const local = setup({ limit: 1 })
     const first = await local.service.start({
       workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
       permission: 'edit', userPrompt: '첫째', context: []
@@ -221,7 +233,131 @@ describe('ExecutionService', () => {
     await vi.waitFor(() => expect(local.runs.get(first.id).status).toBe('succeeded'))
     rmSync(local.logDir, { recursive: true, force: true })
   })
+
+  it('유령 run은 건너뛰되 슬롯을 돌려줘 다음 대기분이 시작한다', async () => {
+    // 스펙 §9가 "이 설계의 급소"라 부른 슬롯 누수의 beginRun 쪽 경로다. 대기 중에
+    // workspace가 지워지면 run 행이 cascade로 사라져 markStarted가 던진다. 여기서
+    // release를 빠뜨리면 슬롯이 영구히 줄고, 증상("언젠가부터 N-1개까지만 돈다")은
+    // 원인에서 한참 떨어진 곳에 나타난다.
+    const ghosts = new Set<string>()
+    const ctrl = createPerRunManager()
+    const logs = captureConsoleError()
+    const local = setup({
+      limit: 1,
+      manager: ctrl.manager,
+      wrapRuns: (runs) => ({
+        ...runs,
+        markStarted: (id: string) => {
+          if (ghosts.has(id)) throw new Error(`run을 찾을 수 없습니다: ${id}`)
+          return runs.markStarted(id)
+        }
+      })
+    })
+    const start = (userPrompt: string) => local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt, context: []
+    })
+
+    // 슬롯을 하나 붙잡아 둔 채로 유령과 그 뒤를 대기열에 세운다. 유령이 대기 중일 때
+    // 실패해야 "다음 대기분이 시작하는가"까지 함께 볼 수 있다.
+    const holder = await start('슬롯을 쥔다')
+    const ghost = await start('유령')
+    ghosts.add(ghost.id)
+    const next = await start('다음')
+    expect([holder.status, ghost.status, next.status]).toEqual(['running', 'pending', 'pending'])
+
+    ctrl.finish(holder.id)
+
+    // 슬롯이 돌아오지 않으면 여기서 영영 running이 되지 않는다.
+    await vi.waitFor(() => expect(local.runs.get(next.id).status).toBe('running'))
+    expect(ctrl.started(ghost.id)).toBe(false)
+    expect(local.runs.get(ghost.id).status).toBe('pending')
+    expect(local.queue.snapshot()).toEqual({ running: 1, limit: 1, waiting: 0 })
+    // 조용히 넘어가면 안 된다 — 큐의 catch는 실패를 삼키므로 이 로그가 유일한 흔적이다.
+    expect(logs.some((line) => line.includes(ghost.id))).toBe(true)
+
+    ctrl.finish(next.id)
+    await vi.waitFor(() => {
+      expect(local.queue.snapshot()).toEqual({ running: 0, limit: 1, waiting: 0 })
+    })
+    logs.restore()
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
+  it('시작을 알리다 실패해도 시작 기록 실패로 보고하지 않는다', async () => {
+    // notify가 markStarted와 같은 try에 있으면 두 실패가 뒤섞인다. 종료 중 파괴된
+    // webContents처럼 리스너 쪽이 던졌을 뿐인데 로그는 "시작 기록 실패"라고 말한다 —
+    // DB에는 running으로 멀쩡히 적혀 있으므로 거짓이고, 그 거짓말이 조사를
+    // DB 쪽으로 몰아간다.
+    const ctrl = createPerRunManager()
+    const logs = captureConsoleError()
+    const local = setup({
+      manager: ctrl.manager,
+      onRunUpdate: (run) => {
+        if (run.status === 'running') throw new Error('창이 이미 닫혔습니다')
+      }
+    })
+
+    const run = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: 'x', context: []
+    })
+
+    expect(local.runs.get(run.id).status).toBe('running')
+    expect(logs.filter((line) => line.includes('시작 기록 실패'))).toEqual([])
+    logs.restore()
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
 })
+
+/** console.error로 새는 것을 모아 두고 테스트 출력은 조용하게 유지한다. */
+function captureConsoleError() {
+  const lines: string[] = []
+  const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+    lines.push(args.map((a) => String(a)).join(' '))
+  })
+  return Object.assign(lines, { restore: () => spy.mockRestore() })
+}
+
+/**
+ * runId마다 따로 풀어줄 수 있는 가짜 manager.
+ * 실제 프로세스로는 "앞 run이 끝나는 순간"을 정확히 잡을 수 없어 경합이 생긴다.
+ */
+function createPerRunManager() {
+  const logPathFor = (runId: string) => resolve(tmpdir(), `one-desk-perrun-${runId}.jsonl`)
+  const settlers = new Map<string, (outcome: RunOutcome) => void>()
+  const seen = new Set<string>()
+
+  const manager: RunManager = {
+    logPathFor,
+    start: (spec) => {
+      seen.add(spec.runId)
+      return new Promise<RunOutcome>((r) => settlers.set(spec.runId, r))
+    },
+    cancel: () => {},
+    cancelAll: () => {},
+    isRunning: (runId) => settlers.has(runId)
+  }
+
+  return {
+    manager,
+    started: (runId: string) => seen.has(runId),
+    finish(runId: string) {
+      const settle = settlers.get(runId)
+      if (!settle) throw new Error(`시작한 적 없는 run입니다: ${runId}`)
+      settlers.delete(runId)
+      settle({
+        status: 'succeeded',
+        resultText: null,
+        externalSessionId: null,
+        needsAnswer: false,
+        exitCode: 0,
+        errorMessage: null,
+        logPath: logPathFor(runId)
+      })
+    }
+  }
+}
 
 /**
  * manager.start()가 우리가 풀어줄 때까지 끝나지 않는 가짜 manager.
