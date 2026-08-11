@@ -47,26 +47,30 @@
 ## 4. 아키텍처 — `core/runner/queue.ts`
 
 ```ts
-createRunQueue({ limit, onStart })
+createRunQueue({ limit, onChange? })
 
-enqueue(runId: string): void      // 슬롯이 있으면 onStart를 동기로 부른다. 없으면 FIFO 뒤에 붙인다
-release(runId: string): void      // 슬롯 반납. 대기 중인 다음 것을 꺼낸다
-remove(runId: string): boolean    // 대기 중인 것을 뺀다. 이미 실행 중이면 false
-setLimit(n: number): void         // 상한 변경
-snapshot(): QueueSnapshot         // { running, limit, waiting }
+enqueue(runId: string, start: () => void): void  // 슬롯이 있으면 start를 동기로 부른다. 없으면 FIFO 뒤에 붙인다
+release(runId: string): void                     // 슬롯 반납. 대기 중인 다음 것을 꺼낸다
+remove(runId: string): boolean                   // 대기 중인 것을 뺀다. 이미 실행 중이면 false
+setLimit(n: number): void                        // 상한 변경
+snapshot(): QueueSnapshot                        // { running, limit, waiting }
 ```
+
+**시작 방법은 생성자가 아니라 항목과 함께 들어온다.** `createRunQueue({ onStart })` 형태로 두면 `createCore`에서 순환이 생긴다 — 큐가 execution을 가리켜야 하는데 execution은 큐를 인자로 받아야 한다. `enqueue`가 클로저를 함께 받으면 그 순환이 사라지고, execution이 run별 스펙(실행 파일 경로, 조립된 프롬프트)을 클로저에 담아 넘길 수 있다.
+
+`onChange`는 큐가 바뀔 때마다 새 스냅샷을 준다. §8의 `event:queueUpdate`가 여기서 나온다. 선택 인자라 큐 단위 테스트는 넘기지 않는다.
 
 **DB도 프로세스도 모른다.** id 문자열과 숫자만 다룬다. 그래서 상한·FIFO·재진입을 프로세스 하나 띄우지 않고 결정적으로 테스트할 수 있다.
 
 `RunManager`는 순수한 프로세스 관리자로 남는다. 다만 `manager.ts`의 `if (active.size > 0) throw`는 2단계의 "한 번에 하나" 제약이므로 의미가 바뀐다 — `active.has(spec.runId)`로 좁혀 **같은 run을 두 번 띄우려는 것**만 막는 방어선으로 남긴다.
 
-### 계약 1 — `onStart`를 부르는 순간 슬롯은 점유된 것으로 센다
+### 계약 1 — `start`를 부르는 순간 슬롯은 점유된 것으로 센다
 
 실제 spawn을 기다렸다가 세면 그 사이 들어온 `enqueue`가 상한을 넘긴다.
 
 따라서 **성공하든 실패하든 반드시 `release`가 불려야 한다.** 한 번 빠뜨리면 슬롯이 영구히 줄고, 증상은 "언젠가부터 2개까지만 돈다"로 나타나 원인을 찾기 어렵다. 이 설계의 급소다.
 
-### 계약 2 — 슬롯이 남아 있으면 `enqueue`는 `onStart`를 동기로 부른다
+### 계약 2 — 슬롯이 남아 있으면 `enqueue`는 `start`를 동기로 부른다
 
 `markStarted`가 동기 DB 쓰기이므로, 이렇게 해야 `execution.start()`가 지금처럼 `running` run을 돌려주고 도크 탭이 즉시 뜬다.
 
@@ -85,8 +89,8 @@ snapshot(): QueueSnapshot         // { running, limit, waiting }
 ```
 create(pending) → notify
   preflight 실패 → markFinished(failed) → notify        [큐에 들어가지 않는다]
-  preflight 성공 → queue.enqueue(runId)
-      슬롯 있음 → onStart → markStarted → notify → manager.start(...)
+  preflight 성공 → queue.enqueue(runId, start)
+      슬롯 있음 → start → markStarted → notify → manager.start(...)
       슬롯 없음 → pending으로 대기 (도크에 pending 칩)
 manager 종료 → markFinished → notify → queue.release(runId)
 취소(대기 중) → queue.remove → markFinished(canceled) → notify
@@ -174,9 +178,9 @@ IPC 핸들러는 얇게 유지한다 — core 메서드 호출만 한다(전체 
 
 ## 9. 오류 처리
 
-**슬롯 누수.** `execution`이 `onStart` 전체를 감싸 실패 시 `release` + `markFinished(failed)`를 보장한다. §4 계약 1이 이유다.
+**슬롯 누수.** `execution`이 `start` 클로저 전체를 감싸 실패 시 `release` + `markFinished(failed)`를 보장한다. §4 계약 1이 이유다.
 
-**유령 run.** 대기 중인 run의 workspace가 지워지면 `run` 행이 cascade로 사라진다. `onStart`에서 run을 못 찾으면 던지지 말고 조용히 `release`하고 다음으로 넘어간다. 던지면 큐가 그대로 멈춘다.
+**유령 run.** 대기 중인 run의 workspace가 지워지면 `run` 행이 cascade로 사라진다. `start` 클로저에서 run을 못 찾으면 던지지 말고 조용히 `release`하고 다음으로 넘어간다. 던지면 큐가 그대로 멈춘다.
 
 **상한 값 검증.** 1 미만이거나 정수가 아니면 거부한다. `app_setting`에 이상한 값이 들어 있으면 기본 3으로 폴백한다. `Number()`가 `NaN`을 조용히 흘리는 함정은 `fake-claude.mjs`에서 이미 한 번 겪었다(커밋 `df9c178`).
 
@@ -201,7 +205,7 @@ IPC 핸들러는 얇게 유지한다 — core 메서드 호출만 한다(전체 
 - 대기 중 `remove`는 성공하고, 실행 중 `remove`는 false다
 - 상한을 줄이면 새로 시작하지 않는다 (돌던 것은 그대로)
 - 상한을 늘리면 대기분이 즉시 시작한다
-- `onStart`가 던져도 큐가 멈추지 않는다
+- `start`가 던져도 큐가 멈추지 않는다 — 슬롯을 돌려주고 다음 대기분으로 넘어간다
 
 **`core/execution.test.ts`**
 
