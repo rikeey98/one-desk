@@ -2,11 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { inArray } from 'drizzle-orm'
 import { makeTestDb } from './testing'
 import { createWorkspaceRepository } from './workspace'
 import { createRepoRepository } from './repo'
 import { createIssueRepository } from './issue'
 import { createRunRepository } from './run'
+import { run } from '../schema'
 import type { Database } from '../open'
 
 describe('RunRepository', () => {
@@ -217,6 +219,13 @@ describe('RunRepository', () => {
       const a = finished('succeeded')
       const b = finished('succeeded')
       const c = finished('succeeded')
+      // markFinished를 세 번 연달아 불러도 실제 DB 쓰기 시간 때문에 endedAt이
+      // 자연스럽게 갈라진다 — tie-break(rowid)를 검증하려면 동률을 직접 만들어야
+      // 한다. 그렇지 않으면 이 테스트는 desc(endedAt) 정렬만 확인하고 rowid
+      // tie-break가 지워져도 통과한다.
+      const tie = Date.now()
+      db.update(run).set({ endedAt: tie }).where(inArray(run.id, [a.id, b.id, c.id])).run()
+
       const listed = runs.inbox().map((r) => r.id)
       expect(listed.slice(0, 3)).toEqual([c.id, b.id, a.id])
     })
