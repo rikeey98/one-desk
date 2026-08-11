@@ -58,37 +58,42 @@ export function Dock({ runs, error, workspaceId, repos, reposError, queue, queue
 
   return (
     <section className={open ? 'dock dock-open' : 'dock'}>
-      <header className="dock-tabs">
+      {/* 토글과 슬롯 표시기는 스크롤되는 탭 스트립 밖에 둔다. 안에 두면 run 탭이
+          늘어났을 때 "왜 내 run이 안 시작하지"를 설명하는 유일한 한 줄이 화면 밖으로
+          밀려난다 — 표시기를 둔 이유(스펙 §7)와 정면으로 어긋난다. */}
+      <header className="dock-header">
         <button type="button" className="dock-toggle" onClick={() => setOpen(!open)}>
           {open ? '▾' : '▴'} 실행
         </button>
         <SlotIndicator snapshot={queue} onChangeLimit={onChangeLimit} />
-        <button
-          type="button"
-          className={view === 'new' ? 'dock-tab dock-tab-selected' : 'dock-tab'}
-          onClick={() => { setView('new'); setOpen(true) }}
-        >
-          + 새 실행
-        </button>
-        {runs.map((run) => (
+        <div className="dock-tabs">
           <button
-            key={run.id}
             type="button"
-            className={view === 'log' && run.id === selected?.id ? 'dock-tab dock-tab-selected' : 'dock-tab'}
-            onClick={() => { setPickedId(run.id); setView('log'); setOpen(true) }}
+            className={view === 'new' ? 'dock-tab dock-tab-selected' : 'dock-tab'}
+            onClick={() => { setView('new'); setOpen(true) }}
           >
-            <span className={`status status-${run.status}`}>{run.status}</span>
-            {/* succeeded로 끝나도 agent가 질문하고 멈춘 것일 수 있다. 배지가 없으면 구분이 안 된다. */}
-            {run.needsAnswer && <span className="needs-answer">답변 필요</span>}
-            {label(run)}
+            + 새 실행
           </button>
-        ))}
-        {/* 대기 중인 run도 취소할 수 있어야 한다 — 프로세스가 없을 뿐 사용자에겐 똑같이 걸려 있다. */}
-        {view === 'log' && (selected?.status === 'running' || selected?.status === 'pending') && (
-          <button type="button" className="dock-cancel" onClick={() => void cancel(selected.id)}>
-            취소
-          </button>
-        )}
+          {runs.map((run) => (
+            <button
+              key={run.id}
+              type="button"
+              className={view === 'log' && run.id === selected?.id ? 'dock-tab dock-tab-selected' : 'dock-tab'}
+              onClick={() => { setPickedId(run.id); setView('log'); setOpen(true) }}
+            >
+              <span className={`status status-${run.status}`}>{run.status}</span>
+              {/* succeeded로 끝나도 agent가 질문하고 멈춘 것일 수 있다. 배지가 없으면 구분이 안 된다. */}
+              {run.needsAnswer && <span className="needs-answer">답변 필요</span>}
+              {label(run)}
+            </button>
+          ))}
+          {/* 대기 중인 run도 취소할 수 있어야 한다 — 프로세스가 없을 뿐 사용자에겐 똑같이 걸려 있다. */}
+          {view === 'log' && (selected?.status === 'running' || selected?.status === 'pending') && (
+            <button type="button" className="dock-cancel" onClick={() => void cancel(selected.id)}>
+              취소
+            </button>
+          )}
+        </div>
       </header>
 
       {open && (

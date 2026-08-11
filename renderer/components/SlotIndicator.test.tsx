@@ -75,6 +75,37 @@ describe('SlotIndicator', () => {
     expect(onChangeLimit).toHaveBeenCalledWith(5)
   })
 
+  it('키로 닫은 뒤 다시 열면 바깥 클릭이 그대로 커밋된다', async () => {
+    // 억제 플래그가 blur로만 지워지므로, keydown으로 닫혔는데 focusout이 뒤따르지
+    // 않는 경우가 한 번이라도 생기면 켜진 채로 남는다(jsdom이 바로 그 경우다).
+    // 그러면 다음 편집의 첫 바깥 클릭이 조용히 무시된다 — 사용자는 값을 고쳐 놓고
+    // 다른 곳을 눌렀는데 아무 일도 일어나지 않는 것만 본다.
+    const onChangeLimit = vi.fn()
+    render(<SlotIndicator snapshot={{ running: 0, limit: 3, waiting: 0 }} onChangeLimit={onChangeLimit} />)
+
+    await userEvent.click(screen.getByRole('button', { name: /실행 슬롯/ }))
+    const first = screen.getByLabelText('동시 실행 상한')
+    await userEvent.clear(first)
+    await userEvent.type(first, '5')
+    // focusout 없이 keydown만 온다.
+    act(() => {
+      first.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    })
+    expect(screen.queryByLabelText('동시 실행 상한')).toBeNull()
+    expect(onChangeLimit).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: /실행 슬롯/ }))
+    const second = screen.getByLabelText('동시 실행 상한')
+    await userEvent.clear(second)
+    await userEvent.type(second, '7')
+    act(() => {
+      second.dispatchEvent(new FocusEvent('focusout', { bubbles: true, cancelable: true }))
+    })
+
+    expect(onChangeLimit).toHaveBeenCalledTimes(1)
+    expect(onChangeLimit).toHaveBeenCalledWith(7)
+  })
+
   it('스냅샷이 아직 없으면 아무것도 그리지 않는다', () => {
     const { container } = render(<SlotIndicator snapshot={null} onChangeLimit={vi.fn()} />)
     expect(container).toBeEmptyDOMElement()

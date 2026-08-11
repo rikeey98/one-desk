@@ -27,6 +27,10 @@ export function SlotIndicator({ snapshot, onChangeLimit }: {
 
   function open() {
     setDraft(String(limit))
+    // 플래그를 blur에서만 지우면, keydown으로 닫혔는데 focusout이 뒤따르지 않는
+    // 경우가 한 번이라도 생겼을 때 켜진 채로 남아 다음 편집의 첫 바깥 클릭이
+    // 조용히 무시된다. 편집을 여는 자리에서 항상 초기화해 그 경로를 막는다.
+    suppressBlurRef.current = false
     setEditing(true)
   }
 
