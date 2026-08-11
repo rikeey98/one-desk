@@ -121,6 +121,18 @@ describe('Dock', () => {
     expect(cancel).toHaveBeenCalledWith('run-1')
   })
 
+  it('대기 중인 run에도 취소 버튼을 보여준다', async () => {
+    // 프로세스가 없을 뿐 사용자에겐 똑같이 걸려 있다. core는 대기 중 취소를 이미
+    // 지원하는데(execution.cancel이 큐에서 빼고 canceled로 끝낸다) 버튼이 없으면
+    // 그 경로에 손이 닿지 않는다 — 상한이 낮을수록 오래 묶여 있는 쪽이다.
+    const cancel = vi.fn().mockResolvedValue(undefined)
+    renderDock([makeRun({ status: 'pending', startedAt: null })], makeClient({ cancel }))
+
+    await userEvent.click(screen.getByText('토큰 버그 고쳐줘'))
+    await userEvent.click(screen.getByRole('button', { name: '취소' }))
+    expect(cancel).toHaveBeenCalledWith('run-1')
+  })
+
   it('끝난 run에는 취소 버튼이 없다', async () => {
     renderDock([makeRun({ status: 'succeeded' })], makeClient())
     await userEvent.click(screen.getByText('토큰 버그 고쳐줘'))

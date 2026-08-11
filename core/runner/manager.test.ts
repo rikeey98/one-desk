@@ -93,6 +93,30 @@ describe('RunManager', () => {
     cleanup()
   })
 
+  it('서로 다른 run 두 개는 동시에 돈다', async () => {
+    // 이 브랜치의 간판 기능이다. 같은 runId를 두 번 넘기는 위 테스트로는 가드가
+    // active.has(runId)든 active.size > 0이든 똑같이 통과해서, "앱 전체에 하나"로
+    // 되돌아가는 회귀를 잡지 못한다. 서로 다른 두 run이 같은 순간에 살아 있는지를
+    // 봐야 한다 — 회귀하면 두 번째부터 '이미 실행 중인 run입니다'로 거부된다.
+    const { manager, cleanup } = makeManager()
+    const first = manager.start({ ...spec('slow'), runId: 'r-slow-a' })
+    const second = manager.start({ ...spec('slow'), runId: 'r-slow-b' })
+    // 거부되면 아래 waitFor가 끝나기 전에 unhandled rejection으로 새 나간다.
+    // 먼저 붙잡아 두면 실패가 "둘 다 안 돈다"라는 단언으로 드러난다.
+    const settled = Promise.allSettled([first, second])
+
+    await vi.waitFor(() => {
+      // 같은 동기 시점에 둘 다 true여야 한다 — 번갈아 도는 것으로는 통과하지 않는다.
+      expect(manager.isRunning('r-slow-a')).toBe(true)
+      expect(manager.isRunning('r-slow-b')).toBe(true)
+    })
+
+    const outcomes = await settled
+    expect(outcomes.map((o) => o.status)).toEqual(['fulfilled', 'fulfilled'])
+    expect(manager.logPathFor('r-slow-a')).not.toBe(manager.logPathFor('r-slow-b'))
+    cleanup()
+  })
+
   it('끝난 run은 추적에서 지워져 다음 실행을 막지 않는다', async () => {
     const { manager, cleanup } = makeManager()
     await manager.start(spec('success'))
