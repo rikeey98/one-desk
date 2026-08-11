@@ -348,7 +348,7 @@ Expected: `pnpm test` 181개 (175 + 6)
   it('사용자가 대기 중인 run을 취소하면 인박스에 뜨지 않는다', async () => {
     // 본인이 알아서 한 일이니 이미 "확인됨"이다. 인박스에 남는 canceled는
     // 앱이 재시작하며 취소한 것뿐이어야 한다.
-    const local = setup(undefined, undefined, 1)
+    const local = setup({ limit: 1 })
     await local.service.start({
       workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
       permission: 'edit', userPrompt: '첫째', context: []
@@ -553,18 +553,22 @@ export interface ResumeRunInput {
       // 이걸 안 넘기면 resume이 조용히 새 세션으로 돈다 — 화면에서는 구별되지 않는다.
       const parent = await finishedWithSession()
       const seen: (string | null)[] = []
-      const spy = setup(undefined, {
-        logPathFor: (id: string) => resolve(ctx.logDir, `${id}.jsonl`),
-        start: async (spec) => {
-          seen.push(spec.resumeSessionId)
-          return {
-            status: 'succeeded' as const, resultText: null, externalSessionId: null,
-            needsAnswer: false, exitCode: 0, errorMessage: null, logPath: 'x'
-          }
-        },
-        cancel: () => {},
-        cancelAll: () => {},
-        isRunning: () => false
+      // setup은 옵션 객체를 받는다 (3a의 최종 수정 웨이브가 그렇게 바꿨다).
+      // SetupOptions: { preflight?, manager?, limit?, wrapRuns?, onRunUpdate? }
+      const spy = setup({
+        manager: {
+          logPathFor: (id: string) => resolve(tmpdir(), `one-desk-spy-${id}.jsonl`),
+          start: async (spec) => {
+            seen.push(spec.resumeSessionId)
+            return {
+              status: 'succeeded' as const, resultText: null, externalSessionId: null,
+              needsAnswer: false, exitCode: 0, errorMessage: null, logPath: 'x'
+            }
+          },
+          cancel: () => {},
+          cancelAll: () => {},
+          isRunning: () => false
+        }
       })
       // 원본을 spy 쪽 DB에도 만들어야 하므로 원본 run을 그대로 옮겨 심는다.
       const seeded = spy.runs.create({
