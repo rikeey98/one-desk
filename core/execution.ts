@@ -37,8 +37,13 @@ export function createExecutionService(opts: ExecutionOptions) {
   function finish(runId: string, input: FinishRunInput): void {
     try {
       notify(opts.runs.markFinished(runId, input))
-    } catch {
-      // 기록할 곳이 없다. 슬롯만 돌려주고 넘어간다.
+    } catch (err) {
+      // 기록할 곳이 없다(유령 run)거나 DB 오류로 기록 자체가 실패했다. 어느
+      // 쪽이든 던지지 않고 슬롯만 돌려준다 — 흔적을 안 남기면 이 run이 DB에
+      // running으로 남아 다음 재시작의 reapStale이 정리할 때까지 아무도 모른다.
+      // core/가 나중에 별도 데몬으로 떨어지면 stderr가 자연스러운 로그
+      // 목적지이므로 지금부터 console.error로 남긴다.
+      console.error(`[execution] run 종료 기록 실패 — 이 run은 DB에 running으로 남는다 (runId=${runId})`, err)
     } finally {
       opts.queue.release(runId)
     }
@@ -56,9 +61,14 @@ export function createExecutionService(opts: ExecutionOptions) {
   }): void {
     try {
       notify(opts.runs.markStarted(runId))
-    } catch {
-      // 유령 run — 대기 중에 workspace가 지워져 행이 cascade로 사라졌다.
-      // 던지면 큐가 그대로 멈춘다. 슬롯만 돌려주고 다음으로 넘어간다.
+    } catch (err) {
+      // 유령 run(대기 중에 workspace가 지워져 행이 cascade로 사라진 경우)이거나
+      // DB 오류로 시작 기록 자체가 실패했다. 던지면 큐가 그대로 멈추므로 슬롯만
+      // 돌려주고 다음으로 넘어간다 — 이 run은 DB에 pending으로 멈춘 채 다음
+      // 재시작의 reapStale이 canceled로 정리할 때까지 아무 일도 일어나지 않는다.
+      // core/가 나중에 별도 데몬으로 떨어지면 stderr가 자연스러운 로그
+      // 목적지이므로 지금부터 console.error로 남긴다.
+      console.error(`[execution] run 시작 기록 실패 — manager를 못 띄우고 건너뛴다 (runId=${runId})`, err)
       opts.queue.release(runId)
       return
     }
