@@ -1,4 +1,6 @@
-import { describe, it, expect } from 'vitest'
+// 단언은 전부 Playwright의 waitFor다 — 조건이 안 맞으면 타임아웃으로 던진다.
+// 일회성 expect(await …textContent())는 재시도가 없어 이 화면에서는 경합에 진다.
+import { describe, it } from 'vitest'
 import { launchApp } from './driver'
 
 const FIRST = '첫째 지시'
@@ -30,6 +32,10 @@ describe('동시 실행 상한', () => {
     const limitInput = page.getByLabel('동시 실행 상한')
     await limitInput.fill('1')
     await limitInput.press('Enter')
+    // 표시가 예뻐졌는지 보는 게 아니다. 이 숫자는 렌더러 → IPC → app_setting →
+    // queue.setLimit → queueUpdate push를 모두 돈 뒤에야 1로 바뀌므로, "상한이 큐에
+    // 실제로 적용됐다"의 프록시다. 여기서 기다리지 않고 실행을 시작하면 아래 대기
+    // 단언이 상한이 아직 3인 채로 흘러가 버린다.
     await slots.getByText('실행 중 0/1').waitFor({ state: 'visible', timeout: 5_000 })
 
     // 3. 두 번 연달아 실행한다. 가짜 CLI가 1500ms 지연되므로 관찰할 창이 있다.
@@ -47,13 +53,17 @@ describe('동시 실행 상한', () => {
     const pendingTab = page.getByRole('button', { name: new RegExp(`pending.*${SECOND}`) })
     await pendingTab.waitFor({ state: 'visible', timeout: 5_000 })
     await page.getByText('대기 1').waitFor({ state: 'visible', timeout: 5_000 })
-    expect(await slots.textContent()).toContain('1/1')
+    // 일회성 textContent()는 재시도가 없어 push가 한 박자 늦으면 그대로 깨진다.
+    await slots.getByText('실행 중 1/1').waitFor({ state: 'visible', timeout: 5_000 })
 
     // 5. 앞이 끝나면 뒤가 시작해서 끝난다
     await page.getByRole('button', { name: new RegExp(`succeeded.*${FIRST}`) })
       .waitFor({ state: 'visible', timeout: 20_000 })
     await page.getByRole('button', { name: new RegExp(`succeeded.*${SECOND}`) })
       .waitFor({ state: 'visible', timeout: 20_000 })
-    expect(await slots.textContent()).toContain('0/1')
+    // 여기는 순서가 특히 아슬아슬하다. finish()는 onRunUpdate(succeeded 탭)를 먼저
+    // 쏘고 finally에서야 queue.release(queueUpdate)를 부르므로, 슬롯 표시기의 갱신은
+    // 방금 기다린 succeeded 탭보다 반드시 나중에 온다. 재시도가 필요하다.
+    await slots.getByText('실행 중 0/1').waitFor({ state: 'visible', timeout: 5_000 })
   })
 })
