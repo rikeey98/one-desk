@@ -347,6 +347,112 @@ describe('ExecutionService', () => {
     await vi.waitFor(() => expect(ctx.runs.get(run.id).endedAt).toBeTypeOf('number'))
     expect(ctx.runs.inbox().map((r) => r.id)).not.toContain(run.id)
   })
+
+  describe('resume', () => {
+    /** 세션 id를 가진 채 끝난 run을 하나 만든다. */
+    async function finishedWithSession() {
+      const run = await startBase()
+      await vi.waitFor(() => expect(ctx.runs.get(run.id).status).toBe('succeeded'))
+      return ctx.runs.get(run.id)
+    }
+
+    it('원본의 agent와 작업 디렉토리를 그대로 쓰고 세션을 이어받는다', async () => {
+      const parent = await finishedWithSession()
+      expect(parent.externalSessionId).toBe('fake-session')
+
+      const child = await ctx.service.resume({
+        parentRunId: parent.id,
+        permission: 'read_only',
+        userPrompt: '이어서 해줘',
+        context: []
+      })
+
+      // 잠긴 값 — 원본에서 온다
+      expect(child.agentKind).toBe(parent.agentKind)
+      expect(child.cwd).toBe(parent.cwd)
+      expect(child.workspaceId).toBe(parent.workspaceId)
+      expect(child.parentRunId).toBe(parent.id)
+      // 바꿀 수 있는 값
+      expect(child.permission).toBe('read_only')
+      expect(child.userPrompt).toBe('이어서 해줘')
+      await vi.waitFor(() => expect(ctx.runs.get(child.id).status).toBe('succeeded'))
+    })
+
+    it('이어받을 세션이 없으면 거부한다', async () => {
+      // 실패한 run은 세션이 만들어지기 전에 죽었을 수 있다.
+      const created = ctx.runs.create({
+        workspaceId: ctx.workspaceId,
+        agentKind: 'claude-code',
+        model: null,
+        cwd: process.cwd(),
+        permission: 'edit',
+        userPrompt: 'x',
+        assembledPrompt: 'x',
+        logPath: '/tmp/none/stream.jsonl',
+        context: []
+      })
+      ctx.runs.markFinished(created.id, {
+        status: 'failed', resultText: null, externalSessionId: null,
+        needsAnswer: false, exitCode: 1, errorMessage: '죽음'
+      })
+
+      await expect(ctx.service.resume({
+        parentRunId: created.id, permission: 'edit', userPrompt: 'x', context: []
+      })).rejects.toThrow(/세션/)
+    })
+
+    it('원본이 없으면 거부한다', async () => {
+      await expect(ctx.service.resume({
+        parentRunId: '없는-id', permission: 'edit', userPrompt: 'x', context: []
+      })).rejects.toThrow(/원본/)
+    })
+
+    it('manager에 원본의 세션 id를 넘긴다', async () => {
+      // 이걸 안 넘기면 resume이 조용히 새 세션으로 돈다 — 화면에서는 구별되지 않는다.
+      const parent = await finishedWithSession()
+      const seen: (string | null)[] = []
+      // setup은 옵션 객체를 받는다 (3a의 최종 수정 웨이브가 그렇게 바꿨다).
+      // SetupOptions: { preflight?, manager?, limit?, wrapRuns?, onRunUpdate? }
+      const spy = setup({
+        manager: {
+          logPathFor: (id: string) => resolve(tmpdir(), `one-desk-spy-${id}.jsonl`),
+          start: async (spec) => {
+            seen.push(spec.resumeSessionId)
+            return {
+              status: 'succeeded' as const, resultText: null, externalSessionId: null,
+              needsAnswer: false, exitCode: 0, errorMessage: null, logPath: 'x'
+            }
+          },
+          cancel: () => {},
+          cancelAll: () => {},
+          isRunning: () => false
+        }
+      })
+      // 원본을 spy 쪽 DB에도 만들어야 하므로 원본 run을 그대로 옮겨 심는다.
+      const seeded = spy.runs.create({
+        workspaceId: spy.workspaceId,
+        agentKind: parent.agentKind,
+        model: null,
+        cwd: parent.cwd,
+        permission: parent.permission,
+        userPrompt: parent.userPrompt,
+        assembledPrompt: parent.assembledPrompt,
+        logPath: parent.logPath,
+        context: []
+      })
+      spy.runs.markFinished(seeded.id, {
+        status: 'succeeded', resultText: null, externalSessionId: 'fake-session',
+        needsAnswer: false, exitCode: 0, errorMessage: null
+      })
+
+      await spy.service.resume({
+        parentRunId: seeded.id, permission: 'edit', userPrompt: '이어서', context: []
+      })
+
+      expect(seen).toEqual(['fake-session'])
+      rmSync(spy.logDir, { recursive: true, force: true })
+    })
+  })
 })
 
 /** console.error로 새는 것을 모아 두고 테스트 출력은 조용하게 유지한다. */

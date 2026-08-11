@@ -146,6 +146,22 @@ export interface StartRunInput {
   timeoutMs?: number | null
 }
 
+/**
+ * 세션을 이어받아 실행한다.
+ *
+ * StartRunInput에도 parentRunId가 있지만 그것은 "원본을 가리키는 기록"일 뿐
+ * 세션을 이어받지 않는다. resume은 external_session_id까지 이어받는다.
+ */
+export interface ResumeRunInput {
+  /** 이어받을 원본 run */
+  parentRunId: string
+  model?: string | null
+  permission: Permission
+  userPrompt: string
+  /** 기본은 빈 배열 — 이전 대화가 이미 세션에 있다 (설계 §6) */
+  context: ContextItemRef[]
+}
+
 /** 도크의 슬롯 표시기가 쓰는 전역 실행 현황. workspace와 무관하다. */
 export interface QueueSnapshot {
   /** 지금 슬롯을 쥔 run 수. 상한을 낮추면 일시적으로 limit보다 클 수 있다. */

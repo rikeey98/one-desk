@@ -7,7 +7,7 @@ import type { FinishRunInput, RunRepository } from './db/repositories/run'
 import type { RunManager } from './runner/manager'
 import type { RunQueue } from './runner/queue'
 import type { PreflightResult } from './runner/types'
-import type { AgentKind, Run, StartRunInput } from '@shared/models'
+import type { AgentKind, ContextItemRef, Permission, ResumeRunInput, Run, StartRunInput } from '@shared/models'
 
 export interface ExecutionOptions {
   db: Database
@@ -54,9 +54,10 @@ export function createExecutionService(opts: ExecutionOptions) {
     agentKind: AgentKind
     cwd: string
     model: string | null
-    permission: Run['permission']
+    permission: Permission
     prompt: string
     executable: string
+    resumeSessionId: string | null
     timeoutMs: number | null
   }): void {
     // DB 쓰기와 알림을 한 try에 묶지 않는다. 리스너가 던진 것뿐인데(종료 중 파괴된
@@ -85,7 +86,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       model: spec.model,
       permission: spec.permission,
       prompt: spec.prompt,
-      resumeSessionId: null,
+      resumeSessionId: spec.resumeSessionId,
       executable: spec.executable,
       timeoutMs: spec.timeoutMs,
       ...(opts.extraArgs ? { extraArgs: opts.extraArgs } : {})
@@ -110,19 +111,25 @@ export function createExecutionService(opts: ExecutionOptions) {
     )
   }
 
-  /**
-   * 실행을 등록하고 **완료를 기다리지 않고** 돌아온다.
-   *
-   * 슬롯이 있으면 running run을, 상한에 걸리면 pending run을 돌려준다.
-   * 어느 쪽이든 종료까지 기다리지 않는다 — 기다리면 IPC 한 번이 몇 분씩 막히고,
-   * 그동안 렌더러는 run의 id를 모르므로 도크에 탭을 만들 수도 취소 버튼을
-   * 붙일 수도 없다(설계 §9). 완료는 onRunUpdate로 알린다.
-   */
-  async function start(input: StartRunInput): Promise<Run> {
-    const { repos, issues, memos } = collectContext(opts.db, input)
+  /** start와 resume이 공유하는 경로. 다른 것은 채우는 값뿐이다. */
+  interface LaunchSpec {
+    workspaceId: string
+    agentKind: AgentKind
+    model: string | null
+    cwd: string
+    permission: Permission
+    userPrompt: string
+    context: ContextItemRef[]
+    parentRunId: string | null
+    resumeSessionId: string | null
+    timeoutMs: number | null
+  }
+
+  async function launch(spec: LaunchSpec): Promise<Run> {
+    const { repos, issues, memos } = collectContext(opts.db, spec)
 
     const assembled = assemblePrompt({
-      repos, issues, memos, userPrompt: input.userPrompt
+      repos, issues, memos, userPrompt: spec.userPrompt
     })
 
     // 로그 경로가 run id를 포함하므로 id를 먼저 정한다.
@@ -132,23 +139,23 @@ export function createExecutionService(opts: ExecutionOptions) {
 
     const created = opts.runs.create({
       id: runId,
-      workspaceId: input.workspaceId,
-      agentKind: input.agentKind,
-      model: input.model ?? null,
-      cwd: input.cwd,
-      permission: input.permission,
-      userPrompt: input.userPrompt,
+      workspaceId: spec.workspaceId,
+      agentKind: spec.agentKind,
+      model: spec.model,
+      cwd: spec.cwd,
+      permission: spec.permission,
+      userPrompt: spec.userPrompt,
       assembledPrompt: assembled,
       logPath,
-      context: input.context,
-      ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
-      timeoutMs: input.timeoutMs ?? null
+      context: spec.context,
+      ...(spec.parentRunId ? { parentRunId: spec.parentRunId } : {}),
+      timeoutMs: spec.timeoutMs
     })
     notify(created)
 
     // preflight는 큐에 넣기 전에 본다. 실행 파일이 없는 run이 슬롯을 잡았다
     // 놓는 낭비가 없고, "preflight 실패는 startedAt이 null"이라는 성질도 남는다.
-    const preflight = await opts.resolveExecutable(input.agentKind, input.workspaceId)
+    const preflight = await opts.resolveExecutable(spec.agentKind, spec.workspaceId)
     if (!preflight.ok || !preflight.executable) {
       return notify(opts.runs.markFinished(created.id, {
         status: 'failed',
@@ -162,17 +169,76 @@ export function createExecutionService(opts: ExecutionOptions) {
 
     const executable = preflight.executable
     opts.queue.enqueue(created.id, () => beginRun(created.id, {
-      agentKind: input.agentKind,
-      cwd: input.cwd,
-      model: input.model ?? null,
-      permission: input.permission,
+      agentKind: spec.agentKind,
+      cwd: spec.cwd,
+      model: spec.model,
+      permission: spec.permission,
       prompt: assembled,
       executable,
-      timeoutMs: input.timeoutMs ?? null
+      resumeSessionId: spec.resumeSessionId,
+      timeoutMs: spec.timeoutMs
     }))
 
     // 슬롯이 있었으면 beginRun이 동기로 끝나 running이고, 없었으면 pending이다.
     return opts.runs.get(created.id)
+  }
+
+  /**
+   * 실행을 등록하고 **완료를 기다리지 않고** 돌아온다.
+   *
+   * 슬롯이 있으면 running run을, 상한에 걸리면 pending run을 돌려준다.
+   * 어느 쪽이든 종료까지 기다리지 않는다 — 기다리면 IPC 한 번이 몇 분씩 막히고,
+   * 그동안 렌더러는 run의 id를 모르므로 도크에 탭을 만들 수도 취소 버튼을
+   * 붙일 수도 없다(설계 §9). 완료는 onRunUpdate로 알린다.
+   */
+  async function start(input: StartRunInput): Promise<Run> {
+    return launch({
+      workspaceId: input.workspaceId,
+      agentKind: input.agentKind,
+      model: input.model ?? null,
+      cwd: input.cwd,
+      permission: input.permission,
+      userPrompt: input.userPrompt,
+      context: input.context,
+      parentRunId: input.parentRunId ?? null,
+      resumeSessionId: null,
+      timeoutMs: input.timeoutMs ?? null
+    })
+  }
+
+  /**
+   * 원본 run의 세션을 이어받아 새 run을 만든다 (설계 §6).
+   *
+   * **agentKind와 cwd는 잠긴다** — 세션은 특정 CLI가 특정 디렉토리에서 만든
+   * 것이라 다른 조합으로 이어받을 수 없다. 그 규칙이 여기 있어야 나중에
+   * core를 별도 데몬으로 뗄 때 따라간다. 호출자는 바꿀 수 있는 것만 넘긴다.
+   */
+  async function resume(input: ResumeRunInput): Promise<Run> {
+    let parent: Run
+    try {
+      parent = opts.runs.get(input.parentRunId)
+    } catch {
+      throw new Error('이어서 실행할 원본 run이 없습니다. workspace가 지워졌을 수 있습니다.')
+    }
+
+    if (!parent.externalSessionId) {
+      throw new Error('이어받을 세션이 없습니다. 새 실행으로 시작하세요.')
+    }
+
+    return launch({
+      // 잠긴 값
+      workspaceId: parent.workspaceId,
+      agentKind: parent.agentKind,
+      cwd: parent.cwd,
+      resumeSessionId: parent.externalSessionId,
+      parentRunId: parent.id,
+      // 바꿀 수 있는 값
+      model: input.model ?? null,
+      permission: input.permission,
+      userPrompt: input.userPrompt,
+      context: input.context,
+      timeoutMs: null
+    })
   }
 
   /**
@@ -206,11 +272,11 @@ export function createExecutionService(opts: ExecutionOptions) {
     opts.manager.cancel(runId)
   }
 
-  return { start, cancel }
+  return { start, resume, cancel }
 }
 
 /** 맥락 항목이 이 workspace 소속인지 확인하며 실제 데이터를 모은다. */
-function collectContext(db: Database, input: StartRunInput) {
+function collectContext(db: Database, input: { workspaceId: string; context: ContextItemRef[] }) {
   const ids = (type: string) =>
     input.context.filter((c) => c.type === type).map((c) => c.id)
 
