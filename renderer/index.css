@@ -5,9 +5,12 @@ body { margin: 0; background: #ffffff; color: #18181b; }
 .sidebar { flex: 0 0 180px; background: #f4f4f5; border-right: 1px solid #e4e4e7; padding: 12px 10px; }
 .sidebar-label { font-size: 10px; letter-spacing: .07em; text-transform: uppercase; opacity: .55; font-weight: 700; margin-bottom: 8px; }
 .sidebar ul { list-style: none; margin: 0; padding: 0; }
-.ws { display: block; width: 100%; text-align: left; padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; font-size: 13px; }
+.ws { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; font-size: 13px; }
 .ws:hover { background: #e4e4e7; }
 .ws-selected { background: #dbeafe; font-weight: 700; }
+.inbox-link { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; border-radius: 5px; background: transparent; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; padding: 5px 8px; text-align: left; }
+.inbox-link-selected { background: #e4e4e7; }
+.badge { margin-left: auto; border-radius: 9px; background: #dc2626; color: #fff; font-size: 10px; font-weight: 700; padding: 1px 6px; }
 .main { flex: 1; display: flex; flex-direction: column; padding: 12px; gap: 10px; min-width: 0; }
 .repo-strip { display: flex; gap: 8px; }
 .repo-card { flex: 1; text-align: left; padding: 8px 11px; border: 1px solid #e4e4e7; border-radius: 7px; background: #fafafa; cursor: pointer; }

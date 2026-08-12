@@ -1,10 +1,14 @@
 import { useWorkspaces } from '../hooks/useWorkspaces'
 import { AddForm } from './AddForm'
 import { useClient } from '../client/ClientProvider'
+import type { InboxCounts } from '@shared/models'
 
-export function Sidebar({ selectedId, onSelect }: {
+export function Sidebar({ selectedId, onSelect, view, onSelectInbox, counts }: {
   selectedId: string | null
   onSelect: (id: string) => void
+  view: 'workspace' | 'inbox'
+  onSelectInbox: () => void
+  counts: InboxCounts
 }) {
   const client = useClient()
   const { workspaces, loading, error, refresh } = useWorkspaces()
@@ -16,6 +20,14 @@ export function Sidebar({ selectedId, onSelect }: {
 
   return (
     <nav className="sidebar">
+      <button
+        type="button"
+        className={view === 'inbox' ? 'inbox-link inbox-link-selected' : 'inbox-link'}
+        onClick={onSelectInbox}
+      >
+        인박스
+        {counts.total > 0 && <span className="badge">{counts.total}</span>}
+      </button>
       <div className="sidebar-label">Workspaces</div>
       <AddForm placeholder="새 workspace 이름…" onSubmit={addWorkspace} />
       {error && <div role="alert" className="form-error">{error}</div>}
@@ -28,10 +40,13 @@ export function Sidebar({ selectedId, onSelect }: {
           <li key={w.id}>
             <button
               type="button"
-              className={w.id === selectedId ? 'ws ws-selected' : 'ws'}
+              className={w.id === selectedId && view === 'workspace' ? 'ws ws-selected' : 'ws'}
               onClick={() => onSelect(w.id)}
             >
               {w.name}
+              {(counts.byWorkspace[w.id] ?? 0) > 0 && (
+                <span className="badge">{counts.byWorkspace[w.id]}</span>
+              )}
             </button>
           </li>
         ))}

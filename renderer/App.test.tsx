@@ -44,12 +44,17 @@ function makeClient(runsOver: Record<string, unknown> = {}): OneDeskClient {
       readLog: vi.fn(),
       queueSnapshot: vi.fn().mockResolvedValue({ running: 0, limit: 3, waiting: 0 }),
       setConcurrencyLimit: vi.fn().mockResolvedValue({ running: 0, limit: 3, waiting: 0 }),
+      inbox: vi.fn().mockResolvedValue([]),
+      inboxCounts: vi.fn().mockResolvedValue({ total: 0, byWorkspace: {} }),
+      markReviewed: vi.fn(),
+      resume: vi.fn(),
       ...runsOver
     },
     events: {
       onRunEvent: vi.fn(() => () => {}),
       onRunUpdate: vi.fn(() => () => {}),
-      onQueueUpdate: vi.fn(() => () => {})
+      onQueueUpdate: vi.fn(() => () => {}),
+      onInboxUpdate: vi.fn(() => () => {})
     }
   } as unknown as OneDeskClient
 }

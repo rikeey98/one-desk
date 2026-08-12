@@ -21,7 +21,13 @@ describe('useWorkspaces 오류 처리', () => {
   it('목록 조회가 실패하면 오류를 보여주고 로딩 상태에서 벗어난다', async () => {
     render(
       <ClientProvider client={makeFailingClient()}>
-        <Sidebar selectedId={null} onSelect={vi.fn()} />
+        <Sidebar
+          selectedId={null}
+          onSelect={vi.fn()}
+          view="workspace"
+          onSelectInbox={vi.fn()}
+          counts={{ total: 0, byWorkspace: {} }}
+        />
       </ClientProvider>
     )
 
