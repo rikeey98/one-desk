@@ -278,4 +278,39 @@ describe('App', () => {
     await waitFor(() => expect(start).toHaveBeenCalled())
     expect(start.mock.calls[0]![0].cwd).toBe('/tmp/web')
   })
+
+  it('"다시 실행"이 원본 프롬프트를 실행 패널에 채운다', async () => {
+    const client = makeClient({}, {
+      repos: [makeRepo('r1', 'api', '/tmp/api')],
+      inbox: [makeRun({ id: 'r-int', status: 'interrupted', userPrompt: '원래 지시' })]
+    })
+    renderApp(client)
+
+    await openInbox()
+    await userEvent.click(await screen.findByRole('button', { name: '다시 실행' }))
+
+    expect(await screen.findByPlaceholderText(/무엇을 시킬지/)).toHaveValue('원래 지시')
+  })
+
+  it('"다시 실행" 뒤에 resume으로 넘어가면 프롬프트가 비어 있다', async () => {
+    // 설계 §7 — resume 모드의 프롬프트와 맥락 칩은 비어 있다. 실행하지 않고 돌아오면
+    // "다시 실행"이 세운 draft가 남아 이어서 보낼 지시에 섞인다.
+    const client = makeClient({}, {
+      repos: [makeRepo('r1', 'api', '/tmp/api')],
+      inbox: [
+        makeRun({ id: 'r-int', status: 'interrupted', userPrompt: '원래 지시' }),
+        makeRun({ id: 'r-ask', needsAnswer: true, userPrompt: '질문한 실행', externalSessionId: 'sess-1' })
+      ]
+    })
+    renderApp(client)
+
+    await openInbox()
+    await userEvent.click(await screen.findByRole('button', { name: '다시 실행' }))
+    expect(await screen.findByPlaceholderText(/무엇을 시킬지/)).toHaveValue('원래 지시')
+
+    await userEvent.click(inboxLink())
+    await userEvent.click(await screen.findByRole('button', { name: '답하고 이어서' }))
+
+    expect(await screen.findByPlaceholderText(/무엇을 시킬지/)).toHaveValue('')
+  })
 })

@@ -105,6 +105,10 @@ export default function App() {
   function startResume(run: Run) {
     goToRun(run)
     setResumeFrom(run)
+    // resume 모드의 프롬프트와 맥락 칩은 비어 있다 (설계 §7). "다시 실행"을 눌렀다가
+    // 실행하지 않고 돌아오면 그때 세운 draft가 그대로 남아 프롬프트를 채운다.
+    setDraftPrompt('')
+    setDraftCwd(null)
     // 로그를 보던 상태가 남아 있으면 Dock이 실행 패널 대신 그 로그를 연다.
     setFocusRun(null)
   }
