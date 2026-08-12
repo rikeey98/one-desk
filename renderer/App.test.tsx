@@ -189,6 +189,88 @@ describe('App', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('상한을 저장하지 못했습니다')
   })
 
+  it('사이드바 배지로 미처리 건수를 알리고, 인박스에서 "확인함"을 누르면 사라진다', async () => {
+    const client = makeClient({}, {
+      inbox: [
+        makeRun({ id: 'r-1', userPrompt: '첫 결과' }),
+        makeRun({ id: 'r-2', userPrompt: '둘째 결과' })
+      ]
+    })
+    renderApp(client)
+
+    await waitFor(() => expect(inboxLink()).toHaveTextContent('2'))
+    await openInbox()
+    expect(await screen.findByText('첫 결과')).toBeInTheDocument()
+
+    await userEvent.click(screen.getAllByRole('button', { name: '확인함' })[0]!)
+
+    await waitFor(() => expect(client.runs.markReviewed).toHaveBeenCalledWith('r-1', 'confirmed'))
+    // 확인한 run은 목록에서도 배지에서도 빠진다 — 목록은 스냅샷이지 진실이 아니다.
+    await waitFor(() => expect(screen.queryByText('첫 결과')).toBeNull())
+    expect(screen.getByText('둘째 결과')).toBeInTheDocument()
+    expect(inboxLink()).toHaveTextContent('1')
+  })
+
+  it('"답하고 이어서"는 그 run의 세션을 이어 실행한다', async () => {
+    const client = makeClient({}, {
+      repos: [makeRepo('r1', 'api', '/tmp/api')],
+      inbox: [makeRun({
+        id: 'r-ask', needsAnswer: true, userPrompt: '질문한 실행', externalSessionId: 'sess-1'
+      })]
+    })
+    renderApp(client)
+
+    await openInbox()
+    await userEvent.click(await screen.findByRole('button', { name: '답하고 이어서' }))
+
+    await userEvent.type(await screen.findByPlaceholderText(/무엇을 시킬지/), '이어서 해줘')
+    await userEvent.click(screen.getByRole('button', { name: '▶ 실행' }))
+
+    await waitFor(() => expect(client.runs.resume).toHaveBeenCalledWith(expect.objectContaining({
+      parentRunId: 'r-ask',
+      userPrompt: '이어서 해줘'
+    })))
+    expect(client.runs.start).not.toHaveBeenCalled()
+  })
+
+  it('"이슈로 만들기"는 이슈를 만들고 그 run을 보관한다', async () => {
+    // 실패는 대개 나중에 다뤄야 할 일인데, 인박스에서 사라지면 그대로 잊힌다.
+    const client = makeClient({}, {
+      inbox: [makeRun({
+        id: 'r-failed', status: 'failed', userPrompt: '실패한 실행\n둘째 줄', errorMessage: '권한 거부'
+      })]
+    })
+    renderApp(client)
+
+    await openInbox()
+    await userEvent.click(await screen.findByRole('button', { name: '이슈로 만들기' }))
+
+    await waitFor(() => expect(client.issues.create).toHaveBeenCalledWith({
+      workspaceId: 'w1', title: '실패한 실행', body: '권한 거부'
+    }))
+    await waitFor(() => expect(client.runs.markReviewed).toHaveBeenCalledWith('r-failed', 'archived'))
+    await waitFor(() => expect(screen.queryByText(/실패한 실행/)).toBeNull())
+  })
+
+  it('사이드바에서 만든 workspace를 인박스도 안다', async () => {
+    // useWorkspaces 인스턴스가 둘이면 Sidebar에서 만든 workspace를 App 인스턴스가
+    // 영영 모른다 — 인박스가 그 run을 "(사라진 workspace)"로 그린 실제 결함이다.
+    // useRepos 회귀 테스트와 같은 구조로, 가짜 client가 생성 후 새 목록을 돌려준다.
+    const client = makeClient({}, {
+      inbox: [makeRun({ id: 'r-new-ws', workspaceId: 'w2', userPrompt: '새 workspace의 실행' })]
+    })
+    renderApp(client)
+
+    await userEvent.type(await screen.findByPlaceholderText('새 workspace 이름…'), 'ws2{Enter}')
+    await screen.findByRole('button', { name: /ws2/ })
+
+    await openInbox()
+    const item = await screen.findByText('새 workspace의 실행')
+    const card = item.closest('.inbox-item')!
+    expect(within(card as HTMLElement).getByText('ws2')).toBeInTheDocument()
+    expect(within(card as HTMLElement).queryByText('(사라진 workspace)')).toBeNull()
+  })
+
   it('인박스 조회에 실패하면 인박스를 열지 않아도 사이드바에서 드러난다', async () => {
     // 배지가 그냥 안 붙으면 "처리할 것이 없다"와 "못 읽었다"가 구별되지 않는다.
     // 3a의 useQueue가 정확히 그 실수를 했다 (설계 §9).
