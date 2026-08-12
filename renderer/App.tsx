@@ -161,6 +161,7 @@ export default function App() {
         view={view}
         onSelectInbox={() => setView('inbox')}
         counts={inboxCounts}
+        countsError={inboxError}
       />
       <main className="main">
         {view === 'inbox' && (

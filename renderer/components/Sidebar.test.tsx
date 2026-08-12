@@ -46,6 +46,7 @@ function renderSidebar(over: {
   view?: 'workspace' | 'inbox'
   onSelectInbox?: () => void
   counts?: InboxCounts
+  countsError?: string | null
 } = {}) {
   render(
     <ClientProvider client={makeClient()}>
@@ -59,6 +60,7 @@ function renderSidebar(over: {
         view={over.view ?? 'workspace'}
         onSelectInbox={over.onSelectInbox ?? vi.fn()}
         counts={over.counts ?? { total: 0, byWorkspace: {} }}
+        countsError={over.countsError ?? null}
       />
     </ClientProvider>
   )
@@ -93,6 +95,14 @@ describe('Sidebar', () => {
     // 0이 상시 붙어 있으면 눈이 걸러내는 법을 배우고, 숫자가 생겨도 안 보인다.
     renderSidebar({ counts: { total: 0, byWorkspace: {} } })
     expect(screen.getByRole('button', { name: /인박스/ })).not.toHaveTextContent('0')
+  })
+
+  it('인박스 조회에 실패하면 배지 자리에 표식을 남긴다', () => {
+    // 조용히 배지를 숨기면 "처리할 것이 없다"와 "못 읽었다"가 구별되지 않는다.
+    // 인박스를 열지 않아도 그 사실이 보여야 한다 (설계 §9).
+    renderSidebar({ countsError: '인박스를 읽지 못했습니다' })
+    expect(screen.getByRole('button', { name: /인박스/ })).toHaveTextContent('!')
+    expect(screen.getByTitle(/인박스를 읽지 못했습니다/)).toBeInTheDocument()
   })
 
   it('workspace 배지도 건수가 0이거나 없으면 그리지 않는다', async () => {

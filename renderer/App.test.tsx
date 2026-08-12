@@ -189,6 +189,30 @@ describe('App', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('상한을 저장하지 못했습니다')
   })
 
+  it('인박스 조회에 실패하면 인박스를 열지 않아도 사이드바에서 드러난다', async () => {
+    // 배지가 그냥 안 붙으면 "처리할 것이 없다"와 "못 읽었다"가 구별되지 않는다.
+    // 3a의 useQueue가 정확히 그 실수를 했다 (설계 §9).
+    const client = makeClient({
+      inbox: vi.fn().mockRejectedValue(new Error('인박스를 불러오지 못했습니다')),
+      inboxCounts: vi.fn().mockRejectedValue(new Error('인박스를 불러오지 못했습니다'))
+    })
+    renderApp(client)
+
+    expect(await screen.findByTitle(/인박스를 불러오지 못했습니다/)).toBeInTheDocument()
+    expect(inboxLink()).toHaveTextContent('!')
+  })
+
+  it('인박스 조회 실패는 인박스 화면에도 배너로 뜬다', async () => {
+    const client = makeClient({
+      inbox: vi.fn().mockRejectedValue(new Error('인박스를 불러오지 못했습니다')),
+      inboxCounts: vi.fn().mockRejectedValue(new Error('인박스를 불러오지 못했습니다'))
+    })
+    renderApp(client)
+
+    await openInbox()
+    expect(await screen.findByRole('alert')).toHaveTextContent('인박스를 불러오지 못했습니다')
+  })
+
   it('"관련 이슈 닫기"는 이슈만 닫고 run은 인박스에 남긴다', async () => {
     // 설계 §5의 reviewedKind 표에 이 행동이 없고, 같은 절이 "이슈가 여럿이면 각각
     // 보인다"고 적었다. run까지 확인 처리하면 첫 이슈를 닫는 순간 항목이 사라져
