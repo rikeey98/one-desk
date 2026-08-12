@@ -309,6 +309,35 @@ describe('ExecutionService', () => {
     rmSync(local.logDir, { recursive: true, force: true })
   })
 
+  it('알림이 던져도 manager.start가 불려 run이 실제로 시작한다', async () => {
+    // notify(started)가 try 밖에 있으면 리스너가 던지는 순간 beginRun이 그대로
+    // 빠져나가 manager.start를 영영 못 부른다. 큐의 방어적 catch는 슬롯만
+    // 돌려줄 뿐이라 DB는 running인데 프로세스가 없는 run이 남는다 —
+    // 다음 재시작의 reapStale이 interrupted로 정리할 때까지 아무도 모른다.
+    const ctrl = createPerRunManager()
+    const logs = captureConsoleError()
+    const local = setup({
+      manager: ctrl.manager,
+      onRunUpdate: (run) => {
+        if (run.status === 'running') throw new Error('창이 이미 닫혔습니다')
+      }
+    })
+
+    const run = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: 'x', context: []
+    })
+
+    expect(ctrl.started(run.id)).toBe(true)
+
+    // 슬롯 회계도 정상이어야 한다 — finish까지 흘러가 release가 정확히 한 번 불린다.
+    ctrl.finish(run.id)
+    await vi.waitFor(() => expect(local.runs.get(run.id).status).toBe('succeeded'))
+    expect(local.queue.snapshot()).toEqual({ running: 0, limit: 3, waiting: 0 })
+    logs.restore()
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
   it('사용자가 대기 중인 run을 취소하면 인박스에 뜨지 않는다', async () => {
     // 본인이 알아서 한 일이니 이미 "확인됨"이다. 인박스에 남는 canceled는
     // 앱이 재시작하며 취소한 것뿐이어야 한다.

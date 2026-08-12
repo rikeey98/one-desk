@@ -76,7 +76,18 @@ export function createExecutionService(opts: ExecutionOptions) {
       opts.queue.release(runId)
       return
     }
-    notify(started)
+    // markStarted는 이미 성공했다 — run은 실제로 시작해야 한다. 이 notify가
+    // try 밖에 있으면(종료 중 파괴된 webContents 등으로) 리스너가 던지는 순간
+    // beginRun을 그대로 빠져나가 아래 manager.start를 영영 못 부른다. 큐의
+    // 방어적 catch는 슬롯만 돌려줄 뿐이라 DB에는 running인데 프로세스가 없는
+    // run이 남고, 다음 재시작의 reapStale이 interrupted로 정리할 때까지 아무도
+    // 모른다. 알림 실패는 화면 갱신의 문제이지 실행의 문제가 아니므로 여기서
+    // 삼키고 계속 진행한다.
+    try {
+      notify(started)
+    } catch (err) {
+      console.error(`[execution] 시작 알림 실패 — 화면 갱신만 놓치고 실행은 계속한다 (runId=${runId})`, err)
+    }
 
     // 여기서 await하지 않는다. 종료 처리는 아래 체인이 맡는다.
     void opts.manager.start({
