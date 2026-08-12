@@ -15,7 +15,8 @@ function when(ms: number | null): string {
 function shows(category: InboxCategory, action: 'log' | 'resume' | 'restart' | 'confirm' | 'archive' | 'makeIssue'): boolean {
   switch (action) {
     // 대기 중 취소됨은 시작도 못 해 로그 파일이 없다.
-    case 'log': return category !== 'dropped'
+    // 완료 · 미확인은 설계 §5 표에 로그 보기가 없다 — 이어서 실행 · 확인함으로 충분히 다룬다.
+    case 'log': return category !== 'dropped' && category !== 'done'
     case 'resume': return category === 'needs-answer' || category === 'done'
     case 'restart': return category === 'failed' || category === 'interrupted' || category === 'dropped'
     case 'confirm': return category === 'done'
