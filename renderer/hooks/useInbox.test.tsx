@@ -74,6 +74,30 @@ describe('useInbox', () => {
     expect(result.current.error).toBeNull()
   })
 
+  it('닫힌 상태에서 오류가 세워진 뒤 push가 오면 오류가 지워진다', async () => {
+    // 닫혀 있을 때는 refreshCounts만 돈다. 그 읽기가 실패해 오류가 세워진 뒤에도
+    // push가 온다는 것은 백엔드 읽기가 성공했다는 뜻이므로, 닫힌 상태의 push
+    // 핸들러도 오류를 지워야 한다(목록은 다시 읽지 않는다).
+    const state: { fire: ((counts: InboxCounts) => void) | null } = { fire: null }
+    const inboxCounts = vi.fn()
+      .mockRejectedValueOnce(new Error('건수 읽기 실패'))
+      .mockResolvedValue({ total: 0, byWorkspace: {} })
+    const client = {
+      runs: { inbox: vi.fn().mockResolvedValue([]), inboxCounts },
+      events: {
+        onInboxUpdate: vi.fn((cb: (counts: InboxCounts) => void) => { state.fire = cb; return () => {} })
+      }
+    } as unknown as OneDeskClient
+
+    const { result } = renderHook(() => useInbox(false), { wrapper: wrap(client) })
+    await waitFor(() => expect(result.current.error).toBe('건수 읽기 실패'))
+
+    act(() => state.fire?.({ total: 2, byWorkspace: { w1: 2 } }))
+
+    await waitFor(() => expect(result.current.error).toBeNull())
+    expect(client.runs.inbox).not.toHaveBeenCalled()
+  })
+
   it('조회에 실패하면 오류를 드러내고, 이후 성공하면 지운다', async () => {
     // 조용히 감추면 "처리할 것이 없다"와 "못 읽었다"가 구별되지 않는다.
     const state: { fire: ((counts: InboxCounts) => void) | null } = { fire: null }
