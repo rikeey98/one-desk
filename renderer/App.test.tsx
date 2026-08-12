@@ -189,6 +189,29 @@ describe('App', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('상한을 저장하지 못했습니다')
   })
 
+  it('"관련 이슈 닫기"는 이슈만 닫고 run은 인박스에 남긴다', async () => {
+    // 설계 §5의 reviewedKind 표에 이 행동이 없고, 같은 절이 "이슈가 여럿이면 각각
+    // 보인다"고 적었다. run까지 확인 처리하면 첫 이슈를 닫는 순간 항목이 사라져
+    // 나머지 이슈를 닫을 수 없다.
+    const client = makeClient({}, {
+      inbox: [makeRun({
+        id: 'r-done', userPrompt: '두 이슈 붙은 실행',
+        contextItems: [{ type: 'issue', id: 'i1' }, { type: 'issue', id: 'i2' }]
+      })]
+    })
+    renderApp(client)
+
+    await openInbox()
+    const buttons = await screen.findAllByRole('button', { name: '관련 이슈 닫기' })
+    await userEvent.click(buttons[0]!)
+
+    await waitFor(() => expect(client.issues.update).toHaveBeenCalledWith({ id: 'i1', status: 'done' }))
+    expect(client.runs.markReviewed).not.toHaveBeenCalled()
+    // 두 번째 이슈를 닫으려면 항목이 그대로 있어야 한다.
+    expect(screen.getByText('두 이슈 붙은 실행')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '관련 이슈 닫기' })).toHaveLength(2)
+  })
+
   it('인박스의 "로그 보기"가 그 run의 로그를 연다', async () => {
     // 화면이 인박스에서 workspace로 바뀌면 Dock이 다시 마운트되며 내부 view가
     // 'new'로 돌아간다 — 지정하지 않으면 사용자는 실행 패널만 보게 된다.

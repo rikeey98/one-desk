@@ -119,10 +119,16 @@ export default function App() {
     setFocusRun(null)
   }
 
-  function closeIssue(run: Run, issueId: string) {
+  /**
+   * 이슈만 닫고 run은 인박스에 남긴다.
+   *
+   * 설계 §5의 reviewedKind 표에 이 행동이 없고, 같은 절이 "이슈가 여럿이면 각각
+   * 보인다"고 적었다. 여기서 run까지 확인 처리하면 첫 이슈를 닫는 순간 항목이
+   * 사라져 나머지를 닫을 수 없다. 확인은 사용자의 "확인함"에 맡긴다.
+   */
+  function closeIssue(_run: Run, issueId: string) {
     setInboxActionError(null)
     client.issues.update({ id: issueId, status: 'done' })
-      .then(() => { review(run.id, 'confirmed') })
       .catch((err: unknown) => {
         setInboxActionError(err instanceof Error ? err.message : String(err))
       })
