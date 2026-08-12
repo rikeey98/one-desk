@@ -11,12 +11,16 @@ import { useQueue } from './hooks/useQueue'
 import { useInbox } from './hooks/useInbox'
 import { useClient } from './client/ClientProvider'
 import { chipKey, type ContextChip } from './context'
+import type { Run } from '@shared/models'
 
 export default function App() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const [repoId, setRepoId] = useState<string | null>(null)
   const [chips, setChips] = useState<ContextChip[]>([])
   const [view, setView] = useState<'workspace' | 'inbox'>('workspace')
+  // Task 8의 인박스가 세운다. 지금은 Dock이 읽기만 한다.
+  const [resumeFrom, setResumeFrom] = useState<Run | null>(null)
+  const [draftPrompt, setDraftPrompt] = useState('')
   const { runs, error: runsError } = useRuns(workspaceId)
   // RepoStrip과 RunPanel(Dock 아래)이 각자 useRepos를 부르면 서로의 상태를 모른다 —
   // repo를 등록해도 RunPanel의 작업 디렉토리 select가 영원히 비는 실제 결함이었다.
@@ -109,8 +113,12 @@ export default function App() {
               onChangeLimit={changeLimit}
               chips={chips}
               onRemoveChip={toggleChip}
+              resumeFrom={resumeFrom}
+              draftPrompt={draftPrompt}
+              onExitResume={() => { setResumeFrom(null); setDraftPrompt('') }}
               // 담은 맥락은 그 run에만 적용된다. 다음 실행은 빈 상태에서 시작한다.
-              onRunStarted={() => setChips([])}
+              // resume 모드도 실행이 시작되면 풀어야 다음이 새 실행으로 돌아간다.
+              onRunStarted={() => { setChips([]); setResumeFrom(null); setDraftPrompt('') }}
             />
           </>
         )}

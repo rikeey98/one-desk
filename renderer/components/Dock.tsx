@@ -12,7 +12,10 @@ function label(run: Run): string {
   return text.length > 24 ? `${text.slice(0, 24)}…` : text || '(빈 지시)'
 }
 
-export function Dock({ runs, error, workspaceId, repos, reposError, queue, queueError, onChangeLimit, chips, onRemoveChip, onRunStarted }: {
+export function Dock({
+  runs, error, workspaceId, repos, reposError, queue, queueError, onChangeLimit, chips, onRemoveChip, onRunStarted,
+  resumeFrom, draftPrompt, onExitResume
+}: {
   runs: Run[]
   error: string | null
   workspaceId: string
@@ -24,6 +27,9 @@ export function Dock({ runs, error, workspaceId, repos, reposError, queue, queue
   chips: ContextChip[]
   onRemoveChip: (chip: ContextChip) => void
   onRunStarted: (run: Run) => void
+  resumeFrom: Run | null
+  draftPrompt: string
+  onExitResume: () => void
 }) {
   const client = useClient()
   const [open, setOpen] = useState(true)
@@ -107,6 +113,9 @@ export function Dock({ runs, error, workspaceId, repos, reposError, queue, queue
               chips={chips}
               onRemoveChip={onRemoveChip}
               onStarted={started}
+              resumeFrom={resumeFrom}
+              draftPrompt={draftPrompt}
+              onExitResume={onExitResume}
             />
           ) : selected ? (
             <>

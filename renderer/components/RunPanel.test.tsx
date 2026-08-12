@@ -22,6 +22,7 @@ function makeWorkspace(defaultPermission: Permission): Workspace {
 function makeClient(opts: {
   defaultPermission?: Permission
   start?: ReturnType<typeof vi.fn>
+  resume?: ReturnType<typeof vi.fn>
 } = {}): OneDeskClient {
   return {
     workspaces: {
@@ -34,10 +35,23 @@ function makeClient(opts: {
     runs: {
       list: vi.fn().mockResolvedValue([]),
       start: opts.start ?? vi.fn().mockResolvedValue({ id: 'run-1' } as Run),
+      resume: opts.resume ?? vi.fn().mockResolvedValue({ id: 'run-2' } as Run),
       cancel: vi.fn(), readLog: vi.fn()
     },
-    events: { onRunEvent: vi.fn(() => () => {}), onRunUpdate: vi.fn(() => () => {}) }
+    events: {
+      onRunEvent: vi.fn(() => () => {}),
+      onRunUpdate: vi.fn(() => () => {}),
+      onQueueUpdate: vi.fn(() => () => {}),
+      onInboxUpdate: vi.fn(() => () => {})
+    }
   } as unknown as OneDeskClient
+}
+
+/** resume 모드 관련 props만 선택적으로 넘긴다. 나머지 호출부는 그대로다. */
+interface ResumeOpts {
+  resumeFrom?: Run | null
+  draftPrompt?: string
+  onExitResume?: () => void
 }
 
 // workspace를 바꾸는 테스트는 rerender로 같은 엘리먼트를 다시 그려야 하므로
@@ -47,7 +61,8 @@ function panel(
   panelRepos: Repo[],
   chips: ContextChip[],
   onStarted: () => void,
-  workspaceId = 'w1'
+  workspaceId = 'w1',
+  resumeOpts: ResumeOpts = {}
 ) {
   return (
     <ClientProvider client={client}>
@@ -58,6 +73,9 @@ function panel(
         chips={chips}
         onRemoveChip={vi.fn()}
         onStarted={onStarted}
+        resumeFrom={resumeOpts.resumeFrom ?? null}
+        draftPrompt={resumeOpts.draftPrompt ?? ''}
+        onExitResume={resumeOpts.onExitResume ?? vi.fn()}
       />
     </ClientProvider>
   )
@@ -67,9 +85,10 @@ function renderPanel(
   client: OneDeskClient,
   panelRepos: Repo[] = repos,
   chips: ContextChip[] = [],
-  onStarted = vi.fn()
+  onStarted = vi.fn(),
+  resumeOpts: ResumeOpts = {}
 ) {
-  render(panel(client, panelRepos, chips, onStarted))
+  render(panel(client, panelRepos, chips, onStarted, 'w1', resumeOpts))
   return onStarted
 }
 
@@ -173,5 +192,50 @@ describe('RunPanel', () => {
     await userEvent.type(await screen.findByPlaceholderText(/무엇을 시킬지/), 'x')
     await userEvent.click(screen.getByRole('button', { name: '▶ 실행' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('claude를 찾을 수 없습니다')
+  })
+
+  const parent: Run = {
+    id: 'p1', workspaceId: 'w1', agentKind: 'claude-code', model: null,
+    cwd: '/tmp/api', permission: 'read_only', userPrompt: '원래 지시', assembledPrompt: 'x',
+    status: 'succeeded', externalSessionId: 'sess-1', parentRunId: null,
+    resultText: null, needsAnswer: true, timeoutMs: null, exitCode: 0,
+    errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
+    startedAt: 1, endedAt: 2, createdAt: 0, contextItems: []
+  }
+
+  it('resume 모드에서는 작업 디렉토리를 바꿀 수 없다', () => {
+    // 세션은 특정 CLI가 특정 디렉토리에서 만든 것이라 다른 조합으로 이어받을 수 없다.
+    renderPanel(makeClient(), repos, [], vi.fn(), { resumeFrom: parent })
+    expect(screen.queryByLabelText('작업 디렉토리')).toBeNull()
+    expect(screen.getByText('/tmp/api')).toBeInTheDocument()
+  })
+
+  it('resume 모드의 권한 기본값은 원본의 권한이다', () => {
+    // 기본값이 낮아지면 조용히 권한이 깎이고, 높아지면 의도보다 넓어진다.
+    renderPanel(makeClient(), repos, [], vi.fn(), { resumeFrom: parent })
+    expect(screen.getByLabelText('권한')).toHaveValue('read_only')
+  })
+
+  it('resume 모드에서 실행하면 resume을 부른다', async () => {
+    const client = makeClient()
+    renderPanel(client, repos, [], vi.fn(), { resumeFrom: parent })
+    await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '이어서 해줘')
+    await userEvent.click(screen.getByRole('button', { name: '▶ 실행' }))
+    expect(client.runs.resume).toHaveBeenCalledWith(expect.objectContaining({
+      parentRunId: 'p1',
+      permission: 'read_only',
+      userPrompt: '이어서 해줘',
+      context: []
+    }))
+    expect(client.runs.start).not.toHaveBeenCalled()
+  })
+
+  it('resume 모드가 아니면 start를 부른다', async () => {
+    const client = makeClient()
+    renderPanel(client)
+    await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '새로 해줘')
+    await userEvent.click(screen.getByRole('button', { name: '▶ 실행' }))
+    expect(client.runs.start).toHaveBeenCalled()
+    expect(client.runs.resume).not.toHaveBeenCalled()
   })
 })

@@ -77,6 +77,9 @@ function renderDock(
           chips={[]}
           onRemoveChip={vi.fn()}
           onRunStarted={vi.fn()}
+          resumeFrom={null}
+          draftPrompt=""
+          onExitResume={vi.fn()}
         />
       </RunEventProvider>
     </ClientProvider>
