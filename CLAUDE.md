@@ -2,9 +2,9 @@
 
 workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 골라 CLI 코딩 agent(Claude Code, OpenCode)에게 넘겨 헤드리스로 실행한 뒤 결과를 앱에 기록하는 Electron 데스크톱 앱.
 
-**현재 상태:** 2단계 완료(맥락 관리 앱 + 단일 agent 실행 파이프라인). 3단계(동시 실행과 인박스) 착수 전.
+**현재 상태:** 3단계 완료(3a 동시 실행 큐 + 3b 결과 인박스, 둘 다 `main`에 병합됨). 4단계(MCP 서버) 착수 전 — 3b 리뷰가 4단계로 이월한 것 둘: `core/`의 `console.error`를 주입식 `onError`로 바꾸는 것, `resume`의 catch가 DB 장애를 뭉개는 것.
 
-핵심 한 바퀴(맥락 담기 → 실행 → 로그 → 완료)는 `pnpm test:e2e`가 빌드된 앱을 실제로 클릭해 검증한다. 3단계에서 붙일 것은 `RunManager`의 동시 실행 상한과 대기 큐, 결과 인박스, 사이드바 배지, 세션 이어서 실행이다. `needs_answer` 컬럼은 이미 스키마에 있고 UI만 없다.
+핵심 한 바퀴(맥락 담기 → 실행 → 로그 → 완료)는 `pnpm test:e2e`가 빌드된 앱을 실제로 클릭해 검증한다. 3단계가 `RunManager`의 동시 실행 상한과 대기 큐, 결과 인박스, 사이드바 배지, 세션 이어서 실행을 붙였다. `needs_answer`는 이제 인박스의 "답변 필요" 카테고리로 드러난다.
 
 ## 명령어
 
@@ -79,6 +79,7 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 - `verbatimModuleSyntax: true` — 타입 전용 import는 `import type`
 - 주석과 오류 메시지는 한국어
 - 테스트는 TDD로 — 실패를 먼저 확인하고 구현한다. 특히 **회귀 테스트를 추가할 때는 대상 코드를 잠시 망가뜨려 그 테스트가 실제로 실패하는지 확인할 것.** 1단계에서 트랜잭션 회귀 테스트가 다음 태스크의 검증 로직에 무력화돼, 트랜잭션을 통째로 지워도 통과하는 상태가 한동안 유지된 적이 있다.
+- **배선(prop 전달)도 검증 대상이다.** 특히 `App.tsx`가 `Sidebar`·`Dock`·`InboxPanel` 같은 자식에게 내려보내는 prop 한 줄은 그 자체로 되돌릴 수 있는 변이다 — 지우거나 다른 값을 넘겨도 테스트가 잡아야 한다. 3a는 테스트 175개가 초록인 채로 핵심 약속 넷이 무방비였고, 3b는 최종 리뷰가 변이 18개를 돌려 13개가 살아남는 것을 찾았다. **두 단계 다 새어나간 자리는 예외 없이 `App.tsx`가 자식에게 내려보내는 prop 한 줄이었다.**
 
 ## 문서
 
@@ -90,5 +91,7 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 | `docs/superpowers/plans/2026-08-08-stage2-agent-execution.md` | 2단계 구현 계획 (14개 태스크) |
 | `docs/superpowers/specs/2026-08-10-e2e-ui-driver-design.md` | e2e UI 드라이버 설계 |
 | `docs/superpowers/plans/2026-08-10-e2e-ui-driver.md` | e2e UI 드라이버 구현 계획 (완료) |
+| `docs/superpowers/specs/2026-08-11-stage3b-inbox-design.md` | 3b 설계 — 결과 인박스, 후속 행동표(§5) |
+| `docs/superpowers/plans/2026-08-11-stage3b-inbox.md` | 3b 구현 계획 (완료) |
 
 **설계 문서의 결정을 코드에서 임의로 바꾸지 않는다.** 설계에 구멍이 보이면 고치지 말고 지적할 것 — 그게 더 값지다.
