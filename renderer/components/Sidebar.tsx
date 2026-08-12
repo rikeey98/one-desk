@@ -1,9 +1,15 @@
-import { useWorkspaces } from '../hooks/useWorkspaces'
 import { AddForm } from './AddForm'
 import { useClient } from '../client/ClientProvider'
-import type { InboxCounts } from '@shared/models'
+import type { InboxCounts, Workspace } from '@shared/models'
 
-export function Sidebar({ selectedId, onSelect, view, onSelectInbox, counts }: {
+/** workspace 목록은 App이 useWorkspaces()로 한 번만 조회해 내려준다 — 이 컴포넌트가
+ * 자기 인스턴스를 따로 가지면 다른 인스턴스(App→InboxPanel 등)가 새 workspace를
+ * 모르게 된다(App.tsx의 주석 참고). */
+export function Sidebar({ workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectInbox, counts }: {
+  workspaces: Workspace[]
+  loading: boolean
+  error: string | null
+  refresh: () => Promise<void>
   selectedId: string | null
   onSelect: (id: string) => void
   view: 'workspace' | 'inbox'
@@ -11,7 +17,6 @@ export function Sidebar({ selectedId, onSelect, view, onSelectInbox, counts }: {
   counts: InboxCounts
 }) {
   const client = useClient()
-  const { workspaces, loading, error, refresh } = useWorkspaces()
 
   async function addWorkspace(name: string) {
     await client.workspaces.create({ name })

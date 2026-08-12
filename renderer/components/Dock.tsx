@@ -5,7 +5,7 @@ import { RunLog } from './RunLog'
 import { RunPanel } from './RunPanel'
 import { SlotIndicator } from './SlotIndicator'
 import type { ContextChip } from '../context'
-import type { QueueSnapshot, Repo, Run } from '@shared/models'
+import type { QueueSnapshot, Repo, Run, Workspace } from '@shared/models'
 
 function label(run: Run): string {
   const text = run.userPrompt.trim().split('\n')[0] ?? ''
@@ -13,12 +13,14 @@ function label(run: Run): string {
 }
 
 export function Dock({
-  runs, error, workspaceId, repos, reposError, queue, queueError, onChangeLimit, chips, onRemoveChip, onRunStarted,
-  resumeFrom, draftPrompt, onExitResume
+  runs, error, workspaceId, workspaces, repos, reposError, queue, queueError, onChangeLimit, chips, onRemoveChip,
+  onRunStarted, resumeFrom, draftPrompt, onExitResume
 }: {
   runs: Run[]
   error: string | null
   workspaceId: string
+  /** RunPanel까지 그대로 흘려 보낸다 — App이 useWorkspaces()로 한 번만 조회한 것이다. */
+  workspaces: Workspace[]
   repos: Repo[]
   reposError: string | null
   queue: QueueSnapshot | null
@@ -108,6 +110,7 @@ export function Dock({
           {view === 'new' ? (
             <RunPanel
               workspaceId={workspaceId}
+              workspaces={workspaces}
               repos={repos}
               reposError={reposError}
               chips={chips}

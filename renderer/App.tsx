@@ -34,7 +34,13 @@ export default function App() {
   // 상한 변경 실패도 큐 오류와 같은 자리에 뜬다. 방금 누른 것이 더 급하므로 앞에 온다.
   const [limitError, setLimitError] = useState<string | null>(null)
   const { items: inboxItems, counts: inboxCounts, error: inboxError } = useInbox()
-  const { workspaces } = useWorkspaces()
+  // Sidebar와 RunPanel이 각자 useWorkspaces()를 부르면 서로의 상태를 모른다 — Sidebar에서
+  // workspace를 만들어도 App 쪽 인스턴스(→ InboxPanel)는 그 사실을 몰라, 인박스가 방금
+  // 만든 workspace를 "(사라진 workspace)"로 그리는 실제 결함이었다(2026-08-12, task 9
+  // e2e에서 발견 — 단위 테스트는 컴포넌트를 하나씩 렌더링해 인스턴스가 항상 하나뿐이라
+  // 잡지 못했다). useRepos와 같은 패턴으로(커밋 fbcd0e6) 여기서 한 번만 불러
+  // Sidebar·RunPanel·InboxPanel 모두에 내려준다.
+  const { workspaces, loading: workspacesLoading, error: workspacesError, refresh: refreshWorkspaces } = useWorkspaces()
   // 인박스 행동(확인함/보관/이슈 연동) 실패도 조용히 삼키지 않는다 — inboxError와
   // 같은 자리에 뜨되, 방금 누른 행동의 오류가 더 급하므로 앞에 온다.
   const [inboxActionError, setInboxActionError] = useState<string | null>(null)
@@ -122,6 +128,10 @@ export default function App() {
   return (
     <div className="app">
       <Sidebar
+        workspaces={workspaces}
+        loading={workspacesLoading}
+        error={workspacesError}
+        refresh={refreshWorkspaces}
         selectedId={workspaceId}
         onSelect={selectWorkspace}
         view={view}
@@ -176,6 +186,7 @@ export default function App() {
               runs={runs}
               error={runsError}
               workspaceId={workspaceId}
+              workspaces={workspaces}
               repos={repos}
               reposError={reposError}
               queue={queue}

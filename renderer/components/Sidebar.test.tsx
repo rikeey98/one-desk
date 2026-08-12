@@ -17,9 +17,14 @@ function makeWorkspace(name: string, id: string): Workspace {
   }
 }
 
-function makeClient(workspaces: Workspace[]): OneDeskClient {
+// workspace 목록은 이제 App이 useWorkspaces()로 한 번만 조회해 prop으로 내려준다
+// (App.tsx의 주석 참고 — 인스턴스가 여러 개면 서로의 상태를 몰라 인박스가 방금 만든
+// workspace를 "(사라진 workspace)"로 그리는 실제 결함이었다). Sidebar는 workspace
+// "생성"만 client로 직접 하므로, list()는 더 이상 Sidebar를 통해 불리지 않는다 —
+// 그래도 ClientProvider가 요구하는 모양을 맞추려면 client mock 자체는 필요하다.
+function makeClient(): OneDeskClient {
   return {
-    workspaces: { list: vi.fn().mockResolvedValue(workspaces), create: vi.fn(), remove: vi.fn() },
+    workspaces: { list: vi.fn(), create: vi.fn(), remove: vi.fn() },
     repos: { list: vi.fn(), create: vi.fn(), remove: vi.fn() },
     issues: { list: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn() },
     memos: { list: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn() }
@@ -33,16 +38,22 @@ function makeClient(workspaces: Workspace[]): OneDeskClient {
  */
 function renderSidebar(over: {
   workspaces?: Workspace[]
+  loading?: boolean
+  error?: string | null
+  refresh?: () => Promise<void>
   selectedId?: string | null
   onSelect?: (id: string) => void
   view?: 'workspace' | 'inbox'
   onSelectInbox?: () => void
   counts?: InboxCounts
 } = {}) {
-  const client = makeClient(over.workspaces ?? [makeWorkspace('ws-1', 'w1')])
   render(
-    <ClientProvider client={client}>
+    <ClientProvider client={makeClient()}>
       <Sidebar
+        workspaces={over.workspaces ?? [makeWorkspace('ws-1', 'w1')]}
+        loading={over.loading ?? false}
+        error={over.error ?? null}
+        refresh={over.refresh ?? vi.fn().mockResolvedValue(undefined)}
         selectedId={over.selectedId ?? null}
         onSelect={over.onSelect ?? vi.fn()}
         view={over.view ?? 'workspace'}
@@ -72,13 +83,10 @@ describe('Sidebar', () => {
     expect(screen.getByRole('button', { name: /인박스/ })).toHaveTextContent('3')
   })
 
-  it('workspace마다 그 workspace의 건수를 단다', async () => {
+  it('workspace마다 그 workspace의 건수를 단다', () => {
     // 전체만 맞고 workspace별이 0이면 어디에 쌓였는지 알 수 없다.
-    // useWorkspaces가 비동기로 목록을 읽으므로(list()가 Promise) getByRole이 아니라
-    // findByRole로 로딩이 끝나기를 기다려야 한다 — 그렇지 않으면 "불러오는 중…" 상태에서
-    // 단언이 실행되어 항상 실패한다.
     renderSidebar({ counts: { total: 3, byWorkspace: { w1: 2 } } })
-    expect(await screen.findByRole('button', { name: /ws-1/ })).toHaveTextContent('2')
+    expect(screen.getByRole('button', { name: /ws-1/ })).toHaveTextContent('2')
   })
 
   it('건수가 0인 곳에는 배지를 그리지 않는다', () => {

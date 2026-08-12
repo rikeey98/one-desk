@@ -20,15 +20,15 @@ function makeWorkspace(defaultPermission: Permission): Workspace {
 }
 
 function makeClient(opts: {
-  defaultPermission?: Permission
   start?: ReturnType<typeof vi.fn>
   resume?: ReturnType<typeof vi.fn>
 } = {}): OneDeskClient {
   return {
-    workspaces: {
-      list: vi.fn().mockResolvedValue([makeWorkspace(opts.defaultPermission ?? 'edit')]),
-      create: vi.fn(), remove: vi.fn()
-    },
+    // workspaces도 repos와 같은 이유로 이제 App이 useWorkspaces()로 조회해 prop으로
+    // 내려준다(App.tsx의 주석 참고) — RunPanel은 더 이상 client.workspaces.list를
+    // 직접 부르지 않는다. 그래서 여기 list()는 항상 빈 배열이고, 실제 workspace는
+    // 아래 panel()/renderPanel()의 workspaces 인자로 넘긴다.
+    workspaces: { list: vi.fn(), create: vi.fn(), remove: vi.fn() },
     // repos는 이제 App이 useRepos로 조회해 prop으로 내려준다 (RepoStrip과 상태를
     // 공유하기 위해서다). RunPanel은 더 이상 client.repos를 직접 부르지 않는다.
     repos: { list: vi.fn(), create: vi.fn(), remove: vi.fn() },
@@ -62,12 +62,14 @@ function panel(
   chips: ContextChip[],
   onStarted: () => void,
   workspaceId = 'w1',
-  resumeOpts: ResumeOpts = {}
+  resumeOpts: ResumeOpts = {},
+  workspaces: Workspace[] = [makeWorkspace('edit')]
 ) {
   return (
     <ClientProvider client={client}>
       <RunPanel
         workspaceId={workspaceId}
+        workspaces={workspaces}
         repos={panelRepos}
         reposError={null}
         chips={chips}
@@ -86,9 +88,10 @@ function renderPanel(
   panelRepos: Repo[] = repos,
   chips: ContextChip[] = [],
   onStarted = vi.fn(),
-  resumeOpts: ResumeOpts = {}
+  resumeOpts: ResumeOpts = {},
+  workspaces: Workspace[] = [makeWorkspace('edit')]
 ) {
-  render(panel(client, panelRepos, chips, onStarted, 'w1', resumeOpts))
+  render(panel(client, panelRepos, chips, onStarted, 'w1', resumeOpts, workspaces))
   return onStarted
 }
 
@@ -102,16 +105,19 @@ describe('RunPanel', () => {
   })
 
   it('권한 기본값은 workspace의 defaultPermission이다', async () => {
-    renderPanel(makeClient({ defaultPermission: 'read_only' }))
+    renderPanel(makeClient(), repos, [], vi.fn(), {}, [makeWorkspace('read_only')])
     await waitFor(() => expect(screen.getByLabelText('권한')).toHaveValue('read_only'))
   })
 
   it('맥락과 권한을 담아 실행을 요청한다', async () => {
     const start = vi.fn().mockResolvedValue({ id: 'run-1' } as Run)
     const onStarted = renderPanel(
-      makeClient({ start, defaultPermission: 'read_only' }),
+      makeClient({ start }),
       repos,
-      [{ type: 'issue', id: 'i1', label: '토큰 버그' }]
+      [{ type: 'issue', id: 'i1', label: '토큰 버그' }],
+      vi.fn(),
+      {},
+      [makeWorkspace('read_only')]
     )
 
     await waitFor(() => expect(screen.getByLabelText('권한')).toHaveValue('read_only'))

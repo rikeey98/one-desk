@@ -1,7 +1,6 @@
 import { useEffect, useState, type KeyboardEvent } from 'react'
 import { useClient } from '../client/ClientProvider'
-import { useWorkspaces } from '../hooks/useWorkspaces'
-import type { Permission, Repo, Run } from '@shared/models'
+import type { Permission, Repo, Run, Workspace } from '@shared/models'
 import type { ContextChip } from '../context'
 
 const PERMISSION_LABELS: Record<Permission, string> = {
@@ -11,10 +10,13 @@ const PERMISSION_LABELS: Record<Permission, string> = {
 }
 
 export function RunPanel({
-  workspaceId, repos, reposError, chips, onRemoveChip, onStarted,
+  workspaceId, workspaces, repos, reposError, chips, onRemoveChip, onStarted,
   resumeFrom, draftPrompt, onExitResume
 }: {
   workspaceId: string
+  /** App이 useWorkspaces()로 한 번만 조회해 내려준다 — 이 컴포넌트가 자기 인스턴스를
+   * 따로 가지면 defaultPermission이 다른 곳에서 만든 workspace를 못 볼 수 있다. */
+  workspaces: Workspace[]
   repos: Repo[]
   reposError: string | null
   chips: ContextChip[]
@@ -27,7 +29,6 @@ export function RunPanel({
   onExitResume: () => void
 }) {
   const client = useClient()
-  const { workspaces } = useWorkspaces()
   const workspace = workspaces.find((w) => w.id === workspaceId) ?? null
 
   const [cwd, setCwd] = useState('')

@@ -6,12 +6,17 @@ import { RunEventProvider } from '../store/RunEventContext'
 import { createRunEventStore, type RunEventStore } from '../store/runEvents'
 import { Dock } from './Dock'
 import type { OneDeskClient } from '@shared/client'
-import type { Repo, Run } from '@shared/models'
+import type { Repo, Run, Workspace } from '@shared/models'
 import type { RunEvent } from '@shared/events'
 
 const repos: Repo[] = [
   { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, createdAt: 0 }
 ]
+
+// Dock 자신은 workspaces를 쓰지 않는다 — RunPanel까지 그대로 흘려 보낼 뿐이다
+// (App.tsx의 주석 참고). 여기 테스트들은 permission 기본값을 다루지 않으므로
+// 빈 배열로 충분하다.
+const workspaces: Workspace[] = []
 
 function makeRun(over: Partial<Run> = {}): Run {
   return {
@@ -69,6 +74,7 @@ function renderDock(
           runs={runs}
           error={null}
           workspaceId="w1"
+          workspaces={workspaces}
           repos={repos}
           reposError={null}
           queue={null}
