@@ -23,6 +23,9 @@ export default function App() {
   // 인박스의 "이어서 실행"·"다시 실행"이 세우고, Dock 아래 RunPanel이 읽는다.
   const [resumeFrom, setResumeFrom] = useState<Run | null>(null)
   const [draftPrompt, setDraftPrompt] = useState('')
+  // "다시 실행"이 요구하는 작업 디렉토리. 프롬프트만 옮기면 RunPanel의 cwd가 첫 repo로
+  // 초기화돼 있어 원본과 다른 저장소에서 agent가 돈다.
+  const [draftCwd, setDraftCwd] = useState<string | null>(null)
   const { runs, error: runsError } = useRuns(workspaceId)
   // RepoStrip과 RunPanel(Dock 아래)이 각자 useRepos를 부르면 서로의 상태를 모른다 —
   // repo를 등록해도 RunPanel의 작업 디렉토리 select가 영원히 비는 실제 결함이었다.
@@ -99,6 +102,9 @@ export default function App() {
     goToRun(run)
     setResumeFrom(null)
     setDraftPrompt(run.userPrompt)
+    // 원본이 돌던 디렉토리까지 함께 옮긴다. 이것이 빠지면 RunPanel이 첫 repo로
+    // 실행해 엉뚱한 저장소가 편집된다 (권한 기본값이 edit이다).
+    setDraftCwd(run.cwd)
   }
 
   function closeIssue(run: Run, issueId: string) {
@@ -196,10 +202,11 @@ export default function App() {
               onRemoveChip={toggleChip}
               resumeFrom={resumeFrom}
               draftPrompt={draftPrompt}
-              onExitResume={() => { setResumeFrom(null); setDraftPrompt('') }}
+              draftCwd={draftCwd}
+              onExitResume={() => { setResumeFrom(null); setDraftPrompt(''); setDraftCwd(null) }}
               // 담은 맥락은 그 run에만 적용된다. 다음 실행은 빈 상태에서 시작한다.
               // resume 모드도 실행이 시작되면 풀어야 다음이 새 실행으로 돌아간다.
-              onRunStarted={() => { setChips([]); setResumeFrom(null); setDraftPrompt('') }}
+              onRunStarted={() => { setChips([]); setResumeFrom(null); setDraftPrompt(''); setDraftCwd(null) }}
             />
           </>
         )}

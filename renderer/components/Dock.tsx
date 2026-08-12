@@ -14,7 +14,7 @@ function label(run: Run): string {
 
 export function Dock({
   runs, error, workspaceId, workspaces, repos, reposError, queue, queueError, onChangeLimit, chips, onRemoveChip,
-  onRunStarted, resumeFrom, draftPrompt, onExitResume
+  onRunStarted, resumeFrom, draftPrompt, draftCwd, onExitResume
 }: {
   runs: Run[]
   error: string | null
@@ -31,6 +31,8 @@ export function Dock({
   onRunStarted: (run: Run) => void
   resumeFrom: Run | null
   draftPrompt: string
+  /** RunPanel까지 그대로 흘려 보낸다 — "다시 실행"이 요구하는 작업 디렉토리다. */
+  draftCwd: string | null
   onExitResume: () => void
 }) {
   const client = useClient()
@@ -118,6 +120,7 @@ export function Dock({
               onStarted={started}
               resumeFrom={resumeFrom}
               draftPrompt={draftPrompt}
+              draftCwd={draftCwd}
               onExitResume={onExitResume}
             />
           ) : selected ? (

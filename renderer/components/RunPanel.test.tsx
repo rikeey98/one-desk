@@ -47,10 +47,12 @@ function makeClient(opts: {
   } as unknown as OneDeskClient
 }
 
-/** resume 모드 관련 props만 선택적으로 넘긴다. 나머지 호출부는 그대로다. */
+/** 인박스가 세우는 props(resume 모드와 "다시 실행"의 초기값)만 선택적으로 넘긴다.
+ *  나머지 호출부는 그대로다. */
 interface ResumeOpts {
   resumeFrom?: Run | null
   draftPrompt?: string
+  draftCwd?: string | null
   onExitResume?: () => void
 }
 
@@ -77,6 +79,7 @@ function panel(
         onStarted={onStarted}
         resumeFrom={resumeOpts.resumeFrom ?? null}
         draftPrompt={resumeOpts.draftPrompt ?? ''}
+        draftCwd={resumeOpts.draftCwd ?? null}
         onExitResume={resumeOpts.onExitResume ?? vi.fn()}
       />
     </ClientProvider>
@@ -189,6 +192,35 @@ describe('RunPanel', () => {
     rerender(panel(client, [], [], vi.fn(), 'w2'))
     await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '고쳐줘')
     await waitFor(() => expect(screen.getByRole('button', { name: '▶ 실행' })).toBeDisabled())
+  })
+
+  it('"다시 실행"이 요구한 작업 디렉토리로 실행한다', async () => {
+    // 첫 repo로 떨어지면 원본과 다른 저장소에서 agent가 돈다 — 권한이 edit이면
+    // 엉뚱한 저장소가 편집된다. select의 DOM value가 아니라 실제로 넘어가는 인자로 본다.
+    const start = vi.fn().mockResolvedValue({ id: 'run-1' } as Run)
+    const two: Repo[] = [
+      ...repos,
+      { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 0, createdAt: 0 }
+    ]
+    renderPanel(makeClient({ start }), two, [], vi.fn(), { draftCwd: '/tmp/web' })
+
+    await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '다시 해줘')
+    await userEvent.click(screen.getByRole('button', { name: '▶ 실행' }))
+
+    await waitFor(() => expect(start).toHaveBeenCalled())
+    expect(start.mock.calls[0]![0].cwd).toBe('/tmp/web')
+  })
+
+  it('"다시 실행"이 요구한 경로가 repo 목록에 없으면 알리고 실행을 막는다', async () => {
+    // repo가 지워졌거나 다른 workspace의 run일 수 있다. 조용히 첫 repo로 떨어지는 것보다
+    // 멈춰 세우고 보이는 편이 낫다.
+    const start = vi.fn()
+    renderPanel(makeClient({ start }), repos, [], vi.fn(), { draftCwd: '/tmp/gone' })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('/tmp/gone')
+    await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '다시 해줘')
+    expect(screen.getByRole('button', { name: '▶ 실행' })).toBeDisabled()
+    expect(start).not.toHaveBeenCalled()
   })
 
   it('실행이 거부되면 오류를 보여준다', async () => {

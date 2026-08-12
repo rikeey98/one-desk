@@ -85,6 +85,7 @@ function renderDock(
           onRunStarted={vi.fn()}
           resumeFrom={null}
           draftPrompt=""
+          draftCwd={null}
           onExitResume={vi.fn()}
         />
       </RunEventProvider>

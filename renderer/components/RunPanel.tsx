@@ -11,7 +11,7 @@ const PERMISSION_LABELS: Record<Permission, string> = {
 
 export function RunPanel({
   workspaceId, workspaces, repos, reposError, chips, onRemoveChip, onStarted,
-  resumeFrom, draftPrompt, onExitResume
+  resumeFrom, draftPrompt, draftCwd, onExitResume
 }: {
   workspaceId: string
   /** App이 useWorkspaces()로 한 번만 조회해 내려준다 — 이 컴포넌트가 자기 인스턴스를
@@ -26,12 +26,16 @@ export function RunPanel({
   resumeFrom: Run | null
   /** "다시 실행"이 채워 넣는 초기 프롬프트 */
   draftPrompt: string
+  /** "다시 실행"이 요구하는 작업 디렉토리. null이면 요구가 없다. */
+  draftCwd: string | null
   onExitResume: () => void
 }) {
   const client = useClient()
   const workspace = workspaces.find((w) => w.id === workspaceId) ?? null
 
   const [cwd, setCwd] = useState('')
+  // "다시 실행"이 요구한 경로가 지금 repo 목록에 없을 때 그 경로를 담는다.
+  const [missingCwd, setMissingCwd] = useState<string | null>(null)
   const [permission, setPermission] = useState<Permission>('edit')
   const [model, setModel] = useState('')
   const [prompt, setPrompt] = useState('')
@@ -59,13 +63,34 @@ export function RunPanel({
   // 마운트되지 않으므로(App이 key를 주지 않는다) 이전 workspace의 경로가 그대로 남고,
   // ready도 계속 true라 다른 workspace의 디렉토리에서 agent가 실행된다.
   // core/execution.ts는 맥락 항목의 소속만 검증하고 cwd는 보지 않는다.
+  //
+  // 다만 "다시 실행"이 요구한 경로는 예외다. 그 경로가 목록에 없다고 첫 repo로
+  // 떨어뜨리면 원본과 다른 저장소에서 agent가 돈다 — 권한이 edit이면 엉뚱한 저장소가
+  // 편집된다. 조용히 바꾸는 대신 그 사실을 보이고 실행을 막는다.
   useEffect(() => {
-    if (repos.some((r) => r.path === cwd)) return
+    if (cwd !== '' && repos.some((r) => r.path === cwd)) {
+      setMissingCwd(null)
+      return
+    }
+    if (cwd !== '' && cwd === draftCwd) {
+      setMissingCwd(cwd)
+      return
+    }
+    setMissingCwd(null)
     setCwd(repos.length > 0 ? repos[0]!.path : '')
-  }, [repos, cwd])
+  }, [repos, cwd, draftCwd])
+
+  // "다시 실행"은 원본과 같은 디렉토리에서 돌아야 한다.
+  // 이 effect는 위 fallback effect보다 반드시 뒤에 와야 한다 — 마운트 직후처럼 둘이
+  // 같은 커밋에서 함께 실행될 때 나중에 부른 setCwd가 남기 때문이다. 앞에 두면
+  // 요청받은 경로가 첫 repo 경로로 조용히 덮인다.
+  useEffect(() => {
+    if (draftCwd !== null) setCwd(draftCwd)
+  }, [draftCwd])
 
   // resume은 cwd를 원본에서 받으므로 로컬 cwd가 비어도 실행할 수 있다.
-  const ready = (resumeFrom !== null || cwd !== '') && prompt.trim() !== '' && !busy
+  const ready = (resumeFrom !== null || (cwd !== '' && missingCwd === null))
+    && prompt.trim() !== '' && !busy
 
   async function start() {
     if (!ready) return
@@ -110,6 +135,12 @@ export function RunPanel({
   return (
     <div className="run-panel">
       {shown && <div role="alert" className="form-error">{shown}</div>}
+      {missingCwd && (
+        <div role="alert" className="form-error">
+          이 실행의 작업 디렉토리 {missingCwd} 를 이 workspace의 repo 목록에서 찾을 수 없습니다.
+          repo를 등록하거나 다른 디렉토리를 고르세요.
+        </div>
+      )}
       {repos.length === 0 && (
         <div className="panel-empty">작업 디렉토리로 쓸 repo를 먼저 등록하세요</div>
       )}
@@ -142,6 +173,9 @@ export function RunPanel({
           <label>
             작업 디렉토리
             <select value={cwd} onChange={(e) => setCwd(e.target.value)}>
+              {/* 목록에 없는 경로도 그대로 보여준다 — option에 없는 값을 주면 브라우저가
+                  select.value를 ''로 정규화해 무엇이 문제인지 화면에서 사라진다. */}
+              {missingCwd && <option value={missingCwd}>{missingCwd} (없는 경로)</option>}
               {repos.map((r) => (
                 <option key={r.id} value={r.path}>{r.name} — {r.path}</option>
               ))}

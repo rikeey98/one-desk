@@ -1,12 +1,14 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from './client/ClientProvider'
 import { RunEventProvider } from './store/RunEventContext'
-import { createRunEventStore } from './store/runEvents'
+import { createRunEventStore, type RunEventStore } from './store/runEvents'
 import App from './App'
 import type { OneDeskClient } from '@shared/client'
-import type { Repo, Workspace } from '@shared/models'
+import type {
+  CreateRepoInput, CreateWorkspaceInput, InboxCounts, Repo, Run, Workspace
+} from '@shared/models'
 
 const workspace: Workspace = {
   id: 'w1', name: 'ws1', description: null, defaultAgentKind: 'claude-code',
@@ -14,49 +16,127 @@ const workspace: Workspace = {
   claudePath: null, opencodePath: null, createdAt: 0, updatedAt: 0
 }
 
+function makeRepo(id: string, name: string, path: string, workspaceId = 'w1'): Repo {
+  return { id, workspaceId, name, path, description: null, sortOrder: 0, createdAt: 0 }
+}
+
+function makeRun(over: Partial<Run> = {}): Run {
+  return {
+    id: 'run-1', workspaceId: 'w1', agentKind: 'claude-code', model: null,
+    cwd: '/tmp/api', permission: 'edit', userPrompt: '토큰 버그 고쳐줘', assembledPrompt: 'x',
+    status: 'succeeded', externalSessionId: 'sess-1', parentRunId: null,
+    resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
+    errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
+    startedAt: 1, endedAt: 2, createdAt: 1, contextItems: [],
+    ...over
+  }
+}
+
+/** 가짜 백엔드의 초기 상태. 인박스 배선 테스트는 상태가 있어야 의미가 생긴다. */
+interface Seed {
+  /** 미확인 run들. 같은 목록이 runs.list에도 보인다. */
+  inbox?: Run[]
+  repos?: Repo[]
+  workspaces?: Workspace[]
+}
+
 /**
  * repos.list()가 실제 백엔드처럼 "그 순간의 최신 목록"을 돌려주게 만든다.
  * 버그는 백엔드가 아니라 화면 쪽 상태 동기화에 있었으므로, mock은 항상 진실을
  * 돌려주되 각 컴포넌트가 그 진실을 다시 조회하는지를 테스트가 가려낸다.
+ *
+ * workspaces·인박스도 같은 이유로 상태를 들고 있다. markReviewed가 이후 inbox()·
+ * inboxCounts()에 반영되고 core의 emitInbox처럼 push까지 흉내내야, 화면이 그
+ * 진실을 다시 읽는지(=배선이 살아 있는지) 테스트가 가려낼 수 있다.
  */
-function makeClient(runsOver: Record<string, unknown> = {}): OneDeskClient {
-  let repos: Repo[] = []
+function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): OneDeskClient {
+  let workspaces: Workspace[] = seed.workspaces ?? [workspace]
+  let repos: Repo[] = seed.repos ?? []
+  let inbox: Run[] = seed.inbox ?? []
+  const started: Run[] = [...(seed.inbox ?? [])]
+  const listeners: Array<(counts: InboxCounts) => void> = []
+
+  function counts(): InboxCounts {
+    const byWorkspace: Record<string, number> = {}
+    for (const run of inbox) byWorkspace[run.workspaceId] = (byWorkspace[run.workspaceId] ?? 0) + 1
+    return { total: inbox.length, byWorkspace }
+  }
+
+  function emitInbox(): void {
+    for (const cb of listeners) cb(counts())
+  }
+
   return {
-    workspaces: { list: vi.fn().mockResolvedValue([workspace]), create: vi.fn(), remove: vi.fn() },
+    workspaces: {
+      list: vi.fn(async () => workspaces),
+      create: vi.fn(async (input: CreateWorkspaceInput) => {
+        const created: Workspace = { ...workspace, id: `w${workspaces.length + 1}`, name: input.name }
+        workspaces = [...workspaces, created]
+        return created
+      }),
+      remove: vi.fn()
+    },
     repos: {
       list: vi.fn(async () => repos),
-      create: vi.fn(async (input) => {
-        const created: Repo = {
-          id: 'r1', workspaceId: input.workspaceId, name: input.name, path: input.path,
-          description: null, sortOrder: 0, createdAt: 0
-        }
+      create: vi.fn(async (input: CreateRepoInput) => {
+        const created = makeRepo(`r${repos.length + 1}`, input.name, input.path, input.workspaceId)
         repos = [...repos, created]
         return created
       }),
       remove: vi.fn()
     },
-    issues: { list: vi.fn().mockResolvedValue([]), create: vi.fn(), update: vi.fn(), remove: vi.fn() },
+    issues: {
+      list: vi.fn().mockResolvedValue([]),
+      create: vi.fn(async () => ({ id: 'i-new' })),
+      update: vi.fn(async () => ({ id: 'i-updated' })),
+      remove: vi.fn()
+    },
     memos: { list: vi.fn().mockResolvedValue([]), create: vi.fn(), update: vi.fn(), remove: vi.fn() },
     runs: {
-      list: vi.fn().mockResolvedValue([]),
-      start: vi.fn(),
+      list: vi.fn(async (workspaceId: string) => started.filter((r) => r.workspaceId === workspaceId)),
+      start: vi.fn(async () => makeRun({ id: 'started' })),
       cancel: vi.fn(),
-      readLog: vi.fn(),
+      readLog: vi.fn().mockResolvedValue([]),
       queueSnapshot: vi.fn().mockResolvedValue({ running: 0, limit: 3, waiting: 0 }),
       setConcurrencyLimit: vi.fn().mockResolvedValue({ running: 0, limit: 3, waiting: 0 }),
-      inbox: vi.fn().mockResolvedValue([]),
-      inboxCounts: vi.fn().mockResolvedValue({ total: 0, byWorkspace: {} }),
-      markReviewed: vi.fn(),
-      resume: vi.fn(),
+      inbox: vi.fn(async () => inbox),
+      inboxCounts: vi.fn(async () => counts()),
+      markReviewed: vi.fn(async (runId: string) => {
+        inbox = inbox.filter((r) => r.id !== runId)
+        emitInbox()
+      }),
+      resume: vi.fn(async () => makeRun({ id: 'resumed' })),
       ...runsOver
     },
     events: {
       onRunEvent: vi.fn(() => () => {}),
       onRunUpdate: vi.fn(() => () => {}),
       onQueueUpdate: vi.fn(() => () => {}),
-      onInboxUpdate: vi.fn(() => () => {})
+      onInboxUpdate: vi.fn((cb: (next: InboxCounts) => void) => {
+        listeners.push(cb)
+        return () => {}
+      })
     }
   } as unknown as OneDeskClient
+}
+
+function renderApp(client: OneDeskClient, store: RunEventStore = createRunEventStore()) {
+  render(
+    <ClientProvider client={client}>
+      <RunEventProvider store={store}>
+        <App />
+      </RunEventProvider>
+    </ClientProvider>
+  )
+}
+
+/** 사이드바의 인박스 링크. Dock 탭에도 같은 글자가 들어갈 수 있어 <nav>로 스코프한다. */
+function inboxLink(): HTMLElement {
+  return within(screen.getByRole('navigation')).getByRole('button', { name: /인박스/ })
+}
+
+async function openInbox(): Promise<void> {
+  await userEvent.click(inboxLink())
 }
 
 describe('App', () => {
@@ -107,5 +187,32 @@ describe('App', () => {
     await userEvent.type(input, '5{Enter}')
 
     expect(await screen.findByRole('alert')).toHaveTextContent('상한을 저장하지 못했습니다')
+  })
+
+  it('"다시 실행"은 원본이 돌던 작업 디렉토리에서 실행한다', async () => {
+    // 프롬프트만 옮기고 cwd를 두면 RunPanel의 cwd가 첫 repo로 초기화돼 있어
+    // 두 번째 repo의 run이 첫 번째 repo에서 돈다. 권한 기본값이 edit이면
+    // 엉뚱한 저장소가 편집된다.
+    const start = vi.fn().mockResolvedValue(makeRun({ id: 'restarted' }))
+    const client = makeClient({ start }, {
+      repos: [makeRepo('r1', 'api', '/tmp/api'), makeRepo('r2', 'web', '/tmp/web')],
+      inbox: [makeRun({
+        id: 'r-failed', status: 'failed', cwd: '/tmp/web', userPrompt: '웹 빌드 고쳐줘',
+        errorMessage: '빌드 실패', externalSessionId: null
+      })]
+    })
+    renderApp(client)
+
+    await openInbox()
+    await userEvent.click(await screen.findByRole('button', { name: '다시 실행' }))
+
+    // 프롬프트 이전은 별도 테스트가 본다 — 여기서는 cwd만 걸리게 지운 뒤 다시 적는다.
+    const box = await screen.findByPlaceholderText(/무엇을 시킬지/)
+    await userEvent.clear(box)
+    await userEvent.type(box, '다시 해줘')
+    await userEvent.click(screen.getByRole('button', { name: '▶ 실행' }))
+
+    await waitFor(() => expect(start).toHaveBeenCalled())
+    expect(start.mock.calls[0]![0].cwd).toBe('/tmp/web')
   })
 })
