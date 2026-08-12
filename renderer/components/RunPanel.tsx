@@ -58,35 +58,35 @@ export function RunPanel({
     if (draftPrompt) setPrompt(draftPrompt)
   }, [draftPrompt])
 
-  // cwd가 지금 workspace의 repo 목록에 없으면 첫 repo로 되돌린다(없으면 비운다).
-  // "비어 있을 때만 채운다"로는 부족하다 — RunPanel은 workspace가 바뀌어도 다시
-  // 마운트되지 않으므로(App이 key를 주지 않는다) 이전 workspace의 경로가 그대로 남고,
-  // ready도 계속 true라 다른 workspace의 디렉토리에서 agent가 실행된다.
-  // core/execution.ts는 맥락 항목의 소속만 검증하고 cwd는 보지 않는다.
-  //
-  // 다만 "다시 실행"이 요구한 경로는 예외다. 그 경로가 목록에 없다고 첫 repo로
-  // 떨어뜨리면 원본과 다른 저장소에서 agent가 돈다 — 권한이 edit이면 엉뚱한 저장소가
-  // 편집된다. 조용히 바꾸는 대신 그 사실을 보이고 실행을 막는다.
+  // cwd를 정하는 단일 effect. "다시 실행"이 요구한 경로(draftCwd)가 있으면 그것을
+  // 최우선으로 반영하고, 없을 때만 workspace의 repo 목록에 대한 fallback으로
+  // 넘어간다. 두 갈래를 한 함수 안의 순차 조건문(early return)으로 묶어 두면
+  // "무엇이 나중에 도느냐"가 일반적인 순차 코드가 되어, 블록을 옮겨도 뒤집히지
+  // 않는다 — effect 두 개로 나뉘어 있던 예전 버전은 선언 순서가 곧 실행 순서였고,
+  // 뒤집히면 요구한 경로가 첫 repo로 덮여 원본과 다른 저장소에서 agent가 돌았다.
   useEffect(() => {
-    if (cwd !== '' && repos.some((r) => r.path === cwd)) {
-      setMissingCwd(null)
+    if (draftCwd !== null) {
+      // "다시 실행"이 요구한 경로다. 목록에 없다고 첫 repo로 조용히 떨어뜨리면
+      // 원본과 다른 저장소에서 agent가 돈다 — 권한이 edit이면 엉뚱한 저장소가
+      // 편집된다. 조용히 바꾸는 대신 그 사실을 보이고 실행을 막는다.
+      setMissingCwd(repos.some((r) => r.path === draftCwd) ? null : draftCwd)
+      if (cwd !== draftCwd) setCwd(draftCwd)
       return
     }
-    if (cwd !== '' && cwd === draftCwd) {
-      setMissingCwd(cwd)
+
+    // 요구가 없을 때만 fallback한다: cwd가 지금 workspace의 repo 목록에 없으면
+    // 첫 repo로 되돌린다(없으면 비운다). "비어 있을 때만 채운다"로는 부족하다 —
+    // RunPanel은 workspace가 바뀌어도 다시 마운트되지 않으므로(App이 key를 주지
+    // 않는다) 이전 workspace의 경로가 그대로 남고, ready도 계속 true라 다른
+    // workspace의 디렉토리에서 agent가 실행된다. core/execution.ts는 맥락 항목의
+    // 소속만 검증하고 cwd는 보지 않는다.
+    if (cwd !== '' && repos.some((r) => r.path === cwd)) {
+      setMissingCwd(null)
       return
     }
     setMissingCwd(null)
     setCwd(repos.length > 0 ? repos[0]!.path : '')
   }, [repos, cwd, draftCwd])
-
-  // "다시 실행"은 원본과 같은 디렉토리에서 돌아야 한다.
-  // 이 effect는 위 fallback effect보다 반드시 뒤에 와야 한다 — 마운트 직후처럼 둘이
-  // 같은 커밋에서 함께 실행될 때 나중에 부른 setCwd가 남기 때문이다. 앞에 두면
-  // 요청받은 경로가 첫 repo 경로로 조용히 덮인다.
-  useEffect(() => {
-    if (draftCwd !== null) setCwd(draftCwd)
-  }, [draftCwd])
 
   // resume은 cwd를 원본에서 받으므로 로컬 cwd가 비어도 실행할 수 있다.
   const ready = (resumeFrom !== null || (cwd !== '' && missingCwd === null))
