@@ -113,4 +113,45 @@ describe('InboxPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: '보관' }))
     expect(onReview).toHaveBeenCalledWith('r1', 'archived')
   })
+
+  // 개별 긍정 케이스만으로는 shows()의 분기 하나가 틀어져도 잡히지 않는다
+  // (참고: 나머지 테스트 훑기에서 6개의 변이가 살아남았다). 카테고리마다
+  // "보여야 할 행동 집합 전체"를 표(설계 §5)와 통째로 비교해 구멍을 없앤다.
+  // "변경 보기"는 5단계라 표에서 뺀다. 첨부 이슈가 없는 픽스처를 쓰므로
+  // "관련 이슈 닫기"도 어느 카테고리에도 나오지 않는다.
+  it('카테고리마다 보이는 행동 버튼 집합이 설계 §5의 표와 정확히 같다', () => {
+    const table: Array<{ category: string; over: Partial<Run>; expected: string[] }> = [
+      { category: '답변 필요', over: { needsAnswer: true, externalSessionId: 'sess-1' }, expected: ['답하고 이어서', '로그 보기', '보관'] },
+      { category: '완료 · 미확인', over: { externalSessionId: 'sess-1' }, expected: ['이어서 실행', '확인함'] },
+      { category: '실패', over: { status: 'failed', errorMessage: '오류' }, expected: ['로그 보기', '다시 실행', '이슈로 만들기', '보관'] },
+      { category: '중단됨', over: { status: 'interrupted' }, expected: ['로그 보기', '다시 실행', '보관'] },
+      { category: '대기 중 취소됨', over: { status: 'canceled', externalSessionId: null }, expected: ['다시 실행', '보관'] }
+    ]
+
+    // 첫 실패에서 멈추면 나머지 카테고리의 상태를 못 본다 — 전부 모아서 한 번에 단언한다.
+    const mismatches: Array<{ category: string; expected: string[]; actual: string[] }> = []
+    for (const { category, over, expected } of table) {
+      const { unmount } = render(
+        <InboxPanel
+          items={[run(over)]}
+          workspaces={workspaces}
+          error={null}
+          onReview={vi.fn()}
+          onOpenLog={vi.fn()}
+          onResume={vi.fn()}
+          onRestart={vi.fn()}
+          onCloseIssue={vi.fn()}
+          onMakeIssue={vi.fn()}
+        />
+      )
+      const actual = screen.getAllByRole('button').map((b) => b.textContent ?? '').sort()
+      const sortedExpected = [...expected].sort()
+      if (JSON.stringify(actual) !== JSON.stringify(sortedExpected)) {
+        mismatches.push({ category, expected: sortedExpected, actual })
+      }
+      unmount()
+    }
+
+    expect(mismatches).toEqual([])
+  })
 })
