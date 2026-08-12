@@ -38,9 +38,14 @@ describe('결과 인박스', () => {
 
     // 4. 인박스에 그 run이 있다
     await inboxLink.click()
-    await page.getByText(PROMPT).waitFor({ state: 'visible', timeout: 5_000 })
-    // 전역 목록이라 어느 workspace 것인지가 함께 보여야 한다
-    await page.getByText('e2e-inbox').first().waitFor({ state: 'visible', timeout: 5_000 })
+    // 이 항목(li.inbox-item) 안으로 스코프한다. 사이드바의 workspace 버튼도 "e2e-inbox"를
+    // 항상 그리고 있어서(1단계부터 떠 있다), 스코프 없이 page.getByText('e2e-inbox')를
+    // 쓰면 InboxPanel이 workspace 이름을 아예 안 그려도(예: 늘 "(사라진 workspace)") 사이드바
+    // 쪽에 걸려 조용히 통과해버린다(실측 — 리뷰에서 지적됨). PROMPT로 항목을 특정한 뒤 그
+    // 안에서만 "전역 목록이라 어느 workspace 것인지가 함께 보여야 한다"를 확인한다.
+    const inboxItem = page.locator('.inbox-item').filter({ hasText: PROMPT })
+    await inboxItem.waitFor({ state: 'visible', timeout: 5_000 })
+    await inboxItem.getByText('e2e-inbox').waitFor({ state: 'visible', timeout: 5_000 })
 
     // 5. 확인함을 누르면 목록과 배지에서 함께 사라진다
     await page.getByRole('button', { name: '확인함' }).click()
