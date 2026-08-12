@@ -3,7 +3,8 @@ import type {
   CreateWorkspaceInput, CreateRepoInput,
   CreateIssueInput, UpdateIssueInput,
   CreateMemoInput, UpdateMemoInput,
-  ListQuery, StartRunInput, QueueSnapshot
+  ListQuery, StartRunInput, QueueSnapshot,
+  InboxCounts, ResumeRunInput
 } from './models'
 import type { RunEvent } from './events'
 
@@ -44,10 +45,18 @@ export interface OneDeskClient {
     /** 전역 실행 슬롯 현황. workspace와 무관하다. */
     queueSnapshot(): Promise<QueueSnapshot>
     setConcurrencyLimit(n: number): Promise<QueueSnapshot>
+    /** 지금 사용자의 손이 필요한 run. 모든 workspace를 가로지른다. */
+    inbox(): Promise<Run[]>
+    inboxCounts(): Promise<InboxCounts>
+    /** 인박스에서 내린다. 확인함은 'confirmed', 보관은 'archived'. */
+    markReviewed(runId: string, kind: 'confirmed' | 'archived'): Promise<Run>
+    /** 원본의 세션을 이어받아 실행한다. agentKind와 cwd는 원본에서 온다. */
+    resume(input: ResumeRunInput): Promise<Run>
   }
   events: {
     onRunEvent(cb: (event: RunEvent) => void): Unsubscribe
     onRunUpdate(cb: (run: Run) => void): Unsubscribe
     onQueueUpdate(cb: (snapshot: QueueSnapshot) => void): Unsubscribe
+    onInboxUpdate(cb: (counts: InboxCounts) => void): Unsubscribe
   }
 }

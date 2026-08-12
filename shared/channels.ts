@@ -18,7 +18,11 @@ export const CHANNELS = {
   runsCancel: 'runs:cancel',
   runsReadLog: 'runs:readLog',
   runsQueueSnapshot: 'runs:queueSnapshot',
-  runsSetConcurrencyLimit: 'runs:setConcurrencyLimit'
+  runsSetConcurrencyLimit: 'runs:setConcurrencyLimit',
+  runsInbox: 'runs:inbox',
+  runsInboxCounts: 'runs:inboxCounts',
+  runsMarkReviewed: 'runs:markReviewed',
+  runsResume: 'runs:resume'
 } as const
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS]
@@ -27,7 +31,8 @@ export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS]
 export const EVENT_CHANNELS = {
   runEvent: 'event:run',
   runUpdate: 'event:runUpdate',
-  queueUpdate: 'event:queueUpdate'
+  queueUpdate: 'event:queueUpdate',
+  inboxUpdate: 'event:inboxUpdate'
 } as const
 
 export type EventChannelName = (typeof EVENT_CHANNELS)[keyof typeof EVENT_CHANNELS]

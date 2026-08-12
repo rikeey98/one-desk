@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { Core } from '@core/index'
-import type { StartRunInput } from '@shared/models'
+import type { ResumeRunInput, StartRunInput } from '@shared/models'
 import type { GetWindow } from './index'
 
 export function registerRunHandlers(core: Core, getWindow: GetWindow) {
@@ -11,6 +11,13 @@ export function registerRunHandlers(core: Core, getWindow: GetWindow) {
   ipcMain.handle(CHANNELS.runsReadLog, (_e, runId: string) => core.runs.readLog(runId))
   ipcMain.handle(CHANNELS.runsQueueSnapshot, () => core.queue.snapshot())
   ipcMain.handle(CHANNELS.runsSetConcurrencyLimit, (_e, n: number) => core.queue.setLimit(n))
+  ipcMain.handle(CHANNELS.runsInbox, () => core.inbox.list())
+  ipcMain.handle(CHANNELS.runsInboxCounts, () => core.inbox.counts())
+  ipcMain.handle(
+    CHANNELS.runsMarkReviewed,
+    (_e, runId: string, kind: 'confirmed' | 'archived') => core.inbox.markReviewed(runId, kind)
+  )
+  ipcMain.handle(CHANNELS.runsResume, (_e, input: ResumeRunInput) => core.execution.resume(input))
 
   // core의 이벤트를 렌더러로 중계한다. 데몬화 시 바뀌는 곳은 여기 한 지점뿐이다.
   core.onRunEvent((event) => {
@@ -21,5 +28,8 @@ export function registerRunHandlers(core: Core, getWindow: GetWindow) {
   })
   core.onQueueUpdate((snapshot) => {
     getWindow()?.webContents.send(EVENT_CHANNELS.queueUpdate, snapshot)
+  })
+  core.onInboxUpdate((counts) => {
+    getWindow()?.webContents.send(EVENT_CHANNELS.inboxUpdate, counts)
   })
 }
