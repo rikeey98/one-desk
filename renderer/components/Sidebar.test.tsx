@@ -86,4 +86,17 @@ describe('Sidebar', () => {
     renderSidebar({ counts: { total: 0, byWorkspace: {} } })
     expect(screen.getByRole('button', { name: /인박스/ })).not.toHaveTextContent('0')
   })
+
+  it('workspace 배지도 건수가 0이거나 없으면 그리지 않는다', async () => {
+    // 위 테스트는 인박스 링크만 본다 — workspace 행에는 별도 가드
+    // (counts.byWorkspace[w.id] ?? 0) > 0가 있고, 이 테스트가 없으면 그 가드를
+    // 지워도 전체 스위트가 통과한다. byWorkspace에 명시적으로 0이 들어있는
+    // workspace(w1)와 키 자체가 없는 workspace(w2) 둘 다 확인한다.
+    renderSidebar({
+      workspaces: [makeWorkspace('ws-1', 'w1'), makeWorkspace('ws-2', 'w2')],
+      counts: { total: 0, byWorkspace: { w1: 0 } }
+    })
+    expect(await screen.findByRole('button', { name: /ws-1/ })).not.toHaveTextContent('0')
+    expect(screen.getByRole('button', { name: /ws-2/ })).not.toHaveTextContent('0')
+  })
 })

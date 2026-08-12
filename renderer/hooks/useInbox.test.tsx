@@ -29,9 +29,9 @@ describe('useInbox', () => {
   })
 
   it('push가 오면 다시 읽는다', async () => {
-    // let으로 캡처한 콜백을 그 스코프 밖에서 바로 호출하면 TS가 대입을 클로저
-    // 안에서만 봤다는 이유로 사용 지점의 타입을 never로 좁혀 컴파일이 깨진다
-    // (tsc로 실측). 객체 프로퍼티에 담으면 이 좁히기 버그를 피한다.
+    // let으로 캡처한 콜백을 그 스코프 밖에서 바로 호출하면(fire?.()) tsc가
+    // "Type 'never' has no call signatures"로 컴파일을 거부한다(실측, 내부
+    // 메커니즘은 미확인). 객체 프로퍼티에 담으면 이 오류 없이 컴파일된다.
     const state: { fire: (() => void) | null } = { fire: null }
     const client = {
       runs: {
