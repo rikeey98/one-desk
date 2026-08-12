@@ -189,6 +189,22 @@ describe('App', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('상한을 저장하지 못했습니다')
   })
 
+  it('인박스의 "로그 보기"가 그 run의 로그를 연다', async () => {
+    // 화면이 인박스에서 workspace로 바뀌면 Dock이 다시 마운트되며 내부 view가
+    // 'new'로 돌아간다 — 지정하지 않으면 사용자는 실행 패널만 보게 된다.
+    const failed = makeRun({
+      id: 'r-failed', status: 'failed', userPrompt: '빌드 고쳐줘', errorMessage: '빌드 실패'
+    })
+    const store = createRunEventStore()
+    store.hydrate('r-failed', [{ type: 'text', runId: 'r-failed', seq: 0, at: 0, text: '로그 한 줄' }])
+    renderApp(makeClient({}, { repos: [makeRepo('r1', 'api', '/tmp/api')], inbox: [failed] }), store)
+
+    await openInbox()
+    await userEvent.click(await screen.findByRole('button', { name: '로그 보기' }))
+
+    expect(await screen.findByText('로그 한 줄')).toBeInTheDocument()
+  })
+
   it('"다시 실행"은 원본이 돌던 작업 디렉토리에서 실행한다', async () => {
     // 프롬프트만 옮기고 cwd를 두면 RunPanel의 cwd가 첫 repo로 초기화돼 있어
     // 두 번째 repo의 run이 첫 번째 repo에서 돈다. 권한 기본값이 edit이면

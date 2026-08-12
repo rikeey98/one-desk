@@ -65,7 +65,8 @@ function renderDock(
   runs: Run[],
   client: OneDeskClient,
   store: RunEventStore = createRunEventStore(),
-  queueError: string | null = null
+  queueError: string | null = null,
+  focusRun: Run | null = null
 ) {
   render(
     <ClientProvider client={client}>
@@ -86,6 +87,7 @@ function renderDock(
           resumeFrom={null}
           draftPrompt=""
           draftCwd={null}
+          focusRun={focusRun}
           onExitResume={vi.fn()}
         />
       </RunEventProvider>
@@ -115,6 +117,18 @@ describe('Dock', () => {
 
     await userEvent.click(screen.getByText('옛 실행'))
     expect(await screen.findByText('옛 로그')).toBeInTheDocument()
+  })
+
+  it('focusRun이 주어지면 그 run의 로그를 연다', async () => {
+    // 인박스의 "로그 보기"는 화면을 바꾸며 이 컴포넌트를 다시 마운트시킨다.
+    // 내부 view는 'new'로 돌아가므로 App이 지정하지 않으면 실행 패널만 열린다.
+    const store = createRunEventStore()
+    store.hydrate('run-2', [textEvent('run-2', '두 번째 로그')])
+    const target = makeRun({ id: 'run-2', userPrompt: '두 번째 실행', status: 'failed' })
+    renderDock([makeRun({ id: 'run-1', userPrompt: '첫 실행' }), target], makeClient(), store, null, target)
+
+    expect(await screen.findByText('두 번째 로그')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '▶ 실행' })).toBeNull()
   })
 
   it('스토어가 비어 있으면 로그 파일에서 되살린다', async () => {

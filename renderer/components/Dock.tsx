@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useClient } from '../client/ClientProvider'
 import { useRunEvents } from '../hooks/useRunEvents'
 import { RunLog } from './RunLog'
@@ -14,7 +14,7 @@ function label(run: Run): string {
 
 export function Dock({
   runs, error, workspaceId, workspaces, repos, reposError, queue, queueError, onChangeLimit, chips, onRemoveChip,
-  onRunStarted, resumeFrom, draftPrompt, draftCwd, onExitResume
+  onRunStarted, resumeFrom, draftPrompt, draftCwd, focusRun, onExitResume
 }: {
   runs: Run[]
   error: string | null
@@ -33,6 +33,8 @@ export function Dock({
   draftPrompt: string
   /** RunPanel까지 그대로 흘려 보낸다 — "다시 실행"이 요구하는 작업 디렉토리다. */
   draftCwd: string | null
+  /** 인박스의 "로그 보기"가 지정한 run. null이면 기본대로 새 실행 탭이 열린다. */
+  focusRun: Run | null
   onExitResume: () => void
 }) {
   const client = useClient()
@@ -42,6 +44,16 @@ export function Dock({
   const [view, setView] = useState<'log' | 'new'>('new')
   const [pickedId, setPickedId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+
+  // 인박스에서 "로그 보기"를 누르면 view가 'inbox'→'workspace'로 바뀌며 이 컴포넌트가
+  // 다시 마운트된다 — 내부 view 상태가 'new'로 돌아가 사용자는 실행 패널을 보게 된다.
+  // 그래서 어느 run의 로그를 열지는 App이 지정할 수 있어야 한다 (설계 §5).
+  useEffect(() => {
+    if (!focusRun) return
+    setPickedId(focusRun.id)
+    setView('log')
+    setOpen(true)
+  }, [focusRun])
 
   // 고른 적이 없으면 가장 최근 run을 보여준다.
   const selected = runs.find((r) => r.id === pickedId) ?? runs[0] ?? null

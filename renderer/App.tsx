@@ -22,6 +22,9 @@ export default function App() {
   const [view, setView] = useState<'workspace' | 'inbox'>('workspace')
   // 인박스의 "이어서 실행"·"다시 실행"이 세우고, Dock 아래 RunPanel이 읽는다.
   const [resumeFrom, setResumeFrom] = useState<Run | null>(null)
+  // 인박스의 "로그 보기"가 세운다. Dock은 화면 전환 때 다시 마운트돼 내부 상태가
+  // 초기화되므로, 어느 run의 로그를 열지 여기서 지정해야 한다.
+  const [focusRun, setFocusRun] = useState<Run | null>(null)
   const [draftPrompt, setDraftPrompt] = useState('')
   // "다시 실행"이 요구하는 작업 디렉토리. 프롬프트만 옮기면 RunPanel의 cwd가 첫 repo로
   // 초기화돼 있어 원본과 다른 저장소에서 agent가 돈다.
@@ -91,11 +94,19 @@ export default function App() {
 
   function openLog(run: Run) {
     goToRun(run)
+    // Dock은 화면이 바뀌며 다시 마운트돼 내부 view가 'new'로 돌아간다 — 어느 run의
+    // 로그를 열지 여기서 지정하지 않으면 버튼이 실행 패널만 열고 만다.
+    setResumeFrom(null)
+    setDraftPrompt('')
+    setDraftCwd(null)
+    setFocusRun(run)
   }
 
   function startResume(run: Run) {
     goToRun(run)
     setResumeFrom(run)
+    // 로그를 보던 상태가 남아 있으면 Dock이 실행 패널 대신 그 로그를 연다.
+    setFocusRun(null)
   }
 
   function restart(run: Run) {
@@ -105,6 +116,7 @@ export default function App() {
     // 원본이 돌던 디렉토리까지 함께 옮긴다. 이것이 빠지면 RunPanel이 첫 repo로
     // 실행해 엉뚱한 저장소가 편집된다 (권한 기본값이 edit이다).
     setDraftCwd(run.cwd)
+    setFocusRun(null)
   }
 
   function closeIssue(run: Run, issueId: string) {
@@ -203,6 +215,7 @@ export default function App() {
               resumeFrom={resumeFrom}
               draftPrompt={draftPrompt}
               draftCwd={draftCwd}
+              focusRun={focusRun}
               onExitResume={() => { setResumeFrom(null); setDraftPrompt(''); setDraftCwd(null) }}
               // 담은 맥락은 그 run에만 적용된다. 다음 실행은 빈 상태에서 시작한다.
               // resume 모드도 실행이 시작되면 풀어야 다음이 새 실행으로 돌아간다.
