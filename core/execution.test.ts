@@ -378,6 +378,32 @@ describe('ExecutionService', () => {
       await vi.waitFor(() => expect(ctx.runs.get(child.id).status).toBe('succeeded'))
     })
 
+    it('원본에 걸린 timeoutMs를 이어받는다', async () => {
+      // 잠기는 것도 바꿀 수 있는 것도 아니라 설계가 비워둔 자리 — 원본의 성질을 따른다.
+      const started = await ctx.service.start({
+        workspaceId: ctx.workspaceId,
+        agentKind: 'claude-code' as const,
+        cwd: process.cwd(),
+        permission: 'edit' as const,
+        userPrompt: '고쳐줘',
+        context: [],
+        timeoutMs: 5000
+      })
+      await vi.waitFor(() => expect(ctx.runs.get(started.id).status).toBe('succeeded'))
+      const parent = ctx.runs.get(started.id)
+      expect(parent.timeoutMs).toBe(5000)
+
+      const child = await ctx.service.resume({
+        parentRunId: parent.id,
+        permission: 'read_only',
+        userPrompt: '이어서 해줘',
+        context: []
+      })
+
+      expect(child.timeoutMs).toBe(5000)
+      await vi.waitFor(() => expect(ctx.runs.get(child.id).status).toBe('succeeded'))
+    })
+
     it('이어받을 세션이 없으면 거부한다', async () => {
       // 실패한 run은 세션이 만들어지기 전에 죽었을 수 있다.
       const created = ctx.runs.create({

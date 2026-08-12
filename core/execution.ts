@@ -237,7 +237,11 @@ export function createExecutionService(opts: ExecutionOptions) {
       permission: input.permission,
       userPrompt: input.userPrompt,
       context: input.context,
-      timeoutMs: null
+      // timeoutMs는 잠긴 값도 바꿀 수 있는 값도 아니다 — 설계 §6이 열거한
+      // 목록에 빠져 있던 자리다. 원본이 타임아웃을 걸고 돌던 run이면 그
+      // 제한이 이어받는 run에서도 유효해야 자연스럽다는 판단으로, 원본의
+      // 성질을 따르기로 한다.
+      timeoutMs: parent.timeoutMs
     })
   }
 
