@@ -1,0 +1,116 @@
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { InboxPanel } from './InboxPanel'
+import type { Run, Workspace } from '@shared/models'
+
+const workspaces: Workspace[] = [
+  {
+    id: 'w1', name: '앱', description: null, defaultAgentKind: 'claude-code',
+    defaultModelClaude: null, defaultModelOpencode: null, defaultPermission: 'edit',
+    claudePath: null, opencodePath: null, createdAt: 0, updatedAt: 0
+  }
+]
+
+function run(over: Partial<Run>): Run {
+  return {
+    id: 'r1', workspaceId: 'w1', agentKind: 'claude-code', model: null,
+    cwd: '/tmp', permission: 'edit', userPrompt: '토큰 만료 고쳐줘', assembledPrompt: 'x',
+    status: 'succeeded', externalSessionId: 'sess-1', parentRunId: null,
+    resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
+    errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
+    startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [],
+    ...over
+  }
+}
+
+function renderPanel(items: Run[], over: Partial<Parameters<typeof InboxPanel>[0]> = {}) {
+  const props = {
+    items,
+    workspaces,
+    error: null,
+    onReview: vi.fn(),
+    onOpenLog: vi.fn(),
+    onResume: vi.fn(),
+    onRestart: vi.fn(),
+    onCloseIssue: vi.fn(),
+    onMakeIssue: vi.fn(),
+    ...over
+  }
+  render(<InboxPanel {...props} />)
+  return props
+}
+
+describe('InboxPanel', () => {
+  it('비어 있으면 그렇게 말한다', () => {
+    renderPanel([])
+    expect(screen.getByText('처리할 결과가 없습니다')).toBeInTheDocument()
+  })
+
+  it('어느 workspace 것인지 보여준다', () => {
+    // 전역 목록이라 workspace 이름이 없으면 같은 지시를 두 곳에서 돌렸을 때 구별할 수 없다.
+    renderPanel([run({})])
+    expect(screen.getByText('앱')).toBeInTheDocument()
+  })
+
+  it('카테고리 라벨을 보여준다', () => {
+    renderPanel([run({ needsAnswer: true })])
+    expect(screen.getByText('답변 필요')).toBeInTheDocument()
+  })
+
+  it('세션이 없으면 이어서 실행을 보여주지 않는다', () => {
+    // 눌러서야 실패를 알게 되면 안 된다.
+    renderPanel([run({ externalSessionId: null })])
+    expect(screen.queryByRole('button', { name: '이어서 실행' })).toBeNull()
+  })
+
+  it('세션이 있으면 이어서 실행을 보여준다', () => {
+    renderPanel([run({ externalSessionId: 'sess-1' })])
+    expect(screen.getByRole('button', { name: '이어서 실행' })).toBeInTheDocument()
+  })
+
+  it('대기 중 취소됨에는 로그 보기를 보여주지 않는다', () => {
+    // 시작도 못 한 run이라 로그 파일이 없다.
+    renderPanel([run({ status: 'canceled', externalSessionId: null })])
+    expect(screen.queryByRole('button', { name: '로그 보기' })).toBeNull()
+    expect(screen.getByRole('button', { name: '다시 실행' })).toBeInTheDocument()
+  })
+
+  it('실패한 run은 이슈로 만들 수 있다', () => {
+    renderPanel([run({ status: 'failed', errorMessage: '권한 거부' })])
+    expect(screen.getByRole('button', { name: '이슈로 만들기' })).toBeInTheDocument()
+    expect(screen.getByText('권한 거부')).toBeInTheDocument()
+  })
+
+  it('첨부된 이슈가 없으면 관련 이슈 닫기를 보여주지 않는다', () => {
+    renderPanel([run({ contextItems: [] })])
+    expect(screen.queryByRole('button', { name: '관련 이슈 닫기' })).toBeNull()
+  })
+
+  it('첨부된 이슈마다 관련 이슈 닫기를 보여주고 그 id로 알린다', () => {
+    const item = run({ contextItems: [{ type: 'issue', id: 'i1' }, { type: 'issue', id: 'i2' }] })
+    const { onCloseIssue } = renderPanel([item])
+    const buttons = screen.getAllByRole('button', { name: '관련 이슈 닫기' })
+    expect(buttons).toHaveLength(2)
+    buttons[0]!.click()
+    expect(onCloseIssue).toHaveBeenCalledWith(item, 'i1')
+  })
+
+  it('repo 맥락은 관련 이슈 닫기를 만들지 않는다', () => {
+    // contextItems에는 repo·memo도 섞여 온다. 이슈만 골라야 한다.
+    renderPanel([run({ contextItems: [{ type: 'repo', id: 'p1' }] })])
+    expect(screen.queryByRole('button', { name: '관련 이슈 닫기' })).toBeNull()
+  })
+
+  it('확인함을 누르면 confirmed로 알린다', async () => {
+    const { onReview } = renderPanel([run({})])
+    await userEvent.click(screen.getByRole('button', { name: '확인함' }))
+    expect(onReview).toHaveBeenCalledWith('r1', 'confirmed')
+  })
+
+  it('보관을 누르면 archived로 알린다', async () => {
+    const { onReview } = renderPanel([run({ status: 'failed' })])
+    await userEvent.click(screen.getByRole('button', { name: '보관' }))
+    expect(onReview).toHaveBeenCalledWith('r1', 'archived')
+  })
+})

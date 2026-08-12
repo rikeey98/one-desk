@@ -5,10 +5,12 @@ import { IssuePanel } from './components/IssuePanel'
 import { MemoPanel } from './components/MemoPanel'
 import { AssetPanel } from './components/AssetPanel'
 import { Dock } from './components/Dock'
+import { InboxPanel } from './components/InboxPanel'
 import { useRuns } from './hooks/useRuns'
 import { useRepos } from './hooks/useRepos'
 import { useQueue } from './hooks/useQueue'
 import { useInbox } from './hooks/useInbox'
+import { useWorkspaces } from './hooks/useWorkspaces'
 import { useClient } from './client/ClientProvider'
 import { chipKey, type ContextChip } from './context'
 import type { Run } from '@shared/models'
@@ -18,7 +20,7 @@ export default function App() {
   const [repoId, setRepoId] = useState<string | null>(null)
   const [chips, setChips] = useState<ContextChip[]>([])
   const [view, setView] = useState<'workspace' | 'inbox'>('workspace')
-  // Task 8의 인박스가 세운다. 지금은 Dock이 읽기만 한다.
+  // 인박스의 "이어서 실행"·"다시 실행"이 세우고, Dock 아래 RunPanel이 읽는다.
   const [resumeFrom, setResumeFrom] = useState<Run | null>(null)
   const [draftPrompt, setDraftPrompt] = useState('')
   const { runs, error: runsError } = useRuns(workspaceId)
@@ -31,9 +33,11 @@ export default function App() {
   const { snapshot: queue, error: queueError } = useQueue()
   // 상한 변경 실패도 큐 오류와 같은 자리에 뜬다. 방금 누른 것이 더 급하므로 앞에 온다.
   const [limitError, setLimitError] = useState<string | null>(null)
-  // items와 error는 Task 8(인박스 화면)에서 쓴다. 지금은 사이드바 배지에 쓸
-  // counts만 꺼낸다 — 미리 items/error를 구조 분해하면 미사용 변수로 lint가 떨어진다.
-  const { counts: inboxCounts } = useInbox()
+  const { items: inboxItems, counts: inboxCounts, error: inboxError } = useInbox()
+  const { workspaces } = useWorkspaces()
+  // 인박스 행동(확인함/보관/이슈 연동) 실패도 조용히 삼키지 않는다 — inboxError와
+  // 같은 자리에 뜨되, 방금 누른 행동의 오류가 더 급하므로 앞에 온다.
+  const [inboxActionError, setInboxActionError] = useState<string | null>(null)
   const client = useClient()
 
   const chipKeys = useMemo(() => new Set(chips.map(chipKey)), [chips])
@@ -61,6 +65,60 @@ export default function App() {
     })
   }
 
+  function review(runId: string, kind: 'confirmed' | 'archived') {
+    setInboxActionError(null)
+    client.runs.markReviewed(runId, kind).catch((err: unknown) => {
+      setInboxActionError(err instanceof Error ? err.message : String(err))
+    })
+  }
+
+  /** 인박스 항목을 그 run의 workspace 화면으로 데려간다. */
+  function goToRun(run: Run) {
+    setWorkspaceId(run.workspaceId)
+    setRepoId(null)
+    setChips([])
+    setView('workspace')
+  }
+
+  function openLog(run: Run) {
+    goToRun(run)
+  }
+
+  function startResume(run: Run) {
+    goToRun(run)
+    setResumeFrom(run)
+  }
+
+  function restart(run: Run) {
+    goToRun(run)
+    setResumeFrom(null)
+    setDraftPrompt(run.userPrompt)
+  }
+
+  function closeIssue(run: Run, issueId: string) {
+    setInboxActionError(null)
+    client.issues.update({ id: issueId, status: 'done' })
+      .then(() => { review(run.id, 'confirmed') })
+      .catch((err: unknown) => {
+        setInboxActionError(err instanceof Error ? err.message : String(err))
+      })
+  }
+
+  function makeIssue(run: Run) {
+    setInboxActionError(null)
+    // 실패는 대개 나중에 다뤄야 할 일인데, 인박스에서 사라지면 그대로 잊힌다.
+    const title = run.userPrompt.trim().split('\n')[0] || '실패한 실행'
+    client.issues.create({
+      workspaceId: run.workspaceId,
+      title,
+      body: run.errorMessage ?? ''
+    })
+      .then(() => { review(run.id, 'archived') })
+      .catch((err: unknown) => {
+        setInboxActionError(err instanceof Error ? err.message : String(err))
+      })
+  }
+
   return (
     <div className="app">
       <Sidebar
@@ -71,7 +129,19 @@ export default function App() {
         counts={inboxCounts}
       />
       <main className="main">
-        {view === 'inbox' && <div className="blank">인박스 (다음 태스크에서 채운다)</div>}
+        {view === 'inbox' && (
+          <InboxPanel
+            items={inboxItems}
+            workspaces={workspaces}
+            error={inboxActionError ?? inboxError}
+            onReview={review}
+            onOpenLog={openLog}
+            onResume={startResume}
+            onRestart={restart}
+            onCloseIssue={closeIssue}
+            onMakeIssue={makeIssue}
+          />
+        )}
         {view === 'workspace' && !workspaceId && (
           <div className="blank">왼쪽에서 workspace를 선택하세요</div>
         )}
