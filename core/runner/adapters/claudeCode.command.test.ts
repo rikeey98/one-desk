@@ -11,8 +11,16 @@ function spec(over: Partial<ResolvedRunSpec> = {}): ResolvedRunSpec {
     prompt: '테스트 프롬프트',
     resumeSessionId: null,
     executable: '/usr/local/bin/claude',
+    mcp: null,
     ...over
   }
+}
+
+const MCP = {
+  serverName: 'onedesk',
+  configFile: '/tmp/one-desk/mcp/r1.json',
+  token: 'super-secret-token-value',
+  url: 'http://127.0.0.1:51234/mcp'
 }
 
 describe('claudeCodeAdapter.buildCommand', () => {
@@ -51,5 +59,47 @@ describe('claudeCodeAdapter.buildCommand', () => {
     const s = claudeCodeAdapter.buildCommand(spec())
     expect(s.cwd).toBe('/tmp/repo')
     expect(s.cmd).toBe('/usr/local/bin/claude')
+  })
+})
+
+describe('claudeCodeAdapter.buildCommand — MCP', () => {
+  it('mcp가 null이면 MCP 인자를 붙이지 않는다', () => {
+    const { args } = claudeCodeAdapter.buildCommand(spec())
+    expect(args).not.toContain('--mcp-config')
+    expect(args).not.toContain('--strict-mcp-config')
+    expect(args.join(' ')).not.toContain('mcp__')
+  })
+
+  it('설정 파일 경로를 --mcp-config로 넘긴다', () => {
+    const { args } = claudeCodeAdapter.buildCommand(spec({ mcp: MCP }))
+    const i = args.indexOf('--mcp-config')
+    expect(i).toBeGreaterThanOrEqual(0)
+    expect(args[i + 1]).toBe(MCP.configFile)
+  })
+
+  it('--strict-mcp-config로 사용자의 개인 MCP 설정을 차단한다', () => {
+    // 이것이 없으면 사용자 홈의 MCP 서버가 실행에 딸려 들어와, 우리가 통제하지
+    // 못하는 도구가 agent에게 열린다.
+    const { args } = claudeCodeAdapter.buildCommand(spec({ mcp: MCP }))
+    expect(args).toContain('--strict-mcp-config')
+  })
+
+  it('토큰과 URL이 커맨드 인자에 나타나지 않는다', () => {
+    // ps aux로 같은 머신의 다른 사용자에게 인자가 그대로 보인다. 토큰이 인자에
+    // 실리면 그 순간 workspace가 열린다.
+    const built = claudeCodeAdapter.buildCommand(spec({ mcp: MCP }))
+    const joined = built.args.join(' ')
+    expect(joined).not.toContain(MCP.token)
+    expect(joined).not.toContain(MCP.url)
+    expect(JSON.stringify(built.env)).not.toContain(MCP.token)
+  })
+
+  it('세 권한 모두 allowedTools에 mcp__onedesk가 들어간다', () => {
+    for (const permission of ['read_only', 'edit', 'full'] as const) {
+      const { args } = claudeCodeAdapter.buildCommand(spec({ permission, mcp: MCP }))
+      const i = args.indexOf('--allowedTools')
+      expect(i, `${permission}에 --allowedTools가 없다`).toBeGreaterThanOrEqual(0)
+      expect(args[i + 1]!.split(',')).toContain('mcp__onedesk')
+    }
   })
 })

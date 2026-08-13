@@ -88,13 +88,26 @@ export const claudeCodeAdapter: AgentAdapter = {
   },
 
   buildCommand(spec: ResolvedRunSpec): SpawnSpec {
+    // MCP 도구는 --permission-mode로 자동 승인되지 않는다 (실측 노트 Q22).
+    // 서버 단위로 --allowedTools에 명시해야 하고, 빠뜨리면 agent가 issue/memo를
+    // 전혀 못 고치는데 실패가 조용하다.
+    const mcpToolPrefixes = spec.mcp ? [`mcp__${spec.mcp.serverName}`] : []
+
     const args = [
       '-p',
       '--output-format', 'stream-json',
       // --verbose 없이 stream-json을 쓰면 CLI가 실행을 거부한다 (실측 확인됨)
       '--verbose',
-      ...claudeCodePermissionArgs(spec.permission)
+      ...claudeCodePermissionArgs(spec.permission, mcpToolPrefixes)
     ]
+
+    if (spec.mcp) {
+      // 토큰은 파일 안에만 둔다. --mcp-config는 JSON 문자열도 받지만 인자는
+      // ps aux로 같은 머신의 다른 사용자에게 그대로 보인다.
+      args.push('--mcp-config', spec.mcp.configFile)
+      // 사용자의 개인 MCP 설정이 딸려 들어오지 않게 한다.
+      args.push('--strict-mcp-config')
+    }
 
     if (spec.model) args.push('--model', spec.model)
     if (spec.resumeSessionId) args.push('--resume', spec.resumeSessionId)
