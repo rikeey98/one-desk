@@ -1,11 +1,12 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { NotFoundError } from '../errors'
+import { MCP_SERVER_NAME } from './configFile'
 import type { RepoRepository } from '../db/repositories/repo'
 import type { IssueRepository } from '../db/repositories/issue'
 import type { MemoRepository } from '../db/repositories/memo'
 import type { RunContext } from './host'
-import type { Issue, Memo } from '@shared/models'
+import type { Issue, IssueStatus, Memo } from '@shared/models'
 
 export interface McpHostDeps {
   repos: RepoRepository
@@ -46,40 +47,77 @@ function loadMemo(deps: McpHostDeps, ctx: RunContext, id: string): Memo {
   return row
 }
 
-const ISSUE_STATUS = z.enum(['open', 'doing', 'done'])
+/** list_issues가 돌려주는 요약 형태. body를 뺀다 — get_issue와 대칭. */
+interface IssueSummary {
+  id: string
+  title: string
+  status: IssueStatus
+  updatedAt: number
+  repoIds: string[]
+}
+
+function issueSummary(row: Issue): IssueSummary {
+  return { id: row.id, title: row.title, status: row.status, updatedAt: row.updatedAt, repoIds: row.repoIds }
+}
+
+/** issueSummary와 대칭. memo에는 status가 없다. */
+interface MemoSummary {
+  id: string
+  title: string
+  updatedAt: number
+  repoIds: string[]
+}
+
+function memoSummary(row: Memo): MemoSummary {
+  return { id: row.id, title: row.title, updatedAt: row.updatedAt, repoIds: row.repoIds }
+}
+
+const ISSUE_STATUS_VALUES = ['open', 'doing', 'done'] as const
+
+/**
+ * `ISSUE_STATUS_VALUES`가 `@shared/models`의 `IssueStatus`와 정확히 같은 집합인지
+ * 컴파일 타임에 확인한다. 상태가 추가·삭제·개명되면 이 줄에서 타입 오류가 나
+ * zod enum이 조용히 뒤처지는 일을 막는다 — 원소가 IssueStatus 밖이면 제네릭
+ * 제약이, IssueStatus 쪽이 더 많으면 아래 조건부 타입이 `never`가 되어 잡는다.
+ */
+type AssertIssueStatusExhaustive<T extends readonly IssueStatus[]> =
+  IssueStatus extends T[number] ? T : never
+const issueStatusValues: AssertIssueStatusExhaustive<typeof ISSUE_STATUS_VALUES> = ISSUE_STATUS_VALUES
+
+const ISSUE_STATUS = z.enum(issueStatusValues)
 
 export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
-  const server = new McpServer({ name: 'onedesk', version: '0.1.0' })
+  const server = new McpServer({ name: MCP_SERVER_NAME, version: '0.1.0' })
 
   server.registerTool('list_repos', {
     description: '이 workspace에 등록된 repo 목록'
   }, async () => reply(() => deps.repos.list(ctx.workspaceId)))
 
   server.registerTool('list_issues', {
-    description: '이 workspace의 이슈 목록',
+    description: '이 workspace의 이슈 요약 목록 (id·title·status·updatedAt·repoIds — 본문은 빠진다). 본문이 필요하면 get_issue를 쓴다.',
     inputSchema: {
       status: ISSUE_STATUS.optional().describe('상태로 거른다'),
       repoId: z.string().optional().describe('이 repo에 태그된 것과 공통 항목만')
     }
   }, async ({ status, repoId }) => reply(() => {
     const rows = deps.issues.list({ workspaceId: ctx.workspaceId, ...(repoId ? { repoId } : {}) })
-    return status ? rows.filter((r) => r.status === status) : rows
+    return (status ? rows.filter((r) => r.status === status) : rows).map(issueSummary)
   }))
 
   server.registerTool('get_issue', {
-    description: '이슈 하나의 본문',
+    description: '이슈 하나의 본문 전체',
     inputSchema: { id: z.string() }
   }, async ({ id }) => reply(() => loadIssue(deps, ctx, id)))
 
   server.registerTool('list_memos', {
-    description: '이 workspace의 메모 목록',
+    description: '이 workspace의 메모 요약 목록 (id·title·updatedAt·repoIds — 본문은 빠진다). 본문이 필요하면 get_memo를 쓴다.',
     inputSchema: { repoId: z.string().optional().describe('이 repo에 태그된 것과 공통 항목만') }
   }, async ({ repoId }) => reply(() =>
-    deps.memos.list({ workspaceId: ctx.workspaceId, ...(repoId ? { repoId } : {}) })
+    deps.memos.list({ workspaceId: ctx.workspaceId, ...(repoId ? { repoId } : {}) }).map(memoSummary)
   ))
 
   server.registerTool('get_memo', {
-    description: '메모 하나의 본문',
+    description: '메모 하나의 본문 전체',
     inputSchema: { id: z.string() }
   }, async ({ id }) => reply(() => loadMemo(deps, ctx, id)))
 
@@ -119,7 +157,7 @@ export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
     inputSchema: {
       title: z.string().min(1),
       body: z.string().default(''),
-      repoIds: z.array(z.string()).optional()
+      repoIds: z.array(z.string()).optional().describe('태그할 repo. 같은 workspace여야 한다')
     }
   }, async ({ title, body, repoIds }) => reply(() => deps.memos.create({
     workspaceId: ctx.workspaceId, title, body, ...(repoIds ? { repoIds } : {})

@@ -1,5 +1,14 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+
+/**
+ * MCP 서버 이름. 설정 파일의 `mcpServers` 키이자 CLI가 도구 이름을 붙이는
+ * 접두사(`mcp__<이 값>__<도구명>`)다. `--allowedTools`에 넣는 `mcp__<이 값>`도
+ * 같은 상수를 써야 한다 — 여기서만 정의하고 다른 곳은 전부 이 값을 참조한다.
+ * 리터럴을 따로 두면 한쪽만 바뀌었을 때 도구 이름과 승인 목록이 어긋나
+ * 모든 MCP 호출이 조용히 거부된다.
+ */
+export const MCP_SERVER_NAME = 'onedesk'
 
 /**
  * run 하나의 MCP 설정 파일을 쓴다. 경로를 돌려준다.
@@ -13,15 +22,18 @@ export function writeMcpConfig(dir: string, runId: string, url: string, token: s
   const file = join(dir, `${runId}.json`)
   const body = JSON.stringify({
     mcpServers: {
-      onedesk: {
+      [MCP_SERVER_NAME]: {
         type: 'http',
         url,
         headers: { Authorization: `Bearer ${token}` }
       }
     }
   })
-  // mode 인자만으로는 umask가 비트를 깎을 수 있다. 쓰고 나서 명시적으로 잠근다.
+  // writeFileSync의 mode 옵션은 파일을 "새로" 만들 때만 적용된다 — 이미 존재하는
+  // 파일(예: 이전 비정상 종료가 남긴 동명 파일)을 열 때는 기존 권한이 그대로
+  // 남는다. chmodSync로 매번 명시적으로 0600을 강제해 그 경우까지 막는다.
   writeFileSync(file, body, { mode: 0o600 })
+  chmodSync(file, 0o600)
   return file
 }
 

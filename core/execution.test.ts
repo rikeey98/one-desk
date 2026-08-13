@@ -393,6 +393,26 @@ describe('ExecutionService', () => {
     expect(ctx.runs.inbox().map((r) => r.id)).not.toContain(run.id)
   })
 
+  it('삼킨 오류를 주입받은 onError로 흘려보낸다', async () => {
+    // core/는 나중에 별도 데몬으로 떨어질 수 있으므로 목적지를 스스로 정하지 않는다.
+    // 이 테스트는 start()가 삼키는 오류를 본다 — describe('resume') 안에 있던 것을
+    // 옮겼다. resume 전용 동작이 아닌데 그 안에 있으면 자리를 찾기 어렵다.
+    const seen: string[] = []
+    const ctx2 = setup({
+      onError: (message) => { seen.push(message) },
+      wrapRuns: (runs) => ({
+        ...runs,
+        markStarted: () => { throw new Error('행이 사라졌다') }
+      })
+    })
+    await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: 'x', context: []
+    })
+    await vi.waitFor(() => expect(seen.join(' ')).toContain('시작 기록 실패'))
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+
   describe('resume', () => {
     /** 세션 id를 가진 채 끝난 run을 하나 만든다. */
     async function finishedWithSession() {
@@ -490,24 +510,6 @@ describe('ExecutionService', () => {
       await expect(ctx2.service.resume({
         parentRunId: 'whatever', permission: 'edit', userPrompt: 'x', context: []
       })).rejects.toThrow(/database is locked/)
-      rmSync(ctx2.logDir, { recursive: true, force: true })
-    })
-
-    it('삼킨 오류를 주입받은 onError로 흘려보낸다', async () => {
-      // core/는 나중에 별도 데몬으로 떨어질 수 있으므로 목적지를 스스로 정하지 않는다.
-      const seen: string[] = []
-      const ctx2 = setup({
-        onError: (message) => { seen.push(message) },
-        wrapRuns: (runs) => ({
-          ...runs,
-          markStarted: () => { throw new Error('행이 사라졌다') }
-        })
-      })
-      await ctx2.service.start({
-        workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
-        permission: 'edit', userPrompt: 'x', context: []
-      })
-      await vi.waitFor(() => expect(seen.join(' ')).toContain('시작 기록 실패'))
       rmSync(ctx2.logDir, { recursive: true, force: true })
     })
 
@@ -635,6 +637,27 @@ describe('MCP 배선', () => {
     rmSync(ctx2.logDir, { recursive: true, force: true })
   })
 
+  it('release가 던져도 슬롯은 돌아온다', async () => {
+    // releaseMcp의 catch가 슬롯 영구 누수를 막는 유일한 방벽이다. mcp.release()는
+    // removeMcpConfig → rmSync를 부르므로 EPERM/EACCES로 던질 수 있다. catch가
+    // 없으면 finish()의 finally가 releaseMcp에서 끊겨 opts.queue.release가 영영
+    // 불리지 않고, 슬롯이 영구히 줄어든다 — 증상은 "언젠가부터 N개까지만 돈다".
+    const fake = fakeHost()
+    fake.failRelease()
+    const seen: string[] = []
+    const ctx2 = setup({ mcp: fake.host, limit: 1, onError: (message) => { seen.push(message) } })
+    const run = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: 'x', context: []
+    })
+    await vi.waitFor(() => expect(ctx2.runs.get(run.id).status).toBe('succeeded'))
+    // 슬롯이 실제로 돌아왔는지가 핵심 단언이다 — release가 던졌다고 여기서
+    // running이 1로 멈춰 있으면 catch가 없는 것이다.
+    expect(ctx2.queue.snapshot()).toEqual({ running: 0, limit: 1, waiting: 0 })
+    expect(seen.some((m) => m.includes('MCP 토큰 폐기'))).toBe(true)
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+
   it('대기 중인 run을 취소해도 토큰을 폐기한다', async () => {
     // prepare()는 enqueue보다 먼저 끝나므로, 큐에 슬롯을 쥔 적이 없는 대기
     // 중인 run도 이미 토큰을 쥐고 있을 수 있다. "슬롯을 돌려주는 자리"로만
@@ -669,17 +692,30 @@ function fakeHost() {
   const prepared: string[] = []
   const released: string[] = []
   let failing = false
+  let failingRelease = false
   const host = {
     async prepare(ctx: { runId: string }) {
       if (failing) throw new Error('포트를 열지 못했습니다')
       prepared.push(ctx.runId)
       return { token: `tok-${ctx.runId}`, url: 'http://127.0.0.1:1/mcp', configFile: `/tmp/${ctx.runId}.json` }
     },
-    release(runId: string) { released.push(runId) },
+    release(runId: string) {
+      // failRelease()가 켜지면 실제 removeMcpConfig의 rmSync가 EPERM/EACCES로
+      // 던질 수 있는 상황을 흉내낸다. releaseMcp의 catch가 없으면 이 호출이
+      // finish()의 finally를 통째로 끊어 queue.release가 영영 불리지 않는다.
+      if (failingRelease) throw new Error('토큰 폐기에 실패했습니다')
+      released.push(runId)
+    },
     close() {},
     port: () => 1
   }
-  return { host: host as unknown as McpHost, prepared, released, fail: () => { failing = true } }
+  return {
+    host: host as unknown as McpHost,
+    prepared,
+    released,
+    fail: () => { failing = true },
+    failRelease: () => { failingRelease = true }
+  }
 }
 
 /** console.error로 새는 것을 모아 두고 테스트 출력은 조용하게 유지한다. */

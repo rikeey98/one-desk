@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { makeTestDb } from '../db/repositories/testing'
@@ -7,7 +7,8 @@ import { createRepoRepository } from '../db/repositories/repo'
 import { createIssueRepository } from '../db/repositories/issue'
 import { createMemoRepository } from '../db/repositories/memo'
 import { createWorkspaceRepository } from '../db/repositories/workspace'
-import { createMcpHost, type McpHost } from './host'
+import { claudeCodeAdapter } from '../runner/adapters/claudeCode'
+import { createMcpHost, MCP_SERVER_NAME, type McpHost } from './host'
 import { rpc } from './testing'
 
 let host: McpHost
@@ -100,5 +101,29 @@ describe('McpHost', () => {
     const p = await host.prepare({ runId: 'r1', workspaceId, permission: 'edit' })
     host.close()
     await expect(rpc(p.url, p.token, LIST)).rejects.toThrow()
+  })
+
+  it('설정 파일의 mcpServers 키와 --allowedTools의 mcp__ 접두사가 같은 값에서 나온다', async () => {
+    // 전 브랜치 리뷰 I-1. CLI가 도구에 붙이는 이름은 설정 파일의 mcpServers
+    // 키에서 나오고(mcp__<그 키>__<도구명>), 승인 목록은 MCP_SERVER_NAME에서
+    // 나온다. 둘이 서로 다른 리터럴이면 한쪽만 바뀌었을 때 모든 MCP 호출이
+    // 조용히 거부된다 — execution.ts가 실제로 하는 일(host.prepare가 쓴 설정
+    // 파일 경로와 MCP_SERVER_NAME을 그대로 어댑터에 넘김)을 재현해 확인한다.
+    const p = await host.prepare({ runId: 'r-name', workspaceId, permission: 'edit' })
+    const parsed = JSON.parse(readFileSync(p.configFile, 'utf8')) as { mcpServers: Record<string, unknown> }
+    const configKey = Object.keys(parsed.mcpServers)[0]
+
+    const { args } = claudeCodeAdapter.buildCommand({
+      runId: 'r-name',
+      cwd: '/tmp',
+      model: null,
+      permission: 'edit',
+      prompt: 'x',
+      resumeSessionId: null,
+      executable: '/usr/local/bin/claude',
+      mcp: { serverName: MCP_SERVER_NAME, configFile: p.configFile, token: p.token, url: p.url }
+    })
+    const i = args.indexOf('--allowedTools')
+    expect(args[i + 1]!.split(',')).toContain(`mcp__${configKey}`)
   })
 })

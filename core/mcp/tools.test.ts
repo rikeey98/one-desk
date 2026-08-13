@@ -89,6 +89,16 @@ describe('읽기 도구', () => {
     expect(rows.map((r: { title: string }) => r.title)).toEqual(['A의 이슈'])
   })
 
+  it('list_issues는 요약만 준다 — 본문은 빠진다', async () => {
+    // 설계 §5: list_*는 요약, get_*는 본문. 본문이 섞여 들어오면 이슈 200개짜리
+    // workspace에서 list_issues 한 번에 전 이슈 본문이 컨텍스트로 쏟아진다.
+    const { text } = await call(f.wsA, 'read_only', 'list_issues')
+    const rows = JSON.parse(text)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).not.toHaveProperty('body')
+    expect(Object.keys(rows[0]).sort()).toEqual(['id', 'repoIds', 'status', 'title', 'updatedAt'])
+  })
+
   it('list_issues는 status로 거른다', async () => {
     createIssueRepository(f.db).update({ id: f.issueA, status: 'done' })
     expect(JSON.parse((await call(f.wsA, 'read_only', 'list_issues', { status: 'open' })).text))
@@ -116,6 +126,16 @@ describe('읽기 도구', () => {
   it('list_memos는 그 workspace의 메모만 준다', async () => {
     const { text } = await call(f.wsA, 'read_only', 'list_memos')
     expect(JSON.parse(text).map((r: { title: string }) => r.title)).toEqual(['A의 메모'])
+  })
+
+  it('list_memos는 요약만 준다 — 본문은 빠진다', async () => {
+    // list_issues와 대칭 — 이슈 쪽만 지키고 메모 쪽이 새면 issue.ts↔memo.ts
+    // 어긋남의 재발이다.
+    const { text } = await call(f.wsA, 'read_only', 'list_memos')
+    const rows = JSON.parse(text)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).not.toHaveProperty('body')
+    expect(Object.keys(rows[0]).sort()).toEqual(['id', 'repoIds', 'title', 'updatedAt'])
   })
 
   it('get_memo는 본문을 준다', async () => {
@@ -177,6 +197,9 @@ describe('쓰기 도구', () => {
       title: '새 메모', body: '내용'
     })).text)
     expect(created.workspaceId).toBe(f.wsA)
+    // create_issue 쪽은 저장 직후 title을 확인한다 — 여기서도 update로 덮기
+    // 전에 확인해야 create_memo가 title을 잘못 저장해도 잡을 수 있다.
+    expect(createMemoRepository(f.db).get(created.id).title).toBe('새 메모')
 
     await call(f.wsA, 'edit', 'update_memo', { id: created.id, title: '고친 제목' })
     expect(createMemoRepository(f.db).get(created.id).title).toBe('고친 제목')

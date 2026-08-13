@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { claudeCodeAdapter } from './claudeCode'
+import { MCP_SERVER_NAME } from '../../mcp/host'
 import type { ResolvedRunSpec } from '../types'
 
 function spec(over: Partial<ResolvedRunSpec> = {}): ResolvedRunSpec {
@@ -17,7 +18,10 @@ function spec(over: Partial<ResolvedRunSpec> = {}): ResolvedRunSpec {
 }
 
 const MCP = {
-  serverName: 'onedesk',
+  // 리터럴 'onedesk'를 쓰지 않는다 — 그러면 MCP_SERVER_NAME이 바뀌어도 이
+  // 픽스처는 여전히 옛 값과 우연히 일치해 어긋남을 못 잡는다 (전 브랜치
+  // 리뷰 I-1). 실제 execution.ts가 채우는 값과 같은 소스를 쓴다.
+  serverName: MCP_SERVER_NAME,
   configFile: '/tmp/one-desk/mcp/r1.json',
   token: 'super-secret-token-value',
   url: 'http://127.0.0.1:51234/mcp'
@@ -94,12 +98,12 @@ describe('claudeCodeAdapter.buildCommand — MCP', () => {
     expect(JSON.stringify(built.env)).not.toContain(MCP.token)
   })
 
-  it('세 권한 모두 allowedTools에 mcp__onedesk가 들어간다', () => {
+  it('세 권한 모두 allowedTools에 mcp__<MCP_SERVER_NAME>이 들어간다', () => {
     for (const permission of ['read_only', 'edit', 'full'] as const) {
       const { args } = claudeCodeAdapter.buildCommand(spec({ permission, mcp: MCP }))
       const i = args.indexOf('--allowedTools')
       expect(i, `${permission}에 --allowedTools가 없다`).toBeGreaterThanOrEqual(0)
-      expect(args[i + 1]!.split(',')).toContain('mcp__onedesk')
+      expect(args[i + 1]!.split(',')).toContain(`mcp__${MCP_SERVER_NAME}`)
     }
   })
 })
