@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { RepoStrip } from './components/RepoStrip'
 import { IssuePanel } from './components/IssuePanel'
@@ -29,6 +29,10 @@ export default function App() {
   // "다시 실행"이 요구하는 작업 디렉토리. 프롬프트만 옮기면 RunPanel의 cwd가 첫 repo로
   // 초기화돼 있어 원본과 다른 저장소에서 agent가 돈다.
   const [draftCwd, setDraftCwd] = useState<string | null>(null)
+  // 확장된 패널과 그 안에서 열린 항목. **한 번에 하나뿐이다.**
+  // 각 패널이 따로 들면 둘 다 열린 상태가 만들어지고, 컬럼 비율을 누가 정하는지도
+  // 흐려진다. useRepos·useWorkspaces를 자식이 각자 부르다 두 번 사고가 났다.
+  const [openItem, setOpenItem] = useState<{ panel: 'issue' | 'memo'; id: string } | null>(null)
   const { runs, error: runsError } = useRuns(workspaceId)
   // RepoStrip과 RunPanel(Dock 아래)이 각자 useRepos를 부르면 서로의 상태를 모른다 —
   // repo를 등록해도 RunPanel의 작업 디렉토리 select가 영원히 비는 실제 결함이었다.
@@ -60,6 +64,7 @@ export default function App() {
     setView('workspace')
     setRepoId(null)   // workspace가 바뀌면 이전 repo 필터는 무의미하다
     setChips([])      // 맥락도 마찬가지다. 다른 workspace의 항목은 실행 시 거부된다
+    setOpenItem(null) // 다른 workspace의 항목을 열어둔 채로 둘 수 없다
   }
 
   function toggleChip(chip: ContextChip) {
@@ -67,6 +72,22 @@ export default function App() {
       ? prev.filter((c) => chipKey(c) !== chipKey(chip))
       : [...prev, chip])
   }
+
+  /** 같은 항목을 다시 누르면 접는다. 다른 패널을 누르면 그쪽으로 옮겨간다. */
+  function openIn(panel: 'issue' | 'memo', id: string) {
+    setOpenItem((prev) => (prev?.panel === panel && prev.id === id ? null : { panel, id }))
+  }
+
+  // Esc로 접는다. 상세 안의 삭제 확인은 자기가 먼저 Esc를 삼키므로(설계 §5)
+  // 여기까지 올라오지 않는다.
+  useEffect(() => {
+    if (!openItem) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpenItem(null)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => { document.removeEventListener('keydown', onKeyDown) }
+  }, [openItem])
 
   function changeLimit(n: number) {
     // 성공한 스냅샷은 event:queueUpdate로도 오므로 여기서 따로 쓰지 않는다.
@@ -203,12 +224,18 @@ export default function App() {
                 repoId={repoId}
                 chipKeys={chipKeys}
                 onToggleContext={toggleChip}
+                expanded={openItem?.panel === 'issue'}
+                openId={openItem?.panel === 'issue' ? openItem.id : null}
+                onOpen={(id) => openIn('issue', id)}
               />
               <MemoPanel
                 workspaceId={workspaceId}
                 repoId={repoId}
                 chipKeys={chipKeys}
                 onToggleContext={toggleChip}
+                expanded={openItem?.panel === 'memo'}
+                openId={openItem?.panel === 'memo' ? openItem.id : null}
+                onOpen={(id) => openIn('memo', id)}
               />
               <AssetPanel />
             </div>

@@ -7,7 +7,7 @@ import { createRunEventStore, type RunEventStore } from './store/runEvents'
 import App from './App'
 import type { OneDeskClient } from '@shared/client'
 import type {
-  CreateRepoInput, CreateWorkspaceInput, InboxCounts, Repo, Run, Workspace
+  CreateRepoInput, CreateWorkspaceInput, InboxCounts, Issue, Memo, Repo, Run, Workspace
 } from '@shared/models'
 
 const workspace: Workspace = {
@@ -32,12 +32,28 @@ function makeRun(over: Partial<Run> = {}): Run {
   }
 }
 
+function makeIssue(over: Partial<Issue> = {}): Issue {
+  return {
+    id: 'i1', workspaceId: 'w1', title: '이슈', body: '', status: 'open',
+    repoIds: [], createdAt: 0, updatedAt: 0, closedAt: null, ...over
+  }
+}
+
+function makeMemo(over: Partial<Memo> = {}): Memo {
+  return {
+    id: 'm1', workspaceId: 'w1', title: '메모', body: '',
+    repoIds: [], createdAt: 0, updatedAt: 0, ...over
+  }
+}
+
 /** 가짜 백엔드의 초기 상태. 인박스 배선 테스트는 상태가 있어야 의미가 생긴다. */
 interface Seed {
   /** 미확인 run들. 같은 목록이 runs.list에도 보인다. */
   inbox?: Run[]
   repos?: Repo[]
   workspaces?: Workspace[]
+  issues?: Issue[]
+  memos?: Memo[]
 }
 
 /**
@@ -86,12 +102,14 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
       remove: vi.fn()
     },
     issues: {
-      list: vi.fn().mockResolvedValue([]),
+      list: vi.fn().mockResolvedValue(seed.issues ?? []),
       create: vi.fn(async () => ({ id: 'i-new' })),
       update: vi.fn(async () => ({ id: 'i-updated' })),
       remove: vi.fn()
     },
-    memos: { list: vi.fn().mockResolvedValue([]), create: vi.fn(), update: vi.fn(), remove: vi.fn() },
+    memos: {
+      list: vi.fn().mockResolvedValue(seed.memos ?? []), create: vi.fn(), update: vi.fn(), remove: vi.fn()
+    },
     runs: {
       list: vi.fn(async (workspaceId: string) => started.filter((r) => r.workspaceId === workspaceId)),
       start: vi.fn(async () => makeRun({ id: 'started' })),
@@ -137,6 +155,11 @@ function inboxLink(): HTMLElement {
 
 async function openInbox(): Promise<void> {
   await userEvent.click(inboxLink())
+}
+
+/** 사이드바에서 ws1을 골라 workspace 화면으로 들어간다. */
+async function selectWorkspace(): Promise<void> {
+  await userEvent.click(await screen.findByRole('button', { name: 'ws1' }))
 }
 
 describe('App', () => {
@@ -394,5 +417,79 @@ describe('App', () => {
     await userEvent.click(await screen.findByRole('button', { name: '답하고 이어서' }))
 
     expect(await screen.findByPlaceholderText(/무엇을 시킬지/)).toHaveValue('')
+  })
+})
+
+describe('패널 확장', () => {
+  it('이슈를 클릭하면 그 패널이 확장되고 상세가 뜬다', async () => {
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+
+    expect(screen.getByRole('region', { name: 'Issues' })).toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: 'Memos' })).not.toHaveClass('panel-expanded')
+    // App이 openId를 IssuePanel에 내려보내는지도 확인한다 — expanded만 확인하면
+    // App.tsx가 <IssuePanel openId={…}> 한 줄을 빠뜨려도 이 테스트가 여전히
+    // 초록이다. 클릭한 항목이 열린 상태(item-open)로 보이는지까지 봐야 한다.
+    expect(screen.getByRole('button', { name: '토큰 만료' })).toHaveClass('item-open')
+  })
+
+  it('메모를 열면 이슈 상세가 닫힌다', async () => {
+    // 한 번에 한 패널만 확장된다. 상태를 각 패널이 따로 들면 둘 다 열린다.
+    renderApp(makeClient({}, {
+      issues: [makeIssue({ id: 'i1', title: '토큰 만료' })],
+      memos: [makeMemo({ id: 'm1', title: '배포 메모' })]
+    }))
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+    await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
+
+    expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: 'Memos' })).toHaveClass('panel-expanded')
+    // MemoPanel도 마찬가지다 — App이 openId를 내려보내지 않으면 패널은 확장돼도
+    // 어느 항목이 열렸는지는 표시되지 않는다.
+    expect(screen.getByRole('button', { name: '배포 메모' })).toHaveClass('item-open')
+  })
+
+  it('같은 항목을 다시 클릭하면 접힌다', async () => {
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    await selectWorkspace()
+
+    const title = await screen.findByRole('button', { name: '토큰 만료' })
+    await userEvent.click(title)
+    await userEvent.click(title)
+
+    expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+  })
+
+  it('Esc로 접는다', async () => {
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+    await userEvent.keyboard('{Escape}')
+
+    expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+  })
+
+  it('항목 클릭은 맥락에 담지 않는다', async () => {
+    // 본문이 생기면 "열어본다"가 주된 행동이 된다. 담기는 별도 토글로 옮겼다.
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+
+    expect(screen.queryByRole('button', { name: /토큰 만료 ✕/ })).toBeNull()
+  })
+
+  it('담기 토글이 맥락 칩을 만든다', async () => {
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료 맥락에 담기' }))
+
+    expect(screen.getByRole('button', { name: /토큰 만료 ✕/ })).toBeInTheDocument()
   })
 })
