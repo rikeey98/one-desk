@@ -207,13 +207,21 @@ describe('ExecutionService', () => {
   })
 
   it('preflight가 실패하면 슬롯을 쓰지 않는다', async () => {
-    const local = setup({ preflight: async () => ({ ok: false, reason: 'claude를 찾을 수 없습니다' }), limit: 1 })
+    // 실행 파일조차 없는 run이 MCP 포트를 열게 해서는 안 된다 — preflight가
+    // mcp.prepare()보다 먼저 와야 한다는 순서 계약을 여기서 함께 고정한다.
+    const fake = fakeHost()
+    const local = setup({
+      preflight: async () => ({ ok: false, reason: 'claude를 찾을 수 없습니다' }),
+      limit: 1,
+      mcp: fake.host
+    })
     const run = await local.service.start({
       workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
       permission: 'edit', userPrompt: 'x', context: []
     })
     expect(run.status).toBe('failed')
     expect(local.queue.snapshot()).toEqual({ running: 0, limit: 1, waiting: 0 })
+    expect(fake.prepared).toEqual([])
     rmSync(local.logDir, { recursive: true, force: true })
   })
 
@@ -515,24 +523,6 @@ describe('ExecutionService', () => {
 })
 
 describe('MCP 배선', () => {
-  /** prepare/release 호출을 기록하는 가짜 호스트. 실제 포트를 열지 않는다. */
-  function fakeHost() {
-    const prepared: string[] = []
-    const released: string[] = []
-    let failing = false
-    const host = {
-      async prepare(ctx: { runId: string }) {
-        if (failing) throw new Error('포트를 열지 못했습니다')
-        prepared.push(ctx.runId)
-        return { token: `tok-${ctx.runId}`, url: 'http://127.0.0.1:1/mcp', configFile: `/tmp/${ctx.runId}.json` }
-      },
-      release(runId: string) { released.push(runId) },
-      close() {},
-      port: () => 1
-    }
-    return { host: host as unknown as McpHost, prepared, released, fail: () => { failing = true } }
-  }
-
   it('run을 띄울 때 MCP 설정을 준비해 커맨드까지 실어 보낸다', async () => {
     // 이 테스트가 전달 사슬 세 줄을 한 번에 지킨다. 하나라도 지우면 여기서 잡힌다.
     const seen: string[][] = []
@@ -603,9 +593,57 @@ describe('MCP 배선', () => {
     expect(run.errorMessage).toContain('MCP')
     // 슬롯을 잡았다 놓지도 않았다
     expect(ctx2.queue.snapshot().running).toBe(0)
+    // prepare()가 토큰을 등록한 뒤 설정 파일 쓰기에서 실패했을 수 있다 — 방어적으로도 폐기를 시도한다.
+    expect(fake.released).toEqual([run.id])
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+
+  it('대기 중인 run을 취소해도 토큰을 폐기한다', async () => {
+    // prepare()는 enqueue보다 먼저 끝나므로, 큐에 슬롯을 쥔 적이 없는 대기
+    // 중인 run도 이미 토큰을 쥐고 있을 수 있다. "슬롯을 돌려주는 자리"로만
+    // 규칙을 좁히면 cancel()의 이 분기가 새어나간다.
+    const fake = fakeHost()
+    const ctx2 = setup({ mcp: fake.host, limit: 1 })
+    const first = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '첫째', context: []
+    })
+    const waiting = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '대기', context: []
+    })
+    expect(waiting.status).toBe('pending')
+    expect(fake.prepared).toEqual([first.id, waiting.id])
+
+    ctx2.service.cancel(waiting.id)
+
+    expect(fake.released).toEqual([waiting.id])
+    await vi.waitFor(() => expect(ctx2.runs.get(first.id).status).toBe('succeeded'))
     rmSync(ctx2.logDir, { recursive: true, force: true })
   })
 })
+
+/**
+ * prepare/release 호출을 기록하는 가짜 MCP 호스트. 실제 포트를 열지 않는다.
+ * describe 블록을 가로질러 쓰인다 — 함수 선언은 호이스팅되므로 파일 앞쪽의
+ * describe(preflight 테스트 등)에서 먼저 등장해도 문제없다.
+ */
+function fakeHost() {
+  const prepared: string[] = []
+  const released: string[] = []
+  let failing = false
+  const host = {
+    async prepare(ctx: { runId: string }) {
+      if (failing) throw new Error('포트를 열지 못했습니다')
+      prepared.push(ctx.runId)
+      return { token: `tok-${ctx.runId}`, url: 'http://127.0.0.1:1/mcp', configFile: `/tmp/${ctx.runId}.json` }
+    },
+    release(runId: string) { released.push(runId) },
+    close() {},
+    port: () => 1
+  }
+  return { host: host as unknown as McpHost, prepared, released, fail: () => { failing = true } }
+}
 
 /** console.error로 새는 것을 모아 두고 테스트 출력은 조용하게 유지한다. */
 function captureConsoleError() {

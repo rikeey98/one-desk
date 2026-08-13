@@ -39,8 +39,13 @@ export function createExecutionService(opts: ExecutionOptions) {
   /**
    * 토큰을 폐기하고 설정 파일을 지운다.
    *
-   * **슬롯을 돌려주는 모든 자리에서 부른다.** 한 자리라도 빠지면 끝난 run의
-   * 토큰으로 workspace를 계속 읽고 쓸 수 있다 (설계 §3).
+   * **prepare()로 토큰을 받은 run을 포기하는 모든 자리에서 부른다.** "슬롯을
+   * 돌려주는 모든 자리"가 아니다 — `cancel()`의 대기 중 취소 분기처럼 슬롯을
+   * 쥔 적이 없는 자리도 있다. `prepare()`는 `queue.enqueue`보다 먼저 끝나므로
+   * (launch 참고) 대기열에서만 머물다 취소된 run도 이미 토큰을 쥐고 있을 수
+   * 있다. 규칙을 "슬롯"으로 좁히면 이 경로가 새어나간다. 한 자리라도 빠지면
+   * 끝난(혹은 시작도 못한) run의 토큰으로 workspace를 계속 읽고 쓸 수 있다
+   * (설계 §3).
    */
   function releaseMcp(runId: string): void {
     try {
@@ -222,6 +227,10 @@ export function createExecutionService(opts: ExecutionOptions) {
       } catch (err) {
         // MCP 없이 조용히 진행하지 않는다 — agent는 이슈를 못 고치는 채로
         // "성공"으로 끝나고, 그 실패는 아무 데도 남지 않는다.
+        // prepare()가 토큰을 등록한 뒤(예: 설정 파일 쓰기)에서 실패했을 수
+        // 있다 — 등록됐는지 여기서는 알 수 없으니 방어적으로 폐기를 시도한다.
+        // 등록된 적이 없으면 release()는 아무 일도 하지 않는다.
+        releaseMcp(created.id)
         return notify(opts.runs.markFinished(created.id, {
           status: 'failed',
           resultText: null,
@@ -323,7 +332,10 @@ export function createExecutionService(opts: ExecutionOptions) {
    */
   function cancel(runId: string): void {
     if (opts.queue.remove(runId)) {
-      // 슬롯을 쥔 적이 없으므로 돌려줄 것도 없다.
+      // 슬롯을 쥔 적이 없으므로 큐에는 돌려줄 것이 없다. 하지만 prepare()는
+      // enqueue보다 먼저 끝나므로(launch 참고) 대기 중이던 이 run도 이미
+      // 토큰을 쥐고 있을 수 있다 — 반드시 폐기한다.
+      releaseMcp(runId)
       notify(opts.runs.markFinished(runId, {
         status: 'canceled',
         resultText: null,
