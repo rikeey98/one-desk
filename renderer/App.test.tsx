@@ -7,8 +7,9 @@ import { createRunEventStore, type RunEventStore } from './store/runEvents'
 import App from './App'
 import type { OneDeskClient } from '@shared/client'
 import type {
-  CreateRepoInput, CreateWorkspaceInput, GuardedUpdateIssueInput, GuardedUpdateMemoInput,
-  InboxCounts, Issue, Memo, Repo, Run, Workspace
+  CreateIssueInput, CreateMemoInput, CreateRepoInput, CreateWorkspaceInput,
+  GuardedUpdateIssueInput, GuardedUpdateMemoInput, InboxCounts, Issue, IssueUpdateResult,
+  Memo, MemoUpdateResult, Repo, Run, UpdateIssueInput, UpdateMemoInput, Workspace
 } from '@shared/models'
 
 const workspace: Workspace = {
@@ -72,6 +73,52 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
   let inbox: Run[] = seed.inbox ?? []
   const started: Run[] = [...(seed.inbox ?? [])]
   const listeners: Array<(counts: InboxCounts) => void> = []
+  let issues: Issue[] = seed.issues ?? []
+  let memos: Memo[] = seed.memos ?? []
+  // updatedAt은 단조 증가한다 (설계 §6). 저장소의 Math.max(Date.now(), 이전+1)에서
+  // 잠금이 기대는 성질만 남긴 것이다.
+  let clock = 1_000
+
+  /**
+   * 이슈·메모는 실제 저장소와 같은 규칙으로 흉내낸다 — **모든 쓰기가 updatedAt을
+   * 올리고, 잠긴 쓰기는 기대값을 진짜로 비교한다.**
+   *
+   * 고정된 객체를 돌려주는 mock으로는 낙관적 잠금이 얽힌 결함이 영영 안 보인다:
+   * 목록의 상태 버튼이 잠기지 않은 update로 updatedAt을 올려 열려 있는 상세의
+   * 기대값만 낡게 만들고, 그다음 자동 저장이 사용자 자신의 클릭을 agent의 편집으로
+   * 착각해 유령 충돌 배너를 띄우던 결함이 356개 테스트를 통과하고 있었다.
+   */
+  function writeIssue(input: UpdateIssueInput): Issue {
+    const prev = issues.find((i) => i.id === input.id)
+    if (!prev) throw new Error(`이슈를 찾을 수 없습니다: ${input.id}`)
+    const updatedAt = ++clock
+    const status = input.status ?? prev.status
+    const next: Issue = {
+      ...prev,
+      title: input.title ?? prev.title,
+      body: input.body ?? prev.body,
+      status,
+      // closedAt은 status에서 파생된다 — 화면이 따로 넘기지 않는다.
+      closedAt: status === 'done' ? updatedAt : null,
+      updatedAt
+    }
+    issues = issues.map((i) => (i.id === next.id ? next : i))
+    return next
+  }
+
+  function writeMemo(input: UpdateMemoInput): Memo {
+    const prev = memos.find((m) => m.id === input.id)
+    if (!prev) throw new Error(`메모를 찾을 수 없습니다: ${input.id}`)
+    const updatedAt = ++clock
+    const next: Memo = {
+      ...prev,
+      title: input.title ?? prev.title,
+      body: input.body ?? prev.body,
+      updatedAt
+    }
+    memos = memos.map((m) => (m.id === next.id ? next : m))
+    return next
+  }
 
   function counts(): InboxCounts {
     const byWorkspace: Record<string, number> = {}
@@ -103,25 +150,45 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
       remove: vi.fn()
     },
     issues: {
-      list: vi.fn().mockResolvedValue(seed.issues ?? []),
-      create: vi.fn(async () => ({ id: 'i-new' })),
-      update: vi.fn(async () => ({ id: 'i-updated' })),
-      // Step 5b — 항목 전환이 옛 항목에 저장되는지 보는 회귀 테스트가 기록을 읽는다.
-      updateIfUnchanged: vi.fn(async (input: GuardedUpdateIssueInput) => ({
-        ok: true as const,
-        issue: makeIssue({
-          id: input.id, title: input.title, body: input.body, status: input.status, updatedAt: 200
+      list: vi.fn(async () => issues),
+      create: vi.fn(async (input: CreateIssueInput) => {
+        const created = makeIssue({
+          id: `i${issues.length + 1}`, workspaceId: input.workspaceId, title: input.title,
+          body: input.body ?? '', createdAt: ++clock, updatedAt: clock
         })
-      })),
-      remove: vi.fn()
+        issues = [...issues, created]
+        return created
+      }),
+      // 잠기지 않은 쓰기. agent(MCP)와 인박스의 이슈 닫기가 쓴다 (설계 §6).
+      update: vi.fn(async (input: UpdateIssueInput) => writeIssue(input)),
+      // Step 5b — 항목 전환이 옛 항목에 저장되는지 보는 회귀 테스트가 기록을 읽는다.
+      updateIfUnchanged: vi.fn(async (input: GuardedUpdateIssueInput): Promise<IssueUpdateResult> => {
+        const prev = issues.find((i) => i.id === input.id)
+        if (!prev) throw new Error(`이슈를 찾을 수 없습니다: ${input.id}`)
+        // 기대값을 진짜로 비교한다 — 이 한 줄이 없으면 유령 충돌도 진짜 충돌도 안 보인다.
+        if (prev.updatedAt !== input.expectedUpdatedAt) return { ok: false, current: prev }
+        return { ok: true, issue: writeIssue(input) }
+      }),
+      remove: vi.fn(async (id: string) => { issues = issues.filter((i) => i.id !== id) })
     },
     memos: {
-      list: vi.fn().mockResolvedValue(seed.memos ?? []), create: vi.fn(), update: vi.fn(),
-      updateIfUnchanged: vi.fn(async (input: GuardedUpdateMemoInput) => ({
-        ok: true as const,
-        memo: makeMemo({ id: input.id, title: input.title, body: input.body, updatedAt: 200 })
-      })),
-      remove: vi.fn()
+      list: vi.fn(async () => memos),
+      create: vi.fn(async (input: CreateMemoInput) => {
+        const created = makeMemo({
+          id: `m${memos.length + 1}`, workspaceId: input.workspaceId, title: input.title,
+          body: input.body ?? '', createdAt: ++clock, updatedAt: clock
+        })
+        memos = [...memos, created]
+        return created
+      }),
+      update: vi.fn(async (input: UpdateMemoInput) => writeMemo(input)),
+      updateIfUnchanged: vi.fn(async (input: GuardedUpdateMemoInput): Promise<MemoUpdateResult> => {
+        const prev = memos.find((m) => m.id === input.id)
+        if (!prev) throw new Error(`메모를 찾을 수 없습니다: ${input.id}`)
+        if (prev.updatedAt !== input.expectedUpdatedAt) return { ok: false, current: prev }
+        return { ok: true, memo: writeMemo(input) }
+      }),
+      remove: vi.fn(async (id: string) => { memos = memos.filter((m) => m.id !== id) })
     },
     runs: {
       list: vi.fn(async (workspaceId: string) => started.filter((r) => r.workspaceId === workspaceId)),
@@ -336,6 +403,8 @@ describe('App', () => {
     // 보인다"고 적었다. run까지 확인 처리하면 첫 이슈를 닫는 순간 항목이 사라져
     // 나머지 이슈를 닫을 수 없다.
     const client = makeClient({}, {
+      // 가짜 저장소가 실제처럼 상태를 들고 있으므로, 닫을 이슈가 실제로 있어야 한다.
+      issues: [makeIssue({ id: 'i1' }), makeIssue({ id: 'i2' })],
       inbox: [makeRun({
         id: 'r-done', userPrompt: '두 이슈 붙은 실행',
         contextItems: [{ type: 'issue', id: 'i1' }, { type: 'issue', id: 'i2' }]
@@ -522,6 +591,132 @@ describe('패널 확장', () => {
     await userEvent.click(await screen.findByRole('button', { name: '토큰 만료 맥락에 담기' }))
 
     expect(screen.getByRole('button', { name: /토큰 만료 ✕/ })).toBeInTheDocument()
+  })
+
+  it('메모 항목 클릭은 맥락에 담지 않는다', async () => {
+    // IssuePanel 쪽 짝과 같은 약속이다 (설계 §5). 메모 쪽은 배선이 통째로 무방비였다 —
+    // App.tsx가 MemoPanel에 내려보내는 onToggleContext 한 줄을 지워도 356개가 초록이었다.
+    renderApp(makeClient({}, { memos: [makeMemo({ id: 'm1', title: '배포 메모' })] }))
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
+
+    expect(screen.queryByRole('button', { name: /배포 메모 ✕/ })).toBeNull()
+  })
+
+  it('메모의 담기 토글이 맥락 칩을 만든다', async () => {
+    renderApp(makeClient({}, { memos: [makeMemo({ id: 'm1', title: '배포 메모' })] }))
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '배포 메모 맥락에 담기' }))
+
+    expect(screen.getByRole('button', { name: /배포 메모 ✕/ })).toBeInTheDocument()
+  })
+
+  it('담은 이슈에는 담김 표시가 남는다', async () => {
+    // 변이표 10. 표시가 제목에서 ＋ 토글로 옮겨간 뒤로 아무 테스트도 보고 있지 않았다.
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    await selectWorkspace()
+
+    const pick = await screen.findByRole('button', { name: '토큰 만료 맥락에 담기' })
+    expect(pick).not.toHaveClass('item-picked')
+    expect(pick).toHaveAttribute('aria-pressed', 'false')
+
+    await userEvent.click(pick)
+
+    expect(pick).toHaveClass('item-picked')
+    expect(pick).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('담은 메모에는 담김 표시가 남는다', async () => {
+    // 변이표 10의 메모 쪽 짝 (설계 §10의 24행 — memo 대칭).
+    renderApp(makeClient({}, { memos: [makeMemo({ id: 'm1', title: '배포 메모' })] }))
+    await selectWorkspace()
+
+    const pick = await screen.findByRole('button', { name: '배포 메모 맥락에 담기' })
+    expect(pick).not.toHaveClass('item-picked')
+    expect(pick).toHaveAttribute('aria-pressed', 'false')
+
+    await userEvent.click(pick)
+
+    expect(pick).toHaveClass('item-picked')
+    expect(pick).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('목록의 상태는 읽기 전용 배지다', async () => {
+    // 상태 편집은 상세로 옮겼다 (설계 §9). 목록에 쓰기 버튼이 다시 생기면 그 쓰기가
+    // 잠기지 않은 update를 타고 열려 있는 상세의 기대값을 낡게 만든다 — 아래
+    // "유령 충돌" 테스트가 막는 결함의 입구다.
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    await selectWorkspace()
+    await screen.findByRole('button', { name: '토큰 만료' })
+
+    expect(screen.queryByRole('button', { name: 'open' })).toBeNull()
+    expect(screen.getByText('open')).toHaveClass('status')
+  })
+
+  it('상세에서 상태를 바꾼 뒤 본문을 쳐도 유령 충돌이 나지 않는다', async () => {
+    // 목록의 상태 버튼이 잠기지 않은 update로 쓰던 시절의 결함(이 브랜치의 Critical):
+    // 상태 클릭이 updatedAt을 올려 열려 있는 상세의 기대값만 낡게 만들고, 600ms 뒤
+    // 자동 저장이 사용자 자신의 클릭을 agent의 편집으로 착각해 "그 사이 바뀌었습니다"를
+    // 띄웠다. 거기서 다시 불러오기를 누르면 그때까지 친 것이 통째로 사라진다.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const client = makeClient({}, {
+      issues: [makeIssue({ id: 'i1', title: '토큰 만료', updatedAt: 100 })]
+    })
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+
+    await userEvent.selectOptions(screen.getByLabelText('상태'), 'doing')
+    await userEvent.type(screen.getByLabelText('본문'), '재현 절차')
+    await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+
+    // 배너든 오류든 알림이 하나라도 뜨면 실패다 — 무엇이 떴는지 메시지에 남게 본다.
+    expect(screen.queryAllByRole('alert').map((el) => el.textContent)).toEqual([])
+    // 두 쓰기가 모두 남아 있어야 한다. 상태만 쓰이고 본문이 거부됐으면 결함 그대로다.
+    const [saved] = await client.issues.list({ workspaceId: 'w1' })
+    expect(saved).toMatchObject({ status: 'doing', body: '재현 절차' })
+    vi.useRealTimers()
+  })
+
+  it('Esc로 접다가 난 충돌은 배너로 남고 패널이 접히지 않는다', async () => {
+    // 언마운트 flush에 맡기면 setConflict가 이미 사라진 상세에 떨어져 React가 조용히
+    // 버린다 — 배너도 오류도 없이, flush가 이미 소비한 텍스트만 사라진다 (설계 §7).
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const client = makeClient({}, {
+      issues: [makeIssue({ id: 'i1', title: '토큰 만료', updatedAt: 100 })]
+    })
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+    await userEvent.type(screen.getByLabelText('본문'), '사람이 친 것')
+
+    // agent가 MCP로 같은 이슈를 고친 상황. agent는 잠기지 않은 update를 쓴다 (설계 §6).
+    await act(async () => { await client.issues.update({ id: 'i1', body: 'agent가 쓴 것' }) })
+    fireEvent.keyDown(screen.getByLabelText('본문'), { key: 'Escape' })
+
+    expect(await screen.findByText(/그 사이 바뀌었습니다/)).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Issues' })).toHaveClass('panel-expanded')
+    vi.useRealTimers()
+  })
+
+  it('메모도 Esc로 접다가 난 충돌은 배너로 남고 패널이 접히지 않는다', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const client = makeClient({}, {
+      memos: [makeMemo({ id: 'm1', title: '배포 메모', updatedAt: 100 })]
+    })
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
+    await userEvent.type(screen.getByLabelText('본문'), '사람이 친 것')
+
+    await act(async () => { await client.memos.update({ id: 'm1', body: 'agent가 쓴 것' }) })
+    fireEvent.keyDown(screen.getByLabelText('본문'), { key: 'Escape' })
+
+    expect(await screen.findByText(/그 사이 바뀌었습니다/)).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Memos' })).toHaveClass('panel-expanded')
+    vi.useRealTimers()
   })
 
   it('다른 이슈로 옮기면 대기 중이던 본문이 원래 이슈에 저장된다', async () => {

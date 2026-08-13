@@ -88,6 +88,9 @@ export function MemoPanel({
                 memo={open}
                 onChanged={() => { void refresh() }}
                 onDeleted={() => { onOpen(open.id); void refresh() }}
+                // 같은 id로 onOpen을 부르면 App의 토글이 접는다. 상세가 대기 중인
+                // 저장을 먼저 끝낸 뒤에만 부르므로, 접히면서 쓰기를 잃지 않는다.
+                onRequestClose={() => { onOpen(open.id) }}
               />
             )}
           </div>

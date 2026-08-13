@@ -24,6 +24,11 @@ describe('이슈 본문', () => {
     await title.click()
     const body = page.getByLabel('본문')
     await body.waitFor({ state: 'visible', timeout: 5_000 })
+
+    // 상태도 목록이 아니라 상세에서 고친다 (설계 §9). 이 쓰기가 잠긴 경로로 나가지
+    // 않으면 기대값이 낡아, 바로 아래 본문 저장이 유령 충돌로 거부된다 — 그러면
+    // 다시 열었을 때 본문이 비어 이 테스트가 빨개진다.
+    await page.getByLabel('상태').selectOption('doing')
     await body.fill(BODY)
 
     // 접으면 대기 중인 저장이 flush된다
@@ -34,6 +39,7 @@ describe('이슈 본문', () => {
     // vitest의 expect에는 Playwright의 toHaveValue 매처가 없다(playwright-core만 쓰고
     // @playwright/test는 의존성에 없다) — expect.poll로 같은 재시도 의미를 살린다.
     await expect.poll(() => page.getByLabel('본문').inputValue(), { timeout: 5_000 }).toBe(BODY)
+    await expect.poll(() => page.getByLabel('상태').inputValue(), { timeout: 5_000 }).toBe('doing')
   })
 
   it('담기 토글만 맥락 칩을 만든다', async () => {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { makeTestDb } from './testing'
 import { createWorkspaceRepository } from './workspace'
 import { createRepoRepository } from './repo'
@@ -151,16 +151,28 @@ describe('updateIfUnchanged', () => {
   it('같은 밀리초에 두 번 써도 updatedAt이 달라진다', () => {
     // updatedAt이 잠금의 버전 노릇을 한다. 값이 같아지면 "그 사이 바뀌었다"를
     // 놓쳐서, 이 기능이 막으려던 덮어쓰기가 그대로 일어난다.
-    const db = makeTestDb()
-    const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
-    const memos = createMemoRepository(db)
-    const created = memos.create({ workspaceId, title: '제목', body: 'a' })
+    //
+    // **시계를 고정해야 진짜 시험이 된다.** 그냥 두 번 쓰고 second > first만 보면
+    // 두 쓰기가 밀리초 경계를 넘는 순간 단조 보정(buildPatch의 Math.max)을 지워도
+    // 초록이 된다 — 실제 시각이 알아서 1 늘어나기 때문이다. 시각을 못박아 같은
+    // 밀리초를 강제하면 남는 것은 보정뿐이라, 값까지 정확히 못박을 수 있다.
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(1_700_000_000_000)
+      const db = makeTestDb()
+      const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
+      const memos = createMemoRepository(db)
+      const created = memos.create({ workspaceId, title: '제목', body: 'a' })
 
-    const first = memos.update({ id: created.id, body: 'b' })
-    const second = memos.update({ id: created.id, body: 'c' })
+      const first = memos.update({ id: created.id, body: 'b' })
+      const second = memos.update({ id: created.id, body: 'c' })
 
-    expect(first.updatedAt).toBeGreaterThan(created.updatedAt)
-    expect(second.updatedAt).toBeGreaterThan(first.updatedAt)
+      expect(created.updatedAt).toBe(1_700_000_000_000)
+      expect(first.updatedAt).toBe(1_700_000_000_001)
+      expect(second.updatedAt).toBe(1_700_000_000_002)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('repoIds도 함께 갱신하고, 다른 workspace의 repo는 거부한다', () => {

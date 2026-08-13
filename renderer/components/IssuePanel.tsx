@@ -1,11 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Panel } from './Panel'
 import { AddForm } from './AddForm'
 import { IssueDetail } from './IssueDetail'
 import { useIssues } from '../hooks/useIssues'
 import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextChip } from '../context'
-import type { IssueStatus } from '@shared/models'
 
 export function IssuePanel({
   workspaceId, repoId, chipKeys, onToggleContext, expanded, openId, onOpen
@@ -20,9 +19,6 @@ export function IssuePanel({
 }) {
   const client = useClient()
   const { issues, error: listError, refresh } = useIssues(workspaceId, repoId)
-  const [error, setError] = useState<string | null>(null)
-  // 목록 조회 실패와 패널 동작 실패를 한 자리에서 보여준다.
-  const shown = error ?? listError
 
   const open = openId ? issues.find((i) => i.id === openId) ?? null : null
 
@@ -39,17 +35,6 @@ export function IssuePanel({
       repoIds: repoId ? [repoId] : []
     })
     await refresh()
-  }
-
-  async function cycleStatus(id: string, current: IssueStatus) {
-    const next = current === 'open' ? 'doing' : current === 'doing' ? 'done' : 'open'
-    setError(null)
-    try {
-      await client.issues.update({ id, status: next })
-      await refresh()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
   }
 
   const list = (
@@ -78,13 +63,11 @@ export function IssuePanel({
               >
                 ＋
               </button>
-              <button
-                type="button"
-                className={`status status-${i.status}`}
-                onClick={() => cycleStatus(i.id, i.status)}
-              >
-                {i.status}
-              </button>
+              {/* 목록의 상태는 읽기 전용이다. 편집은 상세가 맡는다 (설계 §9).
+                  여기서 잠기지 않은 update로 쓰면 그 쓰기가 updatedAt을 올려
+                  열려 있는 상세의 기대값만 낡게 만들고, 다음 자동 저장이 사용자
+                  자신의 클릭을 agent의 편집으로 착각해 유령 충돌 배너를 띄운다. */}
+              <span className={`status status-${i.status}`}>{i.status}</span>
             </li>
           )
         })}
@@ -94,7 +77,7 @@ export function IssuePanel({
 
   return (
     <Panel title="Issues" expanded={expanded}>
-      {shown && <div role="alert" className="form-error">{shown}</div>}
+      {listError && <div role="alert" className="form-error">{listError}</div>}
       {/* 감싸는 div의 엘리먼트 타입을 확장 여부와 무관하게 항상 유지한다.
           expanded에 따라 div ↔ Fragment로 타입이 바뀌면 React가 이 자리를
           통째로 언마운트-재마운트해 item-title 버튼의 DOM 정체성이 사라진다 —
@@ -115,6 +98,9 @@ export function IssuePanel({
                 issue={open}
                 onChanged={() => { void refresh() }}
                 onDeleted={() => { onOpen(open.id); void refresh() }}
+                // 같은 id로 onOpen을 부르면 App의 토글이 접는다. 상세가 대기 중인
+                // 저장을 먼저 끝낸 뒤에만 부르므로, 접히면서 쓰기를 잃지 않는다.
+                onRequestClose={() => { onOpen(open.id) }}
               />
             )}
           </div>

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, act, fireEvent } from '@testing-library/react'
+import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { IssueDetail } from './IssueDetail'
@@ -29,7 +29,9 @@ function makeClient(over: Partial<OneDeskClient['issues']> = {}): OneDeskClient 
 }
 
 function renderDetail(client: OneDeskClient, issue = makeIssue(), over = {}) {
-  const props = { issue, onChanged: vi.fn(), onDeleted: vi.fn(), ...over }
+  const props = {
+    issue, onChanged: vi.fn(), onDeleted: vi.fn(), onRequestClose: vi.fn(), ...over
+  }
   render(
     <ClientProvider client={client}>
       <IssueDetail {...props} />
@@ -37,6 +39,20 @@ function renderDetail(client: OneDeskClient, issue = makeIssue(), over = {}) {
   )
   return props
 }
+
+/**
+ * 충돌 배너와 오류 배너가 둘 다 role="alert"라 getByRole('alert')이 모호해질 수 있다 —
+ * 자리로 갈라 각자를 정확히 집는다.
+ *
+ * **role 쿼리를 남겨 두는 것이 핵심이다.** 클래스로만 찾으면 role="alert"를 지우는
+ * 변이를 잡지 못한다 — 자동 저장 실패는 사용자가 보고 있지 않을 때 일어나므로
+ * 알림 역할이 붙어 있어야 한다 (설계 §8).
+ */
+function alertWith(className: string): HTMLElement | null {
+  return screen.queryAllByRole('alert').find((el) => el.classList.contains(className)) ?? null
+}
+const conflictAlert = (): HTMLElement | null => alertWith('conflict-banner')
+const errorAlert = (): HTMLElement | null => alertWith('form-error')
 
 beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }) })
 afterEach(() => { vi.useRealTimers() })
@@ -72,6 +88,76 @@ describe('IssueDetail', () => {
     expect(calls[1]![0].expectedUpdatedAt).toBe(200)
   })
 
+  it('상태를 바꾸면 잠긴 쓰기로 저장하고 기대값을 갱신한다', async () => {
+    // 상태 편집은 목록이 아니라 여기 있다 (설계 §9). 목록의 상태 버튼은 잠기지 않은
+    // update로 써서 열려 있는 상세의 기대값만 낡게 만들었고, 그다음 자동 저장이
+    // 사용자 자신의 클릭을 agent의 편집으로 착각해 유령 충돌 배너를 띄웠다.
+    const client = makeClient()
+    renderDetail(client)
+
+    await userEvent.selectOptions(screen.getByLabelText('상태'), 'doing')
+
+    expect(client.issues.updateIfUnchanged).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'i1', status: 'doing', expectedUpdatedAt: 100 })
+    )
+    // 잠기지 않은 update는 덮어쓰기 버튼만 쓴다.
+    expect(client.issues.update).not.toHaveBeenCalled()
+    // closedAt은 저장소가 status에서 파생한다 — 화면이 넘기면 둘이 어긋난다.
+    expect(vi.mocked(client.issues.updateIfUnchanged).mock.calls[0]![0])
+      .not.toHaveProperty('closedAt')
+
+    // 상태 저장이 돌려준 updatedAt이 기대값으로 올라가야 이어지는 본문 저장이
+    // 자기 자신과 충돌하지 않는다 (설계 §6).
+    await userEvent.type(screen.getByLabelText('본문'), '!')
+    await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+    expect(client.issues.updateIfUnchanged).toHaveBeenLastCalledWith(
+      expect.objectContaining({ body: '원본!', expectedUpdatedAt: 200 })
+    )
+  })
+
+  it('상태 저장이 실패하면 화면에 띄운다', async () => {
+    const client = makeClient({
+      updateIfUnchanged: vi.fn(async () => { throw new Error('DB가 잠겼습니다') })
+    })
+    renderDetail(client)
+
+    await userEvent.selectOptions(screen.getByLabelText('상태'), 'done')
+
+    expect(errorAlert()).toHaveTextContent('DB가 잠겼습니다')
+  })
+
+  it('Esc는 대기 중인 저장을 끝낸 뒤에 접기를 청한다', async () => {
+    const client = makeClient()
+    const props = renderDetail(client)
+    await userEvent.type(screen.getByLabelText('본문'), '!')
+
+    fireEvent.keyDown(screen.getByLabelText('본문'), { key: 'Escape' })
+
+    await waitFor(() => expect(props.onRequestClose).toHaveBeenCalled())
+    expect(client.issues.updateIfUnchanged).toHaveBeenCalledWith(
+      expect.objectContaining({ body: '원본!' })
+    )
+  })
+
+  it('Esc로 접다가 난 충돌은 배너로 남고 상세를 닫지 않는다', async () => {
+    // 언마운트 flush에 맡기면 setConflict가 이미 사라진 컴포넌트에 떨어져 React가
+    // 조용히 버린다 — 배너도 오류도 없이, flush가 이미 소비한 텍스트만 사라진다.
+    // 상세가 살아 있는 동안 flush를 끝내고, 충돌이면 닫지 않는다 (설계 §7).
+    const client = makeClient({
+      updateIfUnchanged: vi.fn(async () => ({
+        ok: false as const, current: makeIssue({ body: 'agent가 쓴 것', updatedAt: 300 })
+      }))
+    })
+    const props = renderDetail(client)
+    await userEvent.type(screen.getByLabelText('본문'), '!')
+
+    fireEvent.keyDown(screen.getByLabelText('본문'), { key: 'Escape' })
+
+    // 배너는 flush가 끝난 뒤에만 뜬다 — 여기까지 왔으면 닫을지 말지는 이미 정해졌다.
+    await waitFor(() => expect(conflictAlert()).toHaveTextContent('그 사이 바뀌었습니다'))
+    expect(props.onRequestClose).not.toHaveBeenCalled()
+  })
+
   it('충돌하면 배너를 띄우고 자동 저장을 멈춘다', async () => {
     const client = makeClient({
       updateIfUnchanged: vi.fn(async () => ({
@@ -81,7 +167,7 @@ describe('IssueDetail', () => {
     renderDetail(client)
     await userEvent.type(screen.getByLabelText('본문'), '!')
     await act(async () => { await vi.advanceTimersByTimeAsync(600) })
-    expect(screen.getByRole('alert')).toHaveTextContent('그 사이 바뀌었습니다')
+    expect(conflictAlert()).toHaveTextContent('그 사이 바뀌었습니다')
 
     // 배너가 떠 있는 동안은 더 쳐도 저장하지 않는다 — 재시도하면 결국 덮어쓰기가 된다
     await userEvent.type(screen.getByLabelText('본문'), '?')
@@ -103,7 +189,7 @@ describe('IssueDetail', () => {
     // queryByText는 정규화된 전체 문자열 매치라 배너 문구('이 항목이 그 사이
     // 바뀌었습니다.')와 부분 일치해도 항상 null을 돌려준다 — 배너가 남아 있어도
     // 이 단언은 계속 통과해 무력하다. role로 실제 마운트 여부를 본다.
-    expect(screen.queryByRole('alert')).toBeNull()
+    expect(conflictAlert()).toBeNull()
   })
 
   it('다시 불러오기가 대기 중인 저장을 취소해 되돌린 내용을 몰래 덮어쓰지 않는다', async () => {
@@ -119,7 +205,7 @@ describe('IssueDetail', () => {
     renderDetail(client)
     await userEvent.type(screen.getByLabelText('본문'), '!')
     await act(async () => { await vi.advanceTimersByTimeAsync(600) })
-    expect(screen.getByRole('alert')).toBeInTheDocument()
+    expect(conflictAlert()).toBeInTheDocument()
 
     // 배너가 뜬 채로 계속 쳐서 충돌 전 텍스트를 든 새 타이머를 건다 — 이 타이머가
     // 돌기 전에 다시 불러온다.
@@ -178,14 +264,16 @@ describe('IssueDetail', () => {
     )
   })
 
-  it('저장이 실패하면 화면에 띄운다', async () => {
+  it('저장이 실패하면 알림 역할이 붙은 자리에 띄운다', async () => {
+    // 자동 저장은 사용자가 결과를 보지 않는다 — 실패를 숨기면 안 썼는데 썼다고 믿게
+    // 된다 (설계 §8). 이 앱의 다른 오류 자리와 같이 role="alert"여야 한다.
     const client = makeClient({
       updateIfUnchanged: vi.fn(async () => { throw new Error('DB가 잠겼습니다') })
     })
     renderDetail(client)
     await userEvent.type(screen.getByLabelText('본문'), '!')
     await act(async () => { await vi.advanceTimersByTimeAsync(600) })
-    expect(screen.getByText('DB가 잠겼습니다')).toBeInTheDocument()
+    expect(errorAlert()).toHaveTextContent('DB가 잠겼습니다')
   })
 
   it('삭제는 두 번 눌러야 하고, 지워지면 알린다', async () => {
