@@ -14,6 +14,7 @@ import { claudeCodeAdapter } from './runner/adapters/claudeCode'
 import { createExecutionService } from './execution'
 import type { Run } from '@shared/models'
 import type { PreflightResult } from './runner/types'
+import type { McpHost } from './mcp/host'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FAKE = resolve(HERE, 'runner/fixtures/fake-claude.mjs')
@@ -26,6 +27,8 @@ interface SetupOptions {
   wrapRuns?: (runs: RunRepository) => RunRepository
   /** 알림 리스너가 던지는 상황을 재현하는 통로 */
   onRunUpdate?: (run: Run) => void
+  /** MCP 호스트를 물리는 통로. 없으면 MCP 없이 돈다 */
+  mcp?: McpHost
 }
 
 function setup(options: SetupOptions = {}) {
@@ -45,6 +48,7 @@ function setup(options: SetupOptions = {}) {
   const queue = createRunQueue({ limit: options.limit ?? 3 })
   const service = createExecutionService({
     db, runs, manager, queue,
+    ...(options.mcp ? { mcp: options.mcp } : {}),
     resolveExecutable: options.preflight ?? (async () => ({ ok: true, executable: process.execPath })),
     onRunUpdate: (run) => {
       updates.push(run)
@@ -507,6 +511,99 @@ describe('ExecutionService', () => {
       expect(seen).toEqual(['fake-session'])
       rmSync(spy.logDir, { recursive: true, force: true })
     })
+  })
+})
+
+describe('MCP 배선', () => {
+  /** prepare/release 호출을 기록하는 가짜 호스트. 실제 포트를 열지 않는다. */
+  function fakeHost() {
+    const prepared: string[] = []
+    const released: string[] = []
+    let failing = false
+    const host = {
+      async prepare(ctx: { runId: string }) {
+        if (failing) throw new Error('포트를 열지 못했습니다')
+        prepared.push(ctx.runId)
+        return { token: `tok-${ctx.runId}`, url: 'http://127.0.0.1:1/mcp', configFile: `/tmp/${ctx.runId}.json` }
+      },
+      release(runId: string) { released.push(runId) },
+      close() {},
+      port: () => 1
+    }
+    return { host: host as unknown as McpHost, prepared, released, fail: () => { failing = true } }
+  }
+
+  it('run을 띄울 때 MCP 설정을 준비해 커맨드까지 실어 보낸다', async () => {
+    // 이 테스트가 전달 사슬 세 줄을 한 번에 지킨다. 하나라도 지우면 여기서 잡힌다.
+    const seen: string[][] = []
+    const manager = {
+      logPathFor: (id: string) => `/tmp/${id}.jsonl`,
+      async start(spec: { mcp?: { configFile: string } | null; executable: string }) {
+        seen.push(spec.mcp ? ['mcp', spec.mcp.configFile] : ['no-mcp'])
+        return {
+          status: 'succeeded' as const, resultText: null, externalSessionId: null,
+          needsAnswer: false, exitCode: 0, errorMessage: null, logPath: '/tmp/x'
+        }
+      },
+      cancel() {}, cancelAll() {}, isRunning: () => false
+    }
+    const fake = fakeHost()
+    const ctx2 = setup({ manager: manager as unknown as RunManager, mcp: fake.host })
+    const run = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: 'x', context: []
+    })
+    expect(fake.prepared).toEqual([run.id])
+    expect(seen).toEqual([['mcp', `/tmp/${run.id}.json`]])
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+
+  it('run이 끝나면 토큰을 폐기한다', async () => {
+    const fake = fakeHost()
+    const ctx2 = setup({ mcp: fake.host })
+    const run = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: 'x', context: []
+    })
+    await vi.waitFor(() => expect(ctx2.runs.get(run.id).endedAt).toBeTypeOf('number'))
+    await vi.waitFor(() => expect(fake.released).toEqual([run.id]))
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+
+  it('유령 run이 되어도 토큰을 폐기한다', async () => {
+    // 슬롯을 돌려주는 자리가 곧 토큰을 폐기하는 자리다. 하나라도 빠지면 끝난
+    // run의 토큰으로 workspace를 계속 읽고 쓸 수 있다.
+    const fake = fakeHost()
+    const ctx2 = setup({
+      mcp: fake.host,
+      wrapRuns: (runs) => ({
+        ...runs,
+        markStarted: () => { throw new Error('행이 사라졌다') }
+      })
+    })
+    const run = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: 'x', context: []
+    })
+    await vi.waitFor(() => expect(fake.released).toEqual([run.id]))
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+
+  it('MCP 준비에 실패하면 프로세스를 띄우지 않고 failed로 기록한다', async () => {
+    // 조용히 MCP 없이 진행하면 agent는 이슈를 못 고치는 채로 "성공"으로 끝난다.
+    const fake = fakeHost()
+    fake.fail()
+    const ctx2 = setup({ mcp: fake.host })
+    const run = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: 'x', context: []
+    })
+    expect(run.status).toBe('failed')
+    expect(run.startedAt).toBeNull()
+    expect(run.errorMessage).toContain('MCP')
+    // 슬롯을 잡았다 놓지도 않았다
+    expect(ctx2.queue.snapshot().running).toBe(0)
+    rmSync(ctx2.logDir, { recursive: true, force: true })
   })
 })
 

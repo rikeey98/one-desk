@@ -149,6 +149,33 @@ describe('createCore', () => {
     }
   })
 
+  it('부팅만으로는 MCP 포트를 열지 않는다', () => {
+    // 앱을 여는 행위가 포트를 여는 것도, agent를 부르는 것도 아니어야 한다.
+    const core = open(makeDataDir())
+    expect(core.mcpPort()).toBeNull()
+    close(core)
+  })
+
+  it('실행이 시작되면 MCP 서버가 127.0.0.1에 뜬다', async () => {
+    const previous = process.env['ONE_DESK_AGENT_PATH']
+    process.env['ONE_DESK_AGENT_PATH'] = FAKE_AGENT
+    try {
+      const dataDir = makeDataDir()
+      const core = open(dataDir)
+      const ws = core.workspaces.create({ name: 'ws' }).id
+      const run = await core.execution.start({
+        workspaceId: ws, agentKind: 'claude-code', cwd: dataDir,
+        permission: 'edit', userPrompt: 'x', context: []
+      })
+      expect(core.mcpPort()).toBeTypeOf('number')
+      await vi.waitFor(() => expect(core.runs.get(run.id).endedAt).toBeTypeOf('number'))
+      close(core)
+    } finally {
+      if (previous === undefined) delete process.env['ONE_DESK_AGENT_PATH']
+      else process.env['ONE_DESK_AGENT_PATH'] = previous
+    }
+  })
+
   it('확인함을 누르면 카운트가 줄어든 것을 push한다', () => {
     // 여기서는 프로세스를 띄울 필요가 없다. seedRun으로 행을 만들고 끝난 상태로
     // 바꾼 뒤, inbox.markReviewed가 스스로 push하는지만 본다.
