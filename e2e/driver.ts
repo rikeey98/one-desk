@@ -75,7 +75,8 @@ async function cleanup(app: ElectronApplication | undefined, dirs: string[]): Pr
  */
 async function launchElectron(
   dataDir: string,
-  repoDir: string
+  repoDir: string,
+  agentPath: string
 ): Promise<{ app: ElectronApplication, page: Page }> {
   let app: ElectronApplication | undefined
   try {
@@ -86,7 +87,7 @@ async function launchElectron(
       env: {
         ...process.env,
         ONE_DESK_USER_DATA: dataDir,
-        ONE_DESK_AGENT_PATH: FAKE_AGENT,
+        ONE_DESK_AGENT_PATH: agentPath,
         ONE_DESK_FAKE_DELAY_MS: FAKE_DELAY_MS
       } as Record<string, string>
     })
@@ -97,11 +98,16 @@ async function launchElectron(
   }
 }
 
-export async function launchApp(): Promise<AppSession> {
+export interface LaunchOptions {
+  /** 앱이 spawn할 가짜 CLI. 기본은 stream-json만 흉내내는 fake-claude.mjs */
+  agentPath?: string
+}
+
+export async function launchApp(options: LaunchOptions = {}): Promise<AppSession> {
   const dataDir = mkdtempSync(join(tmpdir(), 'one-desk-e2e-data-'))
   const repoDir = mkdtempSync(join(tmpdir(), 'one-desk-e2e-repo-'))
 
-  const { app, page } = await launchElectron(dataDir, repoDir)
+  const { app, page } = await launchElectron(dataDir, repoDir, options.agentPath ?? FAKE_AGENT)
 
   let closed = false
 

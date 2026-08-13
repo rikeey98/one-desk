@@ -6,6 +6,14 @@ import { dirname, resolve } from 'node:path'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FAKE = resolve(HERE, 'fixtures/fake-claude.mjs')
+const FAKE_MCP = resolve(HERE, 'fixtures/fake-claude-mcp.mjs')
+
+describe('fake-claude-mcp.mjs', () => {
+  it('실행 권한을 갖는다', () => {
+    // 앱은 이 파일을 executable로 spawn한다. preflight의 access(X_OK)가 먼저 막는다.
+    expect(statSync(FAKE_MCP).mode & 0o111).toBeGreaterThan(0)
+  })
+})
 
 describe('fake-claude.mjs', () => {
   it('실행 권한을 갖는다', () => {
