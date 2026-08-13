@@ -144,27 +144,14 @@ describe('updateIfUnchanged', () => {
     issues.update({ id: created.id, body: 'agent가 쓴 것' })
 
     const result = issues.updateIfUnchanged({
-      id: created.id, body: '사람이 쓴 것', expectedUpdatedAt: created.updatedAt
+      id: created.id, title: '사람이 바꾼 제목', body: '사람이 쓴 것', expectedUpdatedAt: created.updatedAt
     })
 
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.current.body).toBe('agent가 쓴 것')
-  })
-
-  it('거부된 저장은 DB를 바꾸지 않는다', () => {
-    const db = makeTestDb()
-    const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
-    const issues = createIssueRepository(db)
-    const created = issues.create({ workspaceId, title: '제목', body: '원본' })
-    issues.update({ id: created.id, body: 'agent가 쓴 것' })
-
-    issues.updateIfUnchanged({
-      id: created.id, title: '사람이 바꾼 제목', expectedUpdatedAt: created.updatedAt
-    })
-
-    // 제목도 함께 롤백돼야 한다. 트랜잭션 밖에서 검사하면 여기서 새어나간다.
-    expect(issues.get(created.id).title).toBe('제목')
+    // title은 사람도 agent도 손대지 않은 값 — 버전 검사가 title/body 둘 다 막았는지 함께 본다.
+    expect(result.current.title).toBe('제목')
   })
 
   it('없는 id면 NotFoundError를 던진다', () => {
@@ -198,7 +185,7 @@ describe('updateIfUnchanged', () => {
     const repoA = repos.create({ workspaceId: wsA, name: 'api', path: '/tmp/a' }).id
     const repoB = repos.create({ workspaceId: wsB, name: 'web', path: '/tmp/b' }).id
     const issues = createIssueRepository(db)
-    const created = issues.create({ workspaceId: wsA, title: '제목' })
+    const created = issues.create({ workspaceId: wsA, title: '제목', body: '원본' })
 
     const ok = issues.updateIfUnchanged({
       id: created.id, repoIds: [repoA], expectedUpdatedAt: created.updatedAt
@@ -206,8 +193,18 @@ describe('updateIfUnchanged', () => {
     expect(ok.ok).toBe(true)
     expect(issues.get(created.id).repoIds).toEqual([repoA])
 
+    const beforeReject = issues.get(created.id)
+    // assertReposInWorkspace는 tx.update(issue)가 이미 실행된 뒤에 던진다 — 그러니 여기서
+    // title/body가 그대로인지 보는 것은 "쓰기가 없었다"가 아니라 "쓴 뒤 트랜잭션이
+    // 롤백됐다"를 검증하는 진짜 시험이다 (설계 §6).
     expect(() => issues.updateIfUnchanged({
-      id: created.id, repoIds: [repoB], expectedUpdatedAt: issues.get(created.id).updatedAt
+      id: created.id, title: '바뀐제목', body: '바뀐본문', repoIds: [repoB],
+      expectedUpdatedAt: beforeReject.updatedAt
     })).toThrow(/속하지 않는 repo/)
+
+    const after = issues.get(created.id)
+    expect(after.title).toBe('제목')
+    expect(after.body).toBe('원본')
+    expect(after.repoIds).toEqual([repoA])
   })
 })
