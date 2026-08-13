@@ -12,6 +12,15 @@ describe('claudeCodePermissionArgs', () => {
     }
   })
 
+  it('읽기 전용은 permission-mode로 acceptEdits를 쓴다', () => {
+    // 이름과 달리 위험하지 않다 — --tools로 편집 도구 자체를 이미 없앴으므로
+    // acceptEdits가 승인할 편집이 존재하지 않는다. dontAsk의 의미가 문서화돼
+    // 있지 않아(실측 노트 Q22) 검증 없이 bypassPermissions로 바꾸지 않는다.
+    // 여기서 bypassPermissions로 새면 도구 유무와 무관하게 전면 허용이 되어
+    // 이 함수가 막으려는 바로 그 실패 모드가 재발한다.
+    expect(valueOf(claudeCodePermissionArgs('read_only'), '--permission-mode')).toBe('acceptEdits')
+  })
+
   it('편집 허용은 acceptEdits를 쓴다', () => {
     expect(claudeCodePermissionArgs('edit')).toContain('acceptEdits')
   })
