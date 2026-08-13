@@ -474,6 +474,24 @@ describe('패널 확장', () => {
     expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
   })
 
+  it('workspace를 바꾸면 열린 항목이 접힌다', async () => {
+    // App.tsx의 selectWorkspace 안 setOpenItem(null) 한 줄이 지키는 계약이다.
+    // 다른 workspace로 넘어가면서 이전 workspace의 항목을 열어둔 채로 두면 안 된다.
+    const ws2: Workspace = { ...workspace, id: 'w2', name: 'ws2' }
+    renderApp(makeClient({}, {
+      workspaces: [workspace, ws2],
+      issues: [makeIssue({ id: 'i1', title: '토큰 만료' })]
+    }))
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+    expect(screen.getByRole('region', { name: 'Issues' })).toHaveClass('panel-expanded')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'ws2' }))
+
+    expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+  })
+
   it('항목 클릭은 맥락에 담지 않는다', async () => {
     // 본문이 생기면 "열어본다"가 주된 행동이 된다. 담기는 별도 토글로 옮겼다.
     renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
