@@ -2,7 +2,20 @@
 
 workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 골라 CLI 코딩 agent(Claude Code, OpenCode)에게 넘겨 헤드리스로 실행한 뒤 결과를 앱에 기록하는 Electron 데스크톱 앱.
 
-**현재 상태:** 4단계 완료(MCP 서버 — 호스트/도구 아홉 개/권한별 등록/커맨드 배선). `feature/stage4-mcp`에 있고 아직 `main`에 병합 전. 3b 리뷰가 4단계로 이월한 것 둘 다 Task 7에서 해소됐다: `core/`의 `console.error`가 주입식 `onError`로 바뀌었고, `resume`의 catch는 DB 장애를 더 이상 뭉개지 않는다.
+**현재 상태:** 4단계 완료(MCP 서버 — 호스트/도구 아홉 개/권한별 등록/커맨드 배선), `main`에 병합됨(`a19b4fd`). 5단계(OpenCode 어댑터 · asset 스캔 · diff 뷰어) 착수 전. 3b 리뷰가 4단계로 이월한 것 둘 다 Task 7에서 해소됐다: `core/`의 `console.error`가 주입식 `onError`로 바뀌었고, `resume`의 catch는 DB 장애를 더 이상 뭉개지 않는다.
+
+## 5단계 착수 전에 정할 것 — agent 프로세스의 환경변수
+
+**설계 문서에 인증 이야기가 한 줄도 없다.** 지금 어댑터는 `env: { ...process.env }`로 프로세스 환경을 통째로 물려주고 인증은 `claude` CLI에 맡긴다(`~/.claude/.credentials.json`). 터미널에서 `pnpm dev`로 띄우는 동안에는 셸 환경이 그대로 흘러가 아무 문제가 없다.
+
+**`pnpm run pack`으로 만든 앱을 Finder/Dock에서 실행하면 그 가정이 깨진다.** macOS의 GUI 앱은 launchd의 최소 환경만 받아 `.zshrc`가 export한 것이 하나도 안 들어온다. 둘이 동시에 깨진다.
+
+- **실행 파일 탐색** — `findExecutable`이 `process.env.PATH`를 뒤지는데 거기 `/usr/bin:/bin` 정도만 있어 `claude`를 못 찾고 모든 run이 프리플라이트 실패로 끝난다. **탈출구는 있다** — workspace 설정의 `claudePath`에 절대 경로를 박으면 된다.
+- **환경변수** — **탈출구가 없다.** `Workspace` 스키마에는 `claudePath`/`opencodePath`/모델/권한뿐이고 env를 담을 자리가 없다. AWS Bedrock으로 도는 환경(`CLAUDE_CODE_USE_BEDROCK=1`, `AWS_REGION`, `AWS_PROFILE`)은 패키징된 앱에서 그 값을 전달할 방법이 아예 없다. 모델 ID는 workspace 기본 모델이 `--model`로 넘어가므로 그쪽은 이미 통한다.
+
+**유력한 방향:** `Workspace`에 `env: Record<string, string>`을 더하고 어댑터가 `{ ...process.env, ...workspace.env }`로 병합한다. Bedrock·Vertex·프록시·사내 게이트웨이가 같은 통로로 풀리고, 실행 파일 경로가 이미 workspace 단위인 것과 결이 맞는다.
+
+**막힌 결정:** 값에 자격 증명이 들어가는데 **SQLite 파일은 암호화가 없다.** `AWS_PROFILE`처럼 이름만 넣고 실제 키는 `~/.aws/credentials`에 두게 유도하는 편이 안전하지만, 규약으로 강제할 수 없다. 평문 저장을 허용할지 / Keychain을 쓸지 / 이름만 받는 화이트리스트로 좁힐지를 먼저 정해야 한다.
 
 **4단계 리뷰가 5단계로 이월한 것 (전부 비차단):** `core/execution.ts`가 `serverName: MCP_SERVER_NAME`을 넘기는 한 줄이 어떤 테스트로도 묶여 있지 않다 — 다른 리터럴로 바꿔도 단위·e2e 모두 초록이다(가짜 CLI가 `--allowedTools`를 보지 않는다). `core/mcp/host.ts`의 listen 후 error 리스너 교체(M-7)와 헤더 전송 후 오류의 `res.end()`(M-8)는 고쳤지만 전용 테스트가 없다 — 결정적으로 재현하려면 서버 핸들을 밖으로 빼는 이음매가 필요하다.
 
