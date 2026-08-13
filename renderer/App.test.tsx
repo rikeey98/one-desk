@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from './client/ClientProvider'
 import { RunEventProvider } from './store/RunEventContext'
@@ -7,7 +7,8 @@ import { createRunEventStore, type RunEventStore } from './store/runEvents'
 import App from './App'
 import type { OneDeskClient } from '@shared/client'
 import type {
-  CreateRepoInput, CreateWorkspaceInput, InboxCounts, Issue, Memo, Repo, Run, Workspace
+  CreateRepoInput, CreateWorkspaceInput, GuardedUpdateIssueInput,
+  InboxCounts, Issue, Memo, Repo, Run, Workspace
 } from '@shared/models'
 
 const workspace: Workspace = {
@@ -105,6 +106,13 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
       list: vi.fn().mockResolvedValue(seed.issues ?? []),
       create: vi.fn(async () => ({ id: 'i-new' })),
       update: vi.fn(async () => ({ id: 'i-updated' })),
+      // Step 5b — 항목 전환이 옛 항목에 저장되는지 보는 회귀 테스트가 기록을 읽는다.
+      updateIfUnchanged: vi.fn(async (input: GuardedUpdateIssueInput) => ({
+        ok: true as const,
+        issue: makeIssue({
+          id: input.id, title: input.title, body: input.body, status: input.status, updatedAt: 200
+        })
+      })),
       remove: vi.fn()
     },
     memos: {
@@ -509,5 +517,33 @@ describe('패널 확장', () => {
     await userEvent.click(await screen.findByRole('button', { name: '토큰 만료 맥락에 담기' }))
 
     expect(screen.getByRole('button', { name: /토큰 만료 ✕/ })).toBeInTheDocument()
+  })
+
+  it('다른 이슈로 옮기면 대기 중이던 본문이 원래 이슈에 저장된다', async () => {
+    // key가 없으면 React가 상세를 재사용하고, 정리 시점의 저장 콜백은 이미 새
+    // 이슈를 붙잡고 있어 옛 내용이 엉뚱한 이슈에 저장된다.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const client = makeClient({}, {
+      issues: [
+        makeIssue({ id: 'i1', title: '첫째', updatedAt: 100 }),
+        makeIssue({ id: 'i2', title: '둘째', updatedAt: 100 })
+      ]
+    })
+    renderApp(client)
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '첫째' }))
+    await userEvent.type(screen.getByLabelText('본문'), '첫째의 메모')
+    // userEvent.click은 실제 브라우저처럼 이전 포커스(본문)에 자연스러운 blur를
+    // 먼저 흘려보낸다 — IssueDetail의 onBlur가 그 blur만으로 디바운스를 흘려보내
+    // key 유무와 무관하게 저장이 성공해 버려 이 테스트가 무력화된다(실측 확인:
+    // key를 지워도 초록이었다). fireEvent.click은 포커스 이동/blur를 흉내내지
+    // 않으므로, 오직 key가 만드는 재마운트-정리 경로만으로 저장이 일어나는지를 본다.
+    fireEvent.click(screen.getByRole('button', { name: '둘째' }))
+
+    await waitFor(() => expect(client.issues.updateIfUnchanged).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'i1', body: '첫째의 메모' })
+    ))
+    vi.useRealTimers()
   })
 })

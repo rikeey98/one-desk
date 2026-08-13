@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Panel } from './Panel'
 import { AddForm } from './AddForm'
+import { IssueDetail } from './IssueDetail'
 import { useIssues } from '../hooks/useIssues'
 import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextChip } from '../context'
@@ -22,6 +23,14 @@ export function IssuePanel({
   const [error, setError] = useState<string | null>(null)
   // 목록 조회 실패와 패널 동작 실패를 한 자리에서 보여준다.
   const shown = error ?? listError
+
+  const open = openId ? issues.find((i) => i.id === openId) ?? null : null
+
+  // 열린 항목이 목록에서 사라졌으면(지워졌거나 필터가 바뀌었으면) 접는다.
+  // 존재하지 않는 항목의 상세를 그리지 않는다 (설계 §8).
+  useEffect(() => {
+    if (openId && !open) onOpen(openId)
+  }, [openId, open, onOpen])
 
   async function addIssue(title: string) {
     await client.issues.create({
@@ -95,7 +104,21 @@ export function IssuePanel({
           무시됐다. */}
       <div className={expanded ? 'panel-split' : undefined}>
         <div className={expanded ? 'panel-split-list' : undefined}>{list}</div>
-        {expanded && <div className="panel-split-detail">{/* Task 5에서 IssueDetail이 들어온다 */}</div>}
+        {expanded && (
+          <div className="panel-split-detail">
+            {open && (
+              <IssueDetail
+                // key가 핵심이다. 다른 이슈로 옮기면 상세를 통째로 다시 마운트해,
+                // 옛 컴포넌트가 자기 클로저를 들고 언마운트되며 대기 중인 저장을
+                // 올바른 이슈에 흘려보낸다 (IssueDetail 내부 설명 참고).
+                key={open.id}
+                issue={open}
+                onChanged={() => { void refresh() }}
+                onDeleted={() => { onOpen(open.id); void refresh() }}
+              />
+            )}
+          </div>
+        )}
       </div>
     </Panel>
   )
