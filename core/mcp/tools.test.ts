@@ -140,3 +140,78 @@ describe('읽기 도구', () => {
     ]))
   })
 })
+
+describe('쓰기 도구', () => {
+  it('create_issue가 토큰의 workspace에 이슈를 만든다', async () => {
+    const { text } = await call(f.wsA, 'edit', 'create_issue', { title: '새 이슈', body: '내용' })
+    const created = JSON.parse(text)
+    expect(created.workspaceId).toBe(f.wsA)
+    expect(createIssueRepository(f.db).get(created.id).title).toBe('새 이슈')
+  })
+
+  it('create_issue는 다른 workspace의 repo를 태그할 수 없다', async () => {
+    const otherRepo = createRepoRepository(f.db).list(f.wsB)[0]!.id
+    const { isError, text } = await call(f.wsA, 'edit', 'create_issue', {
+      title: 'x', body: '', repoIds: [otherRepo]
+    })
+    expect(isError).toBe(true)
+    expect(text).toContain('속하지 않는 repo')
+  })
+
+  it('update_issue가 상태를 바꾸고 closedAt을 함께 채운다', async () => {
+    await call(f.wsA, 'edit', 'update_issue', { id: f.issueA, status: 'done' })
+    const after = createIssueRepository(f.db).get(f.issueA)
+    expect(after.status).toBe('done')
+    expect(after.closedAt).toBeTypeOf('number')
+  })
+
+  it('update_issue는 다른 workspace의 이슈를 고칠 수 없다', async () => {
+    const { isError } = await call(f.wsA, 'edit', 'update_issue', { id: f.issueB, status: 'done' })
+    expect(isError).toBe(true)
+    // 실제로 안 바뀌었는지 본다 — 오류만 보고 통과하면 반쯤 쓴 상태를 놓친다.
+    expect(createIssueRepository(f.db).get(f.issueB).status).toBe('open')
+  })
+
+  it('create_memo와 update_memo가 이슈 쪽과 대칭으로 동작한다', async () => {
+    const created = JSON.parse((await call(f.wsA, 'edit', 'create_memo', {
+      title: '새 메모', body: '내용'
+    })).text)
+    expect(created.workspaceId).toBe(f.wsA)
+
+    await call(f.wsA, 'edit', 'update_memo', { id: created.id, title: '고친 제목' })
+    expect(createMemoRepository(f.db).get(created.id).title).toBe('고친 제목')
+  })
+
+  it('update_memo는 다른 workspace의 메모를 고칠 수 없다', async () => {
+    const { isError } = await call(f.wsA, 'edit', 'update_memo', { id: f.memoB, title: 'x' })
+    expect(isError).toBe(true)
+    expect(createMemoRepository(f.db).get(f.memoB).title).toBe('B의 메모')
+  })
+})
+
+describe('권한이 도구 등록을 통제한다', () => {
+  it('읽기 전용 토큰에는 쓰기 도구가 없다', async () => {
+    const names = await toolNames(f.wsA, 'read_only')
+    expect(names).not.toContain('create_issue')
+    expect(names).not.toContain('update_issue')
+    expect(names).not.toContain('create_memo')
+    expect(names).not.toContain('update_memo')
+  })
+
+  it('편집 허용과 전체 허용에는 아홉 개가 모두 있다', async () => {
+    for (const p of ['edit', 'full'] as const) {
+      expect(await toolNames(f.wsA, p)).toHaveLength(9)
+    }
+  })
+
+  it('읽기 전용 토큰으로 이름을 알고 직접 호출해도 거부된다', async () => {
+    // 목록에서 빼는 것만으로는 부족하다 — 도구 이름을 추측해 호출할 수 있다.
+    // 등록 자체를 안 하므로 SDK가 "Tool not found"로 떨군다 (실측 노트 Q28).
+    const { text, isError } = await call(f.wsA, 'read_only', 'update_issue', {
+      id: f.issueA, status: 'done'
+    })
+    expect(isError).toBe(true)
+    expect(text).toContain('not found')
+    expect(createIssueRepository(f.db).get(f.issueA).status).toBe('open')
+  })
+})

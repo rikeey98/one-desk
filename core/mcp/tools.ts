@@ -83,5 +83,61 @@ export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
     inputSchema: { id: z.string() }
   }, async ({ id }) => reply(() => loadMemo(deps, ctx, id)))
 
+  // 읽기 전용은 여기서 끝난다. 파일은 못 고치는데 이슈 상태는 바꿀 수 있다면
+  // "읽기 전용"이라는 표현을 신뢰할 수 없게 된다 (설계 §8).
+  if (ctx.permission === 'read_only') return server
+
+  server.registerTool('create_issue', {
+    description: '이 workspace에 이슈를 만든다',
+    inputSchema: {
+      title: z.string().min(1),
+      body: z.string().default(''),
+      repoIds: z.array(z.string()).optional().describe('태그할 repo. 같은 workspace여야 한다')
+    }
+  }, async ({ title, body, repoIds }) => reply(() => deps.issues.create({
+    workspaceId: ctx.workspaceId, title, body, ...(repoIds ? { repoIds } : {})
+  })))
+
+  server.registerTool('update_issue', {
+    description: '이슈의 상태나 본문을 고친다',
+    inputSchema: {
+      id: z.string(),
+      status: ISSUE_STATUS.optional(),
+      body: z.string().optional()
+    }
+  }, async ({ id, status, body }) => reply(() => {
+    // 소속 확인이 먼저다. 저장소의 update는 id만 보므로 여기서 막지 않으면
+    // 다른 workspace의 이슈가 고쳐진다.
+    loadIssue(deps, ctx, id)
+    return deps.issues.update({
+      id, ...(status ? { status } : {}), ...(body !== undefined ? { body } : {})
+    })
+  }))
+
+  server.registerTool('create_memo', {
+    description: '이 workspace에 메모를 만든다',
+    inputSchema: {
+      title: z.string().min(1),
+      body: z.string().default(''),
+      repoIds: z.array(z.string()).optional()
+    }
+  }, async ({ title, body, repoIds }) => reply(() => deps.memos.create({
+    workspaceId: ctx.workspaceId, title, body, ...(repoIds ? { repoIds } : {})
+  })))
+
+  server.registerTool('update_memo', {
+    description: '메모의 제목이나 본문을 고친다',
+    inputSchema: {
+      id: z.string(),
+      title: z.string().optional(),
+      body: z.string().optional()
+    }
+  }, async ({ id, title, body }) => reply(() => {
+    loadMemo(deps, ctx, id)
+    return deps.memos.update({
+      id, ...(title !== undefined ? { title } : {}), ...(body !== undefined ? { body } : {})
+    })
+  }))
+
   return server
 }
