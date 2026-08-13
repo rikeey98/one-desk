@@ -791,10 +791,14 @@ describe('패널 확장', () => {
   it('삭제하면 상세가 접힌다', async () => {
     // IssuePanel의 onDeleted={() => { onOpen(open.id); void refresh() }}에서
     // onOpen(open.id) 한 줄이 지키는 배선이다 — 빠지면 지워진 항목의 상세가 그대로
-    // 열린 채 남는다. 이 client의 issues.list는 고정 스냅샷이라(설계상 remove가
-    // 목록을 바꾸지 않는다) 컬랩스 effect(설계 §8, 다음 테스트)가 우연히 대신
-    // 닫아주지 않는다 — 오직 이 명시적 호출만으로 닫히는지를 본다.
+    // 열린 채 남는다.
+    //
+    // **이 테스트에서만 remove를 무력화한다.** 가짜 저장소가 실제처럼 행을 지우면
+    // 이어지는 refresh가 빈 목록을 물어와 컬랩스 effect(설계 §8, 아래 필터 테스트)가
+    // 우연히 대신 닫아준다 — 그러면 배선을 지워도 초록이라 아무것도 검증하지 못한다.
+    // 목록을 그대로 둬서 오직 이 명시적 호출만으로 닫히는지를 본다.
     const client = makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] })
+    vi.mocked(client.issues.remove).mockImplementation(async () => {})
     renderApp(client)
     await selectWorkspace()
     await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
@@ -809,8 +813,10 @@ describe('패널 확장', () => {
   it('메모를 삭제하면 상세가 접힌다', async () => {
     // MemoPanel의 onDeleted={() => { onOpen(open.id); void refresh() }}에서
     // onOpen(open.id) 한 줄이 지키는 배선이다 — 빠지면 지워진 항목의 상세가 그대로
-    // 열린 채 남는다. IssuePanel의 대칭 테스트와 짝이다.
+    // 열린 채 남는다. IssuePanel의 대칭 테스트와 짝이고, remove를 무력화하는 이유도
+    // 같다(그쪽 주석 참고).
     const client = makeClient({}, { memos: [makeMemo({ id: 'm1', title: '배포 메모' })] })
+    vi.mocked(client.memos.remove).mockImplementation(async () => {})
     renderApp(client)
     await selectWorkspace()
     await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
