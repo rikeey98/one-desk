@@ -2,7 +2,7 @@
 
 workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 골라 CLI 코딩 agent(Claude Code, OpenCode)에게 넘겨 헤드리스로 실행한 뒤 결과를 앱에 기록하는 Electron 데스크톱 앱.
 
-**현재 상태:** 4단계 완료(MCP 서버 — 호스트/도구 아홉 개/권한별 등록/커맨드 배선), `main`에 병합됨(`a19b4fd`). 5단계(OpenCode 어댑터 · asset 스캔 · diff 뷰어) 착수 전. 3b 리뷰가 4단계로 이월한 것 둘 다 Task 7에서 해소됐다: `core/`의 `console.error`가 주입식 `onError`로 바뀌었고, `resume`의 catch는 DB 장애를 더 이상 뭉개지 않는다.
+**현재 상태:** 4단계 완료(MCP 서버 — 호스트/도구 아홉 개/권한별 등록/커맨드 배선), `main`에 병합됨(`a19b4fd`). `feature/issue-memo-body` 브랜치에서 이슈·메모 본문 편집(설계 `2026-08-14-issue-memo-body-design.md`) 7개 태스크가 전부 끝났다 — 저장소의 `updateIfUnchanged`로 낙관적 잠금, 선택한 패널이 커지는 동적 3컬럼, 맥락 담기와 열기 분리, `IssueDetail`·`MemoDetail` 본문 편집기, 그리고 `e2e/body.e2e.ts`가 IPC 왕복(`client.issues.updateIfUnchanged` → preload → `ipcMain.handle` → 저장소)을 실제로 검증한다. `main` 병합 전. 5단계(OpenCode 어댑터 · asset 스캔 · diff 뷰어)는 이 브랜치 병합 뒤. 3b 리뷰가 4단계로 이월한 것 둘 다 Task 7에서 해소됐다: `core/`의 `console.error`가 주입식 `onError`로 바뀌었고, `resume`의 catch는 DB 장애를 더 이상 뭉개지 않는다.
 
 ## 5단계 착수 전에 정할 것 — agent 프로세스의 환경변수
 
@@ -86,6 +86,10 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **agent가 MCP로 만든 데이터는 화면에 바로 안 뜬다.** `IssuePanel`/`MemoPanel`은 workspace를 고를 때 한 번만 목록을 불러오고, run 완료를 구독하지 않는다(4단계 설계 §1 "UI 변경 없음" — 의도된 경계). e2e에서 이를 확인하려면 그 패널을 다시 마운트시켜야 한다 — 예를 들어 인박스로 갔다가 workspace를 다시 고르면 `App.tsx`의 `view === 'workspace' && workspaceId` 조건부 블록이 unmount/remount되며 다시 읽어온다.
 
+**`updatedAt`은 단조 증가해야 낙관적 잠금이 성립한다.** 같은 밀리초 안에 두 번 쓰면 `Date.now()`만으로는 이전 값과 같아져 "그 사이 바뀌었다"를 놓친다. `updateIfUnchanged`의 `buildPatch`는 `Math.max(Date.now(), previousUpdatedAt + 1)`로 반드시 이전 값보다 크게 만든다(`core/db/repositories/issue.ts`·`memo.ts`).
+
+**성공한 저장이 기대값(`expected.current`)을 갱신하지 않으면 두 번째 저장이 자기 자신과 충돌한다.** `IssueDetail`/`MemoDetail`의 `persist()`는 매 성공 응답의 `result.issue.updatedAt`(또는 `memo`)으로 `expected.current`를 다시 세운다 — 안 하면 디바운스로 이어지는 다음 자동 저장이 이미 낡은 `expectedUpdatedAt`을 들고 가 스스로와 충돌 배너를 띄운다.
+
 ## 데이터 규칙
 
 - **시각은 전부 epoch milliseconds 정수.** `Date.now()`로 명시 삽입한다. 스키마의 `unixepoch() * 1000` 기본값은 해상도가 초라서 같은 초에 만든 항목들의 정렬이 무너진다.
@@ -116,5 +120,7 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 | `docs/superpowers/plans/2026-08-11-stage3b-inbox.md` | 3b 구현 계획 (완료) |
 | `docs/superpowers/specs/2026-08-12-stage4-mcp-design.md` | 4단계 설계 — MCP 서버, 범위와 "빠지는 것"(§1) |
 | `docs/superpowers/plans/2026-08-13-stage4-mcp.md` | 4단계 구현 계획 (완료, 8개 태스크) |
+| `docs/superpowers/specs/2026-08-14-issue-memo-body-design.md` | 이슈·메모 본문 편집 설계 — 낙관적 잠금, 동적 3컬럼, 맥락 담기/열기 분리, 범위와 "빠지는 것"(§2) |
+| `docs/superpowers/plans/2026-08-14-issue-memo-body.md` | 이슈·메모 본문 편집 구현 계획 (완료, 7개 태스크) |
 
 **설계 문서의 결정을 코드에서 임의로 바꾸지 않는다.** 설계에 구멍이 보이면 고치지 말고 지적할 것 — 그게 더 값지다.
