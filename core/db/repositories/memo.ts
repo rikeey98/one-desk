@@ -118,3 +118,5 @@ export function createMemoRepository(db: Database) {
     }
   }
 }
+
+export type MemoRepository = ReturnType<typeof createMemoRepository>

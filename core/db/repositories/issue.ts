@@ -126,3 +126,5 @@ export function createIssueRepository(db: Database) {
     }
   }
 }
+
+export type IssueRepository = ReturnType<typeof createIssueRepository>
