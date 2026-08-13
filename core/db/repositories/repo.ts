@@ -31,3 +31,5 @@ export function createRepoRepository(db: Database) {
     }
   }
 }
+
+export type RepoRepository = ReturnType<typeof createRepoRepository>

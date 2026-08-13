@@ -6,7 +6,9 @@ import { assemblePrompt } from './context/assemble'
 import type { FinishRunInput, RunRepository } from './db/repositories/run'
 import type { RunManager } from './runner/manager'
 import type { RunQueue } from './runner/queue'
-import type { PreflightResult } from './runner/types'
+import type { McpRunConfig, PreflightResult } from './runner/types'
+import { MCP_SERVER_NAME, type McpHost } from './mcp/host'
+import { consoleErrorSink, NotFoundError, type ErrorSink } from './errors'
 import type { AgentKind, ContextItemRef, Permission, ResumeRunInput, Run, StartRunInput } from '@shared/models'
 
 export interface ExecutionOptions {
@@ -15,6 +17,10 @@ export interface ExecutionOptions {
   manager: RunManager
   /** 전역 동시 실행 상한과 대기열 */
   queue: RunQueue
+  /** MCP 호스트. 없으면 MCP 없이 실행한다 (테스트 통로) */
+  mcp?: McpHost
+  /** core가 삼킨 오류를 흘려보낼 곳 */
+  onError?: ErrorSink
   resolveExecutable: (agentKind: AgentKind, workspaceId: string) => Promise<PreflightResult>
   /** run 행이 바뀔 때마다 불린다. 시작 이후의 상태 변화는 이 경로로만 알 수 있다. */
   onRunUpdate?: (run: Run) => void
@@ -23,9 +29,30 @@ export interface ExecutionOptions {
 }
 
 export function createExecutionService(opts: ExecutionOptions) {
+  const onError = opts.onError ?? consoleErrorSink
+
   function notify(run: Run): Run {
     opts.onRunUpdate?.(run)
     return run
+  }
+
+  /**
+   * 토큰을 폐기하고 설정 파일을 지운다.
+   *
+   * **prepare()로 토큰을 받은 run을 포기하는 모든 자리에서 부른다.** "슬롯을
+   * 돌려주는 모든 자리"가 아니다 — `cancel()`의 대기 중 취소 분기처럼 슬롯을
+   * 쥔 적이 없는 자리도 있다. `prepare()`는 `queue.enqueue`보다 먼저 끝나므로
+   * (launch 참고) 대기열에서만 머물다 취소된 run도 이미 토큰을 쥐고 있을 수
+   * 있다. 규칙을 "슬롯"으로 좁히면 이 경로가 새어나간다. 한 자리라도 빠지면
+   * 끝난(혹은 시작도 못한) run의 토큰으로 workspace를 계속 읽고 쓸 수 있다
+   * (설계 §3).
+   */
+  function releaseMcp(runId: string): void {
+    try {
+      opts.mcp?.release(runId)
+    } catch (err) {
+      onError(`[execution] MCP 토큰 폐기에 실패했습니다 (runId=${runId})`, err)
+    }
   }
 
   /**
@@ -42,9 +69,10 @@ export function createExecutionService(opts: ExecutionOptions) {
       // 쪽이든 던지지 않고 슬롯만 돌려준다 — 흔적을 안 남기면 이 run이 DB에
       // running으로 남아 다음 재시작의 reapStale이 정리할 때까지 아무도 모른다.
       // core/가 나중에 별도 데몬으로 떨어지면 stderr가 자연스러운 로그
-      // 목적지이므로 지금부터 console.error로 남긴다.
-      console.error(`[execution] run 종료 기록 실패 — 이 run은 DB에 running으로 남는다 (runId=${runId})`, err)
+      // 목적지이므로 지금부터 onError로 남긴다.
+      onError(`[execution] run 종료 기록 실패 — 이 run은 DB에 running으로 남는다 (runId=${runId})`, err)
     } finally {
+      releaseMcp(runId)
       opts.queue.release(runId)
     }
   }
@@ -57,6 +85,7 @@ export function createExecutionService(opts: ExecutionOptions) {
     permission: Permission
     prompt: string
     executable: string
+    mcp: McpRunConfig | null
     resumeSessionId: string | null
     timeoutMs: number | null
   }): void {
@@ -71,8 +100,9 @@ export function createExecutionService(opts: ExecutionOptions) {
       // 돌려주고 다음으로 넘어간다 — 이 run은 DB에 pending으로 멈춘 채 다음
       // 재시작의 reapStale이 canceled로 정리할 때까지 아무 일도 일어나지 않는다.
       // core/가 나중에 별도 데몬으로 떨어지면 stderr가 자연스러운 로그
-      // 목적지이므로 지금부터 console.error로 남긴다.
-      console.error(`[execution] run 시작 기록 실패 — manager를 못 띄우고 건너뛴다 (runId=${runId})`, err)
+      // 목적지이므로 지금부터 onError로 남긴다.
+      onError(`[execution] run 시작 기록 실패 — manager를 못 띄우고 건너뛴다 (runId=${runId})`, err)
+      releaseMcp(runId)
       opts.queue.release(runId)
       return
     }
@@ -86,7 +116,7 @@ export function createExecutionService(opts: ExecutionOptions) {
     try {
       notify(started)
     } catch (err) {
-      console.error(`[execution] 시작 알림 실패 — 화면 갱신만 놓치고 실행은 계속한다 (runId=${runId})`, err)
+      onError(`[execution] 시작 알림 실패 — 화면 갱신만 놓치고 실행은 계속한다 (runId=${runId})`, err)
     }
 
     // 여기서 await하지 않는다. 종료 처리는 아래 체인이 맡는다.
@@ -99,6 +129,8 @@ export function createExecutionService(opts: ExecutionOptions) {
       prompt: spec.prompt,
       resumeSessionId: spec.resumeSessionId,
       executable: spec.executable,
+      // 이 한 줄이 빠지면 MCP가 통째로 꺼진다.
+      mcp: spec.mcp,
       timeoutMs: spec.timeoutMs,
       ...(opts.extraArgs ? { extraArgs: opts.extraArgs } : {})
     }).then(
@@ -179,6 +211,37 @@ export function createExecutionService(opts: ExecutionOptions) {
     }
 
     const executable = preflight.executable
+
+    // MCP 준비는 preflight 뒤, enqueue 앞이다. 실행 파일조차 없는 run이 포트를
+    // 열게 하지 않고, 실패해도 슬롯을 잡았다 놓는 낭비 없이 startedAt이 null인
+    // 실패로 끝난다 (설계 §4·§8).
+    let mcp: McpRunConfig | null = null
+    if (opts.mcp) {
+      try {
+        const prepared = await opts.mcp.prepare({
+          runId: created.id,
+          workspaceId: spec.workspaceId,
+          permission: spec.permission
+        })
+        mcp = { serverName: MCP_SERVER_NAME, ...prepared }
+      } catch (err) {
+        // MCP 없이 조용히 진행하지 않는다 — agent는 이슈를 못 고치는 채로
+        // "성공"으로 끝나고, 그 실패는 아무 데도 남지 않는다.
+        // prepare()가 토큰을 등록한 뒤(예: 설정 파일 쓰기)에서 실패했을 수
+        // 있다 — 등록됐는지 여기서는 알 수 없으니 방어적으로 폐기를 시도한다.
+        // 등록된 적이 없으면 release()는 아무 일도 하지 않는다.
+        releaseMcp(created.id)
+        return notify(opts.runs.markFinished(created.id, {
+          status: 'failed',
+          resultText: null,
+          externalSessionId: null,
+          needsAnswer: false,
+          exitCode: null,
+          errorMessage: `MCP 서버를 준비하지 못했습니다: ${err instanceof Error ? err.message : String(err)}`
+        }))
+      }
+    }
+
     opts.queue.enqueue(created.id, () => beginRun(created.id, {
       agentKind: spec.agentKind,
       cwd: spec.cwd,
@@ -186,6 +249,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       permission: spec.permission,
       prompt: assembled,
       executable,
+      mcp,
       resumeSessionId: spec.resumeSessionId,
       timeoutMs: spec.timeoutMs
     }))
@@ -228,8 +292,13 @@ export function createExecutionService(opts: ExecutionOptions) {
     let parent: Run
     try {
       parent = opts.runs.get(input.parentRunId)
-    } catch {
-      throw new Error('이어서 실행할 원본 run이 없습니다. workspace가 지워졌을 수 있습니다.')
+    } catch (err) {
+      // 없는 것과 못 읽는 것을 가른다. 전부 뭉개면 DB 장애가 "원본이 없다"로
+      // 둔갑해 조사가 엉뚱한 데로 간다.
+      if (err instanceof NotFoundError) {
+        throw new Error('이어서 실행할 원본 run이 없습니다. workspace가 지워졌을 수 있습니다.')
+      }
+      throw err
     }
 
     if (!parent.externalSessionId) {
@@ -268,7 +337,10 @@ export function createExecutionService(opts: ExecutionOptions) {
    */
   function cancel(runId: string): void {
     if (opts.queue.remove(runId)) {
-      // 슬롯을 쥔 적이 없으므로 돌려줄 것도 없다.
+      // 슬롯을 쥔 적이 없으므로 큐에는 돌려줄 것이 없다. 하지만 prepare()는
+      // enqueue보다 먼저 끝나므로(launch 참고) 대기 중이던 이 run도 이미
+      // 토큰을 쥐고 있을 수 있다 — 반드시 폐기한다.
+      releaseMcp(runId)
       notify(opts.runs.markFinished(runId, {
         status: 'canceled',
         resultText: null,

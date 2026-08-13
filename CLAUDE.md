@@ -2,9 +2,11 @@
 
 workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 골라 CLI 코딩 agent(Claude Code, OpenCode)에게 넘겨 헤드리스로 실행한 뒤 결과를 앱에 기록하는 Electron 데스크톱 앱.
 
-**현재 상태:** 3단계 완료(3a 동시 실행 큐 + 3b 결과 인박스, 둘 다 `main`에 병합됨). 4단계(MCP 서버) 착수 전 — 3b 리뷰가 4단계로 이월한 것 둘: `core/`의 `console.error`를 주입식 `onError`로 바꾸는 것, `resume`의 catch가 DB 장애를 뭉개는 것.
+**현재 상태:** 4단계 완료(MCP 서버 — 호스트/도구 아홉 개/권한별 등록/커맨드 배선). `feature/stage4-mcp`에 있고 아직 `main`에 병합 전. 3b 리뷰가 4단계로 이월한 것 둘 다 Task 7에서 해소됐다: `core/`의 `console.error`가 주입식 `onError`로 바뀌었고, `resume`의 catch는 DB 장애를 더 이상 뭉개지 않는다.
 
-핵심 한 바퀴(맥락 담기 → 실행 → 로그 → 완료)는 `pnpm test:e2e`가 빌드된 앱을 실제로 클릭해 검증한다. 3단계가 `RunManager`의 동시 실행 상한과 대기 큐, 결과 인박스, 사이드바 배지, 세션 이어서 실행을 붙였다. `needs_answer`는 이제 인박스의 "답변 필요" 카테고리로 드러난다.
+**4단계 리뷰가 5단계로 이월한 것 (전부 비차단):** `core/execution.ts`가 `serverName: MCP_SERVER_NAME`을 넘기는 한 줄이 어떤 테스트로도 묶여 있지 않다 — 다른 리터럴로 바꿔도 단위·e2e 모두 초록이다(가짜 CLI가 `--allowedTools`를 보지 않는다). `core/mcp/host.ts`의 listen 후 error 리스너 교체(M-7)와 헤더 전송 후 오류의 `res.end()`(M-8)는 고쳤지만 전용 테스트가 없다 — 결정적으로 재현하려면 서버 핸들을 밖으로 빼는 이음매가 필요하다.
+
+핵심 한 바퀴(맥락 담기 → 실행 → 로그 → 완료)는 `pnpm test:e2e`가 빌드된 앱을 실제로 클릭해 검증한다. 3단계가 `RunManager`의 동시 실행 상한과 대기 큐, 결과 인박스, 사이드바 배지, 세션 이어서 실행을 붙였다. `needs_answer`는 이제 인박스의 "답변 필요" 카테고리로 드러난다. 4단계는 agent가 실행 중에 `127.0.0.1`의 run별 MCP 서버로 workspace 데이터를 직접 읽고 쓰는 통로를 붙였다 — `e2e/mcp.e2e.ts`가 가짜 CLI로 실제 HTTP 호출까지 왕복시켜 검증한다. **이 단계는 렌더러를 건드리지 않았다** — agent가 MCP로 만든 이슈/메모는 그 패널을 다시 마운트해야(예: 다른 화면으로 갔다 오기) 화면에 보인다. `IssuePanel`/`MemoPanel`이 run 완료를 구독하지 않기 때문이며, 설계 문서(`2026-08-12-stage4-mcp-design.md` §1 "빠지는 것")가 "UI 변경 없음"으로 명시한 의도된 경계다.
 
 ## 명령어
 
@@ -65,6 +67,12 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **`dev` 스크립트의 `--watch`를 지우지 말 것.** `electron-vite dev`는 `--watch` 없이는 **main과 preload를 시작할 때 딱 한 번만 빌드한다.** 렌더러는 HMR로 즉시 반영되므로 화면은 멀쩡해 보이는데, `core/`나 `electron/`을 고쳐도 앱은 낡은 코드를 계속 돌린다. 2단계에서 어댑터를 고치고도 반영이 안 돼 한참 헤맸다 — `out/main/index.js`의 mtime이 소스보다 오래됐는지 보면 바로 드러난다.
 
+**MCP 서버의 응답은 SSE(`text/event-stream`)다.** `StreamableHTTPServerTransport`가 그렇게 응답한다. `res.json()`으로 바로 파싱하면 깨진다 — 본문을 텍스트로 받아 `data:`로 시작하는 줄을 찾아 그 뒤를 JSON.parse해야 한다. `core/runner/fixtures/fake-claude-mcp.mjs`가 그 패턴이다.
+
+**`--tools`와 `--allowedTools`는 다른 일을 한다.** `--tools`는 도구 자체를 존재하지 않게 만들어 모델이 시도조차 못 하게 하고, `--allowedTools`는 존재하는 도구를 묻지 않고 승인한다. **MCP 도구는 `--permission-mode`로 자동 승인되지 않는다** — `mcp__<serverName>` 접두사를 `--allowedTools`에 직접 얹어야 하고, 빠뜨리면 agent가 MCP 도구를 전혀 못 쓰는데 실패가 조용하다(`core/runner/adapters/claudeCode.ts`의 `mcpToolPrefixes`).
+
+**agent가 MCP로 만든 데이터는 화면에 바로 안 뜬다.** `IssuePanel`/`MemoPanel`은 workspace를 고를 때 한 번만 목록을 불러오고, run 완료를 구독하지 않는다(4단계 설계 §1 "UI 변경 없음" — 의도된 경계). e2e에서 이를 확인하려면 그 패널을 다시 마운트시켜야 한다 — 예를 들어 인박스로 갔다가 workspace를 다시 고르면 `App.tsx`의 `view === 'workspace' && workspaceId` 조건부 블록이 unmount/remount되며 다시 읽어온다.
+
 ## 데이터 규칙
 
 - **시각은 전부 epoch milliseconds 정수.** `Date.now()`로 명시 삽입한다. 스키마의 `unixepoch() * 1000` 기본값은 해상도가 초라서 같은 초에 만든 항목들의 정렬이 무너진다.
@@ -93,5 +101,7 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 | `docs/superpowers/plans/2026-08-10-e2e-ui-driver.md` | e2e UI 드라이버 구현 계획 (완료) |
 | `docs/superpowers/specs/2026-08-11-stage3b-inbox-design.md` | 3b 설계 — 결과 인박스, 후속 행동표(§5) |
 | `docs/superpowers/plans/2026-08-11-stage3b-inbox.md` | 3b 구현 계획 (완료) |
+| `docs/superpowers/specs/2026-08-12-stage4-mcp-design.md` | 4단계 설계 — MCP 서버, 범위와 "빠지는 것"(§1) |
+| `docs/superpowers/plans/2026-08-13-stage4-mcp.md` | 4단계 구현 계획 (완료, 8개 태스크) |
 
 **설계 문서의 결정을 코드에서 임의로 바꾸지 않는다.** 설계에 구멍이 보이면 고치지 말고 지적할 것 — 그게 더 값지다.

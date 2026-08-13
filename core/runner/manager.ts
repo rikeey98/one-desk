@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
 import type { AgentKind, Permission, RunStatus } from '@shared/models'
 import type { RunEvent, RunEventInit } from '@shared/events'
-import type { AgentAdapter } from './types'
+import type { AgentAdapter, McpRunConfig } from './types'
 import { createLineSplitter } from './stream'
 import { createLogWriter } from './logWriter'
 
@@ -25,6 +25,8 @@ export interface StartSpec {
   prompt: string
   resumeSessionId: string | null
   executable: string
+  /** MCP 접속 정보. 없으면 어댑터가 MCP 인자를 통째로 건너뛴다 */
+  mcp?: McpRunConfig | null
   timeoutMs?: number | null
   /** 테스트에서 가짜 CLI를 주입하는 통로. 실제 실행에서는 비어 있다. */
   extraArgs?: string[]
@@ -72,7 +74,9 @@ export function createRunManager(opts: RunManagerOptions) {
       permission: spec.permission,
       prompt: spec.prompt,
       resumeSessionId: spec.resumeSessionId,
-      executable: spec.executable
+      executable: spec.executable,
+      // 이 한 줄이 빠지면 MCP가 통째로 꺼진다. 각 계층의 단위 테스트는 전부 초록이다.
+      mcp: spec.mcp ?? null
     })
 
     // extraArgs가 있으면 그것을 앞에 붙인다 (테스트에서 가짜 CLI 주입)

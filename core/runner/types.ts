@@ -9,6 +9,17 @@ export interface PreflightResult {
   reason?: string
 }
 
+/** run 하나에 발급된 MCP 접속 정보. 호스트가 만들고 실행 서비스가 실어 나른다. */
+export interface McpRunConfig {
+  /** 도구 접두사가 `mcp__<serverName>`이 된다 */
+  serverName: string
+  /** 0600으로 쓰인 설정 파일 경로. 커맨드에는 이 경로만 실린다 */
+  configFile: string
+  /** 설정 파일 안에만 있어야 한다. 인자에 실으면 ps aux로 새어나간다 */
+  token: string
+  url: string
+}
+
 export interface ResolvedRunSpec {
   runId: string
   cwd: string
@@ -20,6 +31,8 @@ export interface ResolvedRunSpec {
   resumeSessionId: string | null
   /** preflight가 찾은 실행 파일 경로 */
   executable: string
+  /** MCP를 쓰지 않는 실행(테스트 등)이면 null */
+  mcp: McpRunConfig | null
 }
 
 export interface SpawnSpec {

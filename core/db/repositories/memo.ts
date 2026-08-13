@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { and, desc, eq, inArray, notInArray, or } from 'drizzle-orm'
 import type { Database } from '../open'
 import { memo, memoRepo, repo } from '../schema'
+import { NotFoundError } from '../../errors'
 import type { Memo, CreateMemoInput, UpdateMemoInput, ListQuery } from '@shared/models'
 
 /** db.transaction()의 콜백이 받는 runner. db와 같은 쿼리 빌더 API를 갖는다. */
@@ -50,11 +51,14 @@ export function createMemoRepository(db: Database) {
 
   function getById(id: string): Memo {
     const row = db.select().from(memo).where(eq(memo.id, id)).get()
-    if (!row) throw new Error(`메모를 찾을 수 없습니다: ${id}`)
+    if (!row) throw new NotFoundError(`메모를 찾을 수 없습니다: ${id}`)
     return { ...row, repoIds: loadRepoIds([id]).get(id) ?? [] }
   }
 
   return {
+    /** id로 하나를 집어온다. workspace 소속은 보지 않는다 — 부르는 쪽의 책임이다. */
+    get: getById,
+
     list(query: ListQuery): Memo[] {
       const taggedWithRepo = db.select({ id: memoRepo.memoId }).from(memoRepo)
         .where(eq(memoRepo.repoId, query.repoId ?? ''))
@@ -97,7 +101,7 @@ export function createMemoRepository(db: Database) {
         .from(memo)
         .where(eq(memo.id, input.id))
         .get()
-      if (!owner) throw new Error(`메모를 찾을 수 없습니다: ${input.id}`)
+      if (!owner) throw new NotFoundError(`메모를 찾을 수 없습니다: ${input.id}`)
 
       const patch: Record<string, unknown> = { updatedAt: Date.now() }
       if (input.title !== undefined) patch['title'] = input.title
@@ -118,3 +122,5 @@ export function createMemoRepository(db: Database) {
     }
   }
 }
+
+export type MemoRepository = ReturnType<typeof createMemoRepository>

@@ -12,6 +12,8 @@ import { claudeCodeAdapter } from './runner/adapters/claudeCode'
 import { resolveAgentPath } from './runner/agentPath'
 import { createSettingRepository } from './db/repositories/setting'
 import { createRunQueue } from './runner/queue'
+import { createMcpHost } from './mcp/host'
+import { consoleErrorSink, type ErrorSink } from './errors'
 import type { AgentAdapter } from './runner/types'
 import type { RunEvent } from '@shared/events'
 import type { AgentKind, InboxCounts, QueueSnapshot, Run } from '@shared/models'
@@ -21,6 +23,8 @@ export interface CoreOptions {
   dataDir: string
   /** 마이그레이션 디렉토리 (패키징 시 위치가 달라진다) */
   migrationsDir: string
+  /** core가 삼킨 오류를 흘려보낼 곳. 기본은 stderr */
+  onError?: ErrorSink
 }
 
 const RUN_EVENT = 'run-event'
@@ -29,16 +33,28 @@ const QUEUE_UPDATE = 'queue-update'
 const INBOX_UPDATE = 'inbox-update'
 
 export function createCore(opts: CoreOptions) {
+  const onError = opts.onError ?? consoleErrorSink
+
   const db = openDb({
     file: join(opts.dataDir, 'one-desk.db'),
     migrationsDir: opts.migrationsDir
   })
 
   const workspaces = createWorkspaceRepository(db)
+  const issues = createIssueRepository(db)
+  const memos = createMemoRepository(db)
+  const repos = createRepoRepository(db)
   const runs = createRunRepository(db)
   // 앱 시작 시 유령 run 정리 (설계 §11). 프로세스가 없는데 running/pending으로
   // 남아 있는 run은 이전 실행이 비정상 종료된 흔적이다.
   runs.reapStale()
+
+  // MCP 호스트는 만들기만 한다 — 포트는 첫 run이 열린다.
+  const mcp = createMcpHost({
+    deps: { repos, issues, memos },
+    configDir: join(opts.dataDir, 'mcp'),
+    onError
+  })
 
   // opencode에 claudeCodeAdapter를 매핑하는 것은 임시다 (5단계에 OpenCode 어댑터).
   // 그때까지 UI에서 OpenCode를 고를 수 없게 막는다.
@@ -66,6 +82,8 @@ export function createCore(opts: CoreOptions) {
     runs,
     manager,
     queue,
+    mcp,
+    onError,
     resolveExecutable: async (agentKind, workspaceId) => {
       const ws = workspaces.list().find((w) => w.id === workspaceId) ?? null
       return adapters[agentKind].preflight(resolveAgentPath(agentKind, ws))
@@ -88,11 +106,14 @@ export function createCore(opts: CoreOptions) {
 
   return {
     workspaces,
-    repos: createRepoRepository(db),
-    issues: createIssueRepository(db),
-    memos: createMemoRepository(db),
+    repos,
+    issues,
+    memos,
     runs,
     execution,
+
+    /** 테스트용. MCP 서버가 아직 안 떴으면 null. */
+    mcpPort: (): number | null => mcp.port(),
 
     /** 전역 실행 슬롯. workspace와 무관하다 (설계 §6 — 제약의 근거가 머신 자원이다). */
     queue: {
@@ -152,6 +173,8 @@ export function createCore(opts: CoreOptions) {
      */
     shutdown(): void {
       manager.cancelAll()
+      // 토큰과 설정 파일을 함께 치운다. 프로세스가 죽어도 파일은 남는다.
+      mcp.close()
       db.$client.close()
     }
   }

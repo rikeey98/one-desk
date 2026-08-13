@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { and, desc, eq, inArray, notInArray, or } from 'drizzle-orm'
 import type { Database } from '../open'
 import { issue, issueRepo, repo } from '../schema'
+import { NotFoundError } from '../../errors'
 import type { Issue, CreateIssueInput, UpdateIssueInput, ListQuery } from '@shared/models'
 
 /** db.transaction()의 콜백이 받는 runner. db와 같은 쿼리 빌더 API를 갖는다. */
@@ -51,11 +52,14 @@ export function createIssueRepository(db: Database) {
 
   function getById(id: string): Issue {
     const row = db.select().from(issue).where(eq(issue.id, id)).get()
-    if (!row) throw new Error(`이슈를 찾을 수 없습니다: ${id}`)
+    if (!row) throw new NotFoundError(`이슈를 찾을 수 없습니다: ${id}`)
     return { ...row, repoIds: loadRepoIds([id]).get(id) ?? [] }
   }
 
   return {
+    /** id로 하나를 집어온다. workspace 소속은 보지 않는다 — 부르는 쪽의 책임이다. */
+    get: getById,
+
     list(query: ListQuery): Issue[] {
       // repo 필터: 그 repo에 태그된 것 + 어디에도 태그되지 않은 공통 항목 (설계 §9)
       const taggedWithRepo = db.select({ id: issueRepo.issueId }).from(issueRepo)
@@ -100,7 +104,7 @@ export function createIssueRepository(db: Database) {
         .from(issue)
         .where(eq(issue.id, input.id))
         .get()
-      if (!owner) throw new Error(`이슈를 찾을 수 없습니다: ${input.id}`)
+      if (!owner) throw new NotFoundError(`이슈를 찾을 수 없습니다: ${input.id}`)
 
       const patch: Record<string, unknown> = { updatedAt: Date.now() }
       if (input.title !== undefined) patch['title'] = input.title
@@ -126,3 +130,5 @@ export function createIssueRepository(db: Database) {
     }
   }
 }
+
+export type IssueRepository = ReturnType<typeof createIssueRepository>
