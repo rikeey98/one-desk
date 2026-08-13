@@ -33,6 +33,39 @@ describe('useDebouncedSave', () => {
     expect(save).toHaveBeenCalledTimes(1)
   })
 
+  it('flush가 거부돼도 훅이 멈추지 않는다 — 재시도하지 않고, 이후 schedule은 정상 동작한다', async () => {
+    // 타이머 경로(schedule → setTimeout → void flush())는 반환값을 아무도 기다리지
+    // 않아 save가 거부되면 처리되지 않은 프라미스 거부로 남는다(docstring 참고) —
+    // 그 자체는 이 프로젝트의 renderer/Node API 경계 안에서 안전하게 관측할 방법이
+    // 없다(아래 "디바운스 경로의 거부 관측" 절 참고). 하지만 타이머가 부르는 것도,
+    // flush를 직접 불러 기다리는 것도 같은 flush 구현이다 — 여기서는 그 구현을
+    // 테스트가 스스로 기다리고 잡는 방식으로 불러, 디바운스가 실제로 기대는 상태
+    // 복구 계약(pending/timer가 정리되고, 실패한 값이 재시도되지 않고, 다음
+    // schedule이 계속 동작하는지)을 처리되지 않은 거부 없이 검증한다.
+    const err = new Error('DB 오류')
+    const save = vi.fn()
+      .mockRejectedValueOnce(err)
+      .mockResolvedValue(undefined)
+    const { result } = renderHook(() => useDebouncedSave(save, 600))
+
+    act(() => { result.current.schedule('ab') })
+    await act(async () => {
+      await expect(result.current.flush()).rejects.toThrow('DB 오류')
+    })
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(save).toHaveBeenNthCalledWith(1, 'ab')
+
+    // 재시도하지 않는다 — 실패한 값이 남아 있었다면 타이머가 지날 때 다시 불렸을 것이다.
+    await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+    expect(save).toHaveBeenCalledTimes(1)
+
+    // 훅이 멈추지 않는다 — 거부 이후에도 새 schedule은 정상적으로 디바운스돼 저장된다.
+    act(() => { result.current.schedule('cd') })
+    await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(save).toHaveBeenNthCalledWith(2, 'cd')
+  })
+
   it('flush는 타이머도 함께 정리한다', async () => {
     // flush가 pending만 비우고 타이머를 그대로 두면, 이미 저장을 끝낸 뒤에도
     // 디바운스 타이머가 계속 떠 있는다 — save는 다시 불리지 않지만(pending이 이미
