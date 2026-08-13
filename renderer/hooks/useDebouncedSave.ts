@@ -6,7 +6,16 @@ const DEFAULT_DELAY_MS = 600
  * 입력이 멎으면 저장한다. 타이머만 담고 도메인은 모른다.
  *
  * flush는 패널을 접거나 다른 항목으로 옮길 때 부른다 — 대기 중인 저장을 잃지 않기
- * 위해서다 (설계 §5). save가 던지면 그대로 올려보내 호출자가 화면에 띄운다.
+ * 위해서다 (설계 §5).
+ *
+ * **오류 처리는 save 자신의 몫이다.** `await flush()`로 직접 기다리는 호출자에게는
+ * save가 던진 오류가 그대로 전달된다. 하지만 디바운스로 저절로 저장되는 가장 흔한
+ * 경로(schedule이 건 setTimeout 콜백 안의 `void flush()`)와 언마운트 시 흘려보내는
+ * flush는 둘 다 반환값을 기다리는 사람이 없다 — 타이머가 나중에 콜백을 부를 뿐이라
+ * 그 자리에는 애초에 await할 호출자가 없기 때문이다. 이 경로에서 save가 거부되면
+ * 처리되지 않은 프라미스 거부(unhandled rejection)로 남을 뿐, 화면 어디에도 뜨지
+ * 않는다. 그러므로 save는 스스로 오류를 잡아 자기 오류 상태로 보관해야 한다 — 이
+ * 훅은 디바운스 경로의 실패를 사용자에게 보여줄 방법이 없다.
  */
 export function useDebouncedSave(
   save: (value: string) => Promise<void>,
@@ -33,6 +42,8 @@ export function useDebouncedSave(
   const schedule = useCallback((value: string) => {
     pending.current = value
     clear()
+    // 이 콜백은 나중에 타이머가 부른다 — 여기서 반환되는 promise를 기다릴 호출자가
+    // 없다. save가 거부되면 처리되지 않은 프라미스 거부로 남는다(위 docstring 참고).
     timer.current = setTimeout(() => { void flush() }, delayMs)
   }, [clear, flush, delayMs])
 
