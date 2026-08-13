@@ -182,6 +182,17 @@ describe('쓰기 도구', () => {
     expect(createMemoRepository(f.db).get(created.id).title).toBe('고친 제목')
   })
 
+  it('create_memo는 다른 workspace의 repo를 태그할 수 없다', async () => {
+    // create_issue는 다른 workspace의 repo를 태그할 수 없다와 대칭 — 이슈 쪽만 지키고
+    // 메모 쪽이 새면 issue.ts↔memo.ts 어긋남의 재발이다.
+    const otherRepo = createRepoRepository(f.db).list(f.wsB)[0]!.id
+    const { isError, text } = await call(f.wsA, 'edit', 'create_memo', {
+      title: 'x', body: '', repoIds: [otherRepo]
+    })
+    expect(isError).toBe(true)
+    expect(text).toContain('속하지 않는 repo')
+  })
+
   it('update_memo는 다른 workspace의 메모를 고칠 수 없다', async () => {
     const { isError } = await call(f.wsA, 'edit', 'update_memo', { id: f.memoB, title: 'x' })
     expect(isError).toBe(true)
