@@ -118,10 +118,20 @@ describe('읽기 도구', () => {
     expect(JSON.parse(text).map((r: { title: string }) => r.title)).toEqual(['A의 메모'])
   })
 
+  it('get_memo는 본문을 준다', async () => {
+    const { text } = await call(f.wsA, 'read_only', 'get_memo', { id: f.memoA })
+    expect(JSON.parse(text).body).toBe('메모 A')
+  })
+
   it('get_memo는 다른 workspace의 메모를 존재하지 않는 것처럼 다룬다', async () => {
+    // get_issue와 대칭 — 이것이 설계 §8의 보안 경계다. 저장소의 get은 id만 보므로
+    // 여기서 막지 않으면 A의 토큰으로 B의 데이터를 읽을 수 있다.
     const { text, isError } = await call(f.wsA, 'read_only', 'get_memo', { id: f.memoB })
     expect(isError).toBe(true)
     expect(text).toContain('찾을 수 없습니다')
+    // 존재 여부가 새어나가면 안 된다 — 없는 id와 같은 메시지여야 한다.
+    const missing = await call(f.wsA, 'read_only', 'get_memo', { id: '없는-id' })
+    expect(text.replace(f.memoB, 'X')).toBe(missing.text.replace('없는-id', 'X'))
   })
 
   it('읽기 전용 토큰에 읽기 도구 다섯 개가 있다', async () => {
