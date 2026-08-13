@@ -1,5 +1,7 @@
+import { useEffect } from 'react'
 import { Panel } from './Panel'
 import { AddForm } from './AddForm'
+import { MemoDetail } from './MemoDetail'
 import { useMemos } from '../hooks/useMemos'
 import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextChip } from '../context'
@@ -17,6 +19,14 @@ export function MemoPanel({
 }) {
   const client = useClient()
   const { memos, error: listError, refresh } = useMemos(workspaceId, repoId)
+
+  const open = openId ? memos.find((m) => m.id === openId) ?? null : null
+
+  // 열린 항목이 목록에서 사라졌으면(지워졌거나 필터가 바뀌었으면) 접는다.
+  // 존재하지 않는 항목의 상세를 그리지 않는다 (설계 §8).
+  useEffect(() => {
+    if (openId && !open) onOpen(openId)
+  }, [openId, open, onOpen])
 
   async function addMemo(title: string) {
     await client.memos.create({
@@ -67,7 +77,21 @@ export function MemoPanel({
           IssuePanel과 대칭 — 이유는 그쪽 주석 참고. */}
       <div className={expanded ? 'panel-split' : undefined}>
         <div className={expanded ? 'panel-split-list' : undefined}>{list}</div>
-        {expanded && <div className="panel-split-detail">{/* Task 6에서 MemoDetail이 들어온다 */}</div>}
+        {expanded && (
+          <div className="panel-split-detail">
+            {open && (
+              <MemoDetail
+                // key가 핵심이다. 다른 메모로 옮기면 상세를 통째로 다시 마운트해,
+                // 옛 컴포넌트가 자기 클로저를 들고 언마운트되며 대기 중인 저장을
+                // 올바른 메모에 흘려보낸다 (MemoDetail 내부 설명 참고).
+                key={open.id}
+                memo={open}
+                onChanged={() => { void refresh() }}
+                onDeleted={() => { onOpen(open.id); void refresh() }}
+              />
+            )}
+          </div>
+        )}
       </div>
     </Panel>
   )

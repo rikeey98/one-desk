@@ -7,7 +7,7 @@ import { createRunEventStore, type RunEventStore } from './store/runEvents'
 import App from './App'
 import type { OneDeskClient } from '@shared/client'
 import type {
-  CreateRepoInput, CreateWorkspaceInput, GuardedUpdateIssueInput,
+  CreateRepoInput, CreateWorkspaceInput, GuardedUpdateIssueInput, GuardedUpdateMemoInput,
   InboxCounts, Issue, Memo, Repo, Run, Workspace
 } from '@shared/models'
 
@@ -116,7 +116,12 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
       remove: vi.fn()
     },
     memos: {
-      list: vi.fn().mockResolvedValue(seed.memos ?? []), create: vi.fn(), update: vi.fn(), remove: vi.fn()
+      list: vi.fn().mockResolvedValue(seed.memos ?? []), create: vi.fn(), update: vi.fn(),
+      updateIfUnchanged: vi.fn(async (input: GuardedUpdateMemoInput) => ({
+        ok: true as const,
+        memo: makeMemo({ id: input.id, title: input.title, body: input.body, updatedAt: 200 })
+      })),
+      remove: vi.fn()
     },
     runs: {
       list: vi.fn(async (workspaceId: string) => started.filter((r) => r.workspaceId === workspaceId)),
@@ -570,6 +575,24 @@ describe('패널 확장', () => {
     vi.useRealTimers()
   })
 
+  it('메모 본문 저장이 성공하면 목록을 다시 읽는다', async () => {
+    // MemoPanel이 MemoDetail에 내려보내는 onChanged={() => { void refresh() }}
+    // 한 줄이 지키는 배선이다 — 비우면(onChanged={() => {}}) 성공한 저장 뒤에도
+    // 목록이 낡은 채로 남는다. IssuePanel의 대칭 테스트와 짝이다.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const client = makeClient({}, { memos: [makeMemo({ id: 'm1', title: '배포 메모' })] })
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
+
+    const before = vi.mocked(client.memos.list).mock.calls.length
+    await userEvent.type(screen.getByLabelText('본문'), '!')
+    await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+
+    expect(vi.mocked(client.memos.list).mock.calls.length).toBeGreaterThan(before)
+    vi.useRealTimers()
+  })
+
   it('삭제하면 상세가 접힌다', async () => {
     // IssuePanel의 onDeleted={() => { onOpen(open.id); void refresh() }}에서
     // onOpen(open.id) 한 줄이 지키는 배선이다 — 빠지면 지워진 항목의 상세가 그대로
@@ -586,6 +609,22 @@ describe('패널 확장', () => {
     await userEvent.click(screen.getByRole('button', { name: '정말 삭제?' }))
 
     expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+  })
+
+  it('메모를 삭제하면 상세가 접힌다', async () => {
+    // MemoPanel의 onDeleted={() => { onOpen(open.id); void refresh() }}에서
+    // onOpen(open.id) 한 줄이 지키는 배선이다 — 빠지면 지워진 항목의 상세가 그대로
+    // 열린 채 남는다. IssuePanel의 대칭 테스트와 짝이다.
+    const client = makeClient({}, { memos: [makeMemo({ id: 'm1', title: '배포 메모' })] })
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
+    expect(screen.getByRole('region', { name: 'Memos' })).toHaveClass('panel-expanded')
+
+    await userEvent.click(screen.getByRole('button', { name: '삭제' }))
+    await userEvent.click(screen.getByRole('button', { name: '정말 삭제?' }))
+
+    expect(screen.getByRole('region', { name: 'Memos' })).not.toHaveClass('panel-expanded')
   })
 
   it('필터를 바꿔 열린 이슈가 목록에서 빠지면 상세가 접힌다', async () => {
@@ -617,6 +656,38 @@ describe('패널 확장', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+    })
+  })
+
+  it('필터를 바꿔 열린 메모가 목록에서 빠지면 상세가 접힌다', async () => {
+    // Task 3 리뷰가 이월한 자리(설계 §8) — MemoPanel의 컬랩스 effect
+    // (`if (openId && !open) onOpen(openId)`)가 지운다. repo 필터가 바뀌어 열려
+    // 있던 메모가 새로 읽은 목록에서 사라지면 상세를 접어야, 더 이상 존재하지 않는
+    // (또는 걸러진) 항목을 계속 그리지 않는다. IssuePanel의 대칭 테스트와 짝이다.
+    const client = makeClient({}, {
+      repos: [makeRepo('r1', 'api', '/tmp/api')],
+      memos: [makeMemo({ id: 'm1', title: '배포 메모' })]
+    })
+    // 첫 조회(마운트)는 메모를 보여주고, repo 필터로 바뀐 뒤의 조회는 걸러져 빈
+    // 목록을 돌려준다 — 이 fake의 list()는 인자의 repoId를 실제로 걸러내지 않으므로
+    // 여기서 순서로 흉내낸다.
+    vi.mocked(client.memos.list)
+      .mockResolvedValueOnce([makeMemo({ id: 'm1', title: '배포 메모' })])
+      .mockResolvedValue([])
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
+    expect(screen.getByRole('region', { name: 'Memos' })).toHaveClass('panel-expanded')
+
+    // repo 카드 버튼에는 aria-label이 없어 접근성 이름이 이름+경로를 이어붙인 값이
+    // 되고, 옆의 "api 맥락에 담기" 버튼과 접두어가 겹친다 — role 쿼리로 모호해지는
+    // 것을 피해 DOM으로 직접 집는다.
+    const repoCard = document.querySelector('.repo-card')
+    if (!repoCard) throw new Error('repo-card 버튼을 찾지 못했습니다')
+    fireEvent.click(repoCard)
+
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: 'Memos' })).not.toHaveClass('panel-expanded')
     })
   })
 })
