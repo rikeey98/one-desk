@@ -3,10 +3,16 @@ import { and, desc, eq, inArray, notInArray, or } from 'drizzle-orm'
 import type { Database } from '../open'
 import { memo, memoRepo, repo } from '../schema'
 import { NotFoundError } from '../../errors'
-import type { Memo, CreateMemoInput, UpdateMemoInput, ListQuery } from '@shared/models'
+import type {
+  Memo, CreateMemoInput, UpdateMemoInput, ListQuery,
+  GuardedUpdateMemoInput, MemoUpdateResult
+} from '@shared/models'
 
 /** db.transaction()의 콜백이 받는 runner. db와 같은 쿼리 빌더 API를 갖는다. */
 type Runner = Parameters<Parameters<Database['transaction']>[0]>[0]
+
+/** 충돌을 트랜잭션 밖으로 알리는 신호. 오류가 아니라 예상된 결과다. */
+const CONFLICT = Symbol('conflict')
 
 export function createMemoRepository(db: Database) {
   function loadRepoIds(memoIds: string[]): Map<string, string[]> {
@@ -55,6 +61,21 @@ export function createMemoRepository(db: Database) {
     return { ...row, repoIds: loadRepoIds([id]).get(id) ?? [] }
   }
 
+  /**
+   * UpdateMemoInput을 SET 절로 바꾼다. update와 updateIfUnchanged가 함께 쓴다.
+   *
+   * updatedAt은 낙관적 잠금의 버전 노릇도 한다 (설계 §6). 같은 밀리초에 두 번 쓰면
+   * 값이 같아져 "그 사이 바뀌었다"를 놓치므로 반드시 이전 값보다 크게 만든다.
+   */
+  function buildPatch(input: UpdateMemoInput, previousUpdatedAt: number): Record<string, unknown> {
+    const patch: Record<string, unknown> = {
+      updatedAt: Math.max(Date.now(), previousUpdatedAt + 1)
+    }
+    if (input.title !== undefined) patch['title'] = input.title
+    if (input.body !== undefined) patch['body'] = input.body
+    return patch
+  }
+
   return {
     /** id로 하나를 집어온다. workspace 소속은 보지 않는다 — 부르는 쪽의 책임이다. */
     get: getById,
@@ -97,15 +118,13 @@ export function createMemoRepository(db: Database) {
 
     update(input: UpdateMemoInput): Memo {
       const owner = db
-        .select({ workspaceId: memo.workspaceId })
+        .select({ workspaceId: memo.workspaceId, updatedAt: memo.updatedAt })
         .from(memo)
         .where(eq(memo.id, input.id))
         .get()
       if (!owner) throw new NotFoundError(`메모를 찾을 수 없습니다: ${input.id}`)
 
-      const patch: Record<string, unknown> = { updatedAt: Date.now() }
-      if (input.title !== undefined) patch['title'] = input.title
-      if (input.body !== undefined) patch['body'] = input.body
+      const patch = buildPatch(input, owner.updatedAt)
 
       db.transaction((tx) => {
         tx.update(memo).set(patch).where(eq(memo.id, input.id)).run()
@@ -115,6 +134,39 @@ export function createMemoRepository(db: Database) {
         }
       })
       return getById(input.id)
+    },
+
+    /**
+     * 내가 읽은 뒤로 바뀌지 않았을 때만 갱신한다 (설계 §6).
+     *
+     * 읽고 나서 쓰는데도 경합이 없다 — better-sqlite3는 동기이고 커넥션이 하나뿐이라
+     * db.transaction 안에서는 다른 JS가 끼어들 수 없다. 조건부 UPDATE의 영향 행 수를
+     * 세는 방법도 되지만, 읽는 쪽이 분명하고 충돌 시 돌려줄 최신 행이 이미 손에 있다.
+     */
+    updateIfUnchanged(input: GuardedUpdateMemoInput): MemoUpdateResult {
+      try {
+        db.transaction((tx) => {
+          const row = tx
+            .select({ workspaceId: memo.workspaceId, updatedAt: memo.updatedAt })
+            .from(memo)
+            .where(eq(memo.id, input.id))
+            .get()
+          if (!row) throw new NotFoundError(`메모를 찾을 수 없습니다: ${input.id}`)
+          // 던져야 트랜잭션이 롤백된다. 여기서 return하면 앞선 쓰기가 남는다.
+          if (row.updatedAt !== input.expectedUpdatedAt) throw CONFLICT
+
+          tx.update(memo).set(buildPatch(input, row.updatedAt))
+            .where(eq(memo.id, input.id)).run()
+          if (input.repoIds !== undefined) {
+            assertReposInWorkspace(tx, row.workspaceId, input.repoIds)
+            replaceTags(tx, input.id, input.repoIds)
+          }
+        })
+      } catch (err) {
+        if (err === CONFLICT) return { ok: false, current: getById(input.id) }
+        throw err
+      }
+      return { ok: true, memo: getById(input.id) }
     },
 
     remove(id: string): void {
