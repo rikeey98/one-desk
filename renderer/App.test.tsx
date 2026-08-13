@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from './client/ClientProvider'
 import { RunEventProvider } from './store/RunEventContext'
@@ -541,9 +541,82 @@ describe('패널 확장', () => {
     // 않으므로, 오직 key가 만드는 재마운트-정리 경로만으로 저장이 일어나는지를 본다.
     fireEvent.click(screen.getByRole('button', { name: '둘째' }))
 
+    // 버퍼가 새다면 화면에도 드러난다 — key가 없으면 컴포넌트가 재사용되어 '첫째'의
+    // 본문 상태가 그대로 남는다. 이 확인은 타이머나 blur와 무관하게(전환 직후) 바로
+    // 참이어야 한다.
+    expect(screen.getByLabelText('본문')).toHaveValue('')
+
     await waitFor(() => expect(client.issues.updateIfUnchanged).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'i1', body: '첫째의 메모' })
     ))
     vi.useRealTimers()
+  })
+
+  it('본문 저장이 성공하면 목록을 다시 읽는다', async () => {
+    // IssuePanel이 IssueDetail에 내려보내는 onChanged={() => { void refresh() }}
+    // 한 줄이 지키는 배선이다 — 비우면(onChanged={() => {}}) 성공한 저장 뒤에도
+    // 목록이 낡은 채로 남는다.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const client = makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] })
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+
+    const before = vi.mocked(client.issues.list).mock.calls.length
+    await userEvent.type(screen.getByLabelText('본문'), '!')
+    await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+
+    expect(vi.mocked(client.issues.list).mock.calls.length).toBeGreaterThan(before)
+    vi.useRealTimers()
+  })
+
+  it('삭제하면 상세가 접힌다', async () => {
+    // IssuePanel의 onDeleted={() => { onOpen(open.id); void refresh() }}에서
+    // onOpen(open.id) 한 줄이 지키는 배선이다 — 빠지면 지워진 항목의 상세가 그대로
+    // 열린 채 남는다. 이 client의 issues.list는 고정 스냅샷이라(설계상 remove가
+    // 목록을 바꾸지 않는다) 컬랩스 effect(설계 §8, 다음 테스트)가 우연히 대신
+    // 닫아주지 않는다 — 오직 이 명시적 호출만으로 닫히는지를 본다.
+    const client = makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] })
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+    expect(screen.getByRole('region', { name: 'Issues' })).toHaveClass('panel-expanded')
+
+    await userEvent.click(screen.getByRole('button', { name: '삭제' }))
+    await userEvent.click(screen.getByRole('button', { name: '정말 삭제?' }))
+
+    expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+  })
+
+  it('필터를 바꿔 열린 이슈가 목록에서 빠지면 상세가 접힌다', async () => {
+    // Task 3 리뷰가 이월한 자리(설계 §8) — IssuePanel의 컬랩스 effect
+    // (`if (openId && !open) onOpen(openId)`)가 지운다. repo 필터가 바뀌어 열려
+    //있던 이슈가 새로 읽은 목록에서 사라지면 상세를 접어야, 더 이상 존재하지 않는
+    // (또는 걸러진) 항목을 계속 그리지 않는다.
+    const client = makeClient({}, {
+      repos: [makeRepo('r1', 'api', '/tmp/api')],
+      issues: [makeIssue({ id: 'i1', title: '토큰 만료' })]
+    })
+    // 첫 조회(마운트)는 이슈를 보여주고, repo 필터로 바뀐 뒤의 조회는 걸러져 빈
+    // 목록을 돌려준다 — 이 fake의 list()는 인자의 repoId를 실제로 걸러내지 않으므로
+    // 여기서 순서로 흉내낸다.
+    vi.mocked(client.issues.list)
+      .mockResolvedValueOnce([makeIssue({ id: 'i1', title: '토큰 만료' })])
+      .mockResolvedValue([])
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+    expect(screen.getByRole('region', { name: 'Issues' })).toHaveClass('panel-expanded')
+
+    // repo 카드 버튼에는 aria-label이 없어 접근성 이름이 이름+경로를 이어붙인 값이
+    // 되고, 옆의 "api 맥락에 담기" 버튼과 접두어가 겹친다 — role 쿼리로 모호해지는
+    // 것을 피해 DOM으로 직접 집는다.
+    const repoCard = document.querySelector('.repo-card')
+    if (!repoCard) throw new Error('repo-card 버튼을 찾지 못했습니다')
+    fireEvent.click(repoCard)
+
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+    })
   })
 })

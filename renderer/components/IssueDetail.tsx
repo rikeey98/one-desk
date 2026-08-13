@@ -52,6 +52,13 @@ export function IssueDetail({ issue, onChanged, onDeleted }: {
       {conflict && (
         <ConflictBanner
           onReload={() => {
+            // 배너가 뜬 채로 계속 타이핑하면 충돌 전(스테일) 텍스트를 든 디바운스
+            // 타이머가 걸려 있을 수 있다. 취소하지 않으면 그 타이머가 다시 불러온
+            // 뒤에도 살아남아, 마침 새로 맞춰진 expectedUpdatedAt과 함께 스테일한
+            // 값을 몰래 써버려 화면과 DB가 갈린다 — 버퍼를 통째로 버리는 시점이니
+            // 여기서도 같은 이유로 버린다 (아래 삭제와 대칭).
+            bodySave.cancel()
+            titleSave.cancel()
             setTitle(conflict.title)
             setBody(conflict.body)
             expected.current = conflict.updatedAt
@@ -94,6 +101,11 @@ export function IssueDetail({ issue, onChanged, onDeleted }: {
           label="삭제"
           confirmLabel="정말 삭제?"
           onConfirm={() => {
+            // 지우기 전에 대기 중인 저장을 버린다 — 버리지 않으면 그 타이머(실제
+            // 화면에서는 언마운트 flush)가 나중에 살아남아 이미 지워진 행에 쓰기를
+            // 시도한다 (onReload와 같은 이유로, 여기서도 버퍼를 통째로 버린다).
+            bodySave.cancel()
+            titleSave.cancel()
             void (async () => {
               try { await client.issues.remove(issue.id); onDeleted() }
               catch (err) { setError(err instanceof Error ? err.message : String(err)) }
