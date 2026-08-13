@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { and, count, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { Database } from '../open'
 import { issue, memo, repo, run, runContextItem } from '../schema'
+import { NotFoundError } from '../../errors'
 import type {
   Run, ContextItemRef, RunStatus, AgentKind, Permission, InboxCounts
 } from '@shared/models'
@@ -95,7 +96,7 @@ export function createRunRepository(db: Database) {
 
   function get(id: string): Run {
     const row = db.select().from(run).where(eq(run.id, id)).get()
-    if (!row) throw new Error(`run을 찾을 수 없습니다: ${id}`)
+    if (!row) throw new NotFoundError(`run을 찾을 수 없습니다: ${id}`)
     return hydrate([row])[0]!
   }
 

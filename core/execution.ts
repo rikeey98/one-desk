@@ -8,7 +8,7 @@ import type { RunManager } from './runner/manager'
 import type { RunQueue } from './runner/queue'
 import type { McpRunConfig, PreflightResult } from './runner/types'
 import { MCP_SERVER_NAME, type McpHost } from './mcp/host'
-import { consoleErrorSink, type ErrorSink } from './errors'
+import { consoleErrorSink, NotFoundError, type ErrorSink } from './errors'
 import type { AgentKind, ContextItemRef, Permission, ResumeRunInput, Run, StartRunInput } from '@shared/models'
 
 export interface ExecutionOptions {
@@ -292,8 +292,13 @@ export function createExecutionService(opts: ExecutionOptions) {
     let parent: Run
     try {
       parent = opts.runs.get(input.parentRunId)
-    } catch {
-      throw new Error('이어서 실행할 원본 run이 없습니다. workspace가 지워졌을 수 있습니다.')
+    } catch (err) {
+      // 없는 것과 못 읽는 것을 가른다. 전부 뭉개면 DB 장애가 "원본이 없다"로
+      // 둔갑해 조사가 엉뚱한 데로 간다.
+      if (err instanceof NotFoundError) {
+        throw new Error('이어서 실행할 원본 run이 없습니다. workspace가 지워졌을 수 있습니다.')
+      }
+      throw err
     }
 
     if (!parent.externalSessionId) {

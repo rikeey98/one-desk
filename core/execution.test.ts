@@ -15,6 +15,7 @@ import { createExecutionService } from './execution'
 import type { Run } from '@shared/models'
 import type { PreflightResult } from './runner/types'
 import type { McpHost } from './mcp/host'
+import type { ErrorSink } from './errors'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FAKE = resolve(HERE, 'runner/fixtures/fake-claude.mjs')
@@ -29,6 +30,8 @@ interface SetupOptions {
   onRunUpdate?: (run: Run) => void
   /** MCP 호스트를 물리는 통로. 없으면 MCP 없이 돈다 */
   mcp?: McpHost
+  /** core가 삼킨 오류를 흘려보낼 곳을 재현하는 통로 */
+  onError?: ErrorSink
 }
 
 function setup(options: SetupOptions = {}) {
@@ -49,6 +52,7 @@ function setup(options: SetupOptions = {}) {
   const service = createExecutionService({
     db, runs, manager, queue,
     ...(options.mcp ? { mcp: options.mcp } : {}),
+    ...(options.onError ? { onError: options.onError } : {}),
     resolveExecutable: options.preflight ?? (async () => ({ ok: true, executable: process.execPath })),
     onRunUpdate: (run) => {
       updates.push(run)
@@ -472,6 +476,39 @@ describe('ExecutionService', () => {
       await expect(ctx.service.resume({
         parentRunId: '없는-id', permission: 'edit', userPrompt: 'x', context: []
       })).rejects.toThrow(/원본/)
+    })
+
+    it('원본을 읽다 DB가 터지면 그 오류를 그대로 올린다', async () => {
+      // 지금은 모든 예외를 "원본 run이 없습니다"로 뭉갠다. DB가 잠겼거나 스키마가
+      // 깨진 것도 같은 메시지가 되어 조사가 엉뚱한 데로 간다.
+      const ctx2 = setup({
+        wrapRuns: (runs) => ({
+          ...runs,
+          get: () => { throw new Error('database is locked') }
+        })
+      })
+      await expect(ctx2.service.resume({
+        parentRunId: 'whatever', permission: 'edit', userPrompt: 'x', context: []
+      })).rejects.toThrow(/database is locked/)
+      rmSync(ctx2.logDir, { recursive: true, force: true })
+    })
+
+    it('삼킨 오류를 주입받은 onError로 흘려보낸다', async () => {
+      // core/는 나중에 별도 데몬으로 떨어질 수 있으므로 목적지를 스스로 정하지 않는다.
+      const seen: string[] = []
+      const ctx2 = setup({
+        onError: (message) => { seen.push(message) },
+        wrapRuns: (runs) => ({
+          ...runs,
+          markStarted: () => { throw new Error('행이 사라졌다') }
+        })
+      })
+      await ctx2.service.start({
+        workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+        permission: 'edit', userPrompt: 'x', context: []
+      })
+      await vi.waitFor(() => expect(seen.join(' ')).toContain('시작 기록 실패'))
+      rmSync(ctx2.logDir, { recursive: true, force: true })
     })
 
     it('manager에 원본의 세션 id를 넘긴다', async () => {

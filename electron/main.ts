@@ -97,7 +97,9 @@ if (dataDirError) {
     try {
       core = createCore({
         dataDir: app.getPath('userData'),
-        migrationsDir: resolveMigrationsDir()
+        migrationsDir: resolveMigrationsDir(),
+        // core는 목적지를 모른다. main이 정한다.
+        onError: (message, err) => { console.error(message, err) }
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
