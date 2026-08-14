@@ -200,7 +200,13 @@ electron-builder는 산출물 이름과 앱 버전을 **`package.json`의 `versi
 
 ## 7. `electron-builder.yml` 채우기
 
-현재 파일은 두 항목뿐이라 `appId`도 `productName`도 없다. 기본값은 `com.electron.one-desk`가 되는데, **`appId`는 macOS에서 `app.getPath('userData')` 경로를 결정한다.** 나중에 바꾸면 기존 사용자의 DB가 있는 디렉토리를 앱이 더 이상 보지 않는다 — 사용자 눈에는 데이터가 사라진 것이다. 첫 릴리스 전에 확정한다.
+현재 파일은 두 항목뿐이라 `appId`도 `productName`도 없다.
+
+**데이터 위치를 정하는 것은 `productName`이다 — `appId`가 아니다.** Electron은 `userData`를 `appData` + **앱 이름**으로 만들고(`shell/common/electron_paths.cc`의 `DIR_USER_DATA`), 앱 이름은 `productName`이 있으면 그것을, 없으면 `package.json`의 `name`을 쓴다. 지금은 `productName`이 어디에도 없으므로 앱 이름이 `one-desk`이고 데이터는 `~/Library/Application Support/one-desk`(Windows는 `%APPDATA%\one-desk`)에 있다.
+
+**따라서 `productName`은 `one-desk`로, 지금의 실효값과 정확히 같게 둔다.** `One Desk`처럼 보기 좋게 바꾸면 앱이 새 디렉토리를 보게 되어 기존 데이터가 사용자 눈에서 사라진다. 대문자화는 첫 릴리스 이후에는 **마이그레이션 없이 불가능한 변경**이다.
+
+`appId`는 데이터 위치와 무관하다 — macOS 번들 식별자와 Windows AppUserModelId로 쓰인다. 기본값 `com.electron.one-desk`는 이 앱의 것이 아니므로 바로잡되, 이것 역시 서명·알림 식별에 쓰이므로 첫 릴리스 전에 확정한다.
 
 ```yaml
 appId: com.rikeey98.one-desk
