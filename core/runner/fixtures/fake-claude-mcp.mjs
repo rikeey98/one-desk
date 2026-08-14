@@ -27,7 +27,10 @@ async function main() {
     return
   }
 
-  const cfg = JSON.parse(readFileSync(configPath, 'utf8')).mcpServers.onedesk
+  // 서버 이름을 리터럴로 쓰지 않는다. writeMcpConfig는 항상 서버 하나만 쓰므로
+  // 유일한 값을 집는다 — 이름을 'onedesk'로 박아 뒀다가 MCP_SERVER_NAME이
+  // 바뀌자 cfg가 undefined가 되어 e2e가 통째로 깨진 적이 있다.
+  const cfg = Object.values(JSON.parse(readFileSync(configPath, 'utf8')).mcpServers)[0]
   const res = await fetch(cfg.url, {
     method: 'POST',
     headers: {

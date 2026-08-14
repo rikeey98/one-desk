@@ -9,7 +9,7 @@ import type { OneDeskClient } from '@shared/client'
 import type {
   CreateIssueInput, CreateMemoInput, CreateRepoInput, CreateWorkspaceInput,
   GuardedUpdateIssueInput, GuardedUpdateMemoInput, InboxCounts, Issue, IssueUpdateResult,
-  Memo, MemoUpdateResult, Repo, Run, UpdateIssueInput, UpdateMemoInput, Workspace
+  McpStatus, Memo, MemoUpdateResult, Repo, Run, UpdateIssueInput, UpdateMemoInput, Workspace
 } from '@shared/models'
 
 const workspace: Workspace = {
@@ -56,6 +56,7 @@ interface Seed {
   workspaces?: Workspace[]
   issues?: Issue[]
   memos?: Memo[]
+  mcpStatus?: McpStatus
 }
 
 /**
@@ -73,6 +74,7 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
   let inbox: Run[] = seed.inbox ?? []
   const started: Run[] = [...(seed.inbox ?? [])]
   const listeners: Array<(counts: InboxCounts) => void> = []
+  const mcpStatus: McpStatus = seed.mcpStatus ?? { state: 'listening', port: 12345 }
   let issues: Issue[] = seed.issues ?? []
   let memos: Memo[] = seed.memos ?? []
   // updatedAt은 단조 증가한다 (설계 §6). 저장소의 Math.max(Date.now(), 이전+1)에서
@@ -206,6 +208,9 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
       resume: vi.fn(async () => makeRun({ id: 'resumed' })),
       ...runsOver
     },
+    mcp: {
+      status: vi.fn(async () => mcpStatus)
+    },
     events: {
       onRunEvent: vi.fn(() => () => {}),
       onRunUpdate: vi.fn(() => () => {}),
@@ -213,7 +218,8 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
       onInboxUpdate: vi.fn((cb: (next: InboxCounts) => void) => {
         listeners.push(cb)
         return () => {}
-      })
+      }),
+      onMcpStatus: vi.fn(() => () => {})
     }
   } as unknown as OneDeskClient
 }
@@ -890,5 +896,37 @@ describe('패널 확장', () => {
     await waitFor(() => {
       expect(screen.getByRole('region', { name: 'Memos' })).not.toHaveClass('panel-expanded')
     })
+  })
+})
+
+describe('MCP 상태 배선', () => {
+  it('App이 받은 상태를 Sidebar까지 내려보낸다', async () => {
+    // App.tsx의 `mcpStatus={mcpStatus}` 한 줄을 지키는 테스트다. 그 줄을 지우면
+    // 타입은 막아주지만, 엉뚱한 값(예: 고정된 starting)을 넘기는 변이는 못 막는다.
+    // 그래서 기본값과 다른 포트를 준다.
+    renderApp(makeClient({}, { mcpStatus: { state: 'listening', port: 61234 } }))
+    expect(await screen.findByText(/MCP :61234/)).toBeInTheDocument()
+  })
+
+  it('구독으로 들어온 상태 변화가 화면에 반영된다', async () => {
+    // 읽기만 배선하고 구독을 빠뜨리면 이 테스트가 빨개진다 — 부팅 기동이
+    // 창보다 늦게 끝나는 경우가 정확히 이 경로다.
+    const push: Array<(s: McpStatus) => void> = []
+    const client = makeClient({}, { mcpStatus: { state: 'starting' } })
+    client.events.onMcpStatus = vi.fn((cb: (s: McpStatus) => void) => {
+      push.push(cb)
+      return () => {}
+    })
+    render(
+      <ClientProvider client={client}>
+        <RunEventProvider store={createRunEventStore()}>
+          <App />
+        </RunEventProvider>
+      </ClientProvider>
+    )
+    expect(await screen.findByText(/MCP 시작 중/)).toBeInTheDocument()
+
+    act(() => { for (const cb of push) cb({ state: 'listening', port: 5555 }) })
+    expect(await screen.findByText(/MCP :5555/)).toBeInTheDocument()
   })
 })

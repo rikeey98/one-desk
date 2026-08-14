@@ -6,6 +6,8 @@ workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 
 
 **릴리스 파이프라인**(설계 `2026-08-14-release-pipeline-design.md`)이 붙었다. `v*` 태그를 밀면 GitHub Actions가 세 러너에서 각각 빌드해 draft 릴리스에 산출물을 올린다 — `.dmg`(arm64) · portable `.exe`(x64) · `.AppImage`(x64). **네이티브 모듈 때문에 크로스 컴파일은 불가능하다** — `better-sqlite3`를 각 러너에서 그 플랫폼의 Electron ABI에 맞춰 컴파일한다. Windows 러너는 `windows-2022`로 고정돼 있다(최신 이미지의 Visual Studio 18을 node-gyp가 못 읽는다).
 
+**MCP 서버는 이제 부팅과 함께 뜬다**(설계 `2026-08-14-mcp-always-on-design.md`). 전체 설계 §14의 "앱을 여는 행위가 아무것도 시작하지 않는다"를 사용자가 명시적으로 뒤집은 것이다 — 사이드바 하단이 `● MCP :53021`로 상태와 포트를 보여준다. 토큰은 여전히 run 단위라, run이 없는 동안 서버는 401만 돌려주는 껍데기다. **포트는 원래부터 동적이었다** — `listen(0)`이 OS에게 빈 포트를 받으므로 충돌이 구조적으로 불가능하다.
+
 같은 작업에서 **Windows 실행 경로**가 처음으로 열렸다. 실행 파일 탐색이 `core/runner/executable.ts`로 떨어져 나와 `PATHEXT`와 폴백 디렉토리를 다루고, `.cmd` 설치본은 preflight가 명확한 메시지로 거부한다. 그 과정에서 로그 스트림의 미처리 오류가 메인 프로세스를 죽이던 결함도 잡혔다.
 
 다음은 5단계(OpenCode 어댑터 · asset 스캔 · diff 뷰어)다. **착수를 막던 환경변수 결정은 해소됐다**(아래 절). 본문 작업이 넷으로 쪼갠 것 중 첫째였으므로 나머지 셋(마크다운 렌더링 · 검색/필터/정렬 · run 완료 구독)도 후보로 남아 있다.
@@ -104,6 +106,10 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **`productName`이 사용자 데이터 위치를 정한다 — `appId`가 아니다.** Electron은 `userData`를 `appData` + 앱 이름으로 만들고 앱 이름은 `productName`을 우선한다. `electron-builder.yml`의 `productName: one-desk`를 보기 좋게 바꾸면 기존 사용자의 DB 디렉토리를 앱이 더 이상 보지 않는다.
 
+**`execFileSync`는 이벤트 루프를 막는다 — 같은 프로세스의 서버를 죽인다.** MCP 서버가 붙어 있는 테스트에서 CLI를 동기로 띄우면 서버가 연결을 하나도 받지 못해 클라이언트가 30초 타임아웃으로 죽는다. **제품이 멀쩡한데 `status: failed`가 나온다.** 실제로 이 함정에 빠져 존재하지 않는 결함을 한참 쫓았다 — `core/mcp/realCli.test.ts`가 비동기 `spawn`을 쓰는 이유다.
+
+**픽스처에 서버 이름을 리터럴로 박지 않는다.** `fake-claude-mcp.mjs`가 `.mcpServers.onedesk`를 하드코딩하고 있어서 `MCP_SERVER_NAME`을 바꾸자 `cfg`가 `undefined`가 되고 e2e가 통째로 깨졌다. **단위 테스트 412개는 전부 초록이었다.** 지금은 `Object.values(...)[0]`로 유일한 값을 집는다.
+
 **ad-hoc 서명(`identity: '-'`)은 hardened runtime의 라이브러리 검증에 걸린다.** Team ID가 없어 Electron Framework조차 로드되지 않고 앱이 아예 안 뜬다 — `build/entitlements.mac.plist`의 `com.apple.security.cs.disable-library-validation`이 그것을 푼다. **설정이 문법에 맞는 것과 앱이 열리는 것은 다르다** — DMG를 실제로 열어봐야만 드러난다.
 
 ## 데이터 규칙
@@ -140,5 +146,6 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 | `docs/superpowers/plans/2026-08-14-issue-memo-body.md` | 이슈·메모 본문 편집 구현 계획 (완료, 7개 태스크) |
 | `docs/superpowers/specs/2026-08-14-release-pipeline-design.md` | 릴리스 파이프라인 설계 — 3플랫폼 빌드, Windows 실행 경로, 서명 |
 | `docs/superpowers/plans/2026-08-14-release-pipeline.md` | 릴리스 파이프라인 구현 계획 (5개 태스크) |
+| `docs/superpowers/specs/2026-08-14-mcp-always-on-design.md` | MCP 상시 기동과 상태 표시 — 전체 설계 §14를 뒤집은 근거(§2) |
 
 **설계 문서의 결정을 코드에서 임의로 바꾸지 않는다.** 설계에 구멍이 보이면 고치지 말고 지적할 것 — 그게 더 값지다.

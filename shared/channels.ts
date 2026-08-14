@@ -23,6 +23,7 @@ export const CHANNELS = {
   runsSetConcurrencyLimit: 'runs:setConcurrencyLimit',
   runsInbox: 'runs:inbox',
   runsInboxCounts: 'runs:inboxCounts',
+  mcpStatus: 'mcp:status',
   runsMarkReviewed: 'runs:markReviewed',
   runsResume: 'runs:resume'
 } as const
@@ -34,7 +35,8 @@ export const EVENT_CHANNELS = {
   runEvent: 'event:run',
   runUpdate: 'event:runUpdate',
   queueUpdate: 'event:queueUpdate',
-  inboxUpdate: 'event:inboxUpdate'
+  inboxUpdate: 'event:inboxUpdate',
+  mcpStatusUpdate: 'event:mcpStatus'
 } as const
 
 export type EventChannelName = (typeof EVENT_CHANNELS)[keyof typeof EVENT_CHANNELS]

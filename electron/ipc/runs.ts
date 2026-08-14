@@ -18,6 +18,7 @@ export function registerRunHandlers(core: Core, getWindow: GetWindow) {
     (_e, runId: string, kind: 'confirmed' | 'archived') => core.inbox.markReviewed(runId, kind)
   )
   ipcMain.handle(CHANNELS.runsResume, (_e, input: ResumeRunInput) => core.execution.resume(input))
+  ipcMain.handle(CHANNELS.mcpStatus, () => core.mcpStatus())
 
   // core의 이벤트를 렌더러로 중계한다. 데몬화 시 바뀌는 곳은 여기 한 지점뿐이다.
   core.onRunEvent((event) => {
@@ -31,5 +32,8 @@ export function registerRunHandlers(core: Core, getWindow: GetWindow) {
   })
   core.onInboxUpdate((counts) => {
     getWindow()?.webContents.send(EVENT_CHANNELS.inboxUpdate, counts)
+  })
+  core.onMcpStatus((status) => {
+    getWindow()?.webContents.send(EVENT_CHANNELS.mcpStatusUpdate, status)
   })
 }

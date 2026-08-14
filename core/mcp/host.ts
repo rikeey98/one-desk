@@ -5,7 +5,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { buildServer, type McpHostDeps } from './tools'
 import { clearMcpConfigs, MCP_SERVER_NAME, removeMcpConfig, writeMcpConfig } from './configFile'
 import { consoleErrorSink, type ErrorSink } from '../errors'
-import type { Permission } from '@shared/models'
+import type { McpStatus, Permission } from '@shared/models'
 
 // 설정 파일의 mcpServers 키와 --allowedTools의 접두사가 같은 상수를 보도록
 // configFile.ts에 정의를 두고 여기서는 re-export만 한다 (host↔tools 순환을
@@ -36,6 +36,7 @@ export function createMcpHost(opts: McpHostOptions) {
   const tokens = new Map<string, RunContext>()
   let server: Server | null = null
   let starting: Promise<number> | null = null
+  let status: McpStatus = { state: 'starting' }
 
   // 지난 실행이 남긴 설정 파일을 치운다. 그 토큰들은 이미 죽었지만 파일까지 남길 이유가 없다.
   clearMcpConfigs(opts.configDir)
@@ -71,7 +72,11 @@ export function createMcpHost(opts: McpHostOptions) {
         // shutdown()은 동기라 서버가 닫히기를 기다릴 수 없다. unref를 걸어
         // 남은 핸들이 프로세스 종료를 막지 않게 한다.
         s.unref()
-        resolve((s.address() as AddressInfo).port)
+        const port = (s.address() as AddressInfo).port
+        // 상태 갱신을 여기 한 곳에 둔다. start()에만 두면 부팅 기동이 실패한
+        // 뒤 run이 서버를 되살렸을 때 화면이 계속 '실패'로 남는다.
+        status = { state: 'listening', port }
+        resolve(port)
       })
     })
     return starting
@@ -119,7 +124,8 @@ export function createMcpHost(opts: McpHostOptions) {
     /**
      * run 하나가 쓸 토큰과 설정 파일을 준비한다.
      *
-     * 서버 기동을 여기서 await한다 — 앱을 여는 것만으로는 포트가 열리지 않는다.
+     * 서버 기동을 여기서 await한다. 보통은 부팅의 start()가 이미 띄워 뒀지만,
+     * 그것이 실패했다면 여기서 다시 시도한다 — run마다 한 번의 재기동 기회가 된다.
      */
     async prepare(ctx: RunContext): Promise<PreparedMcp> {
       const port = await ensureListening()
@@ -160,6 +166,27 @@ export function createMcpHost(opts: McpHostOptions) {
     /** 테스트용. 아직 안 떴으면 null. */
     port(): number | null {
       return server ? (server.address() as AddressInfo).port : null
+    },
+
+    /**
+     * 부팅 시 서버를 띄운다. **던지지 않는다.**
+     *
+     * MCP가 없어도 이슈·메모 편집은 멀쩡히 되어야 한다. 포트 하나를 못 열었다고
+     * 앱이 안 뜨면 그게 더 나쁘다 — 실패를 상태로 남기고 화면이 보여준다.
+     */
+    async start(): Promise<McpStatus> {
+      try {
+        await ensureListening()
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        status = { state: 'failed', message }
+        onError('[mcp] 서버를 띄우지 못했습니다', err)
+      }
+      return status
+    },
+
+    status(): McpStatus {
+      return status
     }
   }
 }

@@ -1,5 +1,16 @@
 export type AgentKind = 'claude-code' | 'opencode'
 export type Permission = 'read_only' | 'edit' | 'full'
+
+/**
+ * MCP 서버의 기동 상태. 앱이 켜져 있는 동안 이 셋 중 하나다.
+ *
+ * `stopped`가 없는 이유: 부팅이 곧 기동이다. close() 이후는 앱이 종료되는
+ * 중이라 아무도 보지 않는다.
+ */
+export type McpStatus =
+  | { state: 'starting' }
+  | { state: 'listening'; port: number }
+  | { state: 'failed'; message: string }
 export type IssueStatus = 'open' | 'doing' | 'done'
 
 export interface Workspace {

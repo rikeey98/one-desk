@@ -6,7 +6,8 @@ import type {
   CreateMemoInput, UpdateMemoInput,
   GuardedUpdateMemoInput, MemoUpdateResult,
   ListQuery, StartRunInput, QueueSnapshot,
-  InboxCounts, ResumeRunInput
+  InboxCounts,
+  McpStatus, ResumeRunInput
 } from './models'
 import type { RunEvent } from './events'
 
@@ -65,10 +66,16 @@ export interface OneDeskClient {
     /** 원본의 세션을 이어받아 실행한다. agentKind와 cwd는 원본에서 온다. */
     resume(input: ResumeRunInput): Promise<Run>
   }
+  mcp: {
+    /** 지금 상태를 한 번 읽는다. 창이 기동보다 늦게 떴을 때 필요하다. */
+    status(): Promise<McpStatus>
+  }
   events: {
     onRunEvent(cb: (event: RunEvent) => void): Unsubscribe
     onRunUpdate(cb: (run: Run) => void): Unsubscribe
     onQueueUpdate(cb: (snapshot: QueueSnapshot) => void): Unsubscribe
     onInboxUpdate(cb: (counts: InboxCounts) => void): Unsubscribe
+    /** 창이 기동보다 먼저 떴을 때 필요하다. status()와 짝이다. */
+    onMcpStatus(cb: (status: McpStatus) => void): Unsubscribe
   }
 }

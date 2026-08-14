@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { OneDeskClient, Unsubscribe } from '@shared/client'
-import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, IssueUpdateResult, MemoUpdateResult } from '@shared/models'
+import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, IssueUpdateResult, MemoUpdateResult } from '@shared/models'
 import type { RunEvent } from '@shared/events'
 
 /**
@@ -60,6 +60,9 @@ const client: OneDeskClient = {
     markReviewed: (runId, kind) => call<Run>(CHANNELS.runsMarkReviewed, runId, kind),
     resume: (input) => call<Run>(CHANNELS.runsResume, input)
   },
+  mcp: {
+    status: () => call<McpStatus>(CHANNELS.mcpStatus)
+  },
   events: {
     // contextBridge는 함수를 프록시로 넘기므로 이 클로저가 렌더러에서 호출 가능하다.
     onRunEvent(cb: (event: RunEvent) => void): Unsubscribe {
@@ -81,6 +84,11 @@ const client: OneDeskClient = {
       const listener = (_e: IpcRendererEvent, counts: InboxCounts) => cb(counts)
       ipcRenderer.on(EVENT_CHANNELS.inboxUpdate, listener)
       return () => { ipcRenderer.off(EVENT_CHANNELS.inboxUpdate, listener) }
+    },
+    onMcpStatus(cb: (status: McpStatus) => void): Unsubscribe {
+      const listener = (_e: IpcRendererEvent, status: McpStatus) => cb(status)
+      ipcRenderer.on(EVENT_CHANNELS.mcpStatusUpdate, listener)
+      return () => { ipcRenderer.off(EVENT_CHANNELS.mcpStatusUpdate, listener) }
     }
   }
 }

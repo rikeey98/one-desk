@@ -16,7 +16,7 @@ import { createMcpHost } from './mcp/host'
 import { consoleErrorSink, type ErrorSink } from './errors'
 import type { AgentAdapter } from './runner/types'
 import type { RunEvent } from '@shared/events'
-import type { AgentKind, InboxCounts, QueueSnapshot, Run } from '@shared/models'
+import type { AgentKind, InboxCounts, McpStatus, QueueSnapshot, Run } from '@shared/models'
 
 export interface CoreOptions {
   /** DB와 로그를 둘 디렉토리. Electron의 userData 경로를 main이 넘긴다. */
@@ -31,6 +31,7 @@ const RUN_EVENT = 'run-event'
 const RUN_UPDATE = 'run-update'
 const QUEUE_UPDATE = 'queue-update'
 const INBOX_UPDATE = 'inbox-update'
+const MCP_STATUS = 'mcp-status'
 
 export function createCore(opts: CoreOptions) {
   const onError = opts.onError ?? consoleErrorSink
@@ -105,6 +106,11 @@ export function createCore(opts: CoreOptions) {
     emitter.emit(INBOX_UPDATE, runs.inboxCounts())
   }
 
+  // MCP 서버를 부팅과 함께 띄운다. **await하지 않는다** — 포트 하나 때문에
+  // 창이 늦게 뜰 이유가 없다. start()는 던지지 않고 실패를 상태로 남기므로,
+  // 여기서 할 일은 결과를 화면 쪽으로 흘려보내는 것뿐이다.
+  void mcp.start().then((status) => { emitter.emit(MCP_STATUS, status) })
+
   return {
     workspaces,
     repos,
@@ -163,6 +169,23 @@ export function createCore(opts: CoreOptions) {
     onInboxUpdate(cb: (counts: InboxCounts) => void): () => void {
       emitter.on(INBOX_UPDATE, cb)
       return () => { emitter.off(INBOX_UPDATE, cb) }
+    },
+
+    /** MCP 서버의 기동 상태. 사이드바 하단이 이걸 보여준다. */
+    mcpStatus(): McpStatus {
+      return mcp.status()
+    },
+
+    /**
+     * 기동 상태가 바뀔 때 준다.
+     *
+     * **읽기(mcpStatus)와 구독이 둘 다 필요하다.** 부팅 기동은 비동기라 창이
+     * 먼저 뜰 수 있는데, 구독만 있으면 이미 지나간 전이를 놓쳐 화면이 영원히
+     * '시작 중'으로 굳는다. 읽기만 있으면 창이 먼저 떴을 때 같은 자리에서 멈춘다.
+     */
+    onMcpStatus(cb: (status: McpStatus) => void): () => void {
+      emitter.on(MCP_STATUS, cb)
+      return () => { emitter.off(MCP_STATUS, cb) }
     },
 
     /**

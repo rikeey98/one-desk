@@ -118,3 +118,11 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
 .confirm-button.confirm-armed { border-color: #fca5a5; color: #991b1b; }
 .conflict-banner { display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 5px; background: #fef3c7; font-size: 12px; }
 .conflict-banner button { border: 1px solid #e4e4e7; border-radius: 5px; background: #fff; cursor: pointer; font: inherit; font-size: 11px; padding: 2px 7px; }
+
+/* 사이드바 하단의 MCP 상태 줄. flex 컬럼이 아니므로 margin-top:auto 대신
+   구분선으로 나머지와 떼어 놓는다. */
+.mcp-status { display: flex; align-items: center; gap: 6px; margin-top: 14px; padding: 7px 9px 0; border-top: 1px solid #e4e4e7; font-size: 11px; opacity: .75; }
+.mcp-dot { width: 7px; height: 7px; border-radius: 50%; background: #a1a1aa; flex: 0 0 auto; }
+.mcp-status-listening .mcp-dot { background: #16a34a; }
+.mcp-status-failed { opacity: 1; color: #b91c1c; cursor: help; }
+.mcp-status-failed .mcp-dot { background: #dc2626; }

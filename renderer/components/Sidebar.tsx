@@ -1,12 +1,12 @@
 import { AddForm } from './AddForm'
 import { useClient } from '../client/ClientProvider'
-import type { InboxCounts, Workspace } from '@shared/models'
+import type { InboxCounts, McpStatus, Workspace } from '@shared/models'
 
 /** workspace 목록은 App이 useWorkspaces()로 한 번만 조회해 내려준다 — 이 컴포넌트가
  * 자기 인스턴스를 따로 가지면 다른 인스턴스(App→InboxPanel 등)가 새 workspace를
  * 모르게 된다(App.tsx의 주석 참고). */
 export function Sidebar({
-  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectInbox, counts, countsError
+  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectInbox, counts, countsError, mcpStatus
 }: {
   workspaces: Workspace[]
   loading: boolean
@@ -19,6 +19,8 @@ export function Sidebar({
   counts: InboxCounts
   /** 인박스 조회 실패. 배지 자리에 표식으로 드러낸다 (설계 §9). */
   countsError: string | null
+  /** MCP 서버의 기동 상태. 하단 줄이 이걸 보여준다. */
+  mcpStatus: McpStatus
 }) {
   const client = useClient()
 
@@ -64,6 +66,32 @@ export function Sidebar({
           </li>
         ))}
       </ul>
+
+      <McpStatusRow status={mcpStatus} />
     </nav>
+  )
+}
+
+/**
+ * 사이드바 하단의 MCP 상태 줄.
+ *
+ * 포트를 그대로 보여준다 — "서버가 정말 떴는가"와 "몇 번인가"를 눈으로 확인해야
+ * 하는 상황이 실제로 있었다. 실패 사유는 길어질 수 있어 title에 넣는다.
+ */
+function McpStatusRow({ status }: { status: McpStatus }) {
+  const label =
+    status.state === 'listening' ? `MCP :${status.port}`
+    : status.state === 'starting' ? 'MCP 시작 중'
+    : 'MCP 연결 실패'
+
+  return (
+    <div
+      className={`mcp-status mcp-status-${status.state}`}
+      aria-live="polite"
+      {...(status.state === 'failed' ? { title: status.message } : {})}
+    >
+      <span className="mcp-dot" aria-hidden="true" />
+      {label}
+    </div>
   )
 }

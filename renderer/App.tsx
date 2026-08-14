@@ -10,6 +10,7 @@ import { useRuns } from './hooks/useRuns'
 import { useRepos } from './hooks/useRepos'
 import { useQueue } from './hooks/useQueue'
 import { useInbox } from './hooks/useInbox'
+import { useMcpStatus } from './hooks/useMcpStatus'
 import { useWorkspaces } from './hooks/useWorkspaces'
 import { useClient } from './client/ClientProvider'
 import { chipKey, type ContextChip } from './context'
@@ -45,6 +46,7 @@ export default function App() {
   const [limitError, setLimitError] = useState<string | null>(null)
   // 목록은 인박스가 열려 있을 때만 다시 읽는다 — 배지는 push된 건수로 세운다.
   const { items: inboxItems, counts: inboxCounts, error: inboxError } = useInbox(view === 'inbox')
+  const mcpStatus = useMcpStatus()
   // Sidebar와 RunPanel이 각자 useWorkspaces()를 부르면 서로의 상태를 모른다 — Sidebar에서
   // workspace를 만들어도 App 쪽 인스턴스(→ InboxPanel)는 그 사실을 몰라, 인박스가 방금
   // 만든 workspace를 "(사라진 workspace)"로 그리는 실제 결함이었다(2026-08-12, task 9
@@ -188,6 +190,7 @@ export default function App() {
         onSelectInbox={() => setView('inbox')}
         counts={inboxCounts}
         countsError={inboxError}
+        mcpStatus={mcpStatus}
       />
       <main className="main">
         {view === 'inbox' && (

@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createCore, type Core } from './index'
 import { DEFAULT_CONCURRENCY_LIMIT } from './db/repositories/setting'
-import type { InboxCounts } from '@shared/models'
+import type { InboxCounts, McpStatus } from '@shared/models'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const MIGRATIONS_DIR = resolve(HERE, '../drizzle')
@@ -149,10 +149,27 @@ describe('createCore', () => {
     }
   })
 
-  it('부팅만으로는 MCP 포트를 열지 않는다', () => {
-    // 앱을 여는 행위가 포트를 여는 것도, agent를 부르는 것도 아니어야 한다.
+  it('부팅하면 MCP 서버가 뜨고 상태가 listening이 된다', async () => {
+    // 이 단언은 예전에 정반대였다("부팅만으로는 포트를 열지 않는다"). 사용자가
+    // 상시 기동을 택해 전체 설계 §14의 결정을 뒤집었다 — 지우지 않고 뒤집어,
+    // 이 성질이 계속 실행 가능한 단언으로 남게 한다.
     const core = open(makeDataDir())
-    expect(core.mcpPort()).toBeNull()
+    await vi.waitFor(() => {
+      expect(core.mcpStatus()).toEqual({ state: 'listening', port: expect.any(Number) })
+    })
+    expect(core.mcpPort()).toBeTypeOf('number')
+    close(core)
+  })
+
+  it('부팅 기동의 결과를 onMcpStatus로 흘려보낸다', async () => {
+    // 창이 먼저 뜨는 경우를 위해 읽기(mcpStatus)와 구독이 둘 다 있어야 한다.
+    // 이 테스트는 구독 쪽 — core/index.ts가 emit하는 한 줄을 지키다.
+    const core = open(makeDataDir())
+    const seen: McpStatus[] = []
+    core.onMcpStatus((s) => seen.push(s))
+    await vi.waitFor(() => {
+      expect(seen.at(-1)).toEqual({ state: 'listening', port: expect.any(Number) })
+    })
     close(core)
   })
 

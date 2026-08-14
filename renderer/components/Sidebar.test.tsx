@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { Sidebar } from './Sidebar'
 import type { OneDeskClient } from '@shared/client'
-import type { InboxCounts, Workspace } from '@shared/models'
+import type { InboxCounts, McpStatus, Workspace } from '@shared/models'
 
 function makeWorkspace(name: string, id: string): Workspace {
   return {
@@ -47,6 +47,7 @@ function renderSidebar(over: {
   onSelectInbox?: () => void
   counts?: InboxCounts
   countsError?: string | null
+  mcpStatus?: McpStatus
 } = {}) {
   render(
     <ClientProvider client={makeClient()}>
@@ -61,6 +62,7 @@ function renderSidebar(over: {
         onSelectInbox={over.onSelectInbox ?? vi.fn()}
         counts={over.counts ?? { total: 0, byWorkspace: {} }}
         countsError={over.countsError ?? null}
+        mcpStatus={over.mcpStatus ?? { state: 'listening', port: 12345 }}
       />
     </ClientProvider>
   )
@@ -116,5 +118,61 @@ describe('Sidebar', () => {
     })
     expect(await screen.findByRole('button', { name: /ws-1/ })).not.toHaveTextContent('0')
     expect(screen.getByRole('button', { name: /ws-2/ })).not.toHaveTextContent('0')
+  })
+})
+
+/** 같은 인스턴스에 다른 상태를 다시 주기 위한 헬퍼. renderSidebar는 rerender를 돌려주지 않는다. */
+function renderSidebarRaw(mcpStatus: McpStatus) {
+  function tree(status: McpStatus) {
+    return (
+      <ClientProvider client={makeClient()}>
+        <Sidebar
+          workspaces={[makeWorkspace('ws-1', 'w1')]}
+          loading={false}
+          error={null}
+          refresh={vi.fn().mockResolvedValue(undefined)}
+          selectedId={null}
+          onSelect={vi.fn()}
+          view="workspace"
+          onSelectInbox={vi.fn()}
+          counts={{ total: 0, byWorkspace: {} }}
+          countsError={null}
+          mcpStatus={status}
+        />
+      </ClientProvider>
+    )
+  }
+  const view = render(tree(mcpStatus))
+  return { rerender: (next: McpStatus) => { view.rerender(tree(next)) } }
+}
+
+describe('MCP 상태 줄', () => {
+  it('listening이면 포트를 보여준다', () => {
+    // 포트를 그대로 보여주는 것이 요점이다 — "서버가 정말 떴는가"와 "몇 번인가"를
+    // 눈으로 확인해야 하는 상황이 실제로 있었다.
+    renderSidebar({ mcpStatus: { state: 'listening', port: 53021 } })
+    expect(screen.getByText(/MCP :53021/)).toBeInTheDocument()
+  })
+
+  it('starting이면 시작 중으로 보여준다', () => {
+    renderSidebar({ mcpStatus: { state: 'starting' } })
+    expect(screen.getByText(/MCP 시작 중/)).toBeInTheDocument()
+  })
+
+  it('failed면 실패로 보여주고 사유를 title에 담는다', () => {
+    renderSidebar({ mcpStatus: { state: 'failed', message: 'EADDRINUSE' } })
+    const row = screen.getByText(/MCP 연결 실패/)
+    expect(row).toBeInTheDocument()
+    expect(row).toHaveAttribute('title', 'EADDRINUSE')
+  })
+
+  it('상태가 바뀌면 화면도 바뀐다 — prop을 실제로 읽는다', () => {
+    // 하드코딩된 문자열을 그리는 구현으로도 위 셋이 통과할 수 있다.
+    // 같은 컴포넌트에 다른 상태를 주어 prop을 읽는다는 것을 고정한다.
+    const { rerender } = renderSidebarRaw({ state: 'starting' })
+    expect(screen.getByText(/MCP 시작 중/)).toBeInTheDocument()
+    rerender({ state: 'listening', port: 999 })
+    expect(screen.queryByText(/MCP 시작 중/)).not.toBeInTheDocument()
+    expect(screen.getByText(/MCP :999/)).toBeInTheDocument()
   })
 })
