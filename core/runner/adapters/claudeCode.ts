@@ -30,6 +30,15 @@ function summarize(content: unknown): string {
   return text.length > 200 ? `${text.slice(0, 200)}…` : text
 }
 
+/** init의 `mcp_servers` 배열을 꺼낸다. 형태가 다르면 빈 배열 — 파싱 실패로 run을 죽이지 않는다. */
+function mcpServers(obj: Record<string, unknown>): { name: string; status: string }[] {
+  const raw = obj['mcp_servers']
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((s): s is Record<string, unknown> => typeof s === 'object' && s !== null)
+    .map((s) => ({ name: String(s['name'] ?? '?'), status: String(s['status'] ?? '?') }))
+}
+
 function readBlocks(obj: Record<string, unknown>): Record<string, unknown>[] {
   const message = obj['message']
   if (typeof message !== 'object' || message === null) return []
@@ -140,7 +149,24 @@ export const claudeCodeAdapter = {
     switch (obj['type']) {
       case 'system': {
         if (obj['subtype'] !== 'init') return []
-        return [{ type: 'session', runId, at, sessionId: String(obj['session_id'] ?? '') }]
+        const events: RawEvent[] = [
+          { type: 'session', runId, at, sessionId: String(obj['session_id'] ?? '') }
+        ]
+        // CLI는 첫 줄에 MCP 서버의 연결 상태를 알려준다. 이걸 흘려보내면 연결
+        // 실패가 화면 어디에도 남지 않고, agent가 이슈·메모를 전혀 못 건드리는
+        // 채로 run이 "성공"으로 끝난다 — 사용자는 결과를 보고 나서야 뭔가
+        // 이상하다는 걸 알고, 이유는 알 방법이 없다.
+        //
+        // run을 실패로 만들지는 않는다. MCP가 필요 없는 프롬프트도 있고,
+        // agent가 이미 한 일을 무효로 돌릴 이유가 없다.
+        for (const server of mcpServers(obj)) {
+          if (server.status === 'connected') continue
+          events.push({
+            type: 'error', runId, at,
+            message: `MCP 서버 '${server.name}'에 연결하지 못했습니다 (상태: ${server.status}). 이 run에서 agent는 이슈·메모를 읽거나 쓸 수 없습니다.`
+          })
+        }
+        return events
       }
 
       case 'assistant': {

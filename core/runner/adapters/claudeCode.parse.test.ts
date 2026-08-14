@@ -92,3 +92,43 @@ describe('claudeCodeAdapter.parseLine', () => {
     expect(events).toEqual([expect.objectContaining({ type: 'raw', line: '{깨진 줄' })])
   })
 })
+
+describe('init의 MCP 연결 상태', () => {
+  function initLine(servers: unknown): string {
+    return JSON.stringify({
+      type: 'system', subtype: 'init', session_id: 's1', mcp_servers: servers
+    })
+  }
+
+  it('연결에 실패한 서버가 있으면 error 이벤트를 낸다', () => {
+    // CLI는 첫 줄에 연결 상태를 알려준다. 흘려보내면 MCP가 통째로 죽은
+    // run이 조용히 "성공"으로 끝나고, 사용자는 이유를 알 방법이 없다.
+    const out = claudeCodeAdapter.parseLine(
+      initLine([{ name: 'one-desk', status: 'failed' }]), 'r1'
+    )
+    const err = out.find((e) => e.type === 'error')
+    expect(err).toBeDefined()
+    expect(err && 'message' in err ? err.message : '').toContain('one-desk')
+  })
+
+  it('연결에 성공하면 error를 내지 않는다', () => {
+    const out = claudeCodeAdapter.parseLine(
+      initLine([{ name: 'one-desk', status: 'connected' }]), 'r1'
+    )
+    expect(out.find((e) => e.type === 'error')).toBeUndefined()
+  })
+
+  it('실패해도 세션 id는 그대로 뽑는다', () => {
+    const out = claudeCodeAdapter.parseLine(
+      initLine([{ name: 'one-desk', status: 'failed' }]), 'r1'
+    )
+    expect(out.find((e) => e.type === 'session')).toMatchObject({ sessionId: 's1' })
+  })
+
+  it('mcp_servers가 없는 init에도 error를 내지 않는다', () => {
+    const out = claudeCodeAdapter.parseLine(
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: 's1' }), 'r1'
+    )
+    expect(out.find((e) => e.type === 'error')).toBeUndefined()
+  })
+})
