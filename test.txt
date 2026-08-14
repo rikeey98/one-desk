@@ -22,3 +22,9 @@ $t = Get-Content $f.FullName -Raw
 '4_NOPROXY_NOTSET: ' + ($t -match 'NO_PROXY.{0,8}not set')
 '5_HAS_LOOPBACK: '   + ($t -match '127\.0\.0\.1')
 '6_ERRCODE: '   + ((([regex]::Matches($t,'code: (\w+)') | % { $_.Groups[1].Value }) | Select -Unique) -join ',')
+
+$f = Get-ChildItem "$env:LOCALAPPDATA\claude-cli-nodejs" -Recurse -Filter *.jsonl | ? { $_.DirectoryName -match 'mcp-logs' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$t = Get-Content $f.FullName -Raw
+$m = [regex]::Match($t, 'NO_PROXY.{0,4}:.{0,3}([^\\"]*)')
+'NOPROXY_HAS_LOOPBACK: ' + ($m.Groups[1].Value -match '127\.0\.0\.1')
+'NOPROXY_LEN: ' + $m.Groups[1].Value.Length
