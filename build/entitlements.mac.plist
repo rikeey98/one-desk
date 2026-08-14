@@ -8,5 +8,15 @@
     <true/>
     <key>com.apple.security.cs.allow-dyld-environment-variables</key>
     <true/>
+    <!--
+      ad-hoc 서명(identity: '-')은 Team ID가 없다. hardened runtime의 라이브러리
+      검증은 로드되는 라이브러리가 프로세스와 같은 Team ID를 갖기를 요구하므로,
+      이 항목이 없으면 Electron Framework조차 로드되지 않아 앱이 아예 뜨지 않는다:
+        "not valid for use in process: mapping process and mapped file
+         (non-platform) have different Team IDs"
+      유료 인증서로 서명하게 되면 이 항목을 다시 검토한다.
+    -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
   </dict>
 </plist>
