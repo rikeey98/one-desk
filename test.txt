@@ -1,0 +1,1 @@
+"== where =="; where.exe claude; "== persisted =="; "User: " + [Environment]::GetEnvironmentVariable("CLAUDE_CODE_USE_BEDROCK","User"); "Machine: " + [Environment]::GetEnvironmentVariable("CLAUDE_CODE_USE_BEDROCK","Machine"); "== names only =="; (Get-ChildItem Env: | ? { $_.Name -match "CLAUDE|AWS|ANTHROPIC" }).Name
