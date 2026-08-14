@@ -7,3 +7,8 @@
 $log = Get-ChildItem "$env:APPDATA\one-desk\logs" -Recurse -Filter stream.jsonl | Sort-Object LastWriteTime -Desc | Select-Object -First 1
 $log.FullName
 Get-Content $log.FullName | Select-String "mcp__onedesk"
+
+Get-ChildItem "$env:LOCALAPPDATA\claude-cli-nodejs" -Recurse -Filter "*.jsonl" |
+  Where-Object { $_.DirectoryName -match "mcp-logs" } |
+  Sort-Object LastWriteTime -Desc | Select-Object -First 1 |
+  Get-Content | Select-String "Environment|Connection failed"
