@@ -7,8 +7,13 @@ import { join } from 'node:path'
  * 같은 상수를 써야 한다 — 여기서만 정의하고 다른 곳은 전부 이 값을 참조한다.
  * 리터럴을 따로 두면 한쪽만 바뀌었을 때 도구 이름과 승인 목록이 어긋나
  * 모든 MCP 호출이 조용히 거부된다.
+ *
+ * `onedesk`가 아니라 `one-desk`인 이유: 사용자 레벨에 이미 `onedesk`라는
+ * 다른 MCP 서버를 등록해 둔 환경이 있었다. `--strict-mcp-config`가 사용자
+ * 설정을 무시하므로 기능상 충돌하지는 않지만, 로그와 `--allowedTools`에
+ * 같은 이름이 두 벌 보이면 어느 쪽 호출인지 사람이 가릴 수 없다.
  */
-export const MCP_SERVER_NAME = 'onedesk'
+export const MCP_SERVER_NAME = 'one-desk'
 
 /**
  * run 하나의 MCP 설정 파일을 쓴다. 경로를 돌려준다.
