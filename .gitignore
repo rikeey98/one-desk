@@ -22,4 +22,9 @@ onedesk-*.png
 # e2e 실행 산출물 (스크린샷 등)
 e2e/artifacts/
 
+# 에디터 / 도구 로컬 설정
+.vscode/
+.claude/
+.idea/
+
 .DS_Store
