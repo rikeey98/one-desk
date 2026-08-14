@@ -14,9 +14,18 @@ jobs:
       # 한 플랫폼이 깨져도 나머지 산출물은 보고 싶다.
       fail-fast: false
       matrix:
+        # **지금은 Windows만 만든다.** 받아서 쓰는 사람이 Windows뿐이고,
+        # 아래 release job이 `needs: build`라 mac/linux가 깨지면 Windows
+        # 산출물까지 릴리스에 못 올라간다. 셋은 병렬로 돌아 시간은 거의
+        # 같았지만(가장 느린 Windows가 전체를 결정한다), 실패 표면은 줄어든다.
+        #
+        # 다시 넣으려면 아래에 두 줄씩 더한다:
+        #   - os: macos-latest
+        #     flag: --mac
+        #   - os: ubuntu-latest
+        #     flag: --linux
+        # macOS는 개발 장비에서 `pnpm run pack`으로 언제든 만들 수 있다.
         include:
-          - os: macos-latest
-            flag: --mac
           # windows-latest가 아니라 고정 이미지인 이유:
           # 최신 이미지에는 Visual Studio 18이 깔려 있는데 pnpm이 번들한
           # node-gyp 11.1.0이 그 버전을 못 읽어 better-sqlite3 컴파일이
@@ -24,8 +33,6 @@ jobs:
           # node-gyp가 VS 18을 지원하면 windows-latest로 되돌린다.
           - os: windows-2022
             flag: --win
-          - os: ubuntu-latest
-            flag: --linux
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -90,33 +97,26 @@ jobs:
           generate_release_notes: true
           files: artifacts/*
           body: |
-            ## 설치
+            ## 설치 (Windows)
 
-            ### macOS
-            1. `.dmg`를 열고 one-desk를 응용 프로그램으로 끌어다 놓습니다.
-            2. 터미널에서 한 번 실행합니다 (서명되지 않은 앱이라 필요합니다):
-               ```
-               xattr -dr com.apple.quarantine /Applications/one-desk.app
-               ```
-
-            ### Windows
-            포터블 실행 파일입니다. 설치 없이 바로 실행됩니다.
+            `one-desk-*-x64.exe`는 포터블 실행 파일입니다. 설치 없이 바로 실행됩니다.
             SmartScreen 경고가 뜨면 "추가 정보" → "실행"을 누르세요.
-
-            ### Linux
-            ```
-            chmod +x one-desk-*.AppImage && ./one-desk-*.AppImage
-            ```
-            이 산출물은 실행 검증을 거치지 않았습니다. 문제가 생기면 Issues로 알려주세요.
 
             ## 첫 실행 전에
 
-            Claude Code CLI가 설치되어 있어야 합니다.
-            흔한 설치 위치는 자동으로 찾습니다. 못 찾으면 workspace 설정의
-            "claude 경로"에 실행 파일의 절대 경로를 넣으세요.
+            Claude Code CLI가 설치되어 있어야 합니다. 흔한 설치 위치는 자동으로
+            찾습니다. 못 찾으면 workspace 설정의 "claude 경로"에 `where.exe claude`
+            결과를 넣으세요.
 
-            - macOS/Linux: `which claude`
-            - Windows: `where.exe claude`
-
-            Windows에서 npm 전역 설치(`claude.cmd`)를 쓰고 있다면 실행되지 않습니다.
+            npm 전역 설치(`claude.cmd`)는 지원하지 않습니다 — Node가 배치 파일을
+            직접 실행하지 못해서(CVE-2024-27980) 프리플라이트에서 거부됩니다.
             네이티브 설치 스크립트로 `claude.exe`를 설치해 주세요.
+
+            AWS Bedrock 환경이라면 `CLAUDE_CODE_USE_BEDROCK` 같은 값이 **Windows
+            사용자/시스템 환경 변수**에 등록돼 있어야 합니다. PowerShell 프로필에만
+            있으면 앱이 물려받지 못합니다.
+
+            ## macOS / Linux
+
+            이 릴리스는 Windows 산출물만 담습니다. 다른 플랫폼이 필요하면
+            저장소를 받아 `pnpm run pack`으로 직접 빌드하세요.
