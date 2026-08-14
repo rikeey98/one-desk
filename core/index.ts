@@ -74,7 +74,8 @@ export function createCore(opts: CoreOptions) {
   const manager = createRunManager({
     adapters,
     logDir: join(opts.dataDir, 'logs'),
-    onEvent: (event) => emitter.emit(RUN_EVENT, event)
+    onEvent: (event) => emitter.emit(RUN_EVENT, event),
+    onError
   })
 
   const execution = createExecutionService({
