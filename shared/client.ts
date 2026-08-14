@@ -2,7 +2,9 @@ import type {
   Workspace, Repo, Issue, Memo, Run,
   CreateWorkspaceInput, CreateRepoInput,
   CreateIssueInput, UpdateIssueInput,
+  GuardedUpdateIssueInput, IssueUpdateResult,
   CreateMemoInput, UpdateMemoInput,
+  GuardedUpdateMemoInput, MemoUpdateResult,
   ListQuery, StartRunInput, QueueSnapshot,
   InboxCounts, ResumeRunInput
 } from './models'
@@ -25,12 +27,22 @@ export interface OneDeskClient {
     list(query: ListQuery): Promise<Issue[]>
     create(input: CreateIssueInput): Promise<Issue>
     update(input: UpdateIssueInput): Promise<Issue>
+    /**
+     * 낙관적 잠금 갱신 (설계 §6). 충돌은 던지지 않고 `{ ok: false, current }`로 온다 —
+     * preload가 IPC 오류의 클래스를 벗겨내 메시지만 남기므로 예외로는 가려낼 수 없다.
+     */
+    updateIfUnchanged(input: GuardedUpdateIssueInput): Promise<IssueUpdateResult>
     remove(id: string): Promise<void>
   }
   memos: {
     list(query: ListQuery): Promise<Memo[]>
     create(input: CreateMemoInput): Promise<Memo>
     update(input: UpdateMemoInput): Promise<Memo>
+    /**
+     * 낙관적 잠금 갱신 (설계 §6). 충돌은 던지지 않고 `{ ok: false, current }`로 온다 —
+     * preload가 IPC 오류의 클래스를 벗겨내 메시지만 남기므로 예외로는 가려낼 수 없다.
+     */
+    updateIfUnchanged(input: GuardedUpdateMemoInput): Promise<MemoUpdateResult>
     remove(id: string): Promise<void>
   }
   runs: {

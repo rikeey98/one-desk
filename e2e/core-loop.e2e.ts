@@ -34,8 +34,8 @@ describe('핵심 한 바퀴', () => {
     const issueButton = page.getByRole('button', { name: ISSUE, exact: true })
     await issueButton.waitFor({ state: 'visible', timeout: 10_000 })
 
-    // 4. 이슈를 눌러 맥락에 담는다 — 칩에는 제거 표시가 함께 붙는다
-    await issueButton.click()
+    // 4. 담기 토글을 눌러 맥락에 담는다 — 칩에는 제거 표시가 함께 붙는다
+    await page.getByRole('button', { name: `${ISSUE} 맥락에 담기` }).click()
     const chip = page.getByRole('button', { name: `${ISSUE} ✕` })
     await chip.waitFor({ state: 'visible', timeout: 5_000 })
 

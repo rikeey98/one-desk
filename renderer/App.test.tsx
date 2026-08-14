@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from './client/ClientProvider'
 import { RunEventProvider } from './store/RunEventContext'
@@ -7,7 +7,9 @@ import { createRunEventStore, type RunEventStore } from './store/runEvents'
 import App from './App'
 import type { OneDeskClient } from '@shared/client'
 import type {
-  CreateRepoInput, CreateWorkspaceInput, InboxCounts, Repo, Run, Workspace
+  CreateIssueInput, CreateMemoInput, CreateRepoInput, CreateWorkspaceInput,
+  GuardedUpdateIssueInput, GuardedUpdateMemoInput, InboxCounts, Issue, IssueUpdateResult,
+  Memo, MemoUpdateResult, Repo, Run, UpdateIssueInput, UpdateMemoInput, Workspace
 } from '@shared/models'
 
 const workspace: Workspace = {
@@ -32,12 +34,28 @@ function makeRun(over: Partial<Run> = {}): Run {
   }
 }
 
+function makeIssue(over: Partial<Issue> = {}): Issue {
+  return {
+    id: 'i1', workspaceId: 'w1', title: '이슈', body: '', status: 'open',
+    repoIds: [], createdAt: 0, updatedAt: 0, closedAt: null, ...over
+  }
+}
+
+function makeMemo(over: Partial<Memo> = {}): Memo {
+  return {
+    id: 'm1', workspaceId: 'w1', title: '메모', body: '',
+    repoIds: [], createdAt: 0, updatedAt: 0, ...over
+  }
+}
+
 /** 가짜 백엔드의 초기 상태. 인박스 배선 테스트는 상태가 있어야 의미가 생긴다. */
 interface Seed {
   /** 미확인 run들. 같은 목록이 runs.list에도 보인다. */
   inbox?: Run[]
   repos?: Repo[]
   workspaces?: Workspace[]
+  issues?: Issue[]
+  memos?: Memo[]
 }
 
 /**
@@ -55,6 +73,52 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
   let inbox: Run[] = seed.inbox ?? []
   const started: Run[] = [...(seed.inbox ?? [])]
   const listeners: Array<(counts: InboxCounts) => void> = []
+  let issues: Issue[] = seed.issues ?? []
+  let memos: Memo[] = seed.memos ?? []
+  // updatedAt은 단조 증가한다 (설계 §6). 저장소의 Math.max(Date.now(), 이전+1)에서
+  // 잠금이 기대는 성질만 남긴 것이다.
+  let clock = 1_000
+
+  /**
+   * 이슈·메모는 실제 저장소와 같은 규칙으로 흉내낸다 — **모든 쓰기가 updatedAt을
+   * 올리고, 잠긴 쓰기는 기대값을 진짜로 비교한다.**
+   *
+   * 고정된 객체를 돌려주는 mock으로는 낙관적 잠금이 얽힌 결함이 영영 안 보인다:
+   * 목록의 상태 버튼이 잠기지 않은 update로 updatedAt을 올려 열려 있는 상세의
+   * 기대값만 낡게 만들고, 그다음 자동 저장이 사용자 자신의 클릭을 agent의 편집으로
+   * 착각해 유령 충돌 배너를 띄우던 결함이 356개 테스트를 통과하고 있었다.
+   */
+  function writeIssue(input: UpdateIssueInput): Issue {
+    const prev = issues.find((i) => i.id === input.id)
+    if (!prev) throw new Error(`이슈를 찾을 수 없습니다: ${input.id}`)
+    const updatedAt = ++clock
+    const status = input.status ?? prev.status
+    const next: Issue = {
+      ...prev,
+      title: input.title ?? prev.title,
+      body: input.body ?? prev.body,
+      status,
+      // closedAt은 status에서 파생된다 — 화면이 따로 넘기지 않는다.
+      closedAt: status === 'done' ? updatedAt : null,
+      updatedAt
+    }
+    issues = issues.map((i) => (i.id === next.id ? next : i))
+    return next
+  }
+
+  function writeMemo(input: UpdateMemoInput): Memo {
+    const prev = memos.find((m) => m.id === input.id)
+    if (!prev) throw new Error(`메모를 찾을 수 없습니다: ${input.id}`)
+    const updatedAt = ++clock
+    const next: Memo = {
+      ...prev,
+      title: input.title ?? prev.title,
+      body: input.body ?? prev.body,
+      updatedAt
+    }
+    memos = memos.map((m) => (m.id === next.id ? next : m))
+    return next
+  }
 
   function counts(): InboxCounts {
     const byWorkspace: Record<string, number> = {}
@@ -86,12 +150,46 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
       remove: vi.fn()
     },
     issues: {
-      list: vi.fn().mockResolvedValue([]),
-      create: vi.fn(async () => ({ id: 'i-new' })),
-      update: vi.fn(async () => ({ id: 'i-updated' })),
-      remove: vi.fn()
+      list: vi.fn(async () => issues),
+      create: vi.fn(async (input: CreateIssueInput) => {
+        const created = makeIssue({
+          id: `i${issues.length + 1}`, workspaceId: input.workspaceId, title: input.title,
+          body: input.body ?? '', createdAt: ++clock, updatedAt: clock
+        })
+        issues = [...issues, created]
+        return created
+      }),
+      // 잠기지 않은 쓰기. agent(MCP)와 인박스의 이슈 닫기가 쓴다 (설계 §6).
+      update: vi.fn(async (input: UpdateIssueInput) => writeIssue(input)),
+      // Step 5b — 항목 전환이 옛 항목에 저장되는지 보는 회귀 테스트가 기록을 읽는다.
+      updateIfUnchanged: vi.fn(async (input: GuardedUpdateIssueInput): Promise<IssueUpdateResult> => {
+        const prev = issues.find((i) => i.id === input.id)
+        if (!prev) throw new Error(`이슈를 찾을 수 없습니다: ${input.id}`)
+        // 기대값을 진짜로 비교한다 — 이 한 줄이 없으면 유령 충돌도 진짜 충돌도 안 보인다.
+        if (prev.updatedAt !== input.expectedUpdatedAt) return { ok: false, current: prev }
+        return { ok: true, issue: writeIssue(input) }
+      }),
+      remove: vi.fn(async (id: string) => { issues = issues.filter((i) => i.id !== id) })
     },
-    memos: { list: vi.fn().mockResolvedValue([]), create: vi.fn(), update: vi.fn(), remove: vi.fn() },
+    memos: {
+      list: vi.fn(async () => memos),
+      create: vi.fn(async (input: CreateMemoInput) => {
+        const created = makeMemo({
+          id: `m${memos.length + 1}`, workspaceId: input.workspaceId, title: input.title,
+          body: input.body ?? '', createdAt: ++clock, updatedAt: clock
+        })
+        memos = [...memos, created]
+        return created
+      }),
+      update: vi.fn(async (input: UpdateMemoInput) => writeMemo(input)),
+      updateIfUnchanged: vi.fn(async (input: GuardedUpdateMemoInput): Promise<MemoUpdateResult> => {
+        const prev = memos.find((m) => m.id === input.id)
+        if (!prev) throw new Error(`메모를 찾을 수 없습니다: ${input.id}`)
+        if (prev.updatedAt !== input.expectedUpdatedAt) return { ok: false, current: prev }
+        return { ok: true, memo: writeMemo(input) }
+      }),
+      remove: vi.fn(async (id: string) => { memos = memos.filter((m) => m.id !== id) })
+    },
     runs: {
       list: vi.fn(async (workspaceId: string) => started.filter((r) => r.workspaceId === workspaceId)),
       start: vi.fn(async () => makeRun({ id: 'started' })),
@@ -137,6 +235,11 @@ function inboxLink(): HTMLElement {
 
 async function openInbox(): Promise<void> {
   await userEvent.click(inboxLink())
+}
+
+/** 사이드바에서 ws1을 골라 workspace 화면으로 들어간다. */
+async function selectWorkspace(): Promise<void> {
+  await userEvent.click(await screen.findByRole('button', { name: 'ws1' }))
 }
 
 describe('App', () => {
@@ -300,6 +403,8 @@ describe('App', () => {
     // 보인다"고 적었다. run까지 확인 처리하면 첫 이슈를 닫는 순간 항목이 사라져
     // 나머지 이슈를 닫을 수 없다.
     const client = makeClient({}, {
+      // 가짜 저장소가 실제처럼 상태를 들고 있으므로, 닫을 이슈가 실제로 있어야 한다.
+      issues: [makeIssue({ id: 'i1' }), makeIssue({ id: 'i2' })],
       inbox: [makeRun({
         id: 'r-done', userPrompt: '두 이슈 붙은 실행',
         contextItems: [{ type: 'issue', id: 'i1' }, { type: 'issue', id: 'i2' }]
@@ -394,5 +499,396 @@ describe('App', () => {
     await userEvent.click(await screen.findByRole('button', { name: '답하고 이어서' }))
 
     expect(await screen.findByPlaceholderText(/무엇을 시킬지/)).toHaveValue('')
+  })
+})
+
+describe('패널 확장', () => {
+  it('이슈를 클릭하면 그 패널이 확장되고 상세가 뜬다', async () => {
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+
+    expect(screen.getByRole('region', { name: 'Issues' })).toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: 'Memos' })).not.toHaveClass('panel-expanded')
+    // App이 openId를 IssuePanel에 내려보내는지도 확인한다 — expanded만 확인하면
+    // App.tsx가 <IssuePanel openId={…}> 한 줄을 빠뜨려도 이 테스트가 여전히
+    // 초록이다. 클릭한 항목이 열린 상태(item-open)로 보이는지까지 봐야 한다.
+    expect(screen.getByRole('button', { name: '토큰 만료' })).toHaveClass('item-open')
+  })
+
+  it('메모를 열면 이슈 상세가 닫힌다', async () => {
+    // 한 번에 한 패널만 확장된다. 상태를 각 패널이 따로 들면 둘 다 열린다.
+    renderApp(makeClient({}, {
+      issues: [makeIssue({ id: 'i1', title: '토큰 만료' })],
+      memos: [makeMemo({ id: 'm1', title: '배포 메모' })]
+    }))
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+    await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
+
+    expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: 'Memos' })).toHaveClass('panel-expanded')
+    // MemoPanel도 마찬가지다 — App이 openId를 내려보내지 않으면 패널은 확장돼도
+    // 어느 항목이 열렸는지는 표시되지 않는다.
+    expect(screen.getByRole('button', { name: '배포 메모' })).toHaveClass('item-open')
+  })
+
+  it('같은 항목을 다시 클릭하면 접힌다', async () => {
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    await selectWorkspace()
+
+    const title = await screen.findByRole('button', { name: '토큰 만료' })
+    await userEvent.click(title)
+    await userEvent.click(title)
+
+    expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+  })
+
+  it('Esc로 접는다', async () => {
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+    await userEvent.keyboard('{Escape}')
+
+    expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+  })
+
+  it('workspace를 바꾸면 열린 항목이 접힌다', async () => {
+    // App.tsx의 selectWorkspace 안 setOpenItem(null) 한 줄이 지키는 계약이다.
+    // 다른 workspace로 넘어가면서 이전 workspace의 항목을 열어둔 채로 두면 안 된다.
+    const ws2: Workspace = { ...workspace, id: 'w2', name: 'ws2' }
+    renderApp(makeClient({}, {
+      workspaces: [workspace, ws2],
+      issues: [makeIssue({ id: 'i1', title: '토큰 만료' })]
+    }))
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+    expect(screen.getByRole('region', { name: 'Issues' })).toHaveClass('panel-expanded')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'ws2' }))
+
+    expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+  })
+
+  it('항목 클릭은 맥락에 담지 않는다', async () => {
+    // 본문이 생기면 "열어본다"가 주된 행동이 된다. 담기는 별도 토글로 옮겼다.
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+
+    expect(screen.queryByRole('button', { name: /토큰 만료 ✕/ })).toBeNull()
+  })
+
+  it('담기 토글이 맥락 칩을 만든다', async () => {
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료 맥락에 담기' }))
+
+    expect(screen.getByRole('button', { name: /토큰 만료 ✕/ })).toBeInTheDocument()
+  })
+
+  it('메모 항목 클릭은 맥락에 담지 않는다', async () => {
+    // IssuePanel 쪽 짝과 같은 약속이다 (설계 §5). 메모 쪽은 배선이 통째로 무방비였다 —
+    // App.tsx가 MemoPanel에 내려보내는 onToggleContext 한 줄을 지워도 356개가 초록이었다.
+    renderApp(makeClient({}, { memos: [makeMemo({ id: 'm1', title: '배포 메모' })] }))
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
+
+    expect(screen.queryByRole('button', { name: /배포 메모 ✕/ })).toBeNull()
+  })
+
+  it('메모의 담기 토글이 맥락 칩을 만든다', async () => {
+    renderApp(makeClient({}, { memos: [makeMemo({ id: 'm1', title: '배포 메모' })] }))
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '배포 메모 맥락에 담기' }))
+
+    expect(screen.getByRole('button', { name: /배포 메모 ✕/ })).toBeInTheDocument()
+  })
+
+  it('담은 이슈에는 담김 표시가 남는다', async () => {
+    // 변이표 10. 표시가 제목에서 ＋ 토글로 옮겨간 뒤로 아무 테스트도 보고 있지 않았다.
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    await selectWorkspace()
+
+    const pick = await screen.findByRole('button', { name: '토큰 만료 맥락에 담기' })
+    expect(pick).not.toHaveClass('item-picked')
+    expect(pick).toHaveAttribute('aria-pressed', 'false')
+
+    await userEvent.click(pick)
+
+    expect(pick).toHaveClass('item-picked')
+    expect(pick).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('담은 메모에는 담김 표시가 남는다', async () => {
+    // 변이표 10의 메모 쪽 짝 (설계 §10의 24행 — memo 대칭).
+    renderApp(makeClient({}, { memos: [makeMemo({ id: 'm1', title: '배포 메모' })] }))
+    await selectWorkspace()
+
+    const pick = await screen.findByRole('button', { name: '배포 메모 맥락에 담기' })
+    expect(pick).not.toHaveClass('item-picked')
+    expect(pick).toHaveAttribute('aria-pressed', 'false')
+
+    await userEvent.click(pick)
+
+    expect(pick).toHaveClass('item-picked')
+    expect(pick).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('목록의 상태는 읽기 전용 배지다', async () => {
+    // 상태 편집은 상세로 옮겼다 (설계 §9). 목록에 쓰기 버튼이 다시 생기면 그 쓰기가
+    // 잠기지 않은 update를 타고 열려 있는 상세의 기대값을 낡게 만든다 — 아래
+    // "유령 충돌" 테스트가 막는 결함의 입구다.
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    await selectWorkspace()
+    await screen.findByRole('button', { name: '토큰 만료' })
+
+    expect(screen.queryByRole('button', { name: 'open' })).toBeNull()
+    expect(screen.getByText('open')).toHaveClass('status')
+  })
+
+  it('상세에서 상태를 바꾼 뒤 본문을 쳐도 유령 충돌이 나지 않는다', async () => {
+    // 목록의 상태 버튼이 잠기지 않은 update로 쓰던 시절의 결함(이 브랜치의 Critical):
+    // 상태 클릭이 updatedAt을 올려 열려 있는 상세의 기대값만 낡게 만들고, 600ms 뒤
+    // 자동 저장이 사용자 자신의 클릭을 agent의 편집으로 착각해 "그 사이 바뀌었습니다"를
+    // 띄웠다. 거기서 다시 불러오기를 누르면 그때까지 친 것이 통째로 사라진다.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const client = makeClient({}, {
+      issues: [makeIssue({ id: 'i1', title: '토큰 만료', updatedAt: 100 })]
+    })
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+
+    await userEvent.selectOptions(screen.getByLabelText('상태'), 'doing')
+    await userEvent.type(screen.getByLabelText('본문'), '재현 절차')
+    await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+
+    // 배너든 오류든 알림이 하나라도 뜨면 실패다 — 무엇이 떴는지 메시지에 남게 본다.
+    expect(screen.queryAllByRole('alert').map((el) => el.textContent)).toEqual([])
+    // 두 쓰기가 모두 남아 있어야 한다. 상태만 쓰이고 본문이 거부됐으면 결함 그대로다.
+    const [saved] = await client.issues.list({ workspaceId: 'w1' })
+    expect(saved).toMatchObject({ status: 'doing', body: '재현 절차' })
+    vi.useRealTimers()
+  })
+
+  it('Esc로 접다가 난 충돌은 배너로 남고 패널이 접히지 않는다', async () => {
+    // 언마운트 flush에 맡기면 setConflict가 이미 사라진 상세에 떨어져 React가 조용히
+    // 버린다 — 배너도 오류도 없이, flush가 이미 소비한 텍스트만 사라진다 (설계 §7).
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const client = makeClient({}, {
+      issues: [makeIssue({ id: 'i1', title: '토큰 만료', updatedAt: 100 })]
+    })
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+    await userEvent.type(screen.getByLabelText('본문'), '사람이 친 것')
+
+    // agent가 MCP로 같은 이슈를 고친 상황. agent는 잠기지 않은 update를 쓴다 (설계 §6).
+    await act(async () => { await client.issues.update({ id: 'i1', body: 'agent가 쓴 것' }) })
+    fireEvent.keyDown(screen.getByLabelText('본문'), { key: 'Escape' })
+
+    expect(await screen.findByText(/그 사이 바뀌었습니다/)).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Issues' })).toHaveClass('panel-expanded')
+    vi.useRealTimers()
+  })
+
+  it('메모도 Esc로 접다가 난 충돌은 배너로 남고 패널이 접히지 않는다', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const client = makeClient({}, {
+      memos: [makeMemo({ id: 'm1', title: '배포 메모', updatedAt: 100 })]
+    })
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
+    await userEvent.type(screen.getByLabelText('본문'), '사람이 친 것')
+
+    await act(async () => { await client.memos.update({ id: 'm1', body: 'agent가 쓴 것' }) })
+    fireEvent.keyDown(screen.getByLabelText('본문'), { key: 'Escape' })
+
+    expect(await screen.findByText(/그 사이 바뀌었습니다/)).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Memos' })).toHaveClass('panel-expanded')
+    vi.useRealTimers()
+  })
+
+  it('다른 이슈로 옮기면 대기 중이던 본문이 원래 이슈에 저장된다', async () => {
+    // key가 없으면 React가 상세를 재사용하고, 정리 시점의 저장 콜백은 이미 새
+    // 이슈를 붙잡고 있어 옛 내용이 엉뚱한 이슈에 저장된다.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const client = makeClient({}, {
+      issues: [
+        makeIssue({ id: 'i1', title: '첫째', updatedAt: 100 }),
+        makeIssue({ id: 'i2', title: '둘째', updatedAt: 100 })
+      ]
+    })
+    renderApp(client)
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '첫째' }))
+    await userEvent.type(screen.getByLabelText('본문'), '첫째의 메모')
+    // userEvent.click은 실제 브라우저처럼 이전 포커스(본문)에 자연스러운 blur를
+    // 먼저 흘려보낸다 — IssueDetail의 onBlur가 그 blur만으로 디바운스를 흘려보내
+    // key 유무와 무관하게 저장이 성공해 버려 이 테스트가 무력화된다(실측 확인:
+    // key를 지워도 초록이었다). fireEvent.click은 포커스 이동/blur를 흉내내지
+    // 않으므로, 오직 key가 만드는 재마운트-정리 경로만으로 저장이 일어나는지를 본다.
+    fireEvent.click(screen.getByRole('button', { name: '둘째' }))
+
+    // 버퍼가 새다면 화면에도 드러난다 — key가 없으면 컴포넌트가 재사용되어 '첫째'의
+    // 본문 상태가 그대로 남는다. 이 확인은 타이머나 blur와 무관하게(전환 직후) 바로
+    // 참이어야 한다.
+    expect(screen.getByLabelText('본문')).toHaveValue('')
+
+    await waitFor(() => expect(client.issues.updateIfUnchanged).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'i1', body: '첫째의 메모' })
+    ))
+    vi.useRealTimers()
+  })
+
+  it('본문 저장이 성공하면 목록을 다시 읽는다', async () => {
+    // IssuePanel이 IssueDetail에 내려보내는 onChanged={() => { void refresh() }}
+    // 한 줄이 지키는 배선이다 — 비우면(onChanged={() => {}}) 성공한 저장 뒤에도
+    // 목록이 낡은 채로 남는다.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const client = makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] })
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+
+    const before = vi.mocked(client.issues.list).mock.calls.length
+    await userEvent.type(screen.getByLabelText('본문'), '!')
+    await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+
+    expect(vi.mocked(client.issues.list).mock.calls.length).toBeGreaterThan(before)
+    vi.useRealTimers()
+  })
+
+  it('메모 본문 저장이 성공하면 목록을 다시 읽는다', async () => {
+    // MemoPanel이 MemoDetail에 내려보내는 onChanged={() => { void refresh() }}
+    // 한 줄이 지키는 배선이다 — 비우면(onChanged={() => {}}) 성공한 저장 뒤에도
+    // 목록이 낡은 채로 남는다. IssuePanel의 대칭 테스트와 짝이다.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const client = makeClient({}, { memos: [makeMemo({ id: 'm1', title: '배포 메모' })] })
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
+
+    const before = vi.mocked(client.memos.list).mock.calls.length
+    await userEvent.type(screen.getByLabelText('본문'), '!')
+    await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+
+    expect(vi.mocked(client.memos.list).mock.calls.length).toBeGreaterThan(before)
+    vi.useRealTimers()
+  })
+
+  it('삭제하면 상세가 접힌다', async () => {
+    // IssuePanel의 onDeleted={() => { onOpen(open.id); void refresh() }}에서
+    // onOpen(open.id) 한 줄이 지키는 배선이다 — 빠지면 지워진 항목의 상세가 그대로
+    // 열린 채 남는다.
+    //
+    // **이 테스트에서만 remove를 무력화한다.** 가짜 저장소가 실제처럼 행을 지우면
+    // 이어지는 refresh가 빈 목록을 물어와 컬랩스 effect(설계 §8, 아래 필터 테스트)가
+    // 우연히 대신 닫아준다 — 그러면 배선을 지워도 초록이라 아무것도 검증하지 못한다.
+    // 목록을 그대로 둬서 오직 이 명시적 호출만으로 닫히는지를 본다.
+    const client = makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] })
+    vi.mocked(client.issues.remove).mockImplementation(async () => {})
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+    expect(screen.getByRole('region', { name: 'Issues' })).toHaveClass('panel-expanded')
+
+    await userEvent.click(screen.getByRole('button', { name: '삭제' }))
+    await userEvent.click(screen.getByRole('button', { name: '정말 삭제?' }))
+
+    expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+  })
+
+  it('메모를 삭제하면 상세가 접힌다', async () => {
+    // MemoPanel의 onDeleted={() => { onOpen(open.id); void refresh() }}에서
+    // onOpen(open.id) 한 줄이 지키는 배선이다 — 빠지면 지워진 항목의 상세가 그대로
+    // 열린 채 남는다. IssuePanel의 대칭 테스트와 짝이고, remove를 무력화하는 이유도
+    // 같다(그쪽 주석 참고).
+    const client = makeClient({}, { memos: [makeMemo({ id: 'm1', title: '배포 메모' })] })
+    vi.mocked(client.memos.remove).mockImplementation(async () => {})
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
+    expect(screen.getByRole('region', { name: 'Memos' })).toHaveClass('panel-expanded')
+
+    await userEvent.click(screen.getByRole('button', { name: '삭제' }))
+    await userEvent.click(screen.getByRole('button', { name: '정말 삭제?' }))
+
+    expect(screen.getByRole('region', { name: 'Memos' })).not.toHaveClass('panel-expanded')
+  })
+
+  it('필터를 바꿔 열린 이슈가 목록에서 빠지면 상세가 접힌다', async () => {
+    // Task 3 리뷰가 이월한 자리(설계 §8) — IssuePanel의 컬랩스 effect
+    // (`if (openId && !open) onOpen(openId)`)가 지운다. repo 필터가 바뀌어 열려
+    //있던 이슈가 새로 읽은 목록에서 사라지면 상세를 접어야, 더 이상 존재하지 않는
+    // (또는 걸러진) 항목을 계속 그리지 않는다.
+    const client = makeClient({}, {
+      repos: [makeRepo('r1', 'api', '/tmp/api')],
+      issues: [makeIssue({ id: 'i1', title: '토큰 만료' })]
+    })
+    // 첫 조회(마운트)는 이슈를 보여주고, repo 필터로 바뀐 뒤의 조회는 걸러져 빈
+    // 목록을 돌려준다 — 이 fake의 list()는 인자의 repoId를 실제로 걸러내지 않으므로
+    // 여기서 순서로 흉내낸다.
+    vi.mocked(client.issues.list)
+      .mockResolvedValueOnce([makeIssue({ id: 'i1', title: '토큰 만료' })])
+      .mockResolvedValue([])
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+    expect(screen.getByRole('region', { name: 'Issues' })).toHaveClass('panel-expanded')
+
+    // repo 카드 버튼에는 aria-label이 없어 접근성 이름이 이름+경로를 이어붙인 값이
+    // 되고, 옆의 "api 맥락에 담기" 버튼과 접두어가 겹친다 — role 쿼리로 모호해지는
+    // 것을 피해 DOM으로 직접 집는다.
+    const repoCard = document.querySelector('.repo-card')
+    if (!repoCard) throw new Error('repo-card 버튼을 찾지 못했습니다')
+    fireEvent.click(repoCard)
+
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+    })
+  })
+
+  it('필터를 바꿔 열린 메모가 목록에서 빠지면 상세가 접힌다', async () => {
+    // Task 3 리뷰가 이월한 자리(설계 §8) — MemoPanel의 컬랩스 effect
+    // (`if (openId && !open) onOpen(openId)`)가 지운다. repo 필터가 바뀌어 열려
+    // 있던 메모가 새로 읽은 목록에서 사라지면 상세를 접어야, 더 이상 존재하지 않는
+    // (또는 걸러진) 항목을 계속 그리지 않는다. IssuePanel의 대칭 테스트와 짝이다.
+    const client = makeClient({}, {
+      repos: [makeRepo('r1', 'api', '/tmp/api')],
+      memos: [makeMemo({ id: 'm1', title: '배포 메모' })]
+    })
+    // 첫 조회(마운트)는 메모를 보여주고, repo 필터로 바뀐 뒤의 조회는 걸러져 빈
+    // 목록을 돌려준다 — 이 fake의 list()는 인자의 repoId를 실제로 걸러내지 않으므로
+    // 여기서 순서로 흉내낸다.
+    vi.mocked(client.memos.list)
+      .mockResolvedValueOnce([makeMemo({ id: 'm1', title: '배포 메모' })])
+      .mockResolvedValue([])
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
+    expect(screen.getByRole('region', { name: 'Memos' })).toHaveClass('panel-expanded')
+
+    // repo 카드 버튼에는 aria-label이 없어 접근성 이름이 이름+경로를 이어붙인 값이
+    // 되고, 옆의 "api 맥락에 담기" 버튼과 접두어가 겹친다 — role 쿼리로 모호해지는
+    // 것을 피해 DOM으로 직접 집는다.
+    const repoCard = document.querySelector('.repo-card')
+    if (!repoCard) throw new Error('repo-card 버튼을 찾지 못했습니다')
+    fireEvent.click(repoCard)
+
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: 'Memos' })).not.toHaveClass('panel-expanded')
+    })
   })
 })

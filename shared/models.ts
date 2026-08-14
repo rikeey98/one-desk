@@ -75,6 +75,20 @@ export interface UpdateIssueInput {
   repoIds?: string[]
 }
 
+/**
+ * 낙관적 잠금을 쓰는 갱신 (설계 §6). 사람의 편집 화면만 쓴다.
+ * agent(MCP)는 잠기지 않는 `update`를 그대로 쓴다.
+ */
+export interface GuardedUpdateIssueInput extends UpdateIssueInput {
+  /** 화면이 마지막으로 읽은 updatedAt. 이것과 다르면 저장하지 않는다. */
+  expectedUpdatedAt: number
+}
+
+/** 충돌은 던지지 않고 값으로 온다 — preload가 오류 클래스를 벗겨내기 때문이다. */
+export type IssueUpdateResult =
+  | { ok: true; issue: Issue }
+  | { ok: false; current: Issue }
+
 export interface CreateMemoInput {
   workspaceId: string
   title: string
@@ -88,6 +102,14 @@ export interface UpdateMemoInput {
   body?: string
   repoIds?: string[]
 }
+
+export interface GuardedUpdateMemoInput extends UpdateMemoInput {
+  expectedUpdatedAt: number
+}
+
+export type MemoUpdateResult =
+  | { ok: true; memo: Memo }
+  | { ok: false; current: Memo }
 
 /** repoId가 주어지면 그 repo에 태그된 항목 + 태그가 없는 공통 항목을 함께 반환한다 (설계 §9). */
 export interface ListQuery {

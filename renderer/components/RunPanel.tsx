@@ -196,7 +196,7 @@ export function RunPanel({
       </div>
 
       <div className="run-chips">
-        {chips.length === 0 && <span className="dock-empty">왼쪽에서 항목을 눌러 맥락을 담으세요</span>}
+        {chips.length === 0 && <span className="dock-empty">왼쪽 항목의 ＋를 눌러 맥락을 담으세요</span>}
         {chips.map((chip) => (
           <button
             key={`${chip.type}:${chip.id}`}
