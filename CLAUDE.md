@@ -4,20 +4,21 @@ workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 
 
 **현재 상태:** 4단계 완료(MCP 서버 — 호스트/도구 아홉 개/권한별 등록/커맨드 배선), `main`에 병합됨(`a19b4fd`). 이슈·메모 본문 편집(설계 `2026-08-14-issue-memo-body-design.md`)도 `main`에 병합됨(`c91438e`) — 저장소의 `updateIfUnchanged`로 낙관적 잠금, 선택한 패널이 커지는 동적 3컬럼, 맥락 담기와 열기 분리, `IssueDetail`·`MemoDetail` 본문 편집기, 그리고 `e2e/body.e2e.ts`가 IPC 왕복(`client.issues.updateIfUnchanged` → preload → `ipcMain.handle` → 저장소)을 실제로 검증한다. **상태 편집은 상세에만 있다** — 목록의 상태 칩은 읽기 전용 배지다(§5·§9). 3b 리뷰가 4단계로 이월한 것 둘 다 해소됐다: `core/`의 `console.error`가 주입식 `onError`로 바뀌었고, `resume`의 catch는 DB 장애를 더 이상 뭉개지 않는다.
 
-다음은 5단계(OpenCode 어댑터 · asset 스캔 · diff 뷰어)이고, 착수 전에 아래 "환경변수" 절을 먼저 정해야 한다. 본문 작업이 넷으로 쪼갠 것 중 첫째였으므로 나머지 셋(마크다운 렌더링 · 검색/필터/정렬 · run 완료 구독)도 후보로 남아 있다.
+**릴리스 파이프라인**(설계 `2026-08-14-release-pipeline-design.md`)이 붙었다. `v*` 태그를 밀면 GitHub Actions가 세 러너에서 각각 빌드해 draft 릴리스에 산출물을 올린다 — `.dmg`(arm64) · portable `.exe`(x64) · `.AppImage`(x64). **네이티브 모듈 때문에 크로스 컴파일은 불가능하다** — `better-sqlite3`를 각 러너에서 그 플랫폼의 Electron ABI에 맞춰 컴파일한다. Windows 러너는 `windows-2022`로 고정돼 있다(최신 이미지의 Visual Studio 18을 node-gyp가 못 읽는다).
 
-## 5단계 착수 전에 정할 것 — agent 프로세스의 환경변수
+같은 작업에서 **Windows 실행 경로**가 처음으로 열렸다. 실행 파일 탐색이 `core/runner/executable.ts`로 떨어져 나와 `PATHEXT`와 폴백 디렉토리를 다루고, `.cmd` 설치본은 preflight가 명확한 메시지로 거부한다. 그 과정에서 로그 스트림의 미처리 오류가 메인 프로세스를 죽이던 결함도 잡혔다.
 
-**설계 문서에 인증 이야기가 한 줄도 없다.** 지금 어댑터는 `env: { ...process.env }`로 프로세스 환경을 통째로 물려주고 인증은 `claude` CLI에 맡긴다(`~/.claude/.credentials.json`). 터미널에서 `pnpm dev`로 띄우는 동안에는 셸 환경이 그대로 흘러가 아무 문제가 없다.
+다음은 5단계(OpenCode 어댑터 · asset 스캔 · diff 뷰어)다. **착수를 막던 환경변수 결정은 해소됐다**(아래 절). 본문 작업이 넷으로 쪼갠 것 중 첫째였으므로 나머지 셋(마크다운 렌더링 · 검색/필터/정렬 · run 완료 구독)도 후보로 남아 있다.
 
-**`pnpm run pack`으로 만든 앱을 Finder/Dock에서 실행하면 그 가정이 깨진다.** macOS의 GUI 앱은 launchd의 최소 환경만 받아 `.zshrc`가 export한 것이 하나도 안 들어온다. 둘이 동시에 깨진다.
+## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
-- **실행 파일 탐색** — `findExecutable`이 `process.env.PATH`를 뒤지는데 거기 `/usr/bin:/bin` 정도만 있어 `claude`를 못 찾고 모든 run이 프리플라이트 실패로 끝난다. **탈출구는 있다** — workspace 설정의 `claudePath`에 절대 경로를 박으면 된다.
-- **환경변수** — **탈출구가 없다.** `Workspace` 스키마에는 `claudePath`/`opencodePath`/모델/권한뿐이고 env를 담을 자리가 없다. AWS Bedrock으로 도는 환경(`CLAUDE_CODE_USE_BEDROCK=1`, `AWS_REGION`, `AWS_PROFILE`)은 패키징된 앱에서 그 값을 전달할 방법이 아예 없다. 모델 ID는 workspace 기본 모델이 `--model`로 넘어가므로 그쪽은 이미 통한다.
+한동안 "5단계 착수 전에 정할 것"으로 잡아두고 **평문 SQLite에 자격 증명을 넣을지**를 막힌 결정으로 남겼던 항목이다. 대상 환경을 실측해 보니 **배관 자체가 불필요했다.**
 
-**유력한 방향:** `Workspace`에 `env: Record<string, string>`을 더하고 어댑터가 `{ ...process.env, ...workspace.env }`로 병합한다. Bedrock·Vertex·프록시·사내 게이트웨이가 같은 통로로 풀리고, 실행 파일 경로가 이미 workspace 단위인 것과 결이 맞는다.
+**Windows GUI 앱은 사용자·시스템 환경변수를 정상적으로 물려받는다.** macOS의 launchd와 다르다. 실측한 환경에서 Bedrock에 필요한 변수 셋(사용 플래그·사내 게이트웨이 주소·사설 CA 번들 경로)이 모두 사용자 범위에 영구 등록돼 있었고, 어댑터의 `env: { ...process.env }`가 그대로 넘긴다.
 
-**막힌 결정:** 값에 자격 증명이 들어가는데 **SQLite 파일은 암호화가 없다.** `AWS_PROFILE`처럼 이름만 넣고 실제 키는 `~/.aws/credentials`에 두게 유도하는 편이 안전하지만, 규약으로 강제할 수 없다. 평문 저장을 허용할지 / Keychain을 쓸지 / 이름만 받는 화이트리스트로 좁힐지를 먼저 정해야 한다.
+자격 증명도 문제가 아니다. `aws sso login`이 받은 토큰은 `~/.aws/sso/cache/`에 **파일로** 저장되고 Claude Code 안의 AWS SDK가 직접 읽는다 — **앱이 자격 증명을 손에 쥘 일이 없어** 저장 위치를 정할 필요가 없다.
+
+**macOS에서는 여전히 미해결이다.** launchd가 최소 환경만 주므로, macOS에서 Bedrock을 쓰려는 사람이 나오면 그때 `Workspace.env`나 로그인 셸 환경 가져오기를 검토한다. 실행 파일 탐색은 `core/runner/executable.ts`의 폴백이 세 OS 모두에서 해결했다.
 
 **4단계 리뷰가 5단계로 이월한 것 (전부 비차단):** `core/execution.ts`가 `serverName: MCP_SERVER_NAME`을 넘기는 한 줄이 어떤 테스트로도 묶여 있지 않다 — 다른 리터럴로 바꿔도 단위·e2e 모두 초록이다(가짜 CLI가 `--allowedTools`를 보지 않는다). `core/mcp/host.ts`의 listen 후 error 리스너 교체(M-7)와 헤더 전송 후 오류의 `res.end()`(M-8)는 고쳤지만 전용 테스트가 없다 — 결정적으로 재현하려면 서버 핸들을 밖으로 빼는 이음매가 필요하다.
 
@@ -35,6 +36,7 @@ pnpm typecheck    # tsc --build
 pnpm lint         # eslint
 pnpm db:generate  # Drizzle 마이그레이션 생성
 pnpm run pack     # 패키징 (pnpm pack은 내장 명령이라 다름 — run을 빼지 말 것)
+gh workflow run release.yml   # 3플랫폼 산출물을 손으로 빌드 (태그 없이)
 ```
 
 ## 절대 지켜야 할 경계 세 가지
@@ -92,6 +94,18 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **성공한 저장이 기대값(`expected.current`)을 갱신하지 않으면 두 번째 저장이 자기 자신과 충돌한다.** `IssueDetail`/`MemoDetail`의 `persist()`는 매 성공 응답의 `result.issue.updatedAt`(또는 `memo`)으로 `expected.current`를 다시 세운다 — 안 하면 디바운스로 이어지는 다음 자동 저장이 이미 낡은 `expectedUpdatedAt`을 들고 가 스스로와 충돌 배너를 띄운다.
 
+**`node:path`의 기본 `join`은 실행 중인 OS를 따른다.** macOS에서 `join('C:\\bin', 'claude.exe')`는 `C:\bin/claude.exe`가 되고, posix로 `C:\...`를 PATH 구분자(`:`)로 쪼개면 경로가 두 동강 난다. Windows 경로 규칙을 다루는 코드는 `win32`/`posix` 변형을 **platform 인자로** 골라야 개발 장비에서 검증할 수 있다(`core/runner/executable.ts`). 반대로 **진짜 파일을 만들어 탐색시키는 테스트는 호스트 플랫폼을 그대로 써야 한다** — 실제 경로에 다른 플랫폼 규칙을 씌우면 검증하려던 것과 다른 것을 보게 된다.
+
+**`access(path, X_OK)`는 Windows에서 실행 권한을 보지 않는다.** 파일시스템에 그 개념이 없어 존재 여부(`F_OK`)처럼 동작한다. 그래서 Windows에서는 `PATHEXT` 확장자를 붙인 후보만 만들고 확장자 없는 이름은 아예 제외한다 — 만들면 npm이 Git Bash용으로 함께 까는 sh 스크립트를 실행 파일로 골라버린다.
+
+**`.cmd`/`.bat`는 `shell: true` 없이 spawn하면 `EINVAL`이다**(Node 18.20.2+ / 20.12.2+, CVE-2024-27980). shell을 켜면 인자가 cmd.exe의 인용 규칙을 타고, `terminate`가 죽이는 대상이 cmd.exe 껍데기가 되어 취소가 자식에 닿지 않는다. 그래서 켜지 않고 **preflight가 거부한다** — npm 전역 설치 대신 네이티브 설치 스크립트(`claude.exe`)를 쓰게 안내한다.
+
+**`createWriteStream`의 open은 비동기다 — `error` 리스너가 없으면 앱이 죽는다.** `mkdirSync`가 방금 만든 디렉토리라도 그 사이에 사라질 수 있고, 디스크가 차거나 권한이 막혀도 실패한다. 리스너가 없으면 처리되지 않은 예외가 되어 Electron 메인 프로세스가 통째로 내려간다. `core/runner/logWriter.ts`가 이를 `ErrorSink`로 흘려보내고, 실패한 뒤 `close()`가 매달리지 않게 한다(매달리면 run이 안 끝나 동시 실행 슬롯이 영영 점유된다).
+
+**`productName`이 사용자 데이터 위치를 정한다 — `appId`가 아니다.** Electron은 `userData`를 `appData` + 앱 이름으로 만들고 앱 이름은 `productName`을 우선한다. `electron-builder.yml`의 `productName: one-desk`를 보기 좋게 바꾸면 기존 사용자의 DB 디렉토리를 앱이 더 이상 보지 않는다.
+
+**ad-hoc 서명(`identity: '-'`)은 hardened runtime의 라이브러리 검증에 걸린다.** Team ID가 없어 Electron Framework조차 로드되지 않고 앱이 아예 안 뜬다 — `build/entitlements.mac.plist`의 `com.apple.security.cs.disable-library-validation`이 그것을 푼다. **설정이 문법에 맞는 것과 앱이 열리는 것은 다르다** — DMG를 실제로 열어봐야만 드러난다.
+
 ## 데이터 규칙
 
 - **시각은 전부 epoch milliseconds 정수.** `Date.now()`로 명시 삽입한다. 스키마의 `unixepoch() * 1000` 기본값은 해상도가 초라서 같은 초에 만든 항목들의 정렬이 무너진다.
@@ -124,5 +138,7 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 | `docs/superpowers/plans/2026-08-13-stage4-mcp.md` | 4단계 구현 계획 (완료, 8개 태스크) |
 | `docs/superpowers/specs/2026-08-14-issue-memo-body-design.md` | 이슈·메모 본문 편집 설계 — 낙관적 잠금, 동적 3컬럼, 맥락 담기/열기 분리, 범위와 "빠지는 것"(§2) |
 | `docs/superpowers/plans/2026-08-14-issue-memo-body.md` | 이슈·메모 본문 편집 구현 계획 (완료, 7개 태스크) |
+| `docs/superpowers/specs/2026-08-14-release-pipeline-design.md` | 릴리스 파이프라인 설계 — 3플랫폼 빌드, Windows 실행 경로, 서명 |
+| `docs/superpowers/plans/2026-08-14-release-pipeline.md` | 릴리스 파이프라인 구현 계획 (5개 태스크) |
 
 **설계 문서의 결정을 코드에서 임의로 바꾸지 않는다.** 설계에 구멍이 보이면 고치지 말고 지적할 것 — 그게 더 값지다.
