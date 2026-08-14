@@ -5,6 +5,7 @@ import type { RunEvent, RunEventInit } from '@shared/events'
 import type { AgentAdapter, McpRunConfig } from './types'
 import { createLineSplitter } from './stream'
 import { createLogWriter } from './logWriter'
+import type { ErrorSink } from '../errors'
 
 /** SIGTERM 후 SIGKILL까지의 유예 */
 const KILL_GRACE_MS = 3000
@@ -14,6 +15,14 @@ export interface RunManagerOptions {
   /** 로그 루트. 실제 파일은 <logDir>/<runId>/stream.jsonl */
   logDir: string
   onEvent: (event: RunEvent) => void
+  /**
+   * 로그 파일을 열지 못했을 때처럼, 삼킬 수밖에 없는 오류가 나가는 곳.
+   *
+   * **선택 인자가 아닌 이유:** 기본값을 두면 core/index.ts가 이 값을 넘기는
+   * 배선 한 줄을 지워도 조용히 컴파일된다. 오류가 앱의 sink 대신 stderr로
+   * 새는데 어떤 테스트도 빨개지지 않는다. 필수로 두면 typecheck가 막는다.
+   */
+  onError: ErrorSink
 }
 
 export interface StartSpec {
@@ -83,7 +92,7 @@ export function createRunManager(opts: RunManagerOptions) {
     const args = spec.extraArgs ? [...spec.extraArgs, ...built.args] : built.args
 
     const logPath = logPathFor(spec.runId)
-    const log = createLogWriter(logPath)
+    const log = createLogWriter(logPath, opts.onError)
 
     let seq = 0
     let sessionId: string | null = null

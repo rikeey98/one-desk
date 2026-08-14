@@ -1,5 +1,31 @@
+appId: com.rikeey98.one-desk
+# 지금의 실효 앱 이름과 정확히 같아야 한다. Electron은 userData를
+# appData + 앱 이름으로 만들고 앱 이름은 productName을 우선하므로,
+# 이 값을 바꾸면 기존 사용자 데이터 디렉토리를 더 이상 보지 않는다.
+productName: one-desk
+
+# electron/main.ts가 app.isPackaged일 때 process.resourcesPath에서
+# 마이그레이션을 찾는다.
 extraResources:
   - from: drizzle
     to: drizzle
+# 네이티브 .node는 asar 안에서 로드되지 않는다.
 asarUnpack:
   - '**/node_modules/better-sqlite3/**'
+
+mac:
+  target: dmg
+  # 유료 인증서 없이 Apple Silicon에서 실행되려면 ad-hoc 서명이 필요하다.
+  # identity를 비우면 electron-builder가 링커의 ad-hoc 서명을 깨뜨린 채로
+  # 두어 "앱이 손상되었습니다"가 뜨고, 이것은 xattr로 풀리지 않는다.
+  identity: '-'
+  artifactName: ${name}-${version}-${arch}.${ext}
+
+win:
+  target: portable
+  artifactName: ${name}-${version}-${arch}.${ext}
+
+linux:
+  target: AppImage
+  category: Development
+  artifactName: ${name}-${version}-${arch}.${ext}

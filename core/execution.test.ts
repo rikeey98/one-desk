@@ -15,7 +15,7 @@ import { createExecutionService } from './execution'
 import type { Run } from '@shared/models'
 import type { PreflightResult } from './runner/types'
 import type { McpHost } from './mcp/host'
-import type { ErrorSink } from './errors'
+import { consoleErrorSink, type ErrorSink } from './errors'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FAKE = resolve(HERE, 'runner/fixtures/fake-claude.mjs')
@@ -46,7 +46,8 @@ function setup(options: SetupOptions = {}) {
   const manager = options.manager ?? createRunManager({
     adapters: { 'claude-code': claudeCodeAdapter, opencode: claudeCodeAdapter },
     logDir,
-    onEvent: () => {}
+    onEvent: () => {},
+    onError: consoleErrorSink
   })
   const queue = createRunQueue({ limit: options.limit ?? 3 })
   const service = createExecutionService({

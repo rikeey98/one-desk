@@ -1,10 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createRunManager } from './manager'
 import { claudeCodeAdapter } from './adapters/claudeCode'
+import { consoleErrorSink } from '../errors'
 import type { RunEvent } from '@shared/events'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -16,7 +17,8 @@ function makeManager() {
   const manager = createRunManager({
     adapters: { 'claude-code': claudeCodeAdapter, opencode: claudeCodeAdapter },
     logDir: dir,
-    onEvent: (e) => events.push(e)
+    onEvent: (e) => events.push(e),
+    onError: consoleErrorSink
   })
   return { manager, events, dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
 }
@@ -142,5 +144,28 @@ describe('RunManager', () => {
     const outcome = await manager.start(spec('success'))
     expect(manager.logPathFor('r-success')).toBe(outcome.logPath)
     cleanup()
+  })
+
+  it('로그 파일을 열지 못해도 run은 끝나고, 오류는 onError로 나간다', async () => {
+    // 로그 스트림의 open은 비동기다. 리스너가 없으면 처리되지 않은 예외가 되어
+    // Electron 메인 프로세스가 죽는다. 여기서는 그 실패가 (1) run을 죽이지
+    // 않고 (2) onError로 나가는 것을 본다 — manager가 logWriter에 sink를
+    // 건네는 한 줄이 이 단언에 걸려 있다.
+    const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-run-'))
+    const errors: string[] = []
+    const manager = createRunManager({
+      adapters: { 'claude-code': claudeCodeAdapter, opencode: claudeCodeAdapter },
+      logDir: dir,
+      onEvent: () => {},
+      onError: (message) => errors.push(message)
+    })
+    // 로그 파일이 놓일 자리에 같은 이름의 디렉토리를 미리 만들어 둔다.
+    mkdirSync(manager.logPathFor('r-success'), { recursive: true })
+
+    const outcome = await manager.start(spec('success'))
+
+    expect(outcome.status).toBe('succeeded')
+    expect(errors.some((m) => m.includes('run 로그를 쓸 수 없습니다'))).toBe(true)
+    rmSync(dir, { recursive: true, force: true })
   })
 })

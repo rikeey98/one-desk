@@ -1,7 +1,7 @@
 import { access, constants } from 'node:fs/promises'
-import { delimiter, join } from 'node:path'
 import type { AgentAdapter, PreflightResult, ResolvedRunSpec, SpawnSpec } from '../types'
 import { claudeCodePermissionArgs } from '../permission'
+import { findExecutable, isBatchShim, type LookupOptions } from '../executable'
 import type { RunEventInit, ToolEffect } from '@shared/events'
 
 type RawEvent = RunEventInit
@@ -51,40 +51,45 @@ function stripNeedsAnswer(raw: string): { text: string; marked: boolean } {
   return { text: trimmed.slice(NEEDS_ANSWER_MARK.length).trimStart(), marked: true }
 }
 
-async function findExecutable(name: string): Promise<string | null> {
-  const paths = (process.env['PATH'] ?? '').split(delimiter).filter(Boolean)
-  for (const dir of paths) {
-    const candidate = join(dir, name)
-    try {
-      await access(candidate, constants.X_OK)
-      return candidate
-    } catch {
-      // 다음 후보
-    }
-  }
-  return null
-}
+/**
+ * .cmd/.bat는 shell 없이 spawn할 수 없고(EINVAL), shell을 켜면 인용과 취소가
+ * 함께 깨진다. 암호 같은 EINVAL 대신 행동 가능한 안내를 준다.
+ */
+const BATCH_SHIM_REASON =
+  'claude.cmd는 직접 실행할 수 없습니다. 네이티브 설치 스크립트로 claude.exe를 설치하거나, workspace 설정에 claude.exe의 절대 경로를 지정하세요.'
 
-export const claudeCodeAdapter: AgentAdapter = {
+// `: AgentAdapter`가 아니라 `satisfies`인 이유: preflight의 두 번째 인자(opts)는
+// 테스트가 platform과 env를 넣는 이음매다. 인터페이스로 표기하면 그 인자가
+// 타입에서 잘려 테스트가 부를 수 없고, 인터페이스에 얹으면 OpenCode 어댑터까지
+// 번진다. satisfies는 계약을 지키면서 구체 타입의 추가 인자를 남긴다.
+export const claudeCodeAdapter = {
   kind: 'claude-code',
 
-  async preflight(explicitPath: string | null): Promise<PreflightResult> {
+  async preflight(explicitPath: string | null, opts: LookupOptions = {}): Promise<PreflightResult> {
+    let executable: string
     if (explicitPath) {
       try {
         await access(explicitPath, constants.X_OK)
-        return { ok: true, executable: explicitPath }
       } catch {
         return { ok: false, reason: `설정된 경로에서 실행할 수 없습니다: ${explicitPath}` }
       }
-    }
-    const found = await findExecutable('claude')
-    if (!found) {
-      return {
-        ok: false,
-        reason: 'PATH에서 claude 실행 파일을 찾을 수 없습니다. workspace 설정에서 경로를 지정하세요.'
+      executable = explicitPath
+    } else {
+      const found = await findExecutable('claude', opts)
+      if (!found) {
+        return {
+          ok: false,
+          reason:
+            'PATH에서 claude 실행 파일을 찾을 수 없습니다. workspace 설정에서 경로를 지정하세요.'
+        }
       }
+      executable = found
     }
-    return { ok: true, executable: found }
+    // 배치 shim 판별은 두 경로가 합류한 뒤 한 번만 한다. 명시 경로와 탐색
+    // 결과에 따로 두면 한쪽이 조용히 빠져도 테스트가 못 잡는다 —
+    // 탐색 쪽은 개발 장비(macOS)에서 .cmd 경로를 만들 방법이 없기 때문이다.
+    if (isBatchShim(executable)) return { ok: false, reason: BATCH_SHIM_REASON }
+    return { ok: true, executable }
   },
 
   buildCommand(spec: ResolvedRunSpec): SpawnSpec {
@@ -191,4 +196,4 @@ export const claudeCodeAdapter: AgentAdapter = {
         return []
     }
   }
-}
+} satisfies AgentAdapter

@@ -6,11 +6,20 @@ import { MCP_SERVER_NAME, writeMcpConfig, removeMcpConfig, clearMcpConfigs } fro
 
 let dir: string
 
+/**
+ * Windows에는 POSIX 권한 비트가 없다. chmod는 읽기 전용 플래그만 건드리고
+ * statSync().mode는 늘 0o666 계열을 돌려주므로 0600 단언이 성립하지 않는다.
+ *
+ * **이 스킵은 Windows에서 토큰 파일이 권한으로 보호되지 않는다는 뜻이다.**
+ * 그곳에서는 사용자별 임시 디렉토리의 ACL에 기대고 있다.
+ */
+const POSIX_ONLY = process.platform === 'win32'
+
 beforeEach(() => { dir = mkdtempSync(resolve(tmpdir(), 'one-desk-mcpcfg-')) })
 afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
 
 describe('writeMcpConfig', () => {
-  it('소유자만 읽을 수 있는 파일을 만든다', () => {
+  it.skipIf(POSIX_ONLY)('소유자만 읽을 수 있는 파일을 만든다', () => {
     // 이 파일에 토큰이 그대로 들어 있다. 다른 사용자가 읽으면 workspace가 열린다.
     const file = writeMcpConfig(join(dir, 'mcp'), 'run-1', 'http://127.0.0.1:1/mcp', 'tok')
     expect(statSync(file).mode & 0o777).toBe(0o600)
@@ -31,7 +40,7 @@ describe('writeMcpConfig', () => {
     expect(Object.keys(parsed.mcpServers)).toEqual([MCP_SERVER_NAME])
   })
 
-  it('mode 옵션만으로는 안 되는 경우까지 chmodSync로 0600을 강제한다', () => {
+  it.skipIf(POSIX_ONLY)('mode 옵션만으로는 안 되는 경우까지 chmodSync로 0600을 강제한다', () => {
     // writeFileSync의 mode는 파일을 "새로" 만들 때만 적용된다. 이미 존재하는
     // (예: 이전 비정상 종료가 남긴) 파일을 다시 쓰면 mode 옵션은 무시되고
     // 기존 권한이 그대로 남는다 — chmodSync가 없으면 이 테스트가 빨개진다.
