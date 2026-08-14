@@ -3,3 +3,7 @@
 "BASE_URL User: " + [Environment]::GetEnvironmentVariable("ANTHROPIC_BEDROCK_BASE_URL","User"); "BASE_URL Machine: " + [Environment]::GetEnvironmentVariable("ANTHROPIC_BEDROCK_BASE_URL","Machine"); "CA User: " + [Environment]::GetEnvironmentVariable("AWS_CA_BUNDLE","User"); "CA Machine: " + [Environment]::GetEnvironmentVariable("AWS_CA_BUNDLE","Machine")
 
 (Get-ChildItem Env: | ? { $_.Name -match "PROXY|proxy" }) | Format-Table Name,Value -AutoSize
+
+$log = Get-ChildItem "$env:APPDATA\one-desk\logs" -Recurse -Filter stream.jsonl | Sort-Object LastWriteTime -Desc | Select-Object -First 1
+$log.FullName
+Get-Content $log.FullName | Select-String "mcp__onedesk"
