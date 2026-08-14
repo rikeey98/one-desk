@@ -9,6 +9,11 @@ productName: one-desk
 extraResources:
   - from: drizzle
     to: drizzle
+  # MCP stdio 브리지. claude가 자식 프로세스로 띄우는 원본 .mjs라 번들되지 않는다.
+  # asar 안에 두지 않는 이유: ELECTRON_RUN_AS_NODE로 띄운 프로세스가 asar 내부
+  # 경로를 실행할 수 있는지가 플랫폼마다 미묘하다. 그 불확실성을 살 이유가 없다.
+  - from: core/mcp/bridge.mjs
+    to: mcp-bridge.mjs
 # 네이티브 .node는 asar 안에서 로드되지 않는다.
 asarUnpack:
   - '**/node_modules/better-sqlite3/**'

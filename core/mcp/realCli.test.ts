@@ -12,6 +12,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import { makeTestDb } from '../db/repositories/testing'
@@ -38,7 +39,9 @@ beforeEach(() => {
       issues: createIssueRepository(db),
       memos: createMemoRepository(db)
     },
-    configDir: resolve(dir, 'mcp')
+    configDir: resolve(dir, 'mcp'),
+    execPath: process.execPath,
+    bridgePath: fileURLToPath(new URL('./bridge.mjs', import.meta.url))
   })
 })
 

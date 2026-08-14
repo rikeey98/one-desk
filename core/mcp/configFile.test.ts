@@ -15,26 +15,42 @@ let dir: string
  */
 const POSIX_ONLY = process.platform === 'win32'
 
+/** stdio 설정의 고정 부분. 테스트마다 url/token만 바꾼다. */
+function target(over: { url?: string; token?: string } = {}) {
+  return {
+    execPath: '/fake/electron',
+    bridgePath: '/fake/bridge.mjs',
+    url: over.url ?? 'http://127.0.0.1:1/mcp',
+    token: over.token ?? 'tok'
+  }
+}
+
 beforeEach(() => { dir = mkdtempSync(resolve(tmpdir(), 'one-desk-mcpcfg-')) })
 afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
 
 describe('writeMcpConfig', () => {
   it.skipIf(POSIX_ONLY)('소유자만 읽을 수 있는 파일을 만든다', () => {
     // 이 파일에 토큰이 그대로 들어 있다. 다른 사용자가 읽으면 workspace가 열린다.
-    const file = writeMcpConfig(join(dir, 'mcp'), 'run-1', 'http://127.0.0.1:1/mcp', 'tok')
+    const file = writeMcpConfig(join(dir, 'mcp'), 'run-1', target({ url: 'http://127.0.0.1:1/mcp', token: 'tok' }))
     expect(statSync(file).mode & 0o777).toBe(0o600)
   })
 
   it('CLI가 읽는 형식으로 토큰을 담는다', () => {
-    const file = writeMcpConfig(join(dir, 'mcp'), 'run-1', 'http://127.0.0.1:9/mcp', 'tok-abc')
+    const file = writeMcpConfig(join(dir, 'mcp'), 'run-1', target({ url: 'http://127.0.0.1:9/mcp', token: 'tok-abc' }))
     const parsed = JSON.parse(readFileSync(file, 'utf8'))
     // MCP_SERVER_NAME으로 접근한다 — 리터럴 'onedesk'를 쓰면 상수가 바뀌어도
     // 이 테스트는 여전히 초록이라 설정 파일의 키와 --allowedTools의 접두사가
     // 갈라지는 것을 못 잡는다 (전 브랜치 리뷰 I-1).
+    // stdio 전송이다 — claude가 브리지를 자식 프로세스로 띄운다. HTTP였을 때는
+    // 사내 프록시가 루프백 요청을 403으로 막아 이 환경에서 아예 붙지 못했다.
     expect(parsed.mcpServers[MCP_SERVER_NAME]).toEqual({
-      type: 'http',
-      url: 'http://127.0.0.1:9/mcp',
-      headers: { Authorization: 'Bearer tok-abc' }
+      command: '/fake/electron',
+      args: ['/fake/bridge.mjs'],
+      env: {
+        ELECTRON_RUN_AS_NODE: '1',
+        ONE_DESK_MCP_URL: 'http://127.0.0.1:9/mcp',
+        ONE_DESK_MCP_TOKEN: 'tok-abc'
+      }
     })
     // mcpServers에 다른 키가 섞여 있지 않은지도 함께 본다.
     expect(Object.keys(parsed.mcpServers)).toEqual([MCP_SERVER_NAME])
@@ -51,13 +67,13 @@ describe('writeMcpConfig', () => {
     chmodSync(file, 0o644)
     expect(statSync(file).mode & 0o777).toBe(0o644)
 
-    writeMcpConfig(mcpDir, 'run-2', 'http://127.0.0.1:1/mcp', 'tok')
+    writeMcpConfig(mcpDir, 'run-2', target({ url: 'http://127.0.0.1:1/mcp', token: 'tok' }))
     expect(statSync(file).mode & 0o777).toBe(0o600)
   })
 
   it('removeMcpConfig가 지우고, 없어도 던지지 않는다', () => {
     const mcpDir = join(dir, 'mcp')
-    const file = writeMcpConfig(mcpDir, 'run-1', 'http://127.0.0.1:1/mcp', 'tok')
+    const file = writeMcpConfig(mcpDir, 'run-1', target({ url: 'http://127.0.0.1:1/mcp', token: 'tok' }))
     removeMcpConfig(mcpDir, 'run-1')
     expect(existsSync(file)).toBe(false)
     expect(() => removeMcpConfig(mcpDir, 'run-1')).not.toThrow()
@@ -65,8 +81,8 @@ describe('writeMcpConfig', () => {
 
   it('clearMcpConfigs가 디렉토리째 치운다', () => {
     const mcpDir = join(dir, 'mcp')
-    writeMcpConfig(mcpDir, 'a', 'http://127.0.0.1:1/mcp', 't')
-    writeMcpConfig(mcpDir, 'b', 'http://127.0.0.1:1/mcp', 't')
+    writeMcpConfig(mcpDir, 'a', target({ url: 'http://127.0.0.1:1/mcp', token: 't' }))
+    writeMcpConfig(mcpDir, 'b', target({ url: 'http://127.0.0.1:1/mcp', token: 't' }))
     clearMcpConfigs(mcpDir)
     expect(existsSync(mcpDir)).toBe(false)
   })

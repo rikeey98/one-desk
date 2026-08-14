@@ -11,6 +11,18 @@ function resolveMigrationsDir(): string {
 }
 
 /**
+ * MCP stdio 브리지의 경로.
+ *
+ * claude가 이 파일을 자식 프로세스로 띄운다. 번들되지 않는 원본 `.mjs`라
+ * 마이그레이션과 같은 방식으로 패키징 시 위치가 달라진다.
+ */
+function resolveBridgePath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'mcp-bridge.mjs')
+    : join(app.getAppPath(), 'core/mcp/bridge.mjs')
+}
+
+/**
  * 실행 중인 창. run 이벤트를 webContents.send로 흘릴 때 쓴다.
  * 창이 닫히면 null이 되므로 호출자는 항상 존재 여부를 확인해야 한다.
  * export하지 않는다 — 필요한 곳에는 registerIpc로 주입한다(순환 import 방지).
@@ -98,6 +110,7 @@ if (dataDirError) {
       core = createCore({
         dataDir: app.getPath('userData'),
         migrationsDir: resolveMigrationsDir(),
+        bridgePath: resolveBridgePath(),
         // core는 목적지를 모른다. main이 정한다.
         onError: (message, err) => { console.error(message, err) }
       })

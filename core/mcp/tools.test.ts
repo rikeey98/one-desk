@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { makeTestDb } from '../db/repositories/testing'
 import { createRepoRepository } from '../db/repositories/repo'
@@ -47,7 +48,9 @@ beforeEach(() => {
     memoB: memos.create({ workspaceId: wsB, title: 'B의 메모', body: '메모 B' }).id,
     host: createMcpHost({
       deps: { repos, issues, memos },
-      configDir: resolve(dir, 'mcp')
+      configDir: resolve(dir, 'mcp'),
+    execPath: process.execPath,
+    bridgePath: fileURLToPath(new URL('./bridge.mjs', import.meta.url))
     })
   }
 })

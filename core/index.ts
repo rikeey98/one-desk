@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { openDb } from './db/open'
 import { createWorkspaceRepository } from './db/repositories/workspace'
 import { createRepoRepository } from './db/repositories/repo'
@@ -23,6 +24,15 @@ export interface CoreOptions {
   dataDir: string
   /** 마이그레이션 디렉토리 (패키징 시 위치가 달라진다) */
   migrationsDir: string
+  /**
+   * MCP stdio 브리지의 경로 (패키징 시 위치가 달라진다).
+   *
+   * 생략하면 `core/mcp/bridge.mjs`를 이 파일 기준으로 찾는다 — 테스트와
+   * `pnpm dev`가 그 경로로 돈다. 패키징된 앱은 main이 resourcesPath를 넘긴다.
+   */
+  bridgePath?: string
+  /** 브리지를 띄울 실행 파일. 기본은 현재 프로세스(패키징 앱에서는 Electron 바이너리). */
+  execPath?: string
   /** core가 삼킨 오류를 흘려보낼 곳. 기본은 stderr */
   onError?: ErrorSink
 }
@@ -50,10 +60,12 @@ export function createCore(opts: CoreOptions) {
   // 남아 있는 run은 이전 실행이 비정상 종료된 흔적이다.
   runs.reapStale()
 
-  // MCP 호스트는 만들기만 한다 — 포트는 첫 run이 열린다.
   const mcp = createMcpHost({
     deps: { repos, issues, memos },
     configDir: join(opts.dataDir, 'mcp'),
+    execPath: opts.execPath ?? process.execPath,
+    // 번들되지 않는 원본 .mjs다 — import.meta.url 기준으로 찾는다.
+    bridgePath: opts.bridgePath ?? fileURLToPath(new URL('./mcp/bridge.mjs', import.meta.url)),
     onError
   })
 

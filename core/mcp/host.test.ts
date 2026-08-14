@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { makeTestDb } from '../db/repositories/testing'
 import { createRepoRepository } from '../db/repositories/repo'
@@ -25,7 +26,9 @@ beforeEach(() => {
       issues: createIssueRepository(db),
       memos: createMemoRepository(db)
     },
-    configDir: resolve(dir, 'mcp')
+    configDir: resolve(dir, 'mcp'),
+    execPath: process.execPath,
+    bridgePath: fileURLToPath(new URL('./bridge.mjs', import.meta.url))
   })
 })
 

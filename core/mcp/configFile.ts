@@ -22,15 +22,32 @@ export const MCP_SERVER_NAME = 'one-desk'
  * 인자는 `ps aux`로 같은 머신의 다른 사용자에게 그대로 보인다. 0600 파일에 담고
  * 경로만 넘긴다.
  */
-export function writeMcpConfig(dir: string, runId: string, url: string, token: string): string {
+export interface McpConfigTarget {
+  /** 브리지를 띄울 실행 파일. 패키징된 앱에는 독립 node가 없어 Electron 바이너리를 쓴다. */
+  execPath: string
+  /** bridge.mjs의 절대 경로. */
+  bridgePath: string
+  url: string
+  token: string
+}
+
+export function writeMcpConfig(dir: string, runId: string, target: McpConfigTarget): string {
   mkdirSync(dir, { recursive: true, mode: 0o700 })
   const file = join(dir, `${runId}.json`)
+  // stdio 전송이다 — claude가 브리지를 자식 프로세스로 띄우고 표준입출력으로
+  // 대화한다. HTTP였을 때는 사내 프록시가 루프백 요청을 403으로 막아 이 환경에서
+  // 아예 붙지 못했다. stdio 구간에는 네트워크가 없어 프록시가 관여할 수 없다.
   const body = JSON.stringify({
     mcpServers: {
       [MCP_SERVER_NAME]: {
-        type: 'http',
-        url,
-        headers: { Authorization: `Bearer ${token}` }
+        command: target.execPath,
+        args: [target.bridgePath],
+        env: {
+          // Electron 바이너리를 순수 Node로 돌린다.
+          ELECTRON_RUN_AS_NODE: '1',
+          ONE_DESK_MCP_URL: target.url,
+          ONE_DESK_MCP_TOKEN: target.token
+        }
       }
     }
   })

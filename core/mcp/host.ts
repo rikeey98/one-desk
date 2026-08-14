@@ -28,6 +28,14 @@ export interface McpHostOptions {
   deps: McpHostDeps
   /** run별 설정 파일을 둘 디렉토리. Electron의 userData 아래를 main이 넘긴다. */
   configDir: string
+  /**
+   * stdio 브리지를 띄울 실행 파일과 스크립트 경로.
+   *
+   * `core/`는 `electron`을 import하지 않으므로 main이 계산해 넘긴다 —
+   * 마이그레이션 디렉토리와 같은 방식이다.
+   */
+  execPath: string
+  bridgePath: string
   onError?: ErrorSink
 }
 
@@ -133,7 +141,13 @@ export function createMcpHost(opts: McpHostOptions) {
       const token = randomBytes(32).toString('base64url')
       tokens.set(token, ctx)
       const url = `http://127.0.0.1:${port}/mcp`
-      return { token, url, configFile: writeMcpConfig(opts.configDir, ctx.runId, url, token) }
+      const configFile = writeMcpConfig(opts.configDir, ctx.runId, {
+        execPath: opts.execPath,
+        bridgePath: opts.bridgePath,
+        url,
+        token
+      })
+      return { token, url, configFile }
     },
 
     /**

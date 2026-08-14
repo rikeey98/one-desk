@@ -2,6 +2,7 @@
 // --mcp-config로 받은 설정 파일을 읽어 실제 MCP 호출로 이슈를 만든다.
 // 진짜 Claude Code가 하는 일 중 우리가 검증하고 싶은 부분만 흉내낸다.
 import { readFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
 
 function emit(obj) {
   process.stdout.write(`${JSON.stringify(obj)}\n`)
@@ -31,27 +32,35 @@ async function main() {
   // 유일한 값을 집는다 — 이름을 'onedesk'로 박아 뒀다가 MCP_SERVER_NAME이
   // 바뀌자 cfg가 undefined가 되어 e2e가 통째로 깨진 적이 있다.
   const cfg = Object.values(JSON.parse(readFileSync(configPath, 'utf8')).mcpServers)[0]
-  const res = await fetch(cfg.url, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      accept: 'application/json, text/event-stream',
-      ...cfg.headers
-    },
-    body: JSON.stringify({
+
+  // **진짜 claude가 하는 그대로 한다** — 브리지를 자식 프로세스로 띄우고
+  // stdio로 JSON-RPC를 주고받는다. HTTP로 직접 부르면 브리지가 통째로
+  // 검증에서 빠지는데, 지금은 그게 실행 경로의 전부다.
+  const message = await new Promise((done, fail) => {
+    const child = spawn(cfg.command, cfg.args, { env: { ...process.env, ...cfg.env } })
+    let buf = ''
+    const timer = setTimeout(() => fail(new Error('브리지가 응답하지 않았다')), 15000)
+    child.stdout.on('data', (chunk) => {
+      buf += chunk.toString('utf8')
+      const nl = buf.indexOf('\n')
+      if (nl === -1) return
+      clearTimeout(timer)
+      const line = buf.slice(0, nl)
+      child.kill()
+      try { done(JSON.parse(line)) } catch (err) { fail(err) }
+    })
+    child.on('error', fail)
+    child.stdin.write(`${JSON.stringify({
       jsonrpc: '2.0', id: 1, method: 'tools/call',
       params: { name: 'create_issue', arguments: { title: 'agent가 만든 이슈', body: 'MCP 경유' } }
-    })
+    })}\n`)
   })
 
-  const text = await res.text()
-  const line = text.split('\n').find((l) => l.startsWith('data:'))
-  const message = JSON.parse(line ? line.slice(5).trim() : text)
-  const ok = res.status === 200 && message.result && message.result.isError !== true
+  const ok = Boolean(message.result) && message.result.isError !== true
 
   emit({
     type: 'result', subtype: ok ? 'success' : 'error', is_error: !ok,
-    result: ok ? 'MCP로 이슈를 만들었다' : `MCP 실패: ${res.status} ${text.slice(0, 200)}`,
+    result: ok ? 'MCP로 이슈를 만들었다' : `MCP 실패: ${JSON.stringify(message).slice(0, 200)}`,
     session_id: 'fake-mcp-session'
   })
   process.exitCode = ok ? 0 : 1
