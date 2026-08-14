@@ -1,1 +1,3 @@
 "== where =="; where.exe claude; "== persisted =="; "User: " + [Environment]::GetEnvironmentVariable("CLAUDE_CODE_USE_BEDROCK","User"); "Machine: " + [Environment]::GetEnvironmentVariable("CLAUDE_CODE_USE_BEDROCK","Machine"); "== names only =="; (Get-ChildItem Env: | ? { $_.Name -match "CLAUDE|AWS|ANTHROPIC" }).Name
+
+"BASE_URL User: " + [Environment]::GetEnvironmentVariable("ANTHROPIC_BEDROCK_BASE_URL","User"); "BASE_URL Machine: " + [Environment]::GetEnvironmentVariable("ANTHROPIC_BEDROCK_BASE_URL","Machine"); "CA User: " + [Environment]::GetEnvironmentVariable("AWS_CA_BUNDLE","User"); "CA Machine: " + [Environment]::GetEnvironmentVariable("AWS_CA_BUNDLE","Machine")
