@@ -82,10 +82,14 @@ describe('openDb 백업', () => {
 
   it('크래시로 정상 종료되지 않아 WAL이 체크포인트되지 않았어도 백업에 전체 데이터가 담긴다', () => {
     const dir = makeTempDir()
+    // db1은 백업이 만들어지는 동안 열려 있어야 한다. 단언이 다 끝난 뒤에야
+    // 닫는다 — Windows는 열린 핸들이 있는 파일을 지우지 못해(EBUSY) 정리가
+    // 실패하고, 그러면 플랫폼 무관한 이 단언까지 같이 빨개진다.
+    let db1: ReturnType<typeof openDb> | null = null
     try {
       const file = join(dir, 'test.db')
 
-      const db1 = openDb({ file, migrationsDir: 'drizzle' })
+      db1 = openDb({ file, migrationsDir: 'drizzle' })
       db1.insert(workspace).values({ id: 'ws-1', name: '크래시 테스트' }).run()
       // 의도적으로 close()를 호출하지 않는다. better-sqlite3는 마지막 연결을
       // close()할 때 자동으로 체크포인트하므로, 정상 종료 시나리오만으로는
@@ -108,6 +112,7 @@ describe('openDb 백업', () => {
         backupDb.close()
       }
     } finally {
+      db1?.$client.close()
       rmSync(dir, { recursive: true, force: true })
     }
   })

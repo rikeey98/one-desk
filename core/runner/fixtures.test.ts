@@ -8,14 +8,21 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const FAKE = resolve(HERE, 'fixtures/fake-claude.mjs')
 const FAKE_MCP = resolve(HERE, 'fixtures/fake-claude-mcp.mjs')
 
-describe('fake-claude-mcp.mjs', () => {
+/**
+ * 이 픽스처들은 shebang이 달린 .mjs 파일이고, e2e가 실행 파일로 직접 spawn한다.
+ * Windows에는 실행 비트도 shebang 실행도 없어 두 검사 모두 성립하지 않는다.
+ * e2e(`pnpm test:e2e`)는 개발 장비에서만 도는 것이 전제이므로 여기서 스킵한다.
+ */
+const POSIX_ONLY = process.platform === 'win32'
+
+describe.skipIf(POSIX_ONLY)('fake-claude-mcp.mjs', () => {
   it('실행 권한을 갖는다', () => {
     // 앱은 이 파일을 executable로 spawn한다. preflight의 access(X_OK)가 먼저 막는다.
     expect(statSync(FAKE_MCP).mode & 0o111).toBeGreaterThan(0)
   })
 })
 
-describe('fake-claude.mjs', () => {
+describe.skipIf(POSIX_ONLY)('fake-claude.mjs', () => {
   it('실행 권한을 갖는다', () => {
     // 앱은 이 파일을 executable로 spawn한다. preflight의 access(X_OK)가 먼저 막는다.
     expect(statSync(FAKE).mode & 0o111).toBeGreaterThan(0)
