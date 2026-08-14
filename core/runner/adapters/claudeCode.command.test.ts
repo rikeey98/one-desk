@@ -107,3 +107,51 @@ describe('claudeCodeAdapter.buildCommand — MCP', () => {
     }
   })
 })
+
+describe('프록시 예외', () => {
+  function noProxyOf(over: Record<string, string | undefined>): string {
+    const saved = { NO_PROXY: process.env['NO_PROXY'], no_proxy: process.env['no_proxy'] }
+    try {
+      delete process.env['NO_PROXY']
+      delete process.env['no_proxy']
+      for (const [k, v] of Object.entries(over)) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+      return claudeCodeAdapter.buildCommand(spec()).env['NO_PROXY'] ?? ''
+    } finally {
+      for (const k of ['NO_PROXY', 'no_proxy']) delete process.env[k]
+      for (const [k, v] of Object.entries(saved)) if (v !== undefined) process.env[k] = v
+    }
+  }
+
+  it('NO_PROXY가 없어도 루프백을 넣는다', () => {
+    // MCP 서버는 항상 127.0.0.1이다. 사내 프록시가 잡힌 환경에서 이게 빠지면
+    // agent의 MCP 요청이 프록시로 나가 30초 뒤 타임아웃으로 죽는다.
+    const value = noProxyOf({}).split(',')
+    expect(value).toContain('127.0.0.1')
+    expect(value).toContain('localhost')
+  })
+
+  it('기존 NO_PROXY 항목을 지우지 않는다', () => {
+    const value = noProxyOf({ NO_PROXY: 'example.internal' }).split(',')
+    expect(value).toContain('example.internal')
+    expect(value).toContain('127.0.0.1')
+  })
+
+  it('소문자 no_proxy만 있어도 그 항목을 보존한다', () => {
+    const value = noProxyOf({ no_proxy: 'example.internal' }).split(',')
+    expect(value).toContain('example.internal')
+    expect(value).toContain('127.0.0.1')
+  })
+
+  it('이미 있는 루프백을 중복해 넣지 않는다', () => {
+    const value = noProxyOf({ NO_PROXY: '127.0.0.1' }).split(',')
+    expect(value.filter((h) => h === '127.0.0.1')).toHaveLength(1)
+  })
+
+  it('대소문자 두 키에 같은 값을 넣는다 — 도구마다 읽는 키가 다르다', () => {
+    const env = claudeCodeAdapter.buildCommand(spec()).env
+    expect(env['no_proxy']).toBe(env['NO_PROXY'])
+  })
+})

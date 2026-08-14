@@ -106,6 +106,8 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **`productName`이 사용자 데이터 위치를 정한다 — `appId`가 아니다.** Electron은 `userData`를 `appData` + 앱 이름으로 만들고 앱 이름은 `productName`을 우선한다. `electron-builder.yml`의 `productName: one-desk`를 보기 좋게 바꾸면 기존 사용자의 DB 디렉토리를 앱이 더 이상 보지 않는다.
 
+**사내 프록시가 잡힌 환경에서는 루프백을 예외로 못박아야 한다.** MCP 서버는 항상 `127.0.0.1`인데 `NO_PROXY`에 루프백이 빠져 있으면 agent의 MCP 요청이 프록시로 나가 30초 뒤 타임아웃으로 죽는다. **같은 포트에 `curl`은 401을 받는데 agent만 못 붙는 증상**으로 나타난다 — 그게 이 원인을 가리키는 신호다. `claudeCode.ts`의 `withLoopbackBypass`가 기존 값을 보존하며 `127.0.0.1`·`localhost`·`::1`을 더한다. NO_PROXY는 목적지만 정하므로 원격 호출에는 영향이 없다.
+
 **`execFileSync`는 이벤트 루프를 막는다 — 같은 프로세스의 서버를 죽인다.** MCP 서버가 붙어 있는 테스트에서 CLI를 동기로 띄우면 서버가 연결을 하나도 받지 못해 클라이언트가 30초 타임아웃으로 죽는다. **제품이 멀쩡한데 `status: failed`가 나온다.** 실제로 이 함정에 빠져 존재하지 않는 결함을 한참 쫓았다 — `core/mcp/realCli.test.ts`가 비동기 `spawn`을 쓰는 이유다.
 
 **픽스처에 서버 이름을 리터럴로 박지 않는다.** `fake-claude-mcp.mjs`가 `.mcpServers.onedesk`를 하드코딩하고 있어서 `MCP_SERVER_NAME`을 바꾸자 `cfg`가 `undefined`가 되고 e2e가 통째로 깨졌다. **단위 테스트 412개는 전부 초록이었다.** 지금은 `Object.values(...)[0]`로 유일한 값을 집는다.
