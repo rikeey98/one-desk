@@ -12,11 +12,13 @@
 
 **배포 대상은 소수의 동료·테스터다.** 이 전제가 서명 결정(유료 인증서 없음)과 릴리스 노트의 설치 안내를 결정한다.
 
+**첫 실검증 대상은 Windows다.** 개발은 macOS에서 했지만 실제로 받아서 쓸 환경이 Windows이고, `core/`에는 `process.platform` 분기가 하나도 없다 — Windows 실행 경로는 한 번도 돌아본 적이 없다. 그래서 이 작업의 무게중심은 빌드 파이프라인이 아니라 **Windows에서 run이 실제로 도는 것**에 있다(§5).
+
 ### 들어가는 것
 
 - `.github/workflows/release.yml` — 3개 러너 매트릭스, 태그 트리거 + 수동 실행
 - `electron-builder.yml` 채우기 — `appId`, `productName`, 플랫폼별 타겟, ad-hoc 서명
-- `findExecutable`의 흔한 설치 경로 폴백 (§5)
+- **`findExecutable`의 Windows 확장자 처리와 설치 경로 폴백 (§5)** — 이 작업의 핵심
 - 태그와 `package.json` 버전 불일치 검증 (§6)
 - 릴리스 노트의 고정 설치 안내 섹션 (§4)
 
@@ -32,7 +34,15 @@
 
 **CI에서의 e2e.** 지금까지 macOS에서만 돌던 Playwright+Electron e2e를 세 OS에 올리는 것은 별개의 작업이다. Linux에서는 xvfb가 필요하고, 새로 드러날 실패를 모두 잡아야 한다. 릴리스를 그것에 묶지 않는다.
 
-**`Workspace.env` (Bedrock 환경변수).** CLAUDE.md의 "5단계 착수 전에 정할 것"에 그대로 남는다. §5의 폴백은 실행 파일 탐색만 고치고 환경변수는 건드리지 않는다.
+**`Workspace.env` (Bedrock 환경변수) — 필요 없는 것으로 확인됐다.** CLAUDE.md가 "5단계 착수 전에 정할 것"으로 올려둔 항목이고, 평문 SQLite에 자격 증명을 넣을지가 막힌 결정이었다. **대상 Windows 환경을 실측해 보니 이 배관 자체가 불필요하다.**
+
+macOS의 launchd는 GUI 앱에 최소 환경만 주지만, **Windows GUI 앱은 사용자·시스템 환경변수를 정상적으로 물려받는다.** 실측한 환경에서 Bedrock에 필요한 변수 셋(사용 플래그, 사내 게이트웨이 주소, 사설 CA 번들 경로)이 모두 **사용자 범위에 영구 등록**돼 있었다. 어댑터가 `env: { ...process.env }`로 통째로 넘기므로 패키징된 앱에 그대로 흘러간다.
+
+자격 증명 자체도 문제가 되지 않는다. `aws sso login`이 받아온 토큰은 `~/.aws/sso/cache/`에 **파일로** 저장되고 Claude Code 안의 AWS SDK가 그 파일을 읽으므로, 프로세스를 어떻게 띄웠는지와 무관하다. **앱이 자격 증명을 손에 쥘 일이 없다** — 저장 위치를 고민할 필요도 없어진다.
+
+macOS에서 같은 문제를 만나면 그때 다시 연다. 그 환경에서는 여전히 미해결이다.
+
+**보안 메모:** 이 저장소는 public이다. 실측한 게이트웨이 주소와 CA 번들 경로는 내부 인프라 정보이므로 이 문서에 값을 적지 않는다. 변수 이름과 역할만 남긴다.
 
 ---
 
@@ -120,33 +130,59 @@ chmod +x one-desk-*.AppImage && ./one-desk-*.AppImage
 ## 첫 실행 전에
 Claude Code CLI가 설치되어 있어야 합니다.
 흔한 설치 위치는 자동으로 찾지만, 못 찾으면 workspace 설정의
-"claude 경로"에 `which claude` 결과를 붙여넣으세요.
+"claude 경로"에 실행 파일의 절대 경로를 붙여넣으세요.
+  macOS/Linux: which claude
+  Windows:     where.exe claude
 ```
 
 **설정만으로는 검증되지 않는다.** `identity: "-"`를 넣었다고 실행되는지는 알 수 없다. **CI가 만든 DMG를 실제로 내려받아 여는 것까지가 이 항목의 완료 조건이다.** 구현 계획에 별도 단계로 넣는다.
 
 ---
 
-## 5. `findExecutable` 폴백
+## 5. `findExecutable` — 이 작업의 핵심
 
-Finder/Dock에서 실행한 macOS 앱은 launchd의 최소 환경만 받는다. `.zshrc`가 export한 것은 하나도 들어오지 않고, `PATH`에는 `/usr/bin:/bin` 정도만 있다. 현재 `findExecutable`은 `process.env.PATH`만 보므로 `claude`를 찾지 못하고 **모든 run이 프리플라이트에서 실패한다.** Linux 데스크톱 런처도 같은 문제를 겪는다. Windows GUI 앱은 시스템·사용자 환경변수를 정상적으로 물려받으므로 해당 없다.
+현재 구현(`core/runner/adapters/claudeCode.ts:54-66`)은 `process.env.PATH`를 쪼개 `join(dir, 'claude')`를 `access(X_OK)`로 확인한다. **POSIX만 상정한 코드다.** `core/` 전체에 `process.platform` 분기가 하나도 없다.
 
-**기존 PATH 탐색을 먼저 하고, 실패했을 때만 폴백 디렉토리를 훑는다.** 개발 환경(`pnpm dev`)에서는 첫 탐색이 성공하므로 동작이 달라지지 않는다.
+### 5-1. Windows — 확장자를 안 붙인다
 
-폴백 목록 — 순서대로:
+Windows는 확장자로 실행 가능 여부를 정한다(`PATHEXT`). 실측한 대상 환경은 Claude Code 네이티브 설치 스크립트가 `%USERPROFILE%\.local\bin\claude.exe`에 깔아 두었고, PATH에도 그 디렉토리가 있다. 그런데 `join(dir, 'claude')`가 찾는 것은 확장자 없는 `claude`라서 **PATH에 있어도 못 찾는다.**
+
+한 겹 더 있다. `access(path, X_OK)`는 **Windows에서 실행 권한을 검사하지 않는다** — 파일 시스템에 그 개념이 없어 `F_OK`(존재 여부)처럼 동작한다. npm 전역 설치는 Git Bash용 확장자 없는 sh 스크립트를 함께 깔기 때문에, 그런 환경에서는 **bash 스크립트를 "실행 가능"으로 통과시키고 그 경로를 반환한다.** spawn은 당연히 실패한다.
+
+**따라서 Windows에서는 `PATHEXT`의 확장자를 붙인 후보만 검사하고, 확장자 없는 이름은 후보에서 제외한다.** `where.exe`와 같은 규칙이다.
+
+### 5-2. Windows — `.cmd`는 찾되 거부한다
+
+npm 전역 설치(`npm i -g @anthropic-ai/claude-code`)는 `claude.cmd`를 만든다. Node는 [CVE-2024-27980](https://nodejs.org/en/blog/vulnerability/april-2024-security-releases-2) 대응 이후 **`shell: true` 없이 `.cmd`/`.bat`를 spawn하면 `EINVAL`을 던진다**(18.20.2+ / 20.12.2+, 이 프로젝트는 Node 22).
+
+`shell: true`로 우회하지 않는다. 켜는 순간 두 가지가 따라온다 — 인자가 cmd.exe의 인용 규칙을 타므로 공백이 든 임시 경로(`--mcp-config`)가 깨질 수 있고, `manager.ts:185`의 `terminate`가 죽이는 대상이 cmd.exe 껍데기가 되어 **취소가 자식 프로세스에 닿지 않는다.** 고아 프로세스가 남는다.
+
+**대신 preflight가 명확히 거부한다.** 해석된 실행 파일의 확장자가 `.cmd`나 `.bat`이면 `ok: false`로 돌리고, 네이티브 설치 스크립트를 쓰라고 안내한다. 실측 환경은 `.exe`라 이 경로를 타지 않지만, npm으로 깐 사람이 **암호 같은 `EINVAL` 대신 행동 가능한 메시지**를 받는다.
+
+`.exe`에는 이 문제가 전부 없다. `shell` 없이 spawn되고 취소도 프로세스에 직접 꽂힌다. **그래서 이번 작업에서 `manager.ts`는 건드리지 않는다.**
+
+### 5-3. macOS/Linux — 폴백 디렉토리
+
+Finder/Dock에서 실행한 macOS 앱은 launchd의 최소 환경만 받아 `PATH`에 `/usr/bin:/bin` 정도만 있다. Linux 데스크톱 런처도 같다. **기존 PATH 탐색을 먼저 하고, 실패했을 때만 폴백 디렉토리를 훑는다** — 개발 환경(`pnpm dev`)에서는 첫 탐색이 성공하므로 동작이 달라지지 않는다.
 
 | 경로 | 근거 |
 |---|---|
-| `~/.local/bin` | Claude Code 공식 설치 스크립트의 기본 위치 |
+| `~/.local/bin` | Claude Code 네이티브 설치 스크립트의 기본 위치 (Windows도 동일) |
 | `~/.claude/local` | 구버전 local 설치 |
 | `/opt/homebrew/bin` | Homebrew (Apple Silicon) |
 | `/usr/local/bin` | Homebrew (Intel) · 수동 설치 · Linux |
 
-**nvm/fnm/volta 아래의 npm 전역 설치는 덮지 않는다.** 경로에 Node 버전이 들어가 예측할 수 없다. 그 경우는 workspace 설정의 절대 경로가 탈출구다 — 그래서 실패 메시지가 설정 위치를 가리켜야 한다.
+폴백은 세 OS 모두에 적용한다. Windows에서도 PATH가 어떤 이유로 비면 `~/.local/bin\claude.exe`를 찾아준다 — 확장자 규칙은 5-1이 그대로 적용된다.
 
-**테스트 가능하다.** `findExecutable`은 `process.env.PATH`와 `HOME`만 읽으므로, `PATH=''`로 두고 `HOME`을 임시 디렉토리로 가리킨 뒤 그 안에 `.local/bin/claude`를 심으면 폴백 경로가 검증된다. 주입 이음매를 새로 만들 필요가 없다.
+**nvm/fnm/volta 아래의 npm 전역 설치는 덮지 않는다.** 경로에 Node 버전이 들어가 예측할 수 없다. 그 경우는 workspace 설정의 절대 경로가 탈출구이므로, **실패 메시지가 그 설정 위치를 가리켜야 한다.**
 
-**회귀 방지:** 폴백 목록에서 한 줄을 지우면 대응하는 테스트가 빨개져야 한다. 목록 전체를 한 테스트로 덮으면 한 줄 삭제를 놓친다 — 경로마다 테스트를 하나씩 둔다.
+### 5-4. 검증
+
+`findExecutable`은 `process.env`만 읽으므로 주입 이음매를 새로 만들 필요가 없다. `PATH`를 임시 디렉토리로, `HOME`(Windows는 `USERPROFILE`)을 임시 디렉토리로 가리키고 그 안에 가짜 실행 파일을 심으면 된다.
+
+**Windows 동작은 macOS에서도 테스트해야 한다.** 개발 장비가 macOS이므로, 플랫폼 분기를 `process.platform`으로 직접 읽으면 Windows 경로가 CI의 windows 러너에서만 돌게 되어 사실상 검증되지 않는다. **플랫폼을 인자로 받게 만든다** — 기본값은 `process.platform`이고, 테스트는 `'win32'`를 명시적으로 넘긴다. 이 이음매가 없으면 5-1과 5-2는 테스트할 방법이 없다.
+
+**회귀 방지:** 폴백 목록에서 한 줄을 지우면 대응하는 테스트가 빨개져야 한다. 목록 전체를 한 테스트로 덮으면 한 줄 삭제를 놓친다 — 경로마다 테스트를 하나씩 둔다. 같은 이유로 `.cmd` 거부와 `PATHEXT` 후보 생성도 각각 테스트를 갖는다.
 
 ---
 
@@ -200,20 +236,42 @@ linux:
 
 ## 8. 검증
 
+### 자동 — 단위 테스트
+
 | 항목 | 방법 |
 |---|---|
-| 폴백 경로 탐색 | 단위 테스트 — `PATH=''` + 임시 `HOME`, 경로마다 하나씩 |
-| 버전 불일치 검증 | 워크플로를 어긋난 버전으로 한 번 돌려 실패하는 것을 본다 |
-| 세 산출물이 나온다 | `workflow_dispatch`로 수동 실행 |
-| **DMG가 실제로 열린다** | **CI 산출물을 내려받아 macOS에서 연다** (§4) |
-| exe / AppImage 실행 | 해당 OS가 있으면 확인. 없으면 릴리스 노트에 미검증임을 적는다 |
+| Windows `PATHEXT` 후보 생성 | `platform='win32'`을 넘기고 `claude.exe`만 찾아지는지 |
+| Windows 확장자 없는 파일 무시 | 확장자 없는 `claude`를 심어두고 **찾지 않는 것**을 확인 |
+| `.cmd` 거부 메시지 | `claude.cmd`만 있는 상태에서 preflight가 `ok: false`인지 |
+| 폴백 경로 탐색 | `PATH=''` + 임시 `HOME`/`USERPROFILE`, **경로마다 하나씩** |
 
-**마지막 두 줄이 이 작업에서 가장 중요하다.** 나머지는 전부 "설정이 문법에 맞는가"를 볼 뿐이고, 서명·격리·네이티브 모듈 로드는 산출물을 실행해야만 드러난다.
+### 수동 — 산출물을 실행해야만 드러나는 것
+
+| 항목 | 방법 |
+|---|---|
+| 세 산출물이 나온다 | `workflow_dispatch`로 수동 실행 |
+| 버전 불일치 검증이 실제로 막는다 | 어긋난 버전으로 한 번 돌려 실패를 본다 |
+| **Windows에서 run이 끝까지 돈다** | **exe를 대상 환경에서 실행 → workspace 만들고 agent 한 번 돌린다** |
+| DMG가 실제로 열린다 | CI 산출물을 내려받아 macOS에서 연다 (§4) |
+| AppImage 실행 | 해당 환경이 있으면 확인. 없으면 미검증임을 릴리스 노트에 적는다 |
+
+**세 번째 줄이 이 작업의 진짜 완료 조건이다.** 나머지 자동 테스트는 전부 "가짜 실행 파일을 올바르게 골랐는가"를 볼 뿐이고, 실제 `claude.exe`가 뜨는지 · Bedrock 환경변수가 전달되는지 · 네이티브 모듈이 그 플랫폼에서 로드되는지는 대상 환경에서 한 번 돌려야만 드러난다.
+
+**첫 실행 점검 목록** — 실패했을 때 어디를 볼지 미리 정해 둔다.
+
+1. 앱이 뜨고 workspace가 만들어진다 → `better-sqlite3`가 Windows에서 로드됐다
+2. run이 프리플라이트를 통과한다 → §5가 `claude.exe`를 찾았다
+3. agent가 응답한다 → Bedrock 환경변수가 전달됐다
+4. agent가 만든 이슈/메모가 남는다 → MCP 서버(`127.0.0.1`)에 도달했다
+
+**4번이 조용히 실패할 수 있다.** 대상 환경에는 TLS를 가로채는 사내 프록시가 있다. `HTTP_PROXY`/`HTTPS_PROXY`가 설정돼 있고 `NO_PROXY`에 `127.0.0.1`이 없으면 MCP 호출이 프록시로 나가 실패하는데, CLAUDE.md가 적어둔 대로 **MCP 도구 실패는 조용하다** — agent가 이슈·메모를 못 고치는데 뚜렷한 오류가 안 남는다. 1~3이 다 통과했는데 4만 안 되면 여기를 먼저 본다.
 
 ---
 
 ## 9. 이 설계가 남기는 한계
 
-**Windows와 Linux 산출물은 저자가 실행해볼 수 없다.** 빌드가 성공했다는 것과 실행된다는 것은 다르다. 특히 `better-sqlite3`가 그 플랫폼의 Electron ABI에 맞게 리빌드됐는지는 앱을 띄워 DB를 열어봐야 안다. **테스터의 첫 실행이 사실상 첫 검증이 된다** — 릴리스 노트에 이를 밝히고, 실패 시 로그를 받을 창구(GitHub Issues)를 안내한다.
+**Linux 산출물은 아무도 실행해보지 않는다.** 빌드 성공과 실행 성공은 다르다. 특히 `better-sqlite3`가 그 플랫폼의 Electron ABI에 맞게 리빌드됐는지는 앱을 띄워 DB를 열어봐야 안다. **릴리스 노트에 미검증임을 밝히고**, 실패 시 로그를 받을 창구(GitHub Issues)를 안내한다. Windows는 §8의 수동 검증이 덮고, macOS는 개발 장비가 있다.
 
-**환경변수는 여전히 못 넘긴다.** §5는 실행 파일을 찾아줄 뿐이다. Bedrock으로 도는 환경(`CLAUDE_CODE_USE_BEDROCK`, `AWS_REGION`, `AWS_PROFILE`)은 패키징된 앱에서 여전히 전달할 방법이 없다. CLAUDE.md의 5단계 선결 과제 그대로다.
+**`.cmd` 설치 환경은 지원하지 않는다.** npm 전역 설치로 `claude.cmd`를 쓰는 사람은 preflight에서 거부당하고 네이티브 설치 스크립트로 안내받는다. `shell: true`를 켜면 인용과 취소가 함께 깨지므로(§5-2), 지원하려면 `manager.ts`의 종료 처리까지 Windows용으로 다시 설계해야 한다 — 별도 작업이다.
+
+**macOS의 환경변수 문제는 그대로 남는다.** Windows는 GUI 앱이 사용자 환경변수를 물려받아 해결됐지만(§1), macOS의 launchd는 그렇지 않다. macOS에서 Bedrock을 쓰려는 사람이 나오면 그때 `Workspace.env`나 로그인 셸 환경 가져오기를 다시 검토한다. §5의 폴백은 실행 파일을 찾아줄 뿐 환경변수는 건드리지 않는다.
