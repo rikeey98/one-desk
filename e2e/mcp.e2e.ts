@@ -30,18 +30,11 @@ describe('MCP', () => {
     await page.getByRole('button', { name: /succeeded.*이슈를 만들어줘/ })
       .waitFor({ state: 'visible', timeout: 30_000 })
 
-    // IssuePanel은 workspace를 고를 때 한 번만 목록을 불러온다 — run 완료를 구독하지
-    // 않는다. 설계 문서(2026-08-12-stage4-mcp-design.md §1 "빠지는 것")가 "UI 변경
-    // 없음"을 이 단계의 범위 밖으로 명시했으므로 이건 결함이 아니라 의도된 경계다.
-    // agent가 실제로 DB에 썼는지를 화면으로 확인하려면 IssuePanel을 다시 마운트시켜야
-    // 하고, 그러려면 이 화면을 완전히 벗어났다 돌아와야 한다 — 인박스로 갔다가
-    // workspace를 다시 고르면 그 조건부 블록이 unmount/remount된다(App.tsx의
-    // `view === 'workspace' && workspaceId`).
-    const inboxLink = page.getByRole('navigation').getByRole('button', { name: /인박스/ })
-    await inboxLink.click()
-    await wsButton.click()
-
-    // agent가 만든 이슈가 화면에 있다
+    // **화면을 벗어나지 않는다.** 예전에는 IssuePanel이 workspace를 고를 때 한 번만
+    // 목록을 읽어서, agent가 만든 이슈를 보려면 인박스에 갔다 돌아와 패널을 다시
+    // 마운트시켜야 했다(4단계 설계 §1이 "UI 변경 없음"으로 미뤄둔 경계). 이제
+    // useIssues/useMemos가 run 완료를 구독하므로 그 자리에서 나타나야 한다 —
+    // 여기서 다시 마운트시키면 구독이 죽어도 테스트가 통과해 버린다.
     await page.getByText('agent가 만든 이슈')
       .waitFor({ state: 'visible', timeout: 10_000 })
   })

@@ -92,7 +92,7 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **`--tools`와 `--allowedTools`는 다른 일을 한다.** `--tools`는 도구 자체를 존재하지 않게 만들어 모델이 시도조차 못 하게 하고, `--allowedTools`는 존재하는 도구를 묻지 않고 승인한다. **MCP 도구는 `--permission-mode`로 자동 승인되지 않는다** — `mcp__<serverName>` 접두사를 `--allowedTools`에 직접 얹어야 하고, 빠뜨리면 agent가 MCP 도구를 전혀 못 쓰는데 실패가 조용하다(`core/runner/adapters/claudeCode.ts`의 `mcpToolPrefixes`).
 
-**agent가 MCP로 만든 데이터는 화면에 바로 안 뜬다.** `IssuePanel`/`MemoPanel`은 workspace를 고를 때 한 번만 목록을 불러오고, run 완료를 구독하지 않는다(4단계 설계 §1 "UI 변경 없음" — 의도된 경계). e2e에서 이를 확인하려면 그 패널을 다시 마운트시켜야 한다 — 예를 들어 인박스로 갔다가 workspace를 다시 고르면 `App.tsx`의 `view === 'workspace' && workspaceId` 조건부 블록이 unmount/remount되며 다시 읽어온다.
+**agent가 MCP로 만든 데이터는 run이 끝나면 화면에 나타난다.** `useIssues`/`useMemos`가 `onRunUpdate`를 구독해, **같은 workspace의 끝난 run**에 대해 목록을 다시 읽는다. 4단계 설계 §1이 "UI 변경 없음"으로 미뤄뒀던 경계였고, MCP가 실제로 돌기 시작하면서 매번 걸려 해소했다. 같은 run의 후속 갱신(확인함/보관)으로는 다시 읽지 않는다. **`e2e/mcp.e2e.ts`는 화면을 벗어나지 않고 확인한다** — 예전처럼 인박스에 갔다 돌아오면 패널이 다시 마운트돼 구독이 죽어도 통과해 버린다.
 
 **`updatedAt`은 단조 증가해야 낙관적 잠금이 성립한다.** 같은 밀리초 안에 두 번 쓰면 `Date.now()`만으로는 이전 값과 같아져 "그 사이 바뀌었다"를 놓친다. `updateIfUnchanged`의 `buildPatch`는 `Math.max(Date.now(), previousUpdatedAt + 1)`로 반드시 이전 값보다 크게 만든다(`core/db/repositories/issue.ts`·`memo.ts`).
 

@@ -74,6 +74,9 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
   let inbox: Run[] = seed.inbox ?? []
   const started: Run[] = [...(seed.inbox ?? [])]
   const listeners: Array<(counts: InboxCounts) => void> = []
+  // run 갱신 구독자. useIssues/useMemos가 run 완료로 목록을 다시 읽는지 보려면
+  // 실제 백엔드처럼 push가 도착해야 한다.
+  const runListeners: Array<(run: Run) => void> = []
   const mcpStatus: McpStatus = seed.mcpStatus ?? { state: 'listening', port: 12345 }
   let issues: Issue[] = seed.issues ?? []
   let memos: Memo[] = seed.memos ?? []
@@ -213,7 +216,10 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
     },
     events: {
       onRunEvent: vi.fn(() => () => {}),
-      onRunUpdate: vi.fn(() => () => {}),
+      onRunUpdate: vi.fn((cb: (run: Run) => void) => {
+        runListeners.push(cb)
+        return () => { runListeners.splice(runListeners.indexOf(cb), 1) }
+      }),
       onQueueUpdate: vi.fn(() => () => {}),
       onInboxUpdate: vi.fn((cb: (next: InboxCounts) => void) => {
         listeners.push(cb)
@@ -928,5 +934,83 @@ describe('MCP 상태 배선', () => {
 
     act(() => { for (const cb of push) cb({ state: 'listening', port: 5555 }) })
     expect(await screen.findByText(/MCP :5555/)).toBeInTheDocument()
+  })
+})
+
+describe('run 완료 시 목록 갱신', () => {
+  /**
+   * agent가 MCP로 만든 이슈·메모는 이 구독이 없으면 화면에 영영 안 뜬다.
+   * 4단계가 "UI 변경 없음"으로 미뤄둔 경계였고, MCP가 실제로 돌기 시작하면서
+   * 매번 걸리는 자리가 됐다.
+   */
+  function pushRun(client: OneDeskClient, run: Run) {
+    const calls = (client.events.onRunUpdate as unknown as { mock: { calls: [(r: Run) => void][] } }).mock.calls
+    act(() => { for (const [cb] of calls) cb(run) })
+  }
+
+  it('run이 끝나면 agent가 만든 이슈가 화면에 나타난다', async () => {
+    const client = makeClient({}, { issues: [] })
+    renderApp(client)
+    await userEvent.click(await screen.findByRole('button', { name: 'ws1' }))
+    expect(screen.queryByText('agent가 만든 이슈')).not.toBeInTheDocument()
+
+    // agent가 MCP로 만든 것을 흉내낸다 — 백엔드에는 있는데 화면은 아직 모른다.
+    await client.issues.create({ workspaceId: 'w1', title: 'agent가 만든 이슈' })
+    pushRun(client, makeRun({ id: 'r-done', endedAt: 5 }))
+
+    expect(await screen.findByText('agent가 만든 이슈')).toBeInTheDocument()
+  })
+
+  it('run이 끝나면 agent가 만든 메모도 나타난다', async () => {
+    const client = makeClient({}, { memos: [] })
+    renderApp(client)
+    await userEvent.click(await screen.findByRole('button', { name: 'ws1' }))
+    expect(screen.queryByText('agent가 만든 메모')).not.toBeInTheDocument()
+
+    await client.memos.create({ workspaceId: 'w1', title: 'agent가 만든 메모' })
+    pushRun(client, makeRun({ id: 'r-done', endedAt: 5 }))
+
+    expect(await screen.findByText('agent가 만든 메모')).toBeInTheDocument()
+  })
+
+  it('아직 안 끝난 run으로는 다시 읽지 않는다', async () => {
+    const client = makeClient({}, { issues: [] })
+    renderApp(client)
+    await userEvent.click(await screen.findByRole('button', { name: 'ws1' }))
+    await waitFor(() => expect(client.issues.list).toHaveBeenCalled())
+    const before = (client.issues.list as ReturnType<typeof vi.fn>).mock.calls.length
+
+    pushRun(client, makeRun({ id: 'r-running', endedAt: null }))
+
+    expect((client.issues.list as ReturnType<typeof vi.fn>).mock.calls.length).toBe(before)
+  })
+
+  it('다른 workspace의 run은 무시한다', async () => {
+    // MCP 토큰이 workspace 단위라 그쪽 run은 이 목록을 건드릴 수 없다.
+    const client = makeClient({}, { issues: [] })
+    renderApp(client)
+    await userEvent.click(await screen.findByRole('button', { name: 'ws1' }))
+    await waitFor(() => expect(client.issues.list).toHaveBeenCalled())
+    const before = (client.issues.list as ReturnType<typeof vi.fn>).mock.calls.length
+
+    pushRun(client, makeRun({ id: 'r-other', workspaceId: 'w-other', endedAt: 5 }))
+
+    expect((client.issues.list as ReturnType<typeof vi.fn>).mock.calls.length).toBe(before)
+  })
+
+  it('같은 run의 후속 갱신으로는 다시 읽지 않는다', async () => {
+    // 끝난 run은 확인함/보관으로 또 RUN_UPDATE를 낸다. 그때마다 읽으면 낭비다.
+    const client = makeClient({}, { issues: [] })
+    renderApp(client)
+    await userEvent.click(await screen.findByRole('button', { name: 'ws1' }))
+    await waitFor(() => expect(client.issues.list).toHaveBeenCalled())
+
+    pushRun(client, makeRun({ id: 'r-done', endedAt: 5 }))
+    await waitFor(() => expect(client.issues.list).toHaveBeenCalled())
+    const after = (client.issues.list as ReturnType<typeof vi.fn>).mock.calls.length
+
+    pushRun(client, makeRun({ id: 'r-done', endedAt: 5, reviewedKind: 'confirmed' }))
+
+    expect((client.issues.list as ReturnType<typeof vi.fn>).mock.calls.length).toBe(after)
   })
 })
