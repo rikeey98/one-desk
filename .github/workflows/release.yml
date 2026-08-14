@@ -3,6 +3,10 @@ name: release
 on:
   push:
     tags: ['v*']
+    # 임시 — 병합 전에 이 워크플로 자체를 검증하기 위한 것이다.
+    # workflow_dispatch는 기본 브랜치에 있는 워크플로만 부를 수 있어
+    # 브랜치에서는 쓸 수 없다. 검증이 끝나면 이 두 줄을 지운다.
+    branches: [feature/release-pipeline]
   workflow_dispatch:
 
 permissions:
