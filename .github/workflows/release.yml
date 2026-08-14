@@ -21,7 +21,12 @@ jobs:
         include:
           - os: macos-latest
             flag: --mac
-          - os: windows-latest
+          # windows-latest가 아니라 고정 이미지인 이유:
+          # 최신 이미지에는 Visual Studio 18이 깔려 있는데 pnpm이 번들한
+          # node-gyp 11.1.0이 그 버전을 못 읽어 better-sqlite3 컴파일이
+          # "could not find a version of Visual Studio 2017 or newer"로 죽는다.
+          # node-gyp가 VS 18을 지원하면 windows-latest로 되돌린다.
+          - os: windows-2022
             flag: --win
           - os: ubuntu-latest
             flag: --linux
