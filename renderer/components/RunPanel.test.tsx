@@ -3,8 +3,10 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { RunPanel } from './RunPanel'
+import { groupConversations } from '../conversation'
 import type { OneDeskClient } from '@shared/client'
 import type { Permission, Repo, Run, Workspace } from '@shared/models'
+import type { Conversation } from '../conversation'
 import type { ContextChip } from '../context'
 
 const repos: Repo[] = [
@@ -47,13 +49,13 @@ function makeClient(opts: {
   } as unknown as OneDeskClient
 }
 
-/** 인박스가 세우는 props(resume 모드와 "다시 실행"의 초기값)만 선택적으로 넘긴다.
+/** 인박스가 세우는 props(대화 이어가기와 "다시 실행"의 초기값)만 선택적으로 넘긴다.
  *  나머지 호출부는 그대로다. */
 interface ResumeOpts {
-  resumeFrom?: Run | null
+  conversation?: Conversation | null
   draftPrompt?: string
   draftCwd?: string | null
-  onExitResume?: () => void
+  reserved?: boolean
 }
 
 // workspace를 바꾸는 테스트는 rerender로 같은 엘리먼트를 다시 그려야 하므로
@@ -77,10 +79,10 @@ function panel(
         chips={chips}
         onRemoveChip={vi.fn()}
         onStarted={onStarted}
-        resumeFrom={resumeOpts.resumeFrom ?? null}
+        conversation={resumeOpts.conversation ?? null}
         draftPrompt={resumeOpts.draftPrompt ?? ''}
         draftCwd={resumeOpts.draftCwd ?? null}
-        onExitResume={resumeOpts.onExitResume ?? vi.fn()}
+        reserved={resumeOpts.reserved ?? false}
       />
     </ClientProvider>
   )
@@ -125,7 +127,7 @@ describe('RunPanel', () => {
 
     await waitFor(() => expect(screen.getByLabelText('권한')).toHaveValue('read_only'))
     await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '고쳐줘')
-    await userEvent.click(screen.getByRole('button', { name: '▶ 실행' }))
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
 
     await waitFor(() => expect(start).toHaveBeenCalledWith(expect.objectContaining({
       workspaceId: 'w1',
@@ -150,13 +152,13 @@ describe('RunPanel', () => {
 
   it('지시가 비어 있으면 실행할 수 없다', async () => {
     renderPanel(makeClient())
-    expect(await screen.findByRole('button', { name: '▶ 실행' })).toBeDisabled()
+    expect(await screen.findByRole('button', { name: '실행' })).toBeDisabled()
   })
 
   it('repo가 없으면 안내하고 실행을 막는다', async () => {
     renderPanel(makeClient(), [])
     expect(await screen.findByText(/repo를 먼저 등록/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '▶ 실행' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '실행' })).toBeDisabled()
   })
 
   // RunPanel은 workspace가 바뀌어도 다시 마운트되지 않는다(App이 key를 주지 않는다).
@@ -178,7 +180,7 @@ describe('RunPanel', () => {
 
     rerender(panel(client, other, [], vi.fn(), 'w2'))
     await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '고쳐줘')
-    await userEvent.click(screen.getByRole('button', { name: '▶ 실행' }))
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
 
     await waitFor(() => expect(start).toHaveBeenCalled())
     expect(start.mock.calls[0]![0].cwd).toBe('/tmp/web')
@@ -191,7 +193,7 @@ describe('RunPanel', () => {
 
     rerender(panel(client, [], [], vi.fn(), 'w2'))
     await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '고쳐줘')
-    await waitFor(() => expect(screen.getByRole('button', { name: '▶ 실행' })).toBeDisabled())
+    await waitFor(() => expect(screen.getByRole('button', { name: '실행' })).toBeDisabled())
   })
 
   it('"다시 실행"이 요구한 작업 디렉토리로 실행한다', async () => {
@@ -205,7 +207,7 @@ describe('RunPanel', () => {
     renderPanel(makeClient({ start }), two, [], vi.fn(), { draftCwd: '/tmp/web' })
 
     await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '다시 해줘')
-    await userEvent.click(screen.getByRole('button', { name: '▶ 실행' }))
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
 
     await waitFor(() => expect(start).toHaveBeenCalled())
     expect(start.mock.calls[0]![0].cwd).toBe('/tmp/web')
@@ -219,7 +221,7 @@ describe('RunPanel', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('/tmp/gone')
     await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '다시 해줘')
-    expect(screen.getByRole('button', { name: '▶ 실행' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '실행' })).toBeDisabled()
     expect(start).not.toHaveBeenCalled()
   })
 
@@ -228,7 +230,7 @@ describe('RunPanel', () => {
     renderPanel(makeClient({ start }))
 
     await userEvent.type(await screen.findByPlaceholderText(/무엇을 시킬지/), 'x')
-    await userEvent.click(screen.getByRole('button', { name: '▶ 실행' }))
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('claude를 찾을 수 없습니다')
   })
 
@@ -240,25 +242,35 @@ describe('RunPanel', () => {
     errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
     startedAt: 1, endedAt: 2, createdAt: 0, contextItems: []
   }
+  const conversation = groupConversations([parent])[0]!
 
-  it('resume 모드에서는 작업 디렉토리를 바꿀 수 없다', () => {
+  it('대화를 이어갈 때는 작업 디렉토리를 바꿀 수 없다', () => {
     // 세션은 특정 CLI가 특정 디렉토리에서 만든 것이라 다른 조합으로 이어받을 수 없다.
-    renderPanel(makeClient(), repos, [], vi.fn(), { resumeFrom: parent })
+    renderPanel(makeClient(), repos, [], vi.fn(), { conversation })
     expect(screen.queryByLabelText('작업 디렉토리')).toBeNull()
     expect(screen.getByText('/tmp/api')).toBeInTheDocument()
+    // "새 실행으로" 버튼은 지워졌다 — 대화를 벗어나는 것은 이제 도크 탭이 한다.
+    expect(screen.queryByRole('button', { name: '새 실행으로' })).toBeNull()
   })
 
-  it('resume 모드의 권한 기본값은 원본의 권한이다', () => {
+  it('대화를 이어갈 때의 권한 기본값은 마지막 턴의 권한이다', () => {
     // 기본값이 낮아지면 조용히 권한이 깎이고, 높아지면 의도보다 넓어진다.
-    renderPanel(makeClient(), repos, [], vi.fn(), { resumeFrom: parent })
+    renderPanel(makeClient(), repos, [], vi.fn(), { conversation })
     expect(screen.getByLabelText('권한')).toHaveValue('read_only')
   })
 
-  it('resume 모드에서 실행하면 resume을 부른다', async () => {
+  it('대화가 있으면 draftPrompt를 반영하지 않는다', () => {
+    // "다시 실행"이 세운 draft가 App에 남아 있어도, 대화를 이어가는 입력은
+    // 항상 빈 프롬프트에서 시작해야 한다 (설계 §7).
+    renderPanel(makeClient(), repos, [], vi.fn(), { conversation, draftPrompt: '남은 초안' })
+    expect(screen.getByPlaceholderText(/무엇을 시킬지/)).toHaveValue('')
+  })
+
+  it('대화를 이어가며 실행하면 resume을 부른다', async () => {
     const client = makeClient()
-    renderPanel(client, repos, [], vi.fn(), { resumeFrom: parent })
+    renderPanel(client, repos, [], vi.fn(), { conversation })
     await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '이어서 해줘')
-    await userEvent.click(screen.getByRole('button', { name: '▶ 실행' }))
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
     expect(client.runs.resume).toHaveBeenCalledWith(expect.objectContaining({
       conversationId: 'p1',
       permission: 'read_only',
@@ -268,12 +280,20 @@ describe('RunPanel', () => {
     expect(client.runs.start).not.toHaveBeenCalled()
   })
 
-  it('resume 모드가 아니면 start를 부른다', async () => {
+  it('대화가 없으면 start를 부른다', async () => {
     const client = makeClient()
     renderPanel(client)
     await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '새로 해줘')
-    await userEvent.click(screen.getByRole('button', { name: '▶ 실행' }))
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
     expect(client.runs.start).toHaveBeenCalled()
     expect(client.runs.resume).not.toHaveBeenCalled()
+  })
+
+  it('예약된 턴이 있으면 reserved가 전송을 잠근다', async () => {
+    // 대화당 예약은 하나다 (설계 §3-2). RunPanel 자신은 그 규칙을 계산하지 않고
+    // 상위(ConversationPanel)가 넘긴 reserved를 그대로 반영한다.
+    renderPanel(makeClient(), repos, [], vi.fn(), { reserved: true })
+    await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '또 하나')
+    expect(screen.getByRole('button', { name: '실행' })).toBeDisabled()
   })
 })

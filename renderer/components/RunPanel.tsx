@@ -1,6 +1,7 @@
 import { useEffect, useState, type KeyboardEvent } from 'react'
 import { useClient } from '../client/ClientProvider'
 import type { Permission, Repo, Run, Workspace } from '@shared/models'
+import type { Conversation } from '../conversation'
 import type { ContextChip } from '../context'
 
 const PERMISSION_LABELS: Record<Permission, string> = {
@@ -11,7 +12,7 @@ const PERMISSION_LABELS: Record<Permission, string> = {
 
 export function RunPanel({
   workspaceId, workspaces, repos, reposError, chips, onRemoveChip, onStarted,
-  resumeFrom, draftPrompt, draftCwd, onExitResume
+  conversation, draftPrompt, draftCwd, reserved
 }: {
   workspaceId: string
   /** App이 useWorkspaces()로 한 번만 조회해 내려준다 — 이 컴포넌트가 자기 인스턴스를
@@ -22,13 +23,14 @@ export function RunPanel({
   chips: ContextChip[]
   onRemoveChip: (chip: ContextChip) => void
   onStarted: (run: Run) => void
-  /** 이어서 실행할 원본. null이면 새 실행이다. */
-  resumeFrom: Run | null
+  /** 이어갈 대화. null이면 새 대화다. */
+  conversation: Conversation | null
   /** "다시 실행"이 채워 넣는 초기 프롬프트 */
   draftPrompt: string
   /** "다시 실행"이 요구하는 작업 디렉토리. null이면 요구가 없다. */
   draftCwd: string | null
-  onExitResume: () => void
+  /** 대화당 예약은 하나다 — 이미 예약된 턴이 있으면 전송을 잠근다 (설계 §3-2). */
+  reserved: boolean
 }) {
   const client = useClient()
   const workspace = workspaces.find((w) => w.id === workspaceId) ?? null
@@ -43,20 +45,24 @@ export function RunPanel({
   const [error, setError] = useState<string | null>(null)
 
   // 권한 기본값은 workspace의 defaultPermission이고, 선택은 그 run에만 적용된다 (설계 §7).
-  // resume 모드에서는 원본의 권한이 우선이다 — workspace 조회가 비동기라 나중에
-  // 도착하면 이 effect가 다시 실행돼 resumeFrom이 세운 값을 조용히 덮어쓸 수 있다.
+  // 대화를 이어갈 때는 원본(마지막 턴)의 권한이 우선이다 — workspace 조회가 비동기라
+  // 나중에 도착하면 이 effect가 다시 실행돼 conversation이 세운 값을 조용히 덮어쓸 수 있다.
   useEffect(() => {
-    if (workspace && !resumeFrom) setPermission(workspace.defaultPermission)
-  }, [workspace, resumeFrom])
+    if (workspace && !conversation) setPermission(workspace.defaultPermission)
+  }, [workspace, conversation])
 
-  // resume은 원본의 권한에서 출발한다. 낮추면 조용히 깎이고, 올리는 것은 사용자의 판단이다.
+  // 대화를 이어갈 때는 마지막 턴의 권한에서 출발한다. 낮추면 조용히 깎이고,
+  // 올리는 것은 사용자의 판단이다 (설계 §7).
   useEffect(() => {
-    if (resumeFrom) setPermission(resumeFrom.permission)
-  }, [resumeFrom])
+    if (conversation) setPermission(conversation.last.permission)
+  }, [conversation])
 
+  // "다시 실행"이 세운 draft는 새 대화에서만 반영한다 — 대화를 이어가는 중이면
+  // 프롬프트는 항상 빈 입력에서 시작해야 한다(설계 §7). 그러지 않으면 이전에 세운
+  // draft가 남아 있다가, 인박스를 오가며 resume 모드로 들어올 때 조용히 섞여 들어간다.
   useEffect(() => {
-    if (draftPrompt) setPrompt(draftPrompt)
-  }, [draftPrompt])
+    if (draftPrompt && !conversation) setPrompt(draftPrompt)
+  }, [draftPrompt, conversation])
 
   // cwd를 정하는 단일 effect. "다시 실행"이 요구한 경로(draftCwd)가 있으면 그것을
   // 최우선으로 반영하고, 없을 때만 workspace의 repo 목록에 대한 fallback으로
@@ -88,19 +94,19 @@ export function RunPanel({
     setCwd(repos.length > 0 ? repos[0]!.path : '')
   }, [repos, cwd, draftCwd])
 
-  // resume은 cwd를 원본에서 받으므로 로컬 cwd가 비어도 실행할 수 있다.
-  const ready = (resumeFrom !== null || (cwd !== '' && missingCwd === null))
-    && prompt.trim() !== '' && !busy
+  // 대화를 이어갈 때는 cwd를 원본에서 받으므로 로컬 cwd가 비어도 실행할 수 있다.
+  // reserved면(대화당 예약은 하나다 — 설계 §3-2) 전송을 잠근다.
+  const ready = (conversation !== null || (cwd !== '' && missingCwd === null))
+    && prompt.trim() !== '' && !busy && !reserved
 
   async function start() {
     if (!ready) return
     setBusy(true)
     setError(null)
     try {
-      const run = resumeFrom
+      const run = conversation
         ? await client.runs.resume({
-            // resumeFrom은 아직 개별 run이다 — 대화 UI는 Task 8에서 들어온다.
-            conversationId: resumeFrom.rootRunId ?? resumeFrom.id,
+            conversationId: conversation.id,
             model: model.trim() || null,
             permission,
             userPrompt: prompt,
@@ -162,13 +168,13 @@ export function RunPanel({
             onChange={(e) => setModel(e.target.value)}
           />
         </label>
-        {resumeFrom ? (
+        {conversation ? (
           <div className="resume-locked">
-            <span className="resume-badge">이어서 실행</span>
-            {/* 세션은 특정 CLI가 특정 디렉토리에서 만든 것이라 둘은 바꿀 수 없다 (설계 §6). */}
-            <span>{resumeFrom.agentKind}</span>
-            <span>{resumeFrom.cwd}</span>
-            <button type="button" onClick={onExitResume}>새 실행으로</button>
+            <span className="resume-badge">대화 이어가기</span>
+            {/* 세션은 특정 CLI가 특정 디렉토리에서 만든 것이라 둘은 바꿀 수 없다 (설계 §6).
+                대화를 벗어나는 것은 이제 도크 탭이 한다 — 여기엔 나갈 버튼이 없다. */}
+            <span>{conversation.last.agentKind}</span>
+            <span>{conversation.last.cwd}</span>
           </div>
         ) : (
           <label>
@@ -212,6 +218,7 @@ export function RunPanel({
 
       <textarea
         className="run-prompt"
+        aria-label="지시"
         value={prompt}
         placeholder="무엇을 시킬지 적으세요. ⌘↵ 로 실행합니다."
         onChange={(e) => setPrompt(e.target.value)}
@@ -220,7 +227,7 @@ export function RunPanel({
 
       <div className="run-actions">
         <button type="button" className="run-start" disabled={!ready} onClick={() => void start()}>
-          ▶ 실행
+          실행
         </button>
       </div>
     </div>
