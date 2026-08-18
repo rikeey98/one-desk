@@ -211,6 +211,71 @@ describe('ExecutionService', () => {
     expect(ctx.queue.snapshot()).toEqual({ running: 0, limit: 3, waiting: 0 })
   })
 
+  it('같은 대화의 두 run은 슬롯이 남아도 동시에 뜨지 않는다', async () => {
+    // execution이 queue.enqueue의 세 번째 인자로 groupKey를 넘겨서
+    // 같은 대화의 두 턴이 순차적으로 실행되게 한다. --resume이 이전 프로세스의
+    // 완료를 요구하므로 동시 실행은 깨진다 (설계 §3-2).
+    const ctrl = createPerRunManager()
+    const local = setup({ manager: ctrl.manager, limit: 3 })
+
+    const first = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '첫째', context: []
+    })
+    // 같은 대화에 속하는 두 번째 run — parentRunId로 뿌리를 물려받는다
+    const second = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '둘째', context: [],
+      parentRunId: first.id
+    })
+
+    expect(second.rootRunId).toBe(first.rootRunId)
+    // 상한이 3인데도 뜨지 않았다 — groupKey가 막은 것이다
+    expect(second.status).toBe('pending')
+    expect(ctrl.started(second.id)).toBe(false)
+    expect(local.queue.snapshot()).toEqual({ running: 1, limit: 3, waiting: 1 })
+
+    ctrl.finish(first.id)
+    await vi.waitFor(() => expect(ctrl.started(second.id)).toBe(true))
+
+    ctrl.finish(second.id)
+    await vi.waitFor(() => {
+      expect(local.queue.snapshot()).toEqual({ running: 0, limit: 3, waiting: 0 })
+    })
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
+  it('다른 대화의 두 run은 상한 안에서 동시에 뜬다', async () => {
+    // 그룹 직렬화는 같은 대화에만 적용된다. 다른 대화는 병렬로 실행할 수 있어야 한다.
+    const ctrl = createPerRunManager()
+    const local = setup({ manager: ctrl.manager, limit: 3 })
+
+    const first = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '첫 대화', context: []
+    })
+    const second = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '다른 대화', context: []
+    })
+
+    // rootRunId가 다르다 — 다른 대화다
+    expect(first.rootRunId ?? first.id).not.toBe(second.rootRunId ?? second.id)
+    // 둘 다 떴다 — 병렬 실행 가능하다
+    expect(first.status).toBe('running')
+    expect(second.status).toBe('running')
+    expect(ctrl.started(first.id)).toBe(true)
+    expect(ctrl.started(second.id)).toBe(true)
+    expect(local.queue.snapshot()).toEqual({ running: 2, limit: 3, waiting: 0 })
+
+    ctrl.finish(first.id)
+    ctrl.finish(second.id)
+    await vi.waitFor(() => {
+      expect(local.queue.snapshot()).toEqual({ running: 0, limit: 3, waiting: 0 })
+    })
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
   it('preflight가 실패하면 슬롯을 쓰지 않는다', async () => {
     // 실행 파일조차 없는 run이 MCP 포트를 열게 해서는 안 된다 — preflight가
     // mcp.prepare()보다 먼저 와야 한다는 순서 계약을 여기서 함께 고정한다.
