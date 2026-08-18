@@ -276,6 +276,55 @@ describe('ExecutionService', () => {
     rmSync(local.logDir, { recursive: true, force: true })
   })
 
+  it('예약할 때 세션이 없어도 실행 시점에 앞 턴의 세션을 집는다', async () => {
+    const fake = createPerRunManager()
+    const ctx2 = setup({ manager: fake.manager, limit: 3 })
+    const first = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '1턴', context: []
+    })
+    expect(first.status).toBe('running')
+
+    // 1턴이 도는 중에 2턴을 예약한다. 아직 세션 id가 없다.
+    const second = await ctx2.service.resume({
+      conversationId: first.id, permission: 'edit', userPrompt: '2턴', context: []
+    })
+    // 같은 대화라 슬롯이 둘 남아도 뜨지 않는다 (Task 3).
+    expect(second.status).toBe('pending')
+    expect(fake.started(second.id)).toBe(false)
+
+    fake.finish(first.id, 'sess-1')
+
+    // 이제 2턴이 뜨면서 그 세션을 집는다.
+    await vi.waitFor(() => expect(fake.started(second.id)).toBe(true))
+    expect(ctx2.runs.get(second.id).status).toBe('running')
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+
+  it('예약한 사이 세션이 하나도 남지 않으면 실패로 끝난다', async () => {
+    const fake = createPerRunManager()
+    const ctx2 = setup({ manager: fake.manager, limit: 3 })
+    const first = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '1턴', context: []
+    })
+    const second = await ctx2.service.resume({
+      conversationId: first.id, permission: 'edit', userPrompt: '2턴', context: []
+    })
+
+    // 1턴이 세션 없이 끝났다. 조용히 새 세션으로 시작하면 agent는 이전 대화를
+    // 모르는 채 돌고, 사용자는 답이 이상해진 이유를 알 방법이 없다.
+    fake.finish(first.id, null)
+
+    await vi.waitFor(() => expect(ctx2.runs.get(second.id).status).toBe('failed'))
+    const stored = ctx2.runs.get(second.id)
+    expect(stored.errorMessage).toContain('이어받을 세션이 없습니다')
+    // 프로세스는 뜬 적이 없다.
+    expect(stored.startedAt).toBeNull()
+    expect(fake.started(second.id)).toBe(false)
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+
   it('preflight가 실패하면 슬롯을 쓰지 않는다', async () => {
     // 실행 파일조차 없는 run이 MCP 포트를 열게 해서는 안 된다 — preflight가
     // mcp.prepare()보다 먼저 와야 한다는 순서 계약을 여기서 함께 고정한다.
@@ -535,8 +584,10 @@ describe('ExecutionService', () => {
       await vi.waitFor(() => expect(ctx.runs.get(child.id).status).toBe('succeeded'))
     })
 
-    it('이어받을 세션이 없으면 거부한다', async () => {
-      // 실패한 run은 세션이 만들어지기 전에 죽었을 수 있다.
+    it('이어받을 세션이 없으면 실행 시점에 실패로 끝난다', async () => {
+      // 실패한 run은 세션이 만들어지기 전에 죽었을 수 있다. resume() 자체는
+      // 더 이상 거부하지 않는다 — 세션 확인은 beginRun이 실행 직전에 한다
+      // (Task 4, 설계 §3-2).
       const created = ctx.runs.create({
         workspaceId: ctx.workspaceId,
         agentKind: 'claude-code',
@@ -553,9 +604,12 @@ describe('ExecutionService', () => {
         needsAnswer: false, exitCode: 1, errorMessage: '죽음'
       })
 
-      await expect(ctx.service.resume({
+      const child = await ctx.service.resume({
         conversationId: created.id, permission: 'edit', userPrompt: 'x', context: []
-      })).rejects.toThrow(/세션/)
+      })
+      expect(child.status).toBe('failed')
+      expect(child.errorMessage).toContain('이어받을 세션이 없습니다')
+      expect(child.startedAt).toBeNull()
     })
 
     it('원본이 없으면 거부한다', async () => {
@@ -648,16 +702,10 @@ describe('ExecutionService', () => {
       expect(third.parentRunId).toBe(first.id)
     })
 
-    it('세션을 가진 run이 하나도 없으면 던진다', async () => {
-      const first = await startBase()
-      ctx.runs.markFinished(first.id, {
-        status: 'failed', resultText: null, externalSessionId: null,
-        needsAnswer: false, exitCode: 1, errorMessage: 'x'
-      })
-      await expect(ctx.service.resume({
-        conversationId: first.id, permission: 'edit', userPrompt: '2턴', context: []
-      })).rejects.toThrow('이어받을 세션이 없습니다')
-    })
+    // '세션을 가진 run이 하나도 없으면 던진다'(Task 2)는 여기서 지웠다. resume()이
+    // 더 이상 호출 시점에 세션을 확인하지 않는다 — Task 4가 그 확인을 beginRun의
+    // 실행 시점으로 옮겼다. 같은 시나리오는 이제 최상단 describe의
+    // '예약한 사이 세션이 하나도 남지 않으면 실패로 끝난다'가 덮는다.
   })
 })
 
@@ -850,14 +898,14 @@ function createPerRunManager() {
   return {
     manager,
     started: (runId: string) => seen.has(runId),
-    finish(runId: string) {
+    finish(runId: string, sessionId: string | null = null) {
       const settle = settlers.get(runId)
       if (!settle) throw new Error(`시작한 적 없는 run입니다: ${runId}`)
       settlers.delete(runId)
       settle({
         status: 'succeeded',
         resultText: null,
-        externalSessionId: null,
+        externalSessionId: sessionId,
         needsAnswer: false,
         exitCode: 0,
         errorMessage: null,

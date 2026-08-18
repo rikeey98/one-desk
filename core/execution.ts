@@ -86,9 +86,32 @@ export function createExecutionService(opts: ExecutionOptions) {
     prompt: string
     executable: string
     mcp: McpRunConfig | null
-    resumeSessionId: string | null
+    /** 이어받을 대화. null이면 새 세션이다 */
+    resumeFromRootRunId: string | null
     timeoutMs: number | null
   }): void {
+    // **세션은 여기서 고른다 — launch 시점이 아니다 (설계 §3-2).**
+    // 실행 중에 예약된 턴은 만들어질 때 앞 턴이 아직 안 끝나 세션 id가 없다.
+    // 슬롯을 받은 지금이 체인이 확정된 첫 순간이다.
+    let resumeSessionId: string | null = null
+    if (spec.resumeFromRootRunId) {
+      const source = opts.runs.latestSessionRun(spec.resumeFromRootRunId)
+      if (!source?.externalSessionId) {
+        // 조용히 새 세션으로 시작하지 않는다 — agent는 이전 대화를 모르는 채로
+        // 돌고, 사용자는 답이 이상해진 이유를 알 방법이 없다.
+        finish(runId, {
+          status: 'failed',
+          resultText: null,
+          externalSessionId: null,
+          needsAnswer: false,
+          exitCode: null,
+          errorMessage: '이어받을 세션이 없습니다. 앞 턴이 세션을 남기지 못했습니다.'
+        })
+        return
+      }
+      resumeSessionId = source.externalSessionId
+    }
+
     // DB 쓰기와 알림을 한 try에 묶지 않는다. 리스너가 던진 것뿐인데(종료 중 파괴된
     // webContents 등) "시작 기록 실패"라고 로그가 말하면 조사가 DB 쪽으로 헛돈다.
     let started: Run
@@ -127,7 +150,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       model: spec.model,
       permission: spec.permission,
       prompt: spec.prompt,
-      resumeSessionId: spec.resumeSessionId,
+      resumeSessionId,
       executable: spec.executable,
       // 이 한 줄이 빠지면 MCP가 통째로 꺼진다.
       mcp: spec.mcp,
@@ -164,7 +187,8 @@ export function createExecutionService(opts: ExecutionOptions) {
     userPrompt: string
     context: ContextItemRef[]
     parentRunId: string | null
-    resumeSessionId: string | null
+    /** 이어받을 대화. null이면 새 세션이다 */
+    resumeFromRootRunId: string | null
     timeoutMs: number | null
   }
 
@@ -250,7 +274,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       prompt: assembled,
       executable,
       mcp,
-      resumeSessionId: spec.resumeSessionId,
+      resumeFromRootRunId: spec.resumeFromRootRunId,
       timeoutMs: spec.timeoutMs
     // 같은 대화의 두 턴이 동시에 뜨면 --resume이 깨진다 (설계 §3-2).
     }), created.rootRunId ?? created.id)
@@ -277,7 +301,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       userPrompt: input.userPrompt,
       context: input.context,
       parentRunId: input.parentRunId ?? null,
-      resumeSessionId: null,
+      resumeFromRootRunId: null,
       timeoutMs: input.timeoutMs ?? null
     })
   }
@@ -285,9 +309,11 @@ export function createExecutionService(opts: ExecutionOptions) {
   /**
    * 대화를 이어받아 새 run을 만든다 (설계 §3-1).
    *
-   * **이어받을 run을 core가 고른다.** 마지막 턴이 preflight 실패나 MCP 준비
-   * 실패로 끝나면 세션 id가 없다 — 그 한 턴이 대화를 끊지 않도록 체인에서
-   * 세션 id를 가진 가장 최근 run을 찾는다.
+   * **세션 자체는 여기서 고르지 않는다.** 실행 중인 턴에 이어 예약한 턴은 지금
+   * 앞 턴의 세션 id가 없을 수 있다 — 그 확인은 beginRun이 실행 직전에 한다
+   * (설계 §3-2). 여기서 `latestSessionRun`을 부르는 것은 잠긴 값(workspaceId·
+   * agentKind·cwd·timeoutMs)의 출처를 정하기 위해서다. 아직 세션을 가진 run이
+   * 하나도 없으면 뿌리(`root`)로 폴백한다.
    *
    * **agentKind와 cwd는 잠긴다** — 세션은 특정 CLI가 특정 디렉토리에서 만든
    * 것이라 다른 조합으로 이어받을 수 없다. 그 규칙이 여기 있어야 나중에
@@ -306,17 +332,16 @@ export function createExecutionService(opts: ExecutionOptions) {
       throw err
     }
 
-    const source = opts.runs.latestSessionRun(root.rootRunId ?? root.id)
-    if (!source) {
-      throw new Error('이어받을 세션이 없습니다. 새 실행으로 시작하세요.')
-    }
+    // 잠긴 값의 출처로만 쓴다. 세션 자체는 beginRun이 실행 직전에 다시 고른다
+    // — 예약된 턴은 지금 세션이 없을 수 있다 (설계 §3-2).
+    const source = opts.runs.latestSessionRun(root.rootRunId ?? root.id) ?? root
 
     return launch({
-      // 잠긴 값 — 세션을 준 run에서 가져온다
+      // 잠긴 값 — 세션을 준 run(또는 아직 없으면 뿌리)에서 가져온다
       workspaceId: source.workspaceId,
       agentKind: source.agentKind,
       cwd: source.cwd,
-      resumeSessionId: source.externalSessionId,
+      resumeFromRootRunId: root.rootRunId ?? root.id,
       parentRunId: source.id,
       // 바꿀 수 있는 값
       model: input.model ?? null,
