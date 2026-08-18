@@ -1,13 +1,23 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Transcript } from './Transcript'
 import { groupConversations } from '../conversation'
+import { useRunEvents } from '../hooks/useRunEvents'
 import type { Run } from '@shared/models'
 
+// vi.fn()으로 감싸 호출 여부·횟수·인자를 단언할 수 있게 한다.
+// DOM에 텍스트가 있는지만 보면 "훅이 안 불렸다"와 "훅은 불렸지만 JSX만 감췄다"를
+// 구분하지 못한다 — 후자도 회귀지만 텍스트 단언만으로는 초록으로 남는다.
 vi.mock('../hooks/useRunEvents', () => ({
-  useRunEvents: () => ({ events: [{ type: 'text', seq: 1, runId: 'a1', at: 0, text: '도구 로그' }], error: null })
+  useRunEvents: vi.fn(() => ({ events: [{ type: 'text', seq: 1, runId: 'a1', at: 0, text: '도구 로그' }], error: null }))
 }))
+
+const useRunEventsMock = vi.mocked(useRunEvents)
+
+beforeEach(() => {
+  useRunEventsMock.mockClear()
+})
 
 function makeRun(over: Partial<Run> & { id: string }): Run {
   return {
@@ -36,8 +46,12 @@ describe('Transcript', () => {
     ])[0]!
     render(<Transcript conversation={conv} onCancel={() => {}} />)
     expect(screen.queryByText('도구 로그')).not.toBeInTheDocument()
+    // DOM 단언만으로는 "TurnLog가 마운트 안 됨"과 "마운트됐지만 JSX만 숨김"을 구분 못 한다.
+    // 훅 자체가 안 불렸다는 것을 직접 확인한다.
+    expect(useRunEventsMock).not.toHaveBeenCalled()
     await userEvent.click(screen.getByRole('button', { name: '자세히' }))
     expect(screen.getByText('도구 로그')).toBeInTheDocument()
+    expect(useRunEventsMock).toHaveBeenCalledWith('a1')
   })
 
   it('진행 중인 턴은 로그가 처음부터 펼쳐져 있다', () => {
