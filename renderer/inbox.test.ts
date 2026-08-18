@@ -6,7 +6,7 @@ function run(over: Partial<Run>): Run {
   return {
     id: 'r1', workspaceId: 'w1', agentKind: 'claude-code', model: null,
     cwd: '/tmp', permission: 'edit', userPrompt: 'x', assembledPrompt: 'x',
-    status: 'succeeded', externalSessionId: null, parentRunId: null,
+    status: 'succeeded', externalSessionId: null, parentRunId: null, rootRunId: 'r1',
     resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
     errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
     startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [],

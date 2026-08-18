@@ -262,4 +262,32 @@ describe('RunRepository', () => {
       expect(runs.inboxCounts().byWorkspace[other]).toBeUndefined()
     })
   })
+
+  describe('rootRunId', () => {
+    it('부모가 없으면 자기 자신이 뿌리다', () => {
+      const first = runs.create(baseInput())
+      expect(first.rootRunId).toBe(first.id)
+    })
+
+    it('부모가 있으면 부모의 뿌리를 물려받는다', () => {
+      const first = runs.create(baseInput())
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+      expect(second.rootRunId).toBe(first.id)
+    })
+
+    it('3단 체인이 전부 같은 뿌리를 갖는다', () => {
+      const first = runs.create(baseInput())
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+      const third = runs.create({ ...baseInput(), parentRunId: second.id })
+      expect(third.rootRunId).toBe(first.id)
+      expect([first, second, third].map((r) => r.rootRunId))
+        .toEqual([first.id, first.id, first.id])
+    })
+
+    it('부모가 사라졌으면 자기 자신이 뿌리다', () => {
+      // parent_run_id에는 외래키가 없다 — 가리키는 run이 없을 수 있다.
+      const orphan = runs.create({ ...baseInput(), parentRunId: 'ghost' })
+      expect(orphan.rootRunId).toBe(orphan.id)
+    })
+  })
 })

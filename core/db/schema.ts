@@ -90,6 +90,11 @@ export const run = sqliteTable('run', {
   // 자기 참조 외래키를 붙이지 않는다. drizzle에서 타입 순환을 만들고,
   // 원본 run이 지워져도 이어서 실행한 run의 기록은 남아야 한다.
   parentRunId: text('parent_run_id'),
+  // 대화의 뿌리. 부모가 없으면 자기 자신이다. **nullable인 것은 의도된 것이다**
+  // (설계 §2) — NOT NULL로 만들려면 테이블을 다시 만들어야 하는데, 그 DROP TABLE이
+  // run_context_item의 cascade를 건드려 모든 맥락 기록을 지운다. 마이그레이션의
+  // PRAGMA foreign_keys=OFF는 트랜잭션 안이라 무시된다. 읽는 쪽이 `?? id`로 푼다.
+  rootRunId: text('root_run_id'),
   resultText: text('result_text'),
   needsAnswer: integer('needs_answer', { mode: 'boolean' }).notNull().default(false),
   timeoutMs: integer('timeout_ms'),
@@ -103,7 +108,8 @@ export const run = sqliteTable('run', {
   createdAt: integer('created_at').notNull().default(nowMs())
 }, (t) => [
   index('run_workspace_created_idx').on(t.workspaceId, t.createdAt),
-  index('run_status_idx').on(t.status)
+  index('run_status_idx').on(t.status),
+  index('run_root_created_idx').on(t.rootRunId, t.createdAt)
 ])
 
 export const runContextItem = sqliteTable('run_context_item', {

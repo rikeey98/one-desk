@@ -23,7 +23,7 @@ function makeRun(over: Partial<Run> = {}): Run {
     id: 'run-1', workspaceId: 'w1', agentKind: 'claude-code', model: null,
     cwd: '/tmp/api', permission: 'edit', userPrompt: '토큰 버그 고쳐줘',
     assembledPrompt: '<task/>', status: 'running', externalSessionId: null,
-    parentRunId: null, resultText: null, needsAnswer: false, timeoutMs: null,
+    parentRunId: null, rootRunId: 'run-1', resultText: null, needsAnswer: false, timeoutMs: null,
     exitCode: null, errorMessage: null, logPath: '/tmp/logs/run-1/stream.jsonl',
     reviewedAt: null, reviewedKind: null, startedAt: 1, endedAt: null,
     createdAt: 1, contextItems: [],

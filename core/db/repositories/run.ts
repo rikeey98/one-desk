@@ -100,6 +100,21 @@ export function createRunRepository(db: Database) {
     return hydrate([row])[0]!
   }
 
+  /**
+   * 새 run의 뿌리를 정한다 (설계 §2).
+   *
+   * **호출자가 넘기게 하지 않는다** — 두 곳이 어긋나면 대화가 조용히 갈라진다.
+   * parent_run_id에는 외래키가 없으므로 가리키는 run이 없을 수 있다. 그때는
+   * 자기 자신이 뿌리다.
+   */
+  function rootFor(parentRunId: string | null, ownId: string): string {
+    if (!parentRunId) return ownId
+    const parent = db.select({ id: run.id, rootRunId: run.rootRunId })
+      .from(run).where(eq(run.id, parentRunId)).get()
+    if (!parent) return ownId
+    return parent.rootRunId ?? parent.id
+  }
+
   return {
     get,
 
@@ -126,6 +141,7 @@ export function createRunRepository(db: Database) {
           assembledPrompt: input.assembledPrompt,
           logPath: input.logPath,
           parentRunId: input.parentRunId ?? null,
+          rootRunId: rootFor(input.parentRunId ?? null, id),
           timeoutMs: input.timeoutMs ?? null,
           createdAt: Date.now()
         }).run()

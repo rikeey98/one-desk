@@ -235,7 +235,7 @@ describe('RunPanel', () => {
   const parent: Run = {
     id: 'p1', workspaceId: 'w1', agentKind: 'claude-code', model: null,
     cwd: '/tmp/api', permission: 'read_only', userPrompt: '원래 지시', assembledPrompt: 'x',
-    status: 'succeeded', externalSessionId: 'sess-1', parentRunId: null,
+    status: 'succeeded', externalSessionId: 'sess-1', parentRunId: null, rootRunId: 'p1',
     resultText: null, needsAnswer: true, timeoutMs: null, exitCode: 0,
     errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
     startedAt: 1, endedAt: 2, createdAt: 0, contextItems: []

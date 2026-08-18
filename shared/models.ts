@@ -150,6 +150,8 @@ export interface Run {
   status: RunStatus
   externalSessionId: string | null
   parentRunId: string | null
+  /** 대화의 뿌리. 낡은 행은 null이고 그때는 자기 자신이 뿌리다 (설계 §2) */
+  rootRunId: string | null
   resultText: string | null
   needsAnswer: boolean
   timeoutMs: number | null

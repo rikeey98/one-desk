@@ -16,7 +16,7 @@ function run(over: Partial<Run>): Run {
   return {
     id: 'r1', workspaceId: 'w1', agentKind: 'claude-code', model: null,
     cwd: '/tmp', permission: 'edit', userPrompt: '토큰 만료 고쳐줘', assembledPrompt: 'x',
-    status: 'succeeded', externalSessionId: 'sess-1', parentRunId: null,
+    status: 'succeeded', externalSessionId: 'sess-1', parentRunId: null, rootRunId: 'r1',
     resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
     errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
     startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [],
