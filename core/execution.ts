@@ -282,46 +282,48 @@ export function createExecutionService(opts: ExecutionOptions) {
   }
 
   /**
-   * 원본 run의 세션을 이어받아 새 run을 만든다 (설계 §6).
+   * 대화를 이어받아 새 run을 만든다 (설계 §3-1).
+   *
+   * **이어받을 run을 core가 고른다.** 마지막 턴이 preflight 실패나 MCP 준비
+   * 실패로 끝나면 세션 id가 없다 — 그 한 턴이 대화를 끊지 않도록 체인에서
+   * 세션 id를 가진 가장 최근 run을 찾는다.
    *
    * **agentKind와 cwd는 잠긴다** — 세션은 특정 CLI가 특정 디렉토리에서 만든
    * 것이라 다른 조합으로 이어받을 수 없다. 그 규칙이 여기 있어야 나중에
-   * core를 별도 데몬으로 뗄 때 따라간다. 호출자는 바꿀 수 있는 것만 넘긴다.
+   * core를 별도 데몬으로 뗄 때 따라간다.
    */
   async function resume(input: ResumeRunInput): Promise<Run> {
-    let parent: Run
+    let root: Run
     try {
-      parent = opts.runs.get(input.parentRunId)
+      root = opts.runs.get(input.conversationId)
     } catch (err) {
-      // 없는 것과 못 읽는 것을 가른다. 전부 뭉개면 DB 장애가 "원본이 없다"로
+      // 없는 것과 못 읽는 것을 가른다. 전부 뭉개면 DB 장애가 "대화가 없다"로
       // 둔갑해 조사가 엉뚱한 데로 간다.
       if (err instanceof NotFoundError) {
-        throw new Error('이어서 실행할 원본 run이 없습니다. workspace가 지워졌을 수 있습니다.')
+        throw new Error('이어서 실행할 대화가 없습니다. workspace가 지워졌을 수 있습니다.')
       }
       throw err
     }
 
-    if (!parent.externalSessionId) {
+    const source = opts.runs.latestSessionRun(root.rootRunId ?? root.id)
+    if (!source) {
       throw new Error('이어받을 세션이 없습니다. 새 실행으로 시작하세요.')
     }
 
     return launch({
-      // 잠긴 값
-      workspaceId: parent.workspaceId,
-      agentKind: parent.agentKind,
-      cwd: parent.cwd,
-      resumeSessionId: parent.externalSessionId,
-      parentRunId: parent.id,
+      // 잠긴 값 — 세션을 준 run에서 가져온다
+      workspaceId: source.workspaceId,
+      agentKind: source.agentKind,
+      cwd: source.cwd,
+      resumeSessionId: source.externalSessionId,
+      parentRunId: source.id,
       // 바꿀 수 있는 값
       model: input.model ?? null,
       permission: input.permission,
       userPrompt: input.userPrompt,
       context: input.context,
-      // timeoutMs는 잠긴 값도 바꿀 수 있는 값도 아니다 — 설계 §6이 열거한
-      // 목록에 빠져 있던 자리다. 원본이 타임아웃을 걸고 돌던 run이면 그
-      // 제한이 이어받는 run에서도 유효해야 자연스럽다는 판단으로, 원본의
-      // 성질을 따르기로 한다.
-      timeoutMs: parent.timeoutMs
+      // timeoutMs는 원본의 성질을 따른다 (설계 §6의 목록에 빠져 있던 자리다).
+      timeoutMs: source.timeoutMs
     })
   }
 

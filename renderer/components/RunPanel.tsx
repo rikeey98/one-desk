@@ -99,7 +99,8 @@ export function RunPanel({
     try {
       const run = resumeFrom
         ? await client.runs.resume({
-            parentRunId: resumeFrom.id,
+            // resumeFrom은 아직 개별 run이다 — 대화 UI는 Task 8에서 들어온다.
+            conversationId: resumeFrom.rootRunId ?? resumeFrom.id,
             model: model.trim() || null,
             permission,
             userPrompt: prompt,

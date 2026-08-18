@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { and, count, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import type { Database } from '../open'
 import { issue, memo, repo, run, runContextItem } from '../schema'
 import { NotFoundError } from '../../errors'
@@ -125,6 +125,24 @@ export function createRunRepository(db: Database) {
         // rowid가 삽입 순서를 결정적으로 갈라준다.
         .orderBy(desc(run.createdAt), desc(sql`rowid`)).all()
       return hydrate(rows)
+    },
+
+    /**
+     * 그 대화에서 세션 id를 가진 가장 최근 run (설계 §3-1).
+     *
+     * 마지막 턴이 preflight 실패로 끝나 세션 id가 없어도 그 앞 턴에서 이어받게
+     * 하는 것이 목적이다. 마지막 run을 그냥 쓰면 그런 턴 하나가 대화를 끊는다.
+     */
+    latestSessionRun(rootRunId: string): Run | null {
+      const row = db.select().from(run)
+        .where(and(
+          // 낡은 행은 root_run_id가 null이고 그때는 자기 자신이 뿌리다.
+          or(eq(run.rootRunId, rootRunId), and(isNull(run.rootRunId), eq(run.id, rootRunId))),
+          isNotNull(run.externalSessionId)
+        ))
+        // createdAt만으로는 같은 밀리초의 순서가 흔들린다. rowid가 갈라준다.
+        .orderBy(desc(run.createdAt), desc(sql`rowid`)).get()
+      return row ? hydrate([row])[0]! : null
     },
 
     create(input: CreateRunInput): Run {

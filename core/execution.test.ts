@@ -427,7 +427,7 @@ describe('ExecutionService', () => {
       expect(parent.externalSessionId).toBe('fake-session')
 
       const child = await ctx.service.resume({
-        parentRunId: parent.id,
+        conversationId: parent.id,
         permission: 'read_only',
         userPrompt: '이어서 해줘',
         context: []
@@ -460,7 +460,7 @@ describe('ExecutionService', () => {
       expect(parent.timeoutMs).toBe(5000)
 
       const child = await ctx.service.resume({
-        parentRunId: parent.id,
+        conversationId: parent.id,
         permission: 'read_only',
         userPrompt: '이어서 해줘',
         context: []
@@ -489,14 +489,14 @@ describe('ExecutionService', () => {
       })
 
       await expect(ctx.service.resume({
-        parentRunId: created.id, permission: 'edit', userPrompt: 'x', context: []
+        conversationId: created.id, permission: 'edit', userPrompt: 'x', context: []
       })).rejects.toThrow(/세션/)
     })
 
     it('원본이 없으면 거부한다', async () => {
       await expect(ctx.service.resume({
-        parentRunId: '없는-id', permission: 'edit', userPrompt: 'x', context: []
-      })).rejects.toThrow(/원본/)
+        conversationId: '없는-id', permission: 'edit', userPrompt: 'x', context: []
+      })).rejects.toThrow(/대화/)
     })
 
     it('원본을 읽다 DB가 터지면 그 오류를 그대로 올린다', async () => {
@@ -509,7 +509,7 @@ describe('ExecutionService', () => {
         })
       })
       await expect(ctx2.service.resume({
-        parentRunId: 'whatever', permission: 'edit', userPrompt: 'x', context: []
+        conversationId: 'whatever', permission: 'edit', userPrompt: 'x', context: []
       })).rejects.toThrow(/database is locked/)
       rmSync(ctx2.logDir, { recursive: true, force: true })
     })
@@ -553,11 +553,45 @@ describe('ExecutionService', () => {
       })
 
       await spy.service.resume({
-        parentRunId: seeded.id, permission: 'edit', userPrompt: '이어서', context: []
+        conversationId: seeded.id, permission: 'edit', userPrompt: '이어서', context: []
       })
 
       expect(seen).toEqual(['fake-session'])
       rmSync(spy.logDir, { recursive: true, force: true })
+    })
+
+    it('마지막 턴이 세션 없이 실패해도 그 앞 턴에서 이어받는다', async () => {
+      const first = await finishedWithSession()
+      expect(first.externalSessionId).toBe('fake-session')
+
+      // 2턴이 세션 없이 실패한 상황을 만든다 — preflight 실패와 같은 모양이다.
+      const failed = await ctx.service.resume({
+        conversationId: first.id, permission: 'edit', userPrompt: '2턴', context: []
+      })
+      await vi.waitFor(() => expect(ctx.runs.get(failed.id).status).toBe('succeeded'))
+      ctx.runs.markFinished(failed.id, {
+        status: 'failed', resultText: null, externalSessionId: null,
+        needsAnswer: false, exitCode: 1, errorMessage: '실행 파일을 찾을 수 없습니다.'
+      })
+
+      // 3턴은 그 앞 턴(1턴)의 세션을 이어받는다.
+      const third = await ctx.service.resume({
+        conversationId: first.id, permission: 'edit', userPrompt: '3턴', context: []
+      })
+      expect(third.rootRunId).toBe(first.id)
+      // 세션을 준 run이 부모다 — 실패한 2턴이 아니다.
+      expect(third.parentRunId).toBe(first.id)
+    })
+
+    it('세션을 가진 run이 하나도 없으면 던진다', async () => {
+      const first = await startBase()
+      ctx.runs.markFinished(first.id, {
+        status: 'failed', resultText: null, externalSessionId: null,
+        needsAnswer: false, exitCode: 1, errorMessage: 'x'
+      })
+      await expect(ctx.service.resume({
+        conversationId: first.id, permission: 'edit', userPrompt: '2턴', context: []
+      })).rejects.toThrow('이어받을 세션이 없습니다')
     })
   })
 })

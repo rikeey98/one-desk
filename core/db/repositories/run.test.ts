@@ -290,4 +290,38 @@ describe('RunRepository', () => {
       expect(orphan.rootRunId).toBe(orphan.id)
     })
   })
+
+  describe('latestSessionRun', () => {
+    function finishWithSession(id: string, sessionId: string | null) {
+      runs.markFinished(id, {
+        status: 'succeeded', resultText: null, externalSessionId: sessionId,
+        needsAnswer: false, exitCode: 0, errorMessage: null
+      })
+    }
+
+    it('세션 id를 가진 가장 최근 run을 고른다', () => {
+      const first = runs.create(baseInput())
+      finishWithSession(first.id, 'sess-1')
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+      finishWithSession(second.id, 'sess-2')
+
+      expect(runs.latestSessionRun(first.id)?.id).toBe(second.id)
+    })
+
+    it('마지막 턴에 세션이 없으면 그 앞 턴을 고른다', () => {
+      // preflight 실패나 MCP 준비 실패로 끝난 run은 프로세스가 뜬 적이 없어
+      // 세션 id가 없다. 이 경우가 체인을 끊으면 안 된다 (설계 §3-1).
+      const first = runs.create(baseInput())
+      finishWithSession(first.id, 'sess-1')
+      const failed = runs.create({ ...baseInput(), parentRunId: first.id })
+      finishWithSession(failed.id, null)
+
+      expect(runs.latestSessionRun(first.id)?.id).toBe(first.id)
+    })
+
+    it('세션을 가진 run이 하나도 없으면 null이다', () => {
+      const first = runs.create(baseInput())
+      expect(runs.latestSessionRun(first.id)).toBeNull()
+    })
+  })
 })

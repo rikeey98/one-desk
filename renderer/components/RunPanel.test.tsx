@@ -260,7 +260,7 @@ describe('RunPanel', () => {
     await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '이어서 해줘')
     await userEvent.click(screen.getByRole('button', { name: '▶ 실행' }))
     expect(client.runs.resume).toHaveBeenCalledWith(expect.objectContaining({
-      parentRunId: 'p1',
+      conversationId: 'p1',
       permission: 'read_only',
       userPrompt: '이어서 해줘',
       context: []

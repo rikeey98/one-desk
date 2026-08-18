@@ -26,7 +26,10 @@ function makeRun(over: Partial<Run> = {}): Run {
   return {
     id: 'run-1', workspaceId: 'w1', agentKind: 'claude-code', model: null,
     cwd: '/tmp/api', permission: 'edit', userPrompt: '토큰 버그 고쳐줘', assembledPrompt: 'x',
-    status: 'succeeded', externalSessionId: 'sess-1', parentRunId: null, rootRunId: 'run-1',
+    status: 'succeeded', externalSessionId: 'sess-1', parentRunId: null,
+    // id만 넘기고 rootRunId를 따로 넘기지 않으면 그 id가 뿌리다 — 부모 없는
+    // run의 기본 모양. 체인을 만드는 테스트는 rootRunId를 직접 넘긴다.
+    rootRunId: over.id ?? 'run-1',
     resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
     errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
     startedAt: 1, endedAt: 2, createdAt: 1, contextItems: [],
@@ -342,7 +345,7 @@ describe('App', () => {
     await userEvent.click(screen.getByRole('button', { name: '▶ 실행' }))
 
     await waitFor(() => expect(client.runs.resume).toHaveBeenCalledWith(expect.objectContaining({
-      parentRunId: 'r-ask',
+      conversationId: 'r-ask',
       userPrompt: '이어서 해줘'
     })))
     expect(client.runs.start).not.toHaveBeenCalled()
