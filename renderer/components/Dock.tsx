@@ -1,25 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useClient } from '../client/ClientProvider'
-import { useRunEvents } from '../hooks/useRunEvents'
-import { RunLog } from './RunLog'
-import { RunPanel } from './RunPanel'
+import { ConversationPanel } from './ConversationPanel'
 import { SlotIndicator } from './SlotIndicator'
+import { conversationIdOf, groupConversations } from '../conversation'
 import type { ContextChip } from '../context'
 import type { QueueSnapshot, Repo, Run, Workspace } from '@shared/models'
 
-function label(run: Run): string {
-  const text = run.userPrompt.trim().split('\n')[0] ?? ''
-  return text.length > 24 ? `${text.slice(0, 24)}…` : text || '(빈 지시)'
-}
-
 export function Dock({
   runs, error, workspaceId, workspaces, repos, reposError, queue, queueError, onChangeLimit, chips, onRemoveChip,
-  onRunStarted, resumeFrom, draftPrompt, draftCwd, focusRun, onExitResume
+  onRunStarted, draftPrompt, draftCwd, focusConversationId
 }: {
   runs: Run[]
   error: string | null
   workspaceId: string
-  /** RunPanel까지 그대로 흘려 보낸다 — App이 useWorkspaces()로 한 번만 조회한 것이다. */
+  /** ConversationPanel까지 그대로 흘려 보낸다 — App이 useWorkspaces()로 한 번만 조회한 것이다. */
   workspaces: Workspace[]
   repos: Repo[]
   reposError: string | null
@@ -29,38 +23,38 @@ export function Dock({
   chips: ContextChip[]
   onRemoveChip: (chip: ContextChip) => void
   onRunStarted: (run: Run) => void
-  resumeFrom: Run | null
   draftPrompt: string
-  /** RunPanel까지 그대로 흘려 보낸다 — "다시 실행"이 요구하는 작업 디렉토리다. */
+  /** ConversationPanel까지 그대로 흘려 보낸다 — "다시 실행"이 요구하는 작업 디렉토리다. */
   draftCwd: string | null
-  /** 인박스의 "로그 보기"가 지정한 run. null이면 기본대로 새 실행 탭이 열린다. */
-  focusRun: Run | null
-  onExitResume: () => void
+  /** 인박스의 "로그 보기"·"이어서 실행"이 지정한 대화. null이면 기본대로 새 대화 탭이 열린다. */
+  focusConversationId: string | null
 }) {
   const client = useClient()
   const [open, setOpen] = useState(true)
   // 실행 패널은 모달이 아니라 도크가 확장된 형태다 —
   // 모달이 뜨면 뒤의 issue/memo를 클릭해 맥락을 담을 수 없다 (설계 §9).
-  const [view, setView] = useState<'log' | 'new'>('new')
+  const [view, setView] = useState<'conversation' | 'new'>('new')
   const [pickedId, setPickedId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
-  // 인박스에서 "로그 보기"를 누르면 view가 'inbox'→'workspace'로 바뀌며 이 컴포넌트가
-  // 다시 마운트된다 — 내부 view 상태가 'new'로 돌아가 사용자는 실행 패널을 보게 된다.
-  // 그래서 어느 run의 로그를 열지는 App이 지정할 수 있어야 한다 (설계 §5).
-  useEffect(() => {
-    if (!focusRun) return
-    setPickedId(focusRun.id)
-    setView('log')
-    setOpen(true)
-  }, [focusRun])
+  // useRuns는 최신순 평평한 목록을 준다. 탭은 run이 아니라 대화 단위다.
+  const conversations = useMemo(() => groupConversations(runs), [runs])
 
-  // 고른 적이 없으면 가장 최근 run을 보여준다.
-  const selected = runs.find((r) => r.id === pickedId) ?? runs[0] ?? null
-  const { events, error: logError } = useRunEvents(view === 'log' ? selected?.id ?? null : null)
+  // 인박스에서 "로그 보기"·"이어서 실행"을 누르면 view가 'inbox'→'workspace'로 바뀌며
+  // 이 컴포넌트가 다시 마운트된다 — 내부 view 상태가 'new'로 돌아가 사용자는 실행
+  // 패널을 보게 된다. 그래서 어느 대화를 열지는 App이 지정할 수 있어야 한다 (설계 §5).
+  useEffect(() => {
+    if (!focusConversationId) return
+    setPickedId(focusConversationId)
+    setView('conversation')
+    setOpen(true)
+  }, [focusConversationId])
+
+  // 고른 적이 없으면 가장 최근 대화를 보여준다.
+  const selected = conversations.find((c) => c.id === pickedId) ?? conversations[0] ?? null
   // 큐 조회가 실패하면 표시기가 그냥 안 보인다 — 이 기능이 메우려던 "왜 안 보이지"라는
   // 공백이 오류 상황에서 되살아난다. 새 배너를 만들지 않고 기존 경로로 흘려 보인다.
-  const shown = actionError ?? error ?? queueError ?? logError
+  const shown = actionError ?? error ?? queueError
 
   async function cancel(runId: string) {
     setActionError(null)
@@ -72,15 +66,15 @@ export function Dock({
   }
 
   function started(run: Run) {
-    setPickedId(run.id)
-    setView('log')
+    setPickedId(conversationIdOf(run))
+    setView('conversation')
     setOpen(true)
     onRunStarted(run)
   }
 
   return (
     <section className={open ? 'dock dock-open' : 'dock'}>
-      {/* 토글과 슬롯 표시기는 스크롤되는 탭 스트립 밖에 둔다. 안에 두면 run 탭이
+      {/* 토글과 슬롯 표시기는 스크롤되는 탭 스트립 밖에 둔다. 안에 두면 대화 탭이
           늘어났을 때 "왜 내 run이 안 시작하지"를 설명하는 유일한 한 줄이 화면 밖으로
           밀려난다 — 표시기를 둔 이유(스펙 §7)와 정면으로 어긋난다. */}
       <header className="dock-header">
@@ -94,24 +88,24 @@ export function Dock({
             className={view === 'new' ? 'dock-tab dock-tab-selected' : 'dock-tab'}
             onClick={() => { setView('new'); setOpen(true) }}
           >
-            + 새 실행
+            + 새 대화
           </button>
-          {runs.map((run) => (
+          {conversations.map((conv) => (
             <button
-              key={run.id}
+              key={conv.id}
               type="button"
-              className={view === 'log' && run.id === selected?.id ? 'dock-tab dock-tab-selected' : 'dock-tab'}
-              onClick={() => { setPickedId(run.id); setView('log'); setOpen(true) }}
+              className={view === 'conversation' && conv.id === selected?.id ? 'dock-tab dock-tab-selected' : 'dock-tab'}
+              onClick={() => { setPickedId(conv.id); setView('conversation'); setOpen(true) }}
             >
-              <span className={`status status-${run.status}`}>{run.status}</span>
+              <span className={`status status-${conv.last.status}`}>{conv.last.status}</span>
               {/* succeeded로 끝나도 agent가 질문하고 멈춘 것일 수 있다. 배지가 없으면 구분이 안 된다. */}
-              {run.needsAnswer && <span className="needs-answer">답변 필요</span>}
-              {label(run)}
+              {conv.last.needsAnswer && <span className="needs-answer">답변 필요</span>}
+              {conv.title}
             </button>
           ))}
-          {/* 대기 중인 run도 취소할 수 있어야 한다 — 프로세스가 없을 뿐 사용자에겐 똑같이 걸려 있다. */}
-          {view === 'log' && (selected?.status === 'running' || selected?.status === 'pending') && (
-            <button type="button" className="dock-cancel" onClick={() => void cancel(selected.id)}>
+          {/* 대기 중인 턴도 취소할 수 있어야 한다 — 프로세스가 없을 뿐 사용자에겐 똑같이 걸려 있다. */}
+          {view === 'conversation' && (selected?.last.status === 'running' || selected?.last.status === 'pending') && (
+            <button type="button" className="dock-cancel" onClick={() => void cancel(selected.last.id)}>
               취소
             </button>
           )}
@@ -121,28 +115,19 @@ export function Dock({
       {open && (
         <div className="dock-body">
           {shown && <div role="alert" className="form-error">{shown}</div>}
-          {view === 'new' ? (
-            <RunPanel
-              workspaceId={workspaceId}
-              workspaces={workspaces}
-              repos={repos}
-              reposError={reposError}
-              chips={chips}
-              onRemoveChip={onRemoveChip}
-              onStarted={started}
-              resumeFrom={resumeFrom}
-              draftPrompt={draftPrompt}
-              draftCwd={draftCwd}
-              onExitResume={onExitResume}
-            />
-          ) : selected ? (
-            <>
-              {selected.errorMessage && <div role="alert" className="form-error">{selected.errorMessage}</div>}
-              <RunLog events={events} />
-            </>
-          ) : (
-            <div className="panel-empty">실행을 시작하면 여기에 로그가 흐릅니다</div>
-          )}
+          <ConversationPanel
+            conversation={view === 'new' ? null : selected}
+            workspaceId={workspaceId}
+            workspaces={workspaces}
+            repos={repos}
+            reposError={reposError}
+            chips={chips}
+            onRemoveChip={onRemoveChip}
+            onStarted={started}
+            onCancel={cancel}
+            draftPrompt={draftPrompt}
+            draftCwd={draftCwd}
+          />
         </div>
       )}
     </section>
