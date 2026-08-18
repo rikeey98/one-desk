@@ -261,7 +261,7 @@ describe('App', () => {
   it('repo를 등록하면 실행 패널의 작업 디렉토리에도 바로 반영된다', async () => {
     // RepoStrip과 RunPanel이 각자 독립된 repo 목록 상태를 들고 있으면, RepoStrip에서
     // repo를 추가해도 RunPanel은 그 사실을 몰라 작업 디렉토리 select가 영원히 비고
-    // ▶ 실행 버튼도 계속 비활성으로 남는다 — e2e에서 실제로 재현된 결함이다.
+    // 실행 버튼도 계속 비활성으로 남는다 — e2e에서 실제로 재현된 결함이다.
     render(
       <ClientProvider client={makeClient()}>
         <RunEventProvider store={createRunEventStore()}>
@@ -281,7 +281,7 @@ describe('App', () => {
     await waitFor(() => expect(screen.getByLabelText('작업 디렉토리')).toHaveValue('/tmp/api'))
 
     await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '고쳐줘')
-    expect(screen.getByRole('button', { name: '▶ 실행' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '실행' })).toBeEnabled()
   })
 
   it('상한 변경이 거부되면 오류를 화면에 보여준다', async () => {
@@ -342,7 +342,7 @@ describe('App', () => {
     await userEvent.click(await screen.findByRole('button', { name: '답하고 이어서' }))
 
     await userEvent.type(await screen.findByPlaceholderText(/무엇을 시킬지/), '이어서 해줘')
-    await userEvent.click(screen.getByRole('button', { name: '▶ 실행' }))
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
 
     await waitFor(() => expect(client.runs.resume).toHaveBeenCalledWith(expect.objectContaining({
       conversationId: 'r-ask',
@@ -440,7 +440,7 @@ describe('App', () => {
 
   it('인박스의 "로그 보기"가 그 run의 로그를 연다', async () => {
     // 화면이 인박스에서 workspace로 바뀌면 Dock이 다시 마운트되며 내부 view가
-    // 'new'로 돌아간다 — 지정하지 않으면 사용자는 실행 패널만 보게 된다.
+    // 'new'로 돌아간다 — 지정하지 않으면 사용자는 새 대화 탭만 보게 된다.
     const failed = makeRun({
       id: 'r-failed', status: 'failed', userPrompt: '빌드 고쳐줘', errorMessage: '빌드 실패'
     })
@@ -451,6 +451,10 @@ describe('App', () => {
     await openInbox()
     await userEvent.click(await screen.findByRole('button', { name: '로그 보기' }))
 
+    // failed는 진행 중이 아니라 대화록의 마지막 턴이 접혀 있다 — 펼쳐야 로그가
+    // 보인다(Task 7의 설계). 오류 메시지는 항상 보이므로 먼저 그것으로 도착을 확인한다.
+    expect(await screen.findByText('빌드 실패')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '자세히' }))
     expect(await screen.findByText('로그 한 줄')).toBeInTheDocument()
   })
 
@@ -475,7 +479,7 @@ describe('App', () => {
     const box = await screen.findByPlaceholderText(/무엇을 시킬지/)
     await userEvent.clear(box)
     await userEvent.type(box, '다시 해줘')
-    await userEvent.click(screen.getByRole('button', { name: '▶ 실행' }))
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
 
     await waitFor(() => expect(start).toHaveBeenCalled())
     expect(start.mock.calls[0]![0].cwd).toBe('/tmp/web')

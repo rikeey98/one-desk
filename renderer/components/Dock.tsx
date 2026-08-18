@@ -33,16 +33,22 @@ export function Dock({
   const [open, setOpen] = useState(true)
   // 실행 패널은 모달이 아니라 도크가 확장된 형태다 —
   // 모달이 뜨면 뒤의 issue/memo를 클릭해 맥락을 담을 수 없다 (설계 §9).
-  const [view, setView] = useState<'conversation' | 'new'>('new')
-  const [pickedId, setPickedId] = useState<string | null>(null)
+  //
+  // focusConversationId가 있으면 마운트 첫 렌더부터 그 대화를 연 상태로 시작한다.
+  // 'new'로 시작했다가 아래 effect가 나중에 고치면, 그 사이의 첫 렌더에서
+  // ConversationPanel이 conversation=null을 받는 순간이 생긴다 — RunPanel의
+  // draftPrompt 가드(!conversation)가 그 찰나에 걸려 "다시 실행"이 남긴 draft를
+  // 새 대화가 아니라 지금 이어받는 대화의 입력에 반영해 버린다("다시 실행" 뒤에
+  // 인박스로 돌아가 다른 대화를 "이어서 실행"하면 그 draft가 새는 결함으로 실측됨).
+  const [view, setView] = useState<'conversation' | 'new'>(focusConversationId ? 'conversation' : 'new')
+  const [pickedId, setPickedId] = useState<string | null>(focusConversationId)
   const [actionError, setActionError] = useState<string | null>(null)
 
   // useRuns는 최신순 평평한 목록을 준다. 탭은 run이 아니라 대화 단위다.
   const conversations = useMemo(() => groupConversations(runs), [runs])
 
-  // 인박스에서 "로그 보기"·"이어서 실행"을 누르면 view가 'inbox'→'workspace'로 바뀌며
-  // 이 컴포넌트가 다시 마운트된다 — 내부 view 상태가 'new'로 돌아가 사용자는 실행
-  // 패널을 보게 된다. 그래서 어느 대화를 열지는 App이 지정할 수 있어야 한다 (설계 §5).
+  // 위 초기값은 "마운트 시점"만 잡는다 — Dock이 마운트된 채로 focusConversationId가
+  // 나중에 바뀌는 경우(지금 배선에서는 일어나지 않지만)도 대비해 effect로도 맞춘다.
   useEffect(() => {
     if (!focusConversationId) return
     setPickedId(focusConversationId)

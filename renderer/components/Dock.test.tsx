@@ -194,7 +194,7 @@ describe('Dock', () => {
     renderDock([makeRun({ status: 'pending', startedAt: null })], null, makeClient({ cancel }))
 
     await userEvent.click(screen.getByText('토큰 버그 고쳐줘'))
-    const header = document.querySelector('.dock-header')!
+    const header = document.querySelector<HTMLElement>('.dock-header')!
     await userEvent.click(within(header).getByRole('button', { name: '취소' }))
     expect(cancel).toHaveBeenCalledWith('run-1')
   })

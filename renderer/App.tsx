@@ -14,6 +14,7 @@ import { useMcpStatus } from './hooks/useMcpStatus'
 import { useWorkspaces } from './hooks/useWorkspaces'
 import { useClient } from './client/ClientProvider'
 import { chipKey, type ContextChip } from './context'
+import { conversationIdOf } from './conversation'
 import type { Run } from '@shared/models'
 
 export default function App() {
@@ -21,10 +22,9 @@ export default function App() {
   const [repoId, setRepoId] = useState<string | null>(null)
   const [chips, setChips] = useState<ContextChip[]>([])
   const [view, setView] = useState<'workspace' | 'inbox'>('workspace')
-  // 인박스의 "이어서 실행"·"다시 실행"이 세우고, Dock 아래 RunPanel이 읽는다.
-  const [resumeFrom, setResumeFrom] = useState<Run | null>(null)
-  // 인박스의 "로그 보기"가 세운다. Dock은 화면 전환 때 다시 마운트돼 내부 상태가
-  // 초기화되므로, 어느 run의 로그를 열지 여기서 지정해야 한다.
+  // 인박스의 "이어서 실행"·"로그 보기"·"다시 실행"이 세운다. Dock은 화면 전환 때
+  // 다시 마운트돼 내부 상태가 초기화되므로, 어느 대화를 열지 여기서 지정해야 한다.
+  // Dock에는 run이 아니라 그 run이 속한 대화 id(focusConversationId)로 내려간다.
   const [focusRun, setFocusRun] = useState<Run | null>(null)
   const [draftPrompt, setDraftPrompt] = useState('')
   // "다시 실행"이 요구하는 작업 디렉토리. 프롬프트만 옮기면 RunPanel의 cwd가 첫 repo로
@@ -116,34 +116,30 @@ export default function App() {
     setView('workspace')
   }
 
+  // "로그 보기"와 "이어서 실행"은 이제 하는 일이 같다 — 그 run이 속한 대화로 데려가고
+  // focusRun만 세운다. RunPanel이 대화가 있으면 draftPrompt를 반영하지 않으므로
+  // (설계 §7) 여기서 따로 지우지 않아도 된다. 두 함수를 하나로 합치지는 않는다 —
+  // 인박스가 부르는 자리가 다르고, Task 9에서 "대화 열기" 하나로 다시 갈릴 수 있다.
   function openLog(run: Run) {
     goToRun(run)
-    // Dock은 화면이 바뀌며 다시 마운트돼 내부 view가 'new'로 돌아간다 — 어느 run의
-    // 로그를 열지 여기서 지정하지 않으면 버튼이 실행 패널만 열고 만다.
-    setResumeFrom(null)
-    setDraftPrompt('')
-    setDraftCwd(null)
+    // Dock은 화면이 바뀌며 다시 마운트돼 내부 view가 'new'로 돌아간다 — 어느 대화를
+    // 열지 여기서 지정하지 않으면 버튼이 새 대화 탭만 열고 만다.
     setFocusRun(run)
   }
 
   function startResume(run: Run) {
     goToRun(run)
-    setResumeFrom(run)
-    // resume 모드의 프롬프트와 맥락 칩은 비어 있다 (설계 §7). "다시 실행"을 눌렀다가
-    // 실행하지 않고 돌아오면 그때 세운 draft가 그대로 남아 프롬프트를 채운다.
-    setDraftPrompt('')
-    setDraftCwd(null)
-    // 로그를 보던 상태가 남아 있으면 Dock이 실행 패널 대신 그 로그를 연다.
-    setFocusRun(null)
+    setFocusRun(run)
   }
 
   function restart(run: Run) {
     goToRun(run)
-    setResumeFrom(null)
     setDraftPrompt(run.userPrompt)
     // 원본이 돌던 디렉토리까지 함께 옮긴다. 이것이 빠지면 RunPanel이 첫 repo로
     // 실행해 엉뚱한 저장소가 편집된다 (권한 기본값이 edit이다).
     setDraftCwd(run.cwd)
+    // focusRun을 비워야 Dock이 새 대화 탭(draftPrompt/draftCwd가 채워진)을 연다 —
+    // 남아 있으면 "다시 실행"이 겨눈 대화가 대신 열린다.
     setFocusRun(null)
   }
 
@@ -254,14 +250,11 @@ export default function App() {
               onChangeLimit={changeLimit}
               chips={chips}
               onRemoveChip={toggleChip}
-              resumeFrom={resumeFrom}
               draftPrompt={draftPrompt}
               draftCwd={draftCwd}
-              focusRun={focusRun}
-              onExitResume={() => { setResumeFrom(null); setDraftPrompt(''); setDraftCwd(null) }}
-              // 담은 맥락은 그 run에만 적용된다. 다음 실행은 빈 상태에서 시작한다.
-              // resume 모드도 실행이 시작되면 풀어야 다음이 새 실행으로 돌아간다.
-              onRunStarted={() => { setChips([]); setResumeFrom(null); setDraftPrompt(''); setDraftCwd(null) }}
+              focusConversationId={focusRun ? conversationIdOf(focusRun) : null}
+              // 담은 맥락은 그 턴에만 적용된다. 다음 실행은 빈 상태에서 시작한다.
+              onRunStarted={() => { setChips([]); setDraftPrompt(''); setDraftCwd(null) }}
             />
           </>
         )}
