@@ -263,6 +263,62 @@ describe('RunRepository', () => {
     })
   })
 
+  describe('대화 단위 인박스', () => {
+    function succeed(id: string, sessionId = 'sess') {
+      runs.markFinished(id, {
+        status: 'succeeded', resultText: null, externalSessionId: sessionId,
+        needsAnswer: false, exitCode: 0, errorMessage: null
+      })
+    }
+
+    it('3턴 대화가 인박스에 한 줄로 뜬다', () => {
+      const first = runs.create(baseInput())
+      succeed(first.id)
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+      succeed(second.id)
+      const third = runs.create({ ...baseInput(), parentRunId: second.id })
+      succeed(third.id)
+
+      const items = runs.inbox()
+      expect(items).toHaveLength(1)
+      // 보여줄 내용은 마지막 턴에서 온다.
+      expect(items[0]!.id).toBe(third.id)
+      expect(items[0]!.rootRunId).toBe(first.id)
+    })
+
+    it('root를 확인하면 대화가 통째로 내려간다', () => {
+      const first = runs.create(baseInput())
+      succeed(first.id)
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+      succeed(second.id)
+
+      runs.markReviewed(first.id, 'confirmed')
+      expect(runs.inbox()).toHaveLength(0)
+      expect(runs.inboxCounts().total).toBe(0)
+    })
+
+    it('마지막 턴이 아직 돌고 있으면 인박스에 없다', () => {
+      const first = runs.create(baseInput())
+      succeed(first.id)
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+      runs.markStarted(second.id)
+
+      expect(runs.inbox()).toHaveLength(0)
+    })
+
+    it('건수도 대화 단위로 센다', () => {
+      const a = runs.create(baseInput())
+      succeed(a.id)
+      const a2 = runs.create({ ...baseInput(), parentRunId: a.id })
+      succeed(a2.id)
+      const b = runs.create(baseInput())
+      succeed(b.id)
+
+      expect(runs.inboxCounts().total).toBe(2)
+      expect(runs.inboxCounts().byWorkspace[workspaceId]).toBe(2)
+    })
+  })
+
   describe('rootRunId', () => {
     it('부모가 없으면 자기 자신이 뿌리다', () => {
       const first = runs.create(baseInput())

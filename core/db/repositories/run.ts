@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { and, count, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import type { Database } from '../open'
 import { issue, memo, repo, run, runContextItem } from '../schema'
 import { NotFoundError } from '../../errors'
@@ -113,6 +113,46 @@ export function createRunRepository(db: Database) {
       .from(run).where(eq(run.id, parentRunId)).get()
     if (!parent) return ownId
     return parent.rootRunId ?? parent.id
+  }
+
+  /**
+   * 지금 사용자의 손이 필요한 대화만 모은다 (설계 §5).
+   *
+   * **단위는 run이 아니라 대화다.** 미확인 판정은 root run의 reviewedAt으로
+   * 하고, 보여줄 내용은 그 대화의 마지막 턴에서 가져온다. 턴마다 한 줄씩
+   * 쌓이면 긴 대화 하나가 인박스를 덮어버린다.
+   *
+   * 모든 workspace를 가로지른다 — 어디에 쌓였는지는 사이드바 배지가 보여준다.
+   */
+  function inbox(): Run[] {
+    // 미확인인 뿌리들. 낡은 행은 root_run_id가 null이고 그때는 자기 자신이 뿌리다.
+    const roots = db.select({ id: run.id }).from(run)
+      .where(and(
+        isNull(run.reviewedAt),
+        or(isNull(run.rootRunId), eq(run.rootRunId, run.id))
+      )).all()
+    if (roots.length === 0) return []
+
+    const rootIds = roots.map((r) => r.id)
+    const rows = db.select().from(run)
+      .where(or(inArray(run.rootRunId, rootIds), inArray(run.id, rootIds)))
+      // 최신순이므로 대화별 첫 행이 마지막 턴이다.
+      .orderBy(desc(run.createdAt), desc(sql`rowid`)).all()
+
+    const rootOf = new Set(rootIds)
+    const lastTurn = new Map<string, typeof rows[number]>()
+    for (const row of rows) {
+      const key = row.rootRunId ?? row.id
+      // 뿌리가 이미 확인된 대화의 턴이 섞여 들어올 수 있다 — 걸러낸다.
+      if (!rootOf.has(key)) continue
+      if (!lastTurn.has(key)) lastTurn.set(key, row)
+    }
+
+    const items = [...lastTurn.values()]
+      .filter((r) => INBOX_STATUSES.includes(r.status))
+      // endedAt만으로는 같은 밀리초에 끝난 항목들의 순서가 흔들린다.
+      .sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
+    return hydrate(items)
   }
 
   return {
@@ -240,29 +280,15 @@ export function createRunRepository(db: Database) {
       return stale.length
     },
 
-    /**
-     * 지금 사용자의 손이 필요한 run만 모은다 (설계 §4).
-     * 모든 workspace를 가로지른다 — 어디에 쌓였는지는 사이드바 배지가 보여준다.
-     */
-    inbox(): Run[] {
-      const rows = db.select().from(run)
-        .where(and(isNull(run.reviewedAt), inArray(run.status, INBOX_STATUSES)))
-        // endedAt만으로는 같은 밀리초에 끝난 항목들의 순서가 흔들린다.
-        // rowid가 삽입 순서를 결정적으로 갈라준다.
-        .orderBy(desc(run.endedAt), desc(sql`rowid`)).all()
-      return hydrate(rows)
-    },
+    inbox,
 
     inboxCounts(): InboxCounts {
-      const rows = db.select({ workspaceId: run.workspaceId, n: count() }).from(run)
-        .where(and(isNull(run.reviewedAt), inArray(run.status, INBOX_STATUSES)))
-        .groupBy(run.workspaceId).all()
-
+      // 목록과 같은 규칙으로 센다 — 따로 세면 배지와 목록이 어긋난다.
       const byWorkspace: Record<string, number> = {}
       let total = 0
-      for (const row of rows) {
-        byWorkspace[row.workspaceId] = row.n
-        total += row.n
+      for (const item of inbox()) {
+        byWorkspace[item.workspaceId] = (byWorkspace[item.workspaceId] ?? 0) + 1
+        total += 1
       }
       return { total, byWorkspace }
     },
