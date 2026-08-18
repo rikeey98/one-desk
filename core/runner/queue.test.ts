@@ -125,4 +125,51 @@ describe('createRunQueue', () => {
     queue.release('a')
     expect(onChange).toHaveBeenLastCalledWith({ running: 1, limit: 1, waiting: 0 })
   })
+
+  it('같은 그룹은 슬롯이 남아도 하나만 돈다', () => {
+    const queue = createRunQueue({ limit: 3 })
+    const started: string[] = []
+
+    queue.enqueue('a1', () => started.push('a1'), 'conv-a')
+    queue.enqueue('a2', () => started.push('a2'), 'conv-a')
+    queue.enqueue('b1', () => started.push('b1'), 'conv-b')
+
+    // 상한이 3인데도 conv-a는 하나만 떴다. conv-b는 막히지 않는다.
+    expect(started).toEqual(['a1', 'b1'])
+  })
+
+  it('앞 턴이 끝나면 같은 그룹의 다음 턴이 뜬다', () => {
+    const queue = createRunQueue({ limit: 3 })
+    const started: string[] = []
+
+    queue.enqueue('a1', () => started.push('a1'), 'conv-a')
+    queue.enqueue('a2', () => started.push('a2'), 'conv-a')
+    expect(started).toEqual(['a1'])
+
+    queue.release('a1')
+    expect(started).toEqual(['a1', 'a2'])
+  })
+
+  it('막힌 그룹을 건너뛰고 뒤의 다른 그룹을 띄운다', () => {
+    const queue = createRunQueue({ limit: 1 })
+    const started: string[] = []
+
+    queue.enqueue('a1', () => started.push('a1'), 'conv-a')
+    queue.enqueue('a2', () => started.push('a2'), 'conv-a')
+    queue.enqueue('b1', () => started.push('b1'), 'conv-b')
+    expect(started).toEqual(['a1'])
+
+    // 상한을 올리면 대기열 앞의 a2가 아니라 b1이 뜬다 — a2의 그룹은 아직 막혀
+    // 있다. 건너뛰지 않으면 한 대화가 뒤의 모든 대화를 막아버린다.
+    queue.setLimit(3)
+    expect(started).toEqual(['a1', 'b1'])
+  })
+
+  it('groupKey가 없으면 제약이 없다', () => {
+    const queue = createRunQueue({ limit: 3 })
+    const started: string[] = []
+    queue.enqueue('x', () => started.push('x'), undefined)
+    queue.enqueue('y', () => started.push('y'), undefined)
+    expect(started).toEqual(['x', 'y'])
+  })
 })

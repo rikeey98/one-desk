@@ -252,7 +252,8 @@ export function createExecutionService(opts: ExecutionOptions) {
       mcp,
       resumeSessionId: spec.resumeSessionId,
       timeoutMs: spec.timeoutMs
-    }))
+    // 같은 대화의 두 턴이 동시에 뜨면 --resume이 깨진다 (설계 §3-2).
+    }), created.rootRunId ?? created.id)
 
     // 슬롯이 있었으면 beginRun이 동기로 끝나 running이고, 없었으면 pending이다.
     return opts.runs.get(created.id)
