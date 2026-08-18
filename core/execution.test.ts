@@ -298,6 +298,9 @@ describe('ExecutionService', () => {
     // 이제 2턴이 뜨면서 그 세션을 집는다.
     await vi.waitFor(() => expect(fake.started(second.id)).toBe(true))
     expect(ctx2.runs.get(second.id).status).toBe('running')
+    // 헤드라인 약속 그 자체 — "떴다"만으로는 앞 턴의 세션을 실제로 집었는지
+    // 증명하지 못한다. manager.start()에 넘어간 값을 직접 본다.
+    expect(fake.sessionIdFor(second.id)).toBe('sess-1')
     rmSync(ctx2.logDir, { recursive: true, force: true })
   })
 
@@ -322,6 +325,70 @@ describe('ExecutionService', () => {
     // 프로세스는 뜬 적이 없다.
     expect(stored.startedAt).toBeNull()
     expect(fake.started(second.id)).toBe(false)
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+
+  it('실행 시점의 세션 조회가 던지면 run을 어중간하게 두지 않고 슬롯을 돌려준다', async () => {
+    // latestSessionRun 호출은 원래 resume()의 호출 시점에 있었다 — 그때는 run
+    // 행도 MCP 토큰도 큐 슬롯도 없어 던져도 부작용이 없었다. beginRun으로
+    // 옮기며 셋 다 이미 존재하는 자리가 됐다. wrapRuns로 이 호출만(그것도
+    // beginRun이 부르는 시점에만) 던지게 만들어 새 try/catch가 실제로
+    // 막아주는지 본다.
+    let failing = false
+    const fake = createPerRunManager()
+    const logs = captureConsoleError()
+    const ctx2 = setup({
+      manager: fake.manager,
+      limit: 1,
+      wrapRuns: (runs) => ({
+        ...runs,
+        latestSessionRun: (rootRunId: string) => {
+          if (failing) throw new Error('database is locked')
+          return runs.latestSessionRun(rootRunId)
+        }
+      })
+    })
+
+    const first = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '1턴', context: []
+    })
+    // 아직 failing이 꺼져 있다 — resume()이 잠긴 값의 출처를 구하려고 부르는
+    // 호출은 정상적으로 성공해야 한다.
+    const second = await ctx2.service.resume({
+      conversationId: first.id, permission: 'edit', userPrompt: '2턴', context: []
+    })
+    expect(second.status).toBe('pending')
+    // 다른 대화의 세 번째 run — limit이 1이라 second 뒤에서 같이 기다린다.
+    const third = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '다른 대화', context: []
+    })
+    expect(third.status).toBe('pending')
+
+    // 이제부터 latestSessionRun이 던진다 — beginRun이 second를 띄우려는
+    // 순간을 겨냥한다.
+    failing = true
+    fake.finish(first.id, 'sess-1')
+
+    // (b) 슬롯이 반환되어 다음 대기분(third)이 뜬다.
+    await vi.waitFor(() => expect(fake.started(third.id)).toBe(true))
+    expect(ctx2.runs.get(third.id).status).toBe('running')
+
+    // (a) second는 던진 조회 때문에 시작하지 못했다 — running도 failed도
+    // 아닌 pending으로 남는다. 다음 재시작의 reapStale이 정리할 자리다.
+    expect(fake.started(second.id)).toBe(false)
+    expect(ctx2.runs.get(second.id).status).toBe('pending')
+    expect(ctx2.runs.get(second.id).startedAt).toBeNull()
+    // 조용히 넘어가면 안 된다 — 큐의 catch와 달리 이 실패는 beginRun 안에서
+    // 직접 다뤘으므로, 로그가 유일한 흔적이다.
+    expect(logs.some((line) => line.includes(second.id))).toBe(true)
+
+    fake.finish(third.id)
+    await vi.waitFor(() => {
+      expect(ctx2.queue.snapshot()).toEqual({ running: 0, limit: 1, waiting: 0 })
+    })
+    logs.restore()
     rmSync(ctx2.logDir, { recursive: true, force: true })
   })
 
@@ -883,11 +950,16 @@ function createPerRunManager() {
   const logPathFor = (runId: string) => resolve(tmpdir(), `one-desk-perrun-${runId}.jsonl`)
   const settlers = new Map<string, (outcome: RunOutcome) => void>()
   const seen = new Set<string>()
+  // manager.start()에 실제로 넘어온 resumeSessionId를 기록한다. beginRun이
+  // 실행 시점에 고른 값이 이 자리로 온다 — 그냥 "떴는지"만으로는 지연 해석이
+  // 앞 턴의 세션을 실제로 집었는지 증명하지 못한다.
+  const resumeSessionIds = new Map<string, string | null>()
 
   const manager: RunManager = {
     logPathFor,
     start: (spec) => {
       seen.add(spec.runId)
+      resumeSessionIds.set(spec.runId, spec.resumeSessionId)
       return new Promise<RunOutcome>((r) => settlers.set(spec.runId, r))
     },
     cancel: () => {},
@@ -898,6 +970,7 @@ function createPerRunManager() {
   return {
     manager,
     started: (runId: string) => seen.has(runId),
+    sessionIdFor: (runId: string) => resumeSessionIds.get(runId) ?? null,
     finish(runId: string, sessionId: string | null = null) {
       const settle = settlers.get(runId)
       if (!settle) throw new Error(`시작한 적 없는 run입니다: ${runId}`)

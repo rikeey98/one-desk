@@ -95,7 +95,20 @@ export function createExecutionService(opts: ExecutionOptions) {
     // 슬롯을 받은 지금이 체인이 확정된 첫 순간이다.
     let resumeSessionId: string | null = null
     if (spec.resumeFromRootRunId) {
-      const source = opts.runs.latestSessionRun(spec.resumeFromRootRunId)
+      let source: Run | null
+      try {
+        source = opts.runs.latestSessionRun(spec.resumeFromRootRunId)
+      } catch (err) {
+        // 이 조회는 원래 resume()의 호출 시점에 있었다 — 그때는 run 행도 MCP
+        // 토큰도 큐 슬롯도 없어 던져도 부작용이 없었다. beginRun으로 옮기며
+        // 셋 다 이미 존재하는 자리가 됐다. 여기서 삼키지 않으면 MCP 토큰이
+        // 영원히 폐기되지 않고, run 행은 running도 failed도 아닌 채로 남아
+        // 다음 재시작의 reapStale이 치울 때까지 아무도 모른다.
+        onError(`[execution] 이어받을 세션 조회 실패 — 슬롯만 돌려주고 건너뛴다 (runId=${runId})`, err)
+        releaseMcp(runId)
+        opts.queue.release(runId)
+        return
+      }
       if (!source?.externalSessionId) {
         // 조용히 새 세션으로 시작하지 않는다 — agent는 이전 대화를 모르는 채로
         // 돌고, 사용자는 답이 이상해진 이유를 알 방법이 없다.
