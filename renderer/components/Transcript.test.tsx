@@ -62,6 +62,25 @@ describe('Transcript', () => {
     expect(screen.getByText('도구 로그')).toBeInTheDocument()
   })
 
+  it('예약된 턴이 자동으로 시작되면(재마운트 없이) 로그가 펼쳐진다 (I-1)', () => {
+    // useState의 초기값은 마운트 때 한 번만 평가된다. 예약된 턴은 pending으로
+    // 먼저 마운트되므로 open=false로 굳는다 — 앞 턴이 끝나 같은 run.id가
+    // running으로 전이해도(재마운트가 없다) 접힌 채로 남으면 이 회귀다.
+    const pending = groupConversations([
+      makeRun({ id: 'a1', rootRunId: 'a1', status: 'pending', userPrompt: '예약된 말' })
+    ])[0]!
+    const { rerender } = render(<Transcript conversation={pending} onCancel={() => {}} />)
+    expect(useRunEventsMock).not.toHaveBeenCalled()
+
+    const running = groupConversations([
+      makeRun({ id: 'a1', rootRunId: 'a1', status: 'running', userPrompt: '예약된 말' })
+    ])[0]!
+    rerender(<Transcript conversation={running} onCancel={() => {}} />)
+
+    expect(useRunEventsMock).toHaveBeenCalledWith('a1')
+    expect(screen.getByText('도구 로그')).toBeInTheDocument()
+  })
+
   it('예약된 턴은 대기 중으로 보이고 취소할 수 있다', async () => {
     const onCancel = vi.fn()
     const conv = groupConversations([
