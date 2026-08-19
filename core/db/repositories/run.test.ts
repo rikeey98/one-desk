@@ -317,6 +317,31 @@ describe('RunRepository', () => {
       expect(runs.inboxCounts().total).toBe(2)
       expect(runs.inboxCounts().byWorkspace[workspaceId]).toBe(2)
     })
+
+    it('확인한 대화에 새 턴이 생기면 뿌리의 확인 표시가 풀려 다시 인박스에 뜬다 (CT-3)', () => {
+      // markReviewed는 한 번 찍히면 스스로 지워지지 않는다. create()가
+      // parentRunId를 받을 때 뿌리의 확인 표시를 지우지 않으면, 한 번이라도
+      // "확인함"/"보관"한 대화는 그 뒤로 needs_answer가 다시 떠도 영원히
+      // 인박스에 안 뜬다(설계 §5 재개 규칙).
+      const first = runs.create(baseInput())
+      succeed(first.id)
+      runs.markReviewed(first.id, 'confirmed')
+      expect(runs.inbox()).toHaveLength(0)
+      expect(runs.get(first.id).reviewedAt).toBeTypeOf('number')
+
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+
+      // create() 시점에 곧바로 풀린다 — second가 끝나기 전에도 확인된다.
+      const root = runs.get(first.id)
+      expect(root.reviewedAt).toBeNull()
+      expect(root.reviewedKind).toBeNull()
+
+      succeed(second.id)
+      const items = runs.inbox()
+      expect(items).toHaveLength(1)
+      expect(items[0]!.id).toBe(second.id)
+      expect(runs.inboxCounts().total).toBe(1)
+    })
   })
 
   describe('rootRunId', () => {

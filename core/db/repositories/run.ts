@@ -187,6 +187,7 @@ export function createRunRepository(db: Database) {
 
     create(input: CreateRunInput): Run {
       const id = input.id ?? randomUUID()
+      const rootRunId = rootFor(input.parentRunId ?? null, id)
       db.transaction((tx: Runner) => {
         tx.insert(run).values({
           id,
@@ -199,7 +200,7 @@ export function createRunRepository(db: Database) {
           assembledPrompt: input.assembledPrompt,
           logPath: input.logPath,
           parentRunId: input.parentRunId ?? null,
-          rootRunId: rootFor(input.parentRunId ?? null, id),
+          rootRunId,
           timeoutMs: input.timeoutMs ?? null,
           createdAt: Date.now()
         }).run()
@@ -207,6 +208,16 @@ export function createRunRepository(db: Database) {
           tx.insert(runContextItem).values(
             input.context.map((c) => ({ runId: id, itemType: c.type, itemId: c.id }))
           ).run()
+        }
+        // 기존 대화에 잇는 턴이면(parentRunId가 있으면) 뿌리의 확인 표시를 지운다
+        // (설계 §5의 재개 규칙, C-1의 두 번째 절반). markReviewed는 한 번 찍히면
+        // 스스로 지워지지 않으므로, 이걸 안 하면 한 번이라도 "확인함"/"보관"한
+        // 대화는 그 뒤로 needs_answer가 다시 떠도 영원히 인박스에 안 뜬다.
+        // rootRunId가 새로 만드는 이 run 자신을 가리키는 경우(부모 행이 이미
+        // 사라진 경우)도 안전하다 — 방금 만든 행이라 reviewedAt이 어차피 null이다.
+        if (input.parentRunId) {
+          tx.update(run).set({ reviewedAt: null, reviewedKind: null })
+            .where(eq(run.id, rootRunId)).run()
         }
       })
       return get(id)
@@ -298,6 +309,13 @@ export function createRunRepository(db: Database) {
      *
      * 이미 확인된 run의 시각은 덮어쓰지 않는다 — 처음 확인한 때가 기록으로서
      * 의미가 있고, 나중에 컬럼을 추가해도 그 이전 기록은 복구할 수 없다.
+     *
+     * **단, 이 불변은 "그 대화가 다시 이어지기 전까지"만 성립한다.** run이
+     * 불변인 옛 모델에서 쓰인 주석이었다 — 대화가 이어지는 지금은 `create()`가
+     * `parentRunId`를 받을 때마다 뿌리의 `reviewedAt`/`reviewedKind`를 지운다
+     * (설계 §5 재개 규칙). 그 순간부터는 "처음 확인한 때"가 새로 이어진 대화의
+     * 상태에 대해서는 더 이상 유효하지 않으므로, 여기서 다시 찍히는 시각이
+     * 사실상 "이 재개 이후 처음 확인한 때"가 된다.
      */
     markReviewed(id: string, kind: 'confirmed' | 'archived'): Run {
       db.update(run)

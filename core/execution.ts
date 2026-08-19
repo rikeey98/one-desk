@@ -375,6 +375,14 @@ export function createExecutionService(opts: ExecutionOptions) {
    * 어느 쪽이든 **사용자가 스스로 한 일이므로 그 자리에서 확인 표시를 찍는다.**
    * 그래야 인박스에 남는 canceled가 앱이 재시작하며 취소한 것만 남고,
    * "대기 중 취소됨"이라는 이름이 정확해진다 (설계 §5).
+   *
+   * **확인 표시는 취소하는 그 턴이 아니라 뿌리에 찍는다.** 인박스 소속
+   * 판정이 뿌리의 reviewedAt 기준이기 때문이다(`run.ts`의 `inbox()`, 설계
+   * §5). 턴 id에 찍으면 두 방향으로 깨진다: 예약된 뒤 턴을 취소하면 뿌리는
+   * 미확인인 채로 남아 그 대화가 그대로 인박스에 남고, 뿌리(=첫 턴)를
+   * 실행 중에 취소하면 반대로 세션은 살아 있는데 그 대화의 이후 어떤 턴도
+   * 인박스에 나타나지 않게 된다(C-1). 뿌리가 이미 확인돼 있어도 그 대화를
+   * 이어가면 `create()`가 다시 풀어준다(설계 §5 재개 규칙).
    */
   function cancel(runId: string): void {
     if (opts.queue.remove(runId)) {
@@ -382,21 +390,23 @@ export function createExecutionService(opts: ExecutionOptions) {
       // enqueue보다 먼저 끝나므로(launch 참고) 대기 중이던 이 run도 이미
       // 토큰을 쥐고 있을 수 있다 — 반드시 폐기한다.
       releaseMcp(runId)
-      notify(opts.runs.markFinished(runId, {
+      const finished = opts.runs.markFinished(runId, {
         status: 'canceled',
         resultText: null,
         externalSessionId: null,
         needsAnswer: false,
         exitCode: null,
         errorMessage: null
-      }))
-      notify(opts.runs.markReviewed(runId, 'archived'))
+      })
+      notify(finished)
+      notify(opts.runs.markReviewed(finished.rootRunId ?? finished.id, 'archived'))
       return
     }
 
     // 실행 중이다. 종료 기록은 manager의 결과가 오면 finish가 쓴다.
     // 확인 표시는 지금 찍는다 — markFinished는 reviewedAt을 건드리지 않으므로 살아남는다.
-    notify(opts.runs.markReviewed(runId, 'archived'))
+    const target = opts.runs.get(runId)
+    notify(opts.runs.markReviewed(target.rootRunId ?? target.id, 'archived'))
     opts.manager.cancel(runId)
   }
 
