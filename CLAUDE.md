@@ -12,7 +12,9 @@ workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 
 
 같은 작업에서 **Windows 실행 경로**가 처음으로 열렸다. 실행 파일 탐색이 `core/runner/executable.ts`로 떨어져 나와 `PATHEXT`와 폴백 디렉토리를 다루고, `.cmd` 설치본은 preflight가 명확한 메시지로 거부한다. 그 과정에서 로그 스트림의 미처리 오류가 메인 프로세스를 죽이던 결함도 잡혔다.
 
-다음은 5단계(OpenCode 어댑터 · asset 스캔 · diff 뷰어)다. **착수를 막던 환경변수 결정은 해소됐다**(아래 절). 본문 작업이 넷으로 쪼갠 것 중 첫째였으므로 나머지 셋(마크다운 렌더링 · 검색/필터/정렬 · run 완료 구독)도 후보로 남아 있다.
+**대화(세션을 이어가는 대화)**가 브랜치 `feature/conversation`에서 10개 태스크로 완성됐다(설계 `2026-08-18-conversation-design.md`, 계획 `2026-08-18-conversation.md`) — 아직 `main`에 병합되지 않았다. run은 더 이상 일회용이 아니라 전부 대화다: `run.rootRunId`가 턴을 한 대화로 묶고(승계 규칙은 "부모의 rootRunId, 부모가 없으면 자기 id"), 도크는 run이 아니라 대화 단위 탭이며(`Dock.tsx`의 `groupConversations`), 인박스 항목도 대화 하나당 한 줄로 그 대화의 마지막 턴을 보여준다 — "로그 보기"·"이어서 실행" 두 버튼이 "대화 열기" 하나로 합쳐졌다. **대화당 예약은 하나뿐이다**(설계 §3-2): 앞 턴이 도는 중에 다음 지시를 보내면 그 턴은 `pending`으로 대기 버블만 만들고 전송이 잠긴다 — `RunQueue`의 `groupKey`(대화의 root run id)가 같은 대화의 두 턴이 동시에 뜨는 것을 막는다(`claude --resume`은 이전 프로세스가 끝나야 한다). 대화록의 각 턴은 **진행 중일 때만 기본으로 펼쳐지고**, 끝난 턴은 접힌 채로 "자세히"를 눌러야 도구 호출 같은 세부가 보인다(최종 답변 자체는 항상 보인다). `e2e/conversation.e2e.ts`가 화면을 벗어나지 않고 3턴을 실제로 주고받아 이 핵심 약속 — 특히 "앞 턴이 끝나면 예약된 턴이 자동으로 뜬다" — 을 검증한다.
+
+다음은 5단계(OpenCode 어댑터 · asset 스캔 · diff 뷰어)다. **착수를 막던 환경변수 결정은 해소됐다**(아래 절). 본문 작업이 넷으로 쪼갠 것 중 첫째였으므로 나머지 셋(마크다운 렌더링 · 검색/필터/정렬 · run 완료 구독)도 후보로 남아 있다. 대화 기능은 이 목록과 별개로 진행돼 완료됐다(위 절) — `main`에 병합하는 것은 아직 남아 있다.
 
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
@@ -120,6 +122,14 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **ad-hoc 서명(`identity: '-'`)은 hardened runtime의 라이브러리 검증에 걸린다.** Team ID가 없어 Electron Framework조차 로드되지 않고 앱이 아예 안 뜬다 — `build/entitlements.mac.plist`의 `com.apple.security.cs.disable-library-validation`이 그것을 푼다. **설정이 문법에 맞는 것과 앱이 열리는 것은 다르다** — DMG를 실제로 열어봐야만 드러난다.
 
+**같은 대화의 두 턴은 동시에 뜨면 안 된다** — `claude --resume`은 이전 프로세스가 끝나야 한다. `RunQueue`의 `groupKey`가 막고 있다.
+
+**`root_run_id`를 NOT NULL로 "고치지" 말 것** — SQLite에서 그러려면 테이블을 다시 만들어야 하고, 그 `DROP TABLE run`이 `run_context_item`의 cascade를 태워 모든 맥락 기록을 지운다. 마이그레이션의 `PRAGMA foreign_keys=OFF`는 트랜잭션 안이라 무시된다.
+
+**e2e에서 `getByRole('button', { name: '실행' })`은 exact 없이 쓰면 강제로 실패한다.** substring 매칭이 기본이라 도크 토글("▾ 실행"/"▴ 실행")과 슬롯 표시기(`aria-label="실행 슬롯"`)까지 같이 걸려 strict mode 위반이 된다 — run-start 버튼을 잡으려면 `{ name: '실행', exact: true }`가 필수다(태스크 8이 라벨을 "▶ 실행"에서 "실행"으로 줄이면서 처음 생긴 충돌).
+
+**대화의 첫 턴을 시작한 직후 도크 탭 텍스트로 "떴다"고 판단하지 말 것.** Dock의 `view`/`pickedId` 전환(RunPanel의 `onStarted` 콜백, 동기)과 `runs` 목록 갱신(`useRuns`의 `onRunUpdate` IPC push, 비동기)이 서로 다른 경로로 온다. 도크 탭(`conversations.map(...)`)은 `runs`가 갱신되는 즉시 그려지지만, 그 순간 `ConversationPanel`은 아직 `key='new'`인 옛 인스턴스일 수 있다 — 탭 텍스트가 보인다고 바로 다음 입력을 채우면 곧 재마운트될 RunPanel에 채워 넣어 버려 전송이 빈 프롬프트로 막힌다(실행 버튼이 계속 disabled). 대화록 안의 `.turn-user` 텍스트로 기다려야 재마운트가 끝난 안정된 인스턴스를 보장한다(`e2e/conversation.e2e.ts`).
+
 ## 데이터 규칙
 
 - **시각은 전부 epoch milliseconds 정수.** `Date.now()`로 명시 삽입한다. 스키마의 `unixepoch() * 1000` 기본값은 해상도가 초라서 같은 초에 만든 항목들의 정렬이 무너진다.
@@ -156,5 +166,7 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 | `docs/superpowers/plans/2026-08-14-release-pipeline.md` | 릴리스 파이프라인 구현 계획 (5개 태스크) |
 | `docs/superpowers/specs/2026-08-14-mcp-always-on-design.md` | MCP 상시 기동과 상태 표시 — 전체 설계 §14를 뒤집은 근거(§2) |
 | `docs/superpowers/specs/2026-08-14-mcp-stdio-design.md` | MCP를 stdio로 옮긴 설계 — 프록시가 막던 실측 근거(§1), 브리지 구조(§2) |
+| `docs/superpowers/specs/2026-08-18-conversation-design.md` | 대화 설계 — 일회용 run을 이어지는 대화로, `rootRunId` 데이터 모델(§2), 큐 직렬화(§3), 도크/인박스 UI(§4·§5) |
+| `docs/superpowers/plans/2026-08-18-conversation.md` | 대화 구현 계획 (완료, 10개 태스크) |
 
 **설계 문서의 결정을 코드에서 임의로 바꾸지 않는다.** 설계에 구멍이 보이면 고치지 말고 지적할 것 — 그게 더 값지다.
