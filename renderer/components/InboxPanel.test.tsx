@@ -72,7 +72,9 @@ describe('InboxPanel', () => {
   it('대기 중 취소됨에도 대화 열기를 보여준다', () => {
     // 항목은 run이 아니라 대화다 — 마지막 턴이 시작 전에 취소됐어도 앞의
     // 턴들에는 대화록이 있을 수 있다(리뷰 I-3). 1턴짜리 대화가 dropped됐다면
-    // 열어도 빈 대화록 + 입력부만 보일 뿐이고, 그게 아예 못 여는 것보다 낫다.
+    // Transcript의 pending 이른 반환(status === 'pending'에만 걸림)은 타지
+    // 않는다 — 취소된 턴은 'canceled'라 사용자 프롬프트와 상태 칩이 그려진다.
+    // 그래도 아예 못 여는 것보다 낫다.
     renderPanel([run({ status: 'canceled', externalSessionId: null })])
     expect(screen.getByRole('button', { name: '대화 열기' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '다시 실행' })).toBeInTheDocument()
@@ -127,9 +129,13 @@ describe('InboxPanel', () => {
   // 쓰므로 "관련 이슈 닫기"가 나오지 않는다. 그것과 별개로, 이슈가 붙으면
   // 카테고리와 무관하게 나온다는 것(완료·미확인이 아닌 "실패"에서도)을 아래
   // "실패 (이슈 첨부)" 행으로 같은 방식으로 확인한다.
-  it('카테고리마다 보이는 행동 버튼 집합이 설계 §5의 표와 정확히 같다', () => {
+  it('카테고리마다 보이는 행동 버튼 집합이 현재 후속 행동 규칙과 정확히 같다', () => {
     // "로그 보기"·"이어서 실행"(·"답하고 이어서")이 "대화 열기" 하나로 합쳐졌다
     // (설계 §5, Task 9) — dropped를 포함해 모든 카테고리에서 나온다(리뷰 I-3).
+    // 3b 설계(§5)의 후속 행동표는 항목 단위가 run이던 시절 것이라 "대기 중
+    // 취소됨"에 "대화 열기"가 없다 — 대화 단위로 바뀌며 뒤집혔다(3b 문서의
+    // (†) 참고). 그래서 이 테스트는 그 표가 아니라 아래에 직접 적은, 지금
+    // 실제로 맞아야 하는 집합과 비교한다.
     const table: Array<{ category: string; over: Partial<Run>; expected: string[] }> = [
       { category: '답변 필요', over: { needsAnswer: true, externalSessionId: 'sess-1' }, expected: ['대화 열기', '보관'] },
       { category: '완료 · 미확인', over: { externalSessionId: 'sess-1' }, expected: ['대화 열기', '확인함'] },

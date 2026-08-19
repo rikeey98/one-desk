@@ -611,6 +611,45 @@ describe('ExecutionService', () => {
     rmSync(local.logDir, { recursive: true, force: true })
   })
 
+  it('실행 중인 예약 턴을 취소해도 뿌리가 확인되어 대화가 인박스에 안 뜬다 (C-1, 실행 중 분기)', async () => {
+    // 위 C-1 회귀 테스트는 대기 중 취소 분기만 지나간다(취소 대상이 pending이므로).
+    // cancel()의 실행 중 취소 분기(target.rootRunId ?? target.id)도 같은 버그에
+    // 노출될 수 있다 — 예약된 턴이 앞 턴 종료로 자동 실행되면 running이면서
+    // rootRunId와 다른 id를 갖는데, Dock.tsx는 대화의 마지막 턴 id로 취소를 건다.
+    const ctrl = createPerRunManager()
+    const local = setup({ manager: ctrl.manager, limit: 3 })
+
+    const first = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '1턴', context: []
+    })
+    expect(first.status).toBe('running')
+
+    // 1턴이 도는 중에 2턴을 예약한다 — 같은 대화라 슬롯이 남아도 대기한다.
+    const second = await local.service.resume({
+      conversationId: first.id, permission: 'edit', userPrompt: '2턴(예약)', context: []
+    })
+    expect(second.status).toBe('pending')
+
+    // 1턴을 세션과 함께 끝낸다 — 2턴이 자동으로 뜬다(running).
+    ctrl.finish(first.id, 'session-1')
+    await vi.waitFor(() => expect(local.runs.get(second.id).status).toBe('running'))
+
+    // 2턴을 취소한다 — 이제 실행 중 분기다.
+    local.service.cancel(second.id)
+
+    // 뿌리(1턴)가 확인 표시를 받아야 대화 전체가 인박스에서 빠진다.
+    const root = local.runs.get(first.id)
+    expect(root.reviewedKind).toBe('archived')
+    expect(root.reviewedAt).toBeTypeOf('number')
+
+    ctrl.finish(second.id)
+    await vi.waitFor(() => expect(local.runs.get(second.id).status).toBe('succeeded'))
+    // 대화 전체가 인박스에서 빠져야 한다 — "대기 중 취소됨"으로 재등장하면 안 된다.
+    expect(local.runs.inbox()).toHaveLength(0)
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
   it('삼킨 오류를 주입받은 onError로 흘려보낸다', async () => {
     // core/는 나중에 별도 데몬으로 떨어질 수 있으므로 목적지를 스스로 정하지 않는다.
     // 이 테스트는 start()가 삼키는 오류를 본다 — describe('resume') 안에 있던 것을

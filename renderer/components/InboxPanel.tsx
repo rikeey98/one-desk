@@ -18,8 +18,11 @@ function shows(category: InboxCategory, action: 'open' | 'restart' | 'confirm' |
     // (설계 §5 — 옛 "로그 보기"·"이어서 실행" 두 조건의 합집합). dropped라고
     // 예외로 숨기지 않는다 — 항목은 run이 아니라 대화이고, 마지막 턴이 시작
     // 전에 취소됐어도 앞의 턴들에는 대화록이 있다. 1턴짜리 대화가 시작도 못
-    // 하고 dropped됐다면 열어도 빈 대화록 + 입력부만 보일 뿐이고, 그게 아예
-    // 열 수 없는 것보다 낫다 (리뷰 I-3).
+    // 하고 dropped됐다면 열었을 때 Transcript의 pending 이른 반환은 걸리지
+    // 않는다 — 그건 status === 'pending'에만 걸리고 취소된 턴은 이미
+    // 'canceled'다. 대신 사용자 프롬프트와 "canceled" 상태 칩이 그려진다
+    // (빈 대화록이 아니다). 그래도 열 수 있게 하는 편이 아예 못 여는 것보다
+    // 낫다 (리뷰 I-3).
     case 'open': return true
     case 'restart': return category === 'failed' || category === 'interrupted' || category === 'dropped'
     case 'confirm': return category === 'done'
