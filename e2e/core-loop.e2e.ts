@@ -44,8 +44,11 @@ describe('핵심 한 바퀴', () => {
     expect(await page.getByLabel('권한').inputValue()).toBe('read_only')
 
     // 6. 지시를 넣고 실행
+    // run-start 버튼의 접근성 이름은 정확히 "실행"뿐이다. exact 없이 substring으로
+    // 잡으면 도크 토글("▾ 실행")과 슬롯 표시기("실행 슬롯" aria-label)까지 걸려
+    // strict mode 위반이 된다(실측).
     await page.getByPlaceholder(/무엇을 시킬지/).fill(PROMPT)
-    await page.getByRole('button', { name: '▶ 실행' }).click()
+    await page.getByRole('button', { name: '실행', exact: true }).click()
 
     // 7. 탭이 즉시 생긴다.
     //    이 단언이 실제로 검증하는 것: markStarted 직후의 상태 push(onRunUpdate)가
@@ -63,8 +66,12 @@ describe('핵심 한 바퀴', () => {
     await page.getByText('작업 중').waitFor({ state: 'visible', timeout: 10_000 })
 
     // 9. 완료되면 배지가 바뀌고 결과가 보인다
+    // "끝남"은 대화록의 답변(.turn-answer)과, 진행 중이라 펼쳐진 로그의 마지막
+    // result 줄(.log-result) 양쪽에 같은 텍스트로 나타난다(실측 — 이 턴은 running
+    // 상태로 처음 마운트돼 기본으로 펼쳐져 있다). page.getByText('끝남')은 그 둘에
+    // 다 걸려 strict mode 위반이 된다 — 대화록의 답변으로 범위를 좁힌다.
     const doneTab = page.getByRole('button', { name: new RegExp(`succeeded.*${PROMPT}`) })
     await doneTab.waitFor({ state: 'visible', timeout: 20_000 })
-    await page.getByText('끝남').waitFor({ state: 'visible', timeout: 5_000 })
+    await page.locator('.turn-answer').filter({ hasText: '끝남' }).waitFor({ state: 'visible', timeout: 5_000 })
   })
 })
