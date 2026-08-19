@@ -157,10 +157,12 @@ describe('openDb 마이그레이션', () => {
     for (const entry of keep) copyFileSync(join(full, `${entry.tag}.sql`), join(partial, `${entry.tag}.sql`))
 
     // 0001까지만 적용된 DB를 만든다.
-    openDb({ file, migrationsDir: partial })
+    // **핸들을 반드시 닫는다.** Windows는 열린 핸들이 있는 파일을 지우지 못해
+    // 아래 rmSync가 EBUSY로 죽는다 — POSIX에서는 통과하므로 CI에서만 드러난다.
+    const old = openDb({ file, migrationsDir: partial })
+    old.$client.close()
 
-    // 심는 것은 raw 핸들로 한다 — root_run_id 컬럼이 없어 drizzle 스키마를 쓸 수
-    // 없고, openDb는 핸들을 돌려주지 않는다. WAL이라 연결이 여럿이어도 된다.
+    // 심는 것은 raw 핸들로 한다 — root_run_id 컬럼이 없어 drizzle 스키마를 쓸 수 없다.
     const seed = new BetterSqlite3(file)
     seed.exec(`
       INSERT INTO workspace (id, name, created_at, updated_at)
@@ -176,7 +178,8 @@ describe('openDb 마이그레이션', () => {
     seed.close()
 
     // 전체 마이그레이션으로 다시 연다 — 0002가 백필한다.
-    openDb({ file, migrationsDir: full })
+    const migrated = openDb({ file, migrationsDir: full })
+    migrated.$client.close()
 
     const check = new BetterSqlite3(file)
     const rows = check

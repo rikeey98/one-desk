@@ -108,6 +108,8 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **`createWriteStream`의 open은 비동기다 — `error` 리스너가 없으면 앱이 죽는다.** `mkdirSync`가 방금 만든 디렉토리라도 그 사이에 사라질 수 있고, 디스크가 차거나 권한이 막혀도 실패한다. 리스너가 없으면 처리되지 않은 예외가 되어 Electron 메인 프로세스가 통째로 내려간다. `core/runner/logWriter.ts`가 이를 `ErrorSink`로 흘려보내고, 실패한 뒤 `close()`가 매달리지 않게 한다(매달리면 run이 안 끝나 동시 실행 슬롯이 영영 점유된다).
 
+**Windows는 열린 핸들이 있는 파일을 지우지 못한다 — 테스트가 연 DB는 반드시 닫아야 한다.** POSIX는 열려 있는 파일도 unlink되므로 macOS·Linux에서는 핸들을 흘려도 `rmSync`가 조용히 성공한다. Windows에서만 `EBUSY: resource busy or locked`로 죽고, **그래서 로컬은 전부 초록인데 릴리스 CI의 Windows 잡에서만 터진다**(v0.2.0 릴리스가 실제로 이렇게 한 번 깨졌다). `openDb`는 핸들을 돌려주지 않는 것처럼 보이지만 반환한 drizzle 인스턴스의 `$client`가 그것이다 — `core/db/open.test.ts`의 기존 테스트들이 이미 `db.$client.close()`를 쓰고 있으니 그 패턴을 따를 것.
+
 **`productName`이 사용자 데이터 위치를 정한다 — `appId`가 아니다.** Electron은 `userData`를 `appData` + 앱 이름으로 만들고 앱 이름은 `productName`을 우선한다. `electron-builder.yml`의 `productName: one-desk`를 보기 좋게 바꾸면 기존 사용자의 DB 디렉토리를 앱이 더 이상 보지 않는다.
 
 **MCP는 stdio로 간다 — HTTP가 아니다.** claude가 `core/mcp/bridge.mjs`를 자식 프로세스로 띄우고 표준입출력으로 JSON-RPC를 주고받으면, 브리지가 그것을 앱 안의 HTTP 서버로 중계한다. **HTTP로 직접 붙던 시절에는 사내 프록시가 루프백 요청을 403으로 막아 그 환경에서 아예 못 썼다** — 같은 포트에 `curl`은 401을 받는데 agent만 실패하는 증상이었다. Node의 `http`/`fetch`는 `HTTP_PROXY`를 자동으로 쓰지 않으므로 브리지는 통과한다. **브리지는 멍청한 파이프다** — 권한 게이팅과 도구 등록은 전부 서버에 남는다.
