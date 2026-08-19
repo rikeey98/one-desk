@@ -5,9 +5,9 @@ describe('대화', () => {
   it('한 세션에서 세 턴을 주고받고 인박스에는 한 줄만 남는다', async () => {
     // launchApp()이 onTestFinished로 정리를 스스로 예약하므로 이 테스트는 앱을 직접
     // 닫지 않는다. ONE_DESK_FAKE_DELAY_MS로 가짜 CLI를 늦춰, 1턴이 도는 동안 2턴을
-    // 쳐 넣을 시간을 만든다 — driver.ts의 기본값도 1500ms라 사실상 같은 값이지만,
-    // 이 채널 자체(launchApp의 env 통로)가 이번 태스크에서 새로 낸 것이다.
-    const app = await launchApp({ env: { ONE_DESK_FAKE_DELAY_MS: '1500' } })
+    // 쳐 넣을 시간을 만든다. driver.ts의 기본값(1500ms)보다 올려서 이 env 통로가
+    // 실제로 일을 하게 한다 — 예약 관찰 창도 넓어져 느린 기계에서의 간헐 실패를 줄인다.
+    const app = await launchApp({ env: { ONE_DESK_FAKE_DELAY_MS: '4000' } })
     const page = app.page
 
     // workspace와 repo 준비 — core-loop.e2e.ts의 1~2단계와 같다.
@@ -54,26 +54,45 @@ describe('대화', () => {
     // 이미 다음 상태로 넘어간 순간을 놓칠 수 있지만, waitFor는 나타나는 즉시 잡는다.
     await prompt.fill('둘째 지시')
     await send.click()
-    await page.getByText('대기 중').waitFor({ state: 'visible', timeout: 3_000 })
+    await page.getByText('대기 중').waitFor({ state: 'visible', timeout: 5_000 })
+
+    // 전송 성공 직후 RunPanel이 프롬프트를 비운다(RunPanel.tsx:137) — 그래서 빈
+    // 프롬프트에서 disabled를 확인하면 "예약 중이라 잠김"과 "쓸 지시가 없어 원래
+    // 비활성" 두 이유가 겹쳐 공허해진다(ready는 prompt.trim() !== ''도 요구한다,
+    // RunPanel.tsx:112-113). 3턴 프롬프트를 미리 채워 그 혼입을 없앤 뒤에야 아래
+    // disabled 단언이 reserved만을 가리킨다 — 이렇게 안 하면 RunPanel.tsx:113의
+    // `&& !reserved`를 통째로 지워도 이 시나리오가 끝까지 초록이다(실측, 아래
+    // "대화당 예약은 하나" 검증).
+    await prompt.fill('셋째 지시')
     // vitest의 expect에는 Playwright의 toBeDisabled 매처가 없다(playwright-core만
     // 쓰고 @playwright/test는 의존성에 없다) — expect.poll로 같은 재시도 의미를 살린다.
-    await expect.poll(() => send.isDisabled(), { timeout: 3_000 }).toBe(true)
+    await expect.poll(() => send.isDisabled(), { timeout: 5_000 }).toBe(true)
 
     // 1턴이 끝나면 2턴이 자동으로 뜬다 — 이 계획 전체의 핵심 약속이다.
     await page.getByText('대기 중').waitFor({ state: 'hidden', timeout: 20_000 })
-
-    // 3턴. 전송 성공 직후 RunPanel이 프롬프트를 비우므로(위 1·2턴에서도 마찬가지),
-    // 빈 프롬프트에서는 disabled가 "예약 중이라 잠김"과 "쓸 지시가 없어 원래
-    // 비활성" 두 이유가 겹쳐 구분이 안 된다 — 프롬프트를 먼저 채운 뒤에야
-    // "예약 잠금이 실제로 풀렸는지"를 의미 있게 확인할 수 있다.
-    await prompt.fill('셋째 지시')
     await expect.poll(() => send.isDisabled(), { timeout: 20_000 }).toBe(false)
+
+    // 3턴 — 프롬프트는 이미 채워져 있다.
     await send.click()
     await turnPrompt('셋째 지시').waitFor({ state: 'visible', timeout: 5_000 })
 
     // 대화록에 턴이 셋, 도크 탭은 하나다 — 세 턴이 별개의 대화로 흩어지지 않았다.
     await expect.poll(() => page.locator('.turn').count(), { timeout: 20_000 }).toBe(3)
+
+    // 2턴이 pending을 벗어났다는 사실만으로는 부족하다 — resume spec이 잘못된
+    // session id나 cwd를 만들어 즉시 실패·취소돼도 위 단언들은 전부 그대로
+    // 만족된다(대기 버블이 사라지고, .turn 개수는 실패·취소 턴에도 붙는다). 특정
+    // 턴(둘째 지시)에 .status-succeeded가 실제로 붙는지까지 확인해야 이 기능의
+    // 심장부 — 이어받은 세션이 정말로 성공한다 — 를 검증한다. 가짜 CLI는 매 턴
+    // 성공 시나리오라(fake-claude.mjs) 시간이 지나면 반드시 붙는다.
+    const secondTurn = page.locator('.turn').filter({ hasText: '둘째 지시' })
+    await secondTurn.locator('.status-succeeded').waitFor({ state: 'visible', timeout: 20_000 })
+
+    // 도크 탭 개수로 "탭은 하나"를 문자 그대로 지킨다("+ 새 대화" 탭까지 둘) —
+    // /첫 지시/ 탭이 "존재"하는 것만 보면 2·3턴이 별개 대화로 새서 "둘째 지시"
+    // 제목의 탭이 하나 더 생겨도 이 매칭에는 안 잡혀 그대로 통과해버린다.
     expect(await page.getByRole('button', { name: /첫 지시/ }).count()).toBe(1)
+    await expect.poll(() => page.locator('.dock-tab').count(), { timeout: 5_000 }).toBe(2)
 
     // 인박스에는 대화가 한 줄이다 — 여기서부터만 화면을 벗어난다. 위 1~5번은
     // 인박스로 갔다 오지 않고 확인했다: 다른 화면에 갔다 오면 도크가 재마운트돼

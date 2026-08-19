@@ -85,14 +85,18 @@ async function launchElectron(
       args: [APP_ROOT],
       // env는 물려받는 것이 아니라 교체된다. PATH가 사라지면 preflight가 claude를
       // 찾지 못해 모든 run이 프리플라이트 실패로 끝난다.
-      // extraEnv는 기본값(특히 ONE_DESK_FAKE_DELAY_MS) 뒤에 얹혀 그것을 덮어쓸 수
-      // 있다 — 여러 턴을 칠 시간을 벌어야 하는 시나리오(conversation.e2e.ts)가 쓴다.
+      // extraEnv는 ONE_DESK_FAKE_DELAY_MS 기본값 뒤에 얹혀 그것을 덮어쓸 수 있다 —
+      // 여러 턴을 칠 시간을 벌어야 하는 시나리오(conversation.e2e.ts)가 쓴다.
+      // ONE_DESK_USER_DATA·ONE_DESK_AGENT_PATH는 반드시 extraEnv **뒤에** 다시
+      // 못박는다 — 호출자가 실수로 이 두 키를 env에 넘기면 임시 dataDir/agentPath가
+      // 조용히 덮여, e2e가 개발자의 실제 앱 데이터 디렉토리에 쓰거나 엉뚱한 CLI를
+      // spawn하게 된다. 테스트 하네스의 발등찍기는 지금 막는 게 싸다.
       env: {
         ...process.env,
-        ONE_DESK_USER_DATA: dataDir,
-        ONE_DESK_AGENT_PATH: agentPath,
         ONE_DESK_FAKE_DELAY_MS: FAKE_DELAY_MS,
-        ...extraEnv
+        ...extraEnv,
+        ONE_DESK_USER_DATA: dataDir,
+        ONE_DESK_AGENT_PATH: agentPath
       } as Record<string, string>
     })
     return { app, page: await app.firstWindow() }
