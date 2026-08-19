@@ -165,6 +165,25 @@ describe('Dock', () => {
     expect(screen.getByText('첫 지시', { selector: '.turn-user' })).toBeInTheDocument()
   })
 
+  it('명시적으로 고른 대화가 목록에 없으면 다른 대화로 폴백하지 않는다', () => {
+    // selected는 이제 로그 뷰의 대상만이 아니라 입력부의 전송 대상이기도 하다
+    // (ConversationPanel→RunPanel이 conversation.id로 resume을 부른다). 폴백은
+    // "고른 적이 없을 때"만 적용해야 한다 — pickedId가 있는데 그 대화가
+    // conversations에 없다고 조용히 다른 대화로 떨어지면, 화면과 입력부가 서로
+    // 다른 대화를 가리키는 채로 턴이 엉뚱한 대화로 나갈 수 있다(Important 2).
+    //
+    // 이 상태(비동기 runs 따라잡기 경쟁이 만들어내는 상태)는 경쟁을 기다리지
+    // 않아도 목록에 없는 id를 그대로 넘기는 것만으로 그대로 구성할 수 있다.
+    renderDock(
+      [makeRun({ id: 'a1', rootRunId: 'a1', userPrompt: '실재하는 대화' })],
+      '목록에-없는-id'
+    )
+    // 옛 코드(?? conversations[0])라면 실재하는 다른 대화('실재하는 대화')가 그려진다.
+    expect(screen.queryByText('실재하는 대화', { selector: '.turn-user' })).toBeNull()
+    // 새 코드는 selected가 null이라 ConversationPanel의 빈 상태 문구를 그린다.
+    expect(screen.getByText('지시를 입력하면 대화가 시작됩니다')).toBeInTheDocument()
+  })
+
   it('focusConversationId가 주어지면 그 대화의 로그를 연다', async () => {
     // 인박스의 "로그 보기"는 화면을 바꾸며 이 컴포넌트를 다시 마운트시킨다.
     // 내부 view는 'new'로 돌아가므로 App이 지정하지 않으면 실행 패널만 열린다.
@@ -266,5 +285,22 @@ describe('Dock', () => {
     expect(await screen.findByText('로그 줄')).toBeInTheDocument()
     await userEvent.click(screen.getByText('▾ 실행'))
     expect(screen.queryByText('로그 줄')).toBeNull()
+  })
+
+  it('탭을 옮기면 입력 중이던 프롬프트가 다른 대화로 따라가지 않는다', async () => {
+    // key가 없으면 탭만 옮겨도 RunPanel 인스턴스가 그대로 남아, 입력 중이던
+    // 프롬프트가 다른 대화의 입력부에 그대로 나타난다 — 예전에는 로그 뷰로
+    // 가면 RunPanel 자체가 사라져 저절로 초기화됐지만 지금은 그 안전장치가 없다.
+    renderDock([
+      makeRun({ id: 'c1', rootRunId: 'c1', createdAt: 10, userPrompt: '대화 하나' }),
+      makeRun({ id: 'c2', rootRunId: 'c2', createdAt: 20, userPrompt: '대화 둘' })
+    ])
+
+    await userEvent.click(screen.getByText('대화 둘'))
+    await userEvent.type(screen.getByLabelText('지시'), '아직 안 보낸 말')
+    expect(screen.getByLabelText('지시')).toHaveValue('아직 안 보낸 말')
+
+    await userEvent.click(screen.getByText('대화 하나'))
+    expect(screen.getByLabelText('지시')).toHaveValue('')
   })
 })

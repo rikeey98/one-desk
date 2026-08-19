@@ -244,6 +244,19 @@ describe('RunPanel', () => {
   }
   const conversation = groupConversations([parent])[0]!
 
+  // Important 1의 되돌아가는 방향(같은 대화 → 유지) 테스트와 짝을 이룬다 — id가
+  // 실제로 다른 대화이고, 마지막 턴 권한도 다르다('edit'는 parent의 'read_only'·
+  // 사용자가 고를 'full' 어느 쪽과도 겹치지 않는다).
+  const otherParent: Run = {
+    id: 'p2', workspaceId: 'w1', agentKind: 'claude-code', model: null,
+    cwd: '/tmp/web', permission: 'edit', userPrompt: '다른 지시', assembledPrompt: 'y',
+    status: 'succeeded', externalSessionId: 'sess-2', parentRunId: null, rootRunId: 'p2',
+    resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
+    errorMessage: null, logPath: '/tmp/y', reviewedAt: null, reviewedKind: null,
+    startedAt: 1, endedAt: 2, createdAt: 0, contextItems: []
+  }
+  const otherConversation = groupConversations([otherParent])[0]!
+
   it('대화를 이어갈 때는 작업 디렉토리를 바꿀 수 없다', () => {
     // 세션은 특정 CLI가 특정 디렉토리에서 만든 것이라 다른 조합으로 이어받을 수 없다.
     renderPanel(makeClient(), repos, [], vi.fn(), { conversation })
@@ -279,6 +292,25 @@ describe('RunPanel', () => {
     rerender(panel(client, repos, [], vi.fn(), 'w1', { conversation: sameConversationNewObject }))
 
     expect(screen.getByLabelText('권한')).toHaveValue('full')
+  })
+
+  it('대화가 실제로 바뀌면 권한이 그 대화의 마지막 턴 값으로 초기화된다', async () => {
+    // 위 테스트의 반대 방향이다 — [conversation]을 conversation?.id로 좁히면서
+    // "다른 대화로 진짜 전환할 때는 초기화된다"는 동작까지 죽이지 않았는지 확인한다.
+    // 이게 없으면 effect를 통째로 지워도("권한 유지" 테스트만 초록으로 남기고)
+    // 아무도 못 잡는다 — 그 테스트는 "안 바뀐다"만 보고 "바뀐다"는 보지 않는다.
+    const client = makeClient()
+    const { rerender } = render(panel(client, repos, [], vi.fn(), 'w1', { conversation }))
+    await waitFor(() => expect(screen.getByLabelText('권한')).toHaveValue('read_only'))
+
+    await userEvent.selectOptions(screen.getByLabelText('권한'), 'full')
+    expect(screen.getByLabelText('권한')).toHaveValue('full')
+
+    // id가 다른 대화로 실제 전환한다 — 마지막 턴 권한('edit')이 이전 기본값
+    // ('read_only')·사용자가 고른 값('full') 어느 쪽과도 다르다.
+    rerender(panel(client, repos, [], vi.fn(), 'w1', { conversation: otherConversation }))
+
+    await waitFor(() => expect(screen.getByLabelText('권한')).toHaveValue('edit'))
   })
 
   it('대화가 있으면 draftPrompt를 반영하지 않는다', () => {
