@@ -16,7 +16,10 @@ function run(over: Partial<Run>): Run {
   return {
     id: 'r1', workspaceId: 'w1', agentKind: 'claude-code', model: null,
     cwd: '/tmp', permission: 'edit', userPrompt: '토큰 만료 고쳐줘', assembledPrompt: 'x',
-    status: 'succeeded', externalSessionId: 'sess-1', parentRunId: null, rootRunId: 'r1',
+    status: 'succeeded', externalSessionId: 'sess-1', parentRunId: null,
+    // over.id가 있으면 그것을 뿌리로 본다 — 하드코딩하면 id가 다른 두 run을
+    // 넘겨도 조용히 한 대화로 접힌다(Dock.test.tsx에서 실제로 터진 결함, T2).
+    rootRunId: over.id ?? 'r1',
     resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
     errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
     startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [],
@@ -66,10 +69,12 @@ describe('InboxPanel', () => {
     expect(screen.getByRole('button', { name: '대화 열기' })).toBeInTheDocument()
   })
 
-  it('대기 중 취소됨에는 대화 열기를 보여주지 않는다', () => {
-    // 시작도 못 한 run이라 대화록이 없다.
+  it('대기 중 취소됨에도 대화 열기를 보여준다', () => {
+    // 항목은 run이 아니라 대화다 — 마지막 턴이 시작 전에 취소됐어도 앞의
+    // 턴들에는 대화록이 있을 수 있다(리뷰 I-3). 1턴짜리 대화가 dropped됐다면
+    // 열어도 빈 대화록 + 입력부만 보일 뿐이고, 그게 아예 못 여는 것보다 낫다.
     renderPanel([run({ status: 'canceled', externalSessionId: null })])
-    expect(screen.queryByRole('button', { name: '대화 열기' })).toBeNull()
+    expect(screen.getByRole('button', { name: '대화 열기' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '다시 실행' })).toBeInTheDocument()
   })
 
@@ -124,7 +129,7 @@ describe('InboxPanel', () => {
   // "실패 (이슈 첨부)" 행으로 같은 방식으로 확인한다.
   it('카테고리마다 보이는 행동 버튼 집합이 설계 §5의 표와 정확히 같다', () => {
     // "로그 보기"·"이어서 실행"(·"답하고 이어서")이 "대화 열기" 하나로 합쳐졌다
-    // (설계 §5, Task 9) — dropped를 뺀 모든 카테고리에서 나온다.
+    // (설계 §5, Task 9) — dropped를 포함해 모든 카테고리에서 나온다(리뷰 I-3).
     const table: Array<{ category: string; over: Partial<Run>; expected: string[] }> = [
       { category: '답변 필요', over: { needsAnswer: true, externalSessionId: 'sess-1' }, expected: ['대화 열기', '보관'] },
       { category: '완료 · 미확인', over: { externalSessionId: 'sess-1' }, expected: ['대화 열기', '확인함'] },
@@ -135,7 +140,7 @@ describe('InboxPanel', () => {
         expected: ['대화 열기', '다시 실행', '이슈로 만들기', '보관', '관련 이슈 닫기']
       },
       { category: '중단됨', over: { status: 'interrupted' }, expected: ['대화 열기', '다시 실행', '보관'] },
-      { category: '대기 중 취소됨', over: { status: 'canceled', externalSessionId: null }, expected: ['다시 실행', '보관'] }
+      { category: '대기 중 취소됨', over: { status: 'canceled', externalSessionId: null }, expected: ['대화 열기', '다시 실행', '보관'] }
     ]
 
     // 첫 실패에서 멈추면 나머지 카테고리의 상태를 못 본다 — 전부 모아서 한 번에 단언한다.

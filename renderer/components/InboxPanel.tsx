@@ -14,10 +14,13 @@ function when(ms: number | null): string {
 /** 카테고리마다 다음 수를 미리 제시한다 (설계 §5). */
 function shows(category: InboxCategory, action: 'open' | 'restart' | 'confirm' | 'archive' | 'makeIssue'): boolean {
   switch (action) {
-    // 대기 중 취소됨은 시작도 못 해 대화록이 없다. 그 외에는 대화창이 로그와
-    // 이어서 실행을 함께 주므로 "대화 열기" 하나로 충분하다(설계 §5 — 옛
-    // "로그 보기"·"이어서 실행" 두 조건의 합집합).
-    case 'open': return category !== 'dropped'
+    // 대화창이 로그와 이어서 실행을 함께 주므로 "대화 열기" 하나로 충분하다
+    // (설계 §5 — 옛 "로그 보기"·"이어서 실행" 두 조건의 합집합). dropped라고
+    // 예외로 숨기지 않는다 — 항목은 run이 아니라 대화이고, 마지막 턴이 시작
+    // 전에 취소됐어도 앞의 턴들에는 대화록이 있다. 1턴짜리 대화가 시작도 못
+    // 하고 dropped됐다면 열어도 빈 대화록 + 입력부만 보일 뿐이고, 그게 아예
+    // 열 수 없는 것보다 낫다 (리뷰 I-3).
+    case 'open': return true
     case 'restart': return category === 'failed' || category === 'interrupted' || category === 'dropped'
     case 'confirm': return category === 'done'
     case 'archive': return category !== 'done'
