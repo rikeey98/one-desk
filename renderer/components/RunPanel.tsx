@@ -72,7 +72,7 @@ export function RunPanel({
 
   // "다시 실행"이 세운 draft는 새 대화에서만 반영한다 — 대화를 이어가는 중이면
   // 프롬프트는 항상 빈 입력에서 시작해야 한다(설계 §7). 그러지 않으면 이전에 세운
-  // draft가 남아 있다가, 인박스를 오가며 resume 모드로 들어올 때 조용히 섞여 들어간다.
+  // draft가 남아 있다가, 인박스를 오가며 기존 대화를 이어갈 때 조용히 섞여 들어간다.
   useEffect(() => {
     if (draftPrompt && !conversation) setPrompt(draftPrompt)
   }, [draftPrompt, conversation])

@@ -146,7 +146,7 @@ export function createCore(opts: CoreOptions) {
       }
     },
 
-    /** 지금 사용자의 손이 필요한 run. 모든 workspace를 가로지른다 (설계 §4). */
+    /** 지금 사용자의 손이 필요한 대화. 모든 workspace를 가로지른다 (설계 §4·§5). */
     inbox: {
       list: (): Run[] => runs.inbox(),
       counts: (): InboxCounts => runs.inboxCounts(),
