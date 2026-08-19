@@ -26,7 +26,7 @@ export function Dock({
   draftPrompt: string
   /** ConversationPanel까지 그대로 흘려 보낸다 — "다시 실행"이 요구하는 작업 디렉토리다. */
   draftCwd: string | null
-  /** 인박스의 "로그 보기"·"이어서 실행"이 지정한 대화. null이면 기본대로 새 대화 탭이 열린다. */
+  /** 인박스의 "대화 열기"가 지정한 대화. null이면 기본대로 새 대화 탭이 열린다. */
   focusConversationId: string | null
 }) {
   const client = useClient()
@@ -39,7 +39,7 @@ export function Dock({
   // ConversationPanel이 conversation=null을 받는 순간이 생긴다 — RunPanel의
   // draftPrompt 가드(!conversation)가 그 찰나에 걸려 "다시 실행"이 남긴 draft를
   // 새 대화가 아니라 지금 이어받는 대화의 입력에 반영해 버린다("다시 실행" 뒤에
-  // 인박스로 돌아가 다른 대화를 "이어서 실행"하면 그 draft가 새는 결함으로 실측됨).
+  // 인박스로 돌아가 다른 대화를 "대화 열기"로 열면 그 draft가 새는 결함으로 실측됨).
   const [view, setView] = useState<'conversation' | 'new'>(focusConversationId ? 'conversation' : 'new')
   const [pickedId, setPickedId] = useState<string | null>(focusConversationId)
   const [actionError, setActionError] = useState<string | null>(null)

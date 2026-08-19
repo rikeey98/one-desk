@@ -185,7 +185,7 @@ describe('Dock', () => {
   })
 
   it('focusConversationId가 주어지면 그 대화의 로그를 연다', async () => {
-    // 인박스의 "로그 보기"는 화면을 바꾸며 이 컴포넌트를 다시 마운트시킨다.
+    // 인박스의 "대화 열기"는 화면을 바꾸며 이 컴포넌트를 다시 마운트시킨다.
     // 내부 view는 'new'로 돌아가므로 App이 지정하지 않으면 실행 패널만 열린다.
     const store = createRunEventStore()
     store.hydrate('run-2', [textEvent('run-2', '두 번째 로그')])

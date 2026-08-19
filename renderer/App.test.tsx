@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { ClientProvider } from './client/ClientProvider'
 import { RunEventProvider } from './store/RunEventContext'
 import { createRunEventStore, type RunEventStore } from './store/runEvents'
+import { conversationIdOf } from './conversation'
 import App from './App'
 import type { OneDeskClient } from '@shared/client'
 import type {
@@ -208,7 +209,10 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
       inbox: vi.fn(async () => inbox),
       inboxCounts: vi.fn(async () => counts()),
       markReviewed: vi.fn(async (runId: string) => {
-        inbox = inbox.filter((r) => r.id !== runId)
+        // core의 판정은 root run 기준이다(Task 5) — 턴 id가 아니라 conversationIdOf로
+        // 걸러야 페이크가 실제 규칙을 흉내낸다. r.id로 걸렀다면 뿌리로 찍어도 항목이
+        // 안 사라져 "확인해도 대화가 안 내려간다"는 핵심 결함의 절반이 안 보였다.
+        inbox = inbox.filter((r) => conversationIdOf(r) !== runId)
         emitInbox()
       }),
       resume: vi.fn(async () => makeRun({ id: 'resumed' })),
@@ -347,16 +351,22 @@ describe('App', () => {
   })
 
   it('확인함은 마지막 턴이 아니라 대화의 뿌리에 기록한다', async () => {
-    const markReviewed = vi.fn().mockResolvedValue(undefined)
+    // markReviewed를 별도 vi.fn()으로 덮지 않는다 — 기본 페이크가 core처럼
+    // conversationIdOf 기준으로 걸러야 "실제로 인박스에서 빠지는지"까지 볼 수 있다.
     const last = makeRun({ id: 'a2', rootRunId: 'a1', userPrompt: '2턴' })
-    const client = makeClient({ markReviewed }, { inbox: [last] })
+    const client = makeClient({}, { inbox: [last] })
     renderApp(client)
 
     await userEvent.click(screen.getByRole('button', { name: /인박스/ }))
+    expect(await screen.findByText('2턴')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '확인함' }))
 
     // 'a2'로 찍으면 대화가 인박스에서 내려가지 않는다 — Task 5의 판정은 뿌리 기준이다.
-    expect(markReviewed).toHaveBeenCalledWith('a1', 'confirmed')
+    await waitFor(() => expect(client.runs.markReviewed).toHaveBeenCalledWith('a1', 'confirmed'))
+    // 호출 인자만으로는 부족하다 — 그 뿌리로 찍은 결과 대화가 실제로 인박스에서
+    // 빠지는지까지 봐야 이 태스크가 고친 결함("확인해도 대화가 안 내려간다")이
+    // 닫힌다.
+    await waitFor(() => expect(screen.queryByText('2턴')).toBeNull())
   })
 
   it('"답변 필요" 항목의 "대화 열기"는 그 run의 세션을 이어 실행한다', async () => {
@@ -381,11 +391,13 @@ describe('App', () => {
     expect(client.runs.start).not.toHaveBeenCalled()
   })
 
-  it('"이슈로 만들기"는 이슈를 만들고 그 run을 보관한다', async () => {
+  it('"이슈로 만들기"는 이슈를 만들고 그 대화를 뿌리 기준으로 보관한다', async () => {
     // 실패는 대개 나중에 다뤄야 할 일인데, 인박스에서 사라지면 그대로 잊힌다.
+    // root와 id가 같은 픽스처로는 makeIssue가 run.id를 넘기든 conversationIdOf(run)을
+    // 넘기든 결과가 똑같아 구분이 안 된다 — 일부러 다르게 준다.
     const client = makeClient({}, {
       inbox: [makeRun({
-        id: 'r-failed', status: 'failed', userPrompt: '실패한 실행\n둘째 줄', errorMessage: '권한 거부'
+        id: 'f2', rootRunId: 'f1', status: 'failed', userPrompt: '실패한 실행\n둘째 줄', errorMessage: '권한 거부'
       })]
     })
     renderApp(client)
@@ -396,7 +408,7 @@ describe('App', () => {
     await waitFor(() => expect(client.issues.create).toHaveBeenCalledWith({
       workspaceId: 'w1', title: '실패한 실행', body: '권한 거부'
     }))
-    await waitFor(() => expect(client.runs.markReviewed).toHaveBeenCalledWith('r-failed', 'archived'))
+    await waitFor(() => expect(client.runs.markReviewed).toHaveBeenCalledWith('f1', 'archived'))
     await waitFor(() => expect(screen.queryByText(/실패한 실행/)).toBeNull())
   })
 
@@ -551,6 +563,37 @@ describe('App', () => {
     await userEvent.click(within(askItem as HTMLElement).getByRole('button', { name: '대화 열기' }))
 
     expect(await screen.findByPlaceholderText(/무엇을 시킬지/)).toHaveValue('')
+  })
+
+  it('"다시 실행"은 이미 열어 둔 다른 대화가 아니라 새 대화 탭을 연다', async () => {
+    // restart의 setFocusConversationId(null)이 지키는 계약이다. 먼저 대화 A를
+    // "대화 열기"로 열어 focusConversationId가 A의 뿌리로 세워진 채로 인박스에
+    // 돌아가면, 그 값이 남은 채로 B를 "다시 실행"했을 때 그 줄이 없으면 Dock이
+    // 마운트 첫 렌더부터 다시 A를 연다 — RunPanel의 draftPrompt effect가
+    // !conversation일 때만 반영하므로(설계 §7), A가 열리면 B의 draft는 조용히
+    // 사라진다.
+    const a = makeRun({ id: 'a-done', userPrompt: 'A 대화 시작' })
+    const b = makeRun({ id: 'b-int', status: 'interrupted', userPrompt: 'B 원본 지시' })
+    const client = makeClient({}, {
+      repos: [makeRepo('r1', 'api', '/tmp/api')],
+      inbox: [a, b]
+    })
+    renderApp(client)
+
+    await openInbox()
+    const aItem = (await screen.findByText('A 대화 시작')).closest('.inbox-item')!
+    await userEvent.click(within(aItem as HTMLElement).getByRole('button', { name: '대화 열기' }))
+    // A가 실제로 열렸는지 먼저 확인한다.
+    expect(await screen.findByText('A 대화 시작', { selector: '.turn-user' })).toBeInTheDocument()
+
+    await userEvent.click(inboxLink())
+    // done 카테고리인 A는 다시 실행을 보여주지 않는다 — B만 보여주므로 모호하지 않다.
+    await userEvent.click(await screen.findByRole('button', { name: '다시 실행' }))
+
+    // B의 원본 프롬프트가 새 대화의 입력창에 채워져야 한다. leftover
+    // focusConversationId 때문에 A로 되돌아간 것이라면 대화가 있는 상태라
+    // draftPrompt effect가 값을 반영하지 않아 입력창이 비어 있다.
+    expect(await screen.findByPlaceholderText(/무엇을 시킬지/)).toHaveValue('B 원본 지시')
   })
 })
 
