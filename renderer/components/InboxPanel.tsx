@@ -12,12 +12,18 @@ function when(ms: number | null): string {
 }
 
 /** 카테고리마다 다음 수를 미리 제시한다 (설계 §5). */
-function shows(category: InboxCategory, action: 'log' | 'resume' | 'restart' | 'confirm' | 'archive' | 'makeIssue'): boolean {
+function shows(category: InboxCategory, action: 'open' | 'restart' | 'confirm' | 'archive' | 'makeIssue'): boolean {
   switch (action) {
-    // 대기 중 취소됨은 시작도 못 해 로그 파일이 없다.
-    // 완료 · 미확인은 설계 §5 표에 로그 보기가 없다 — 이어서 실행 · 확인함으로 충분히 다룬다.
-    case 'log': return category !== 'dropped' && category !== 'done'
-    case 'resume': return category === 'needs-answer' || category === 'done'
+    // 대화창이 로그와 이어서 실행을 함께 주므로 "대화 열기" 하나로 충분하다
+    // (설계 §5 — 옛 "로그 보기"·"이어서 실행" 두 조건의 합집합). dropped라고
+    // 예외로 숨기지 않는다 — 항목은 run이 아니라 대화이고, 마지막 턴이 시작
+    // 전에 취소됐어도 앞의 턴들에는 대화록이 있다. 1턴짜리 대화가 시작도 못
+    // 하고 dropped됐다면 열었을 때 Transcript의 pending 이른 반환은 걸리지
+    // 않는다 — 그건 status === 'pending'에만 걸리고 취소된 턴은 이미
+    // 'canceled'다. 대신 사용자 프롬프트와 "canceled" 상태 칩이 그려진다
+    // (빈 대화록이 아니다). 그래도 열 수 있게 하는 편이 아예 못 여는 것보다
+    // 낫다 (리뷰 I-3).
+    case 'open': return true
     case 'restart': return category === 'failed' || category === 'interrupted' || category === 'dropped'
     case 'confirm': return category === 'done'
     case 'archive': return category !== 'done'
@@ -26,14 +32,13 @@ function shows(category: InboxCategory, action: 'log' | 'resume' | 'restart' | '
 }
 
 export function InboxPanel({
-  items, workspaces, error, onReview, onOpenLog, onResume, onRestart, onCloseIssue, onMakeIssue
+  items, workspaces, error, onReview, onOpenConversation, onRestart, onCloseIssue, onMakeIssue
 }: {
   items: Run[]
   workspaces: Workspace[]
   error: string | null
-  onReview: (runId: string, kind: 'confirmed' | 'archived') => void
-  onOpenLog: (run: Run) => void
-  onResume: (run: Run) => void
+  onReview: (run: Run, kind: 'confirmed' | 'archived') => void
+  onOpenConversation: (run: Run) => void
   onRestart: (run: Run) => void
   onCloseIssue: (run: Run, issueId: string) => void
   onMakeIssue: (run: Run) => void
@@ -60,13 +65,9 @@ export function InboxPanel({
               <div className="inbox-prompt">{label(run)}</div>
               {run.errorMessage && <div className="inbox-error">{run.errorMessage}</div>}
               <div className="inbox-actions">
-                {shows(category, 'log') && (
-                  <button type="button" onClick={() => onOpenLog(run)}>로그 보기</button>
-                )}
-                {/* 세션이 없으면 이어받을 것이 없다. 보여주면 눌러서야 알게 된다. */}
-                {shows(category, 'resume') && run.externalSessionId && (
-                  <button type="button" onClick={() => onResume(run)}>
-                    {category === 'needs-answer' ? '답하고 이어서' : '이어서 실행'}
+                {shows(category, 'open') && (
+                  <button type="button" onClick={() => onOpenConversation(run)}>
+                    대화 열기
                   </button>
                 )}
                 {shows(category, 'restart') && (
@@ -81,10 +82,10 @@ export function InboxPanel({
                   </button>
                 ))}
                 {shows(category, 'confirm') && (
-                  <button type="button" onClick={() => onReview(run.id, 'confirmed')}>확인함</button>
+                  <button type="button" onClick={() => onReview(run, 'confirmed')}>확인함</button>
                 )}
                 {shows(category, 'archive') && (
-                  <button type="button" onClick={() => onReview(run.id, 'archived')}>보관</button>
+                  <button type="button" onClick={() => onReview(run, 'archived')}>보관</button>
                 )}
               </div>
             </li>

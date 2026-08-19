@@ -39,15 +39,20 @@ describe('동시 실행 상한', () => {
     await slots.getByText('실행 중 0/1').waitFor({ state: 'visible', timeout: 5_000 })
 
     // 3. 두 번 연달아 실행한다. 가짜 CLI가 1500ms 지연되므로 관찰할 창이 있다.
+    // run-start 버튼의 접근성 이름은 정확히 "실행"뿐이다. exact 없이 substring으로
+    // 잡으면 도크 토글("▾ 실행")과 슬롯 표시기("실행 슬롯" aria-label)까지 걸려
+    // strict mode 위반이 된다(실측).
+    const send = page.getByRole('button', { name: '실행', exact: true })
     await page.getByPlaceholder(/무엇을 시킬지/).fill(FIRST)
-    await page.getByRole('button', { name: '▶ 실행' }).click()
+    await send.click()
 
     const runningTab = page.getByRole('button', { name: new RegExp(`running.*${FIRST}`) })
     await runningTab.waitFor({ state: 'visible', timeout: 10_000 })
 
-    await page.getByRole('button', { name: '+ 새 실행' }).click()
+    // 도크 탭은 이제 run이 아니라 대화 단위다 — "+ 새 실행"이 "+ 새 대화"로 바뀌었다.
+    await page.getByRole('button', { name: '+ 새 대화' }).click()
     await page.getByPlaceholder(/무엇을 시킬지/).fill(SECOND)
-    await page.getByRole('button', { name: '▶ 실행' }).click()
+    await send.click()
 
     // 4. 두 번째는 대기한다 — 상한이 1이므로 슬롯이 없다
     const pendingTab = page.getByRole('button', { name: new RegExp(`pending.*${SECOND}`) })

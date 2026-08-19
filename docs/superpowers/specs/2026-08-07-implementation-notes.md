@@ -4684,6 +4684,37 @@ printf 'Read package.json and summarize it in one line.' | \
 경로가 디렉토리명으로 인코딩돼 있다. **[확인 필요]** — `--resume`이 cwd와 무관하게 세션 ID만으로 찾는지는 직접 확인해야 한다.
 검증 방법: 디렉토리 A에서 run을 하나 돌려 세션 ID를 얻고, 디렉토리 B에서 `claude -p --resume <id>`를 실행해 이전 대화를 기억하는지 본다. **잘 되더라도 잠그는 편을 권한다** — cwd가 바뀌면 상대 경로가 전부 어긋나서 agent가 혼란스러워진다.
 
+**[확인함, 2026-08-19] `--resume`은 같은 `session_id`를 그대로 돌려준다 — 새로 발급하지 않는다.** 설계 `2026-08-18-conversation-design.md` §8이 "구현 노트 Q31·Q32에 그 관측이 없다"며 실측을 요구한 항목이다.
+
+검증: 같은 cwd(`/tmp/one-desk-resume-check`)에서 두 번 호출했다.
+
+```bash
+printf 'Say pong and nothing else.' | \
+  claude -p --output-format stream-json --verbose --model sonnet \
+    --tools "" --permission-mode acceptEdits
+# → system/init과 result 모두 session_id: "05fdc33a-5541-4e86-be7e-4dd6cd2448e7"
+
+printf 'Say pong again and nothing else.' | \
+  claude -p --resume 05fdc33a-5541-4e86-be7e-4dd6cd2448e7 \
+    --output-format stream-json --verbose --model sonnet \
+    --tools "" --permission-mode acceptEdits
+# → system/init과 result 모두 **같은** session_id: "05fdc33a-5541-4e86-be7e-4dd6cd2448e7"
+```
+
+`claude-code-version: "2.1.235"`. `system/init`과 최종 `result` 이벤트 양쪽 다 두 호출에서 동일한 `session_id`였다 — resume이 새 세션을 발급하지 않고 기존 세션에 이어 붙는다.
+
+**첫 호출의 실제 원시 출력**(`tools`·`mcp_servers`·`slash_commands` 등 이 계정의 플러그인 설정에서 온 긴 배열은 Q31의 관례대로 생략했다):
+
+```json
+{"type":"system","subtype":"init","cwd":"/private/tmp/one-desk-resume-check","session_id":"05fdc33a-5541-4e86-be7e-4dd6cd2448e7","tools":["…생략(개인 계정의 MCP 도구 목록)"],"mcp_servers":["…생략"],"model":"claude-sonnet-5","permissionMode":"acceptEdits","apiKeySource":"none","claude_code_version":"2.1.235","uuid":"b8a4fe1d-7a5b-4484-ac2a-a39b8e6a1fe6"}
+{"type":"assistant","message":{"model":"claude-sonnet-5","content":[{"type":"text","text":"pong"}],"session_id":"05fdc33a-5541-4e86-be7e-4dd6cd2448e7"}}
+{"is_error":false,"duration_api_ms":1839,"num_turns":1,"stop_reason":"end_turn","session_id":"05fdc33a-5541-4e86-be7e-4dd6cd2448e7","total_cost_usd":0.30526800000000004,"permission_denials":[],"subtype":"success","result":"pong","type":"result","duration_ms":4059,"uuid":"0b24c488-66d4-46c0-a97a-48629e0c04c0"}
+```
+
+**두 번째 호출(`--resume`)의 원시 줄은 보존하지 못했다.** 실행 당시 `grep`/`python -c`로 `session_id`·`result` 필드만 추출해 확인하고 임시 디렉토리를 지웠다 — 그 시점엔 이 필드 비교만으로 §8의 질문(같은 id인가 새 id인가)에 충분히 답한다고 판단했다. 재확인용 원시 로그가 필요하면 위 bash 블록의 두 번째 명령을 그대로 다시 돌리면 재현된다(단, 실제 API 호출이라 매번 비용이 든다 — 이번 검증 두 번에 체감상 약 $0.3이 들었다). 지금 다시 돌리지는 않았다.
+
+**설계 §8의 결론이 확정된다:** "이 설계는 어느 쪽이든 동작한다"고 했던 것 중 **"같은 id가 유지되는" 쪽으로 실측이 끝났다.** `latestSessionRun`이 체인에서 세션 id를 가진 가장 최근 run을 찾는 로직(Q32의 표, `execution.ts`의 `resume()`)은 매 턴 값이 바뀌어서가 아니라 **가장 이른 시점에 세션이 생긴 뒤로 계속 같은 값을 읽기 위한 것**이다 — 그 run이 아직 세션을 못 받았을 수 있는 예약 상태(pending) 때문에 여전히 필요하다(설계 §3-2).
+
 **구현 — `RunSpec`을 만드는 쪽에서 강제한다.**
 
 ```ts

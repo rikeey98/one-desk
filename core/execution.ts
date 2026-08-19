@@ -86,9 +86,45 @@ export function createExecutionService(opts: ExecutionOptions) {
     prompt: string
     executable: string
     mcp: McpRunConfig | null
-    resumeSessionId: string | null
+    /** 이어받을 대화. null이면 새 세션이다 */
+    resumeFromRootRunId: string | null
     timeoutMs: number | null
   }): void {
+    // **세션은 여기서 고른다 — launch 시점이 아니다 (설계 §3-2).**
+    // 실행 중에 예약된 턴은 만들어질 때 앞 턴이 아직 안 끝나 세션 id가 없다.
+    // 슬롯을 받은 지금이 체인이 확정된 첫 순간이다.
+    let resumeSessionId: string | null = null
+    if (spec.resumeFromRootRunId) {
+      let source: Run | null
+      try {
+        source = opts.runs.latestSessionRun(spec.resumeFromRootRunId)
+      } catch (err) {
+        // 이 조회는 원래 resume()의 호출 시점에 있었다 — 그때는 run 행도 MCP
+        // 토큰도 큐 슬롯도 없어 던져도 부작용이 없었다. beginRun으로 옮기며
+        // 셋 다 이미 존재하는 자리가 됐다. 여기서 삼키지 않으면 MCP 토큰이
+        // 영원히 폐기되지 않고, run 행은 running도 failed도 아닌 채로 남아
+        // 다음 재시작의 reapStale이 치울 때까지 아무도 모른다.
+        onError(`[execution] 이어받을 세션 조회 실패 — 슬롯만 돌려주고 건너뛴다 (runId=${runId})`, err)
+        releaseMcp(runId)
+        opts.queue.release(runId)
+        return
+      }
+      if (!source?.externalSessionId) {
+        // 조용히 새 세션으로 시작하지 않는다 — agent는 이전 대화를 모르는 채로
+        // 돌고, 사용자는 답이 이상해진 이유를 알 방법이 없다.
+        finish(runId, {
+          status: 'failed',
+          resultText: null,
+          externalSessionId: null,
+          needsAnswer: false,
+          exitCode: null,
+          errorMessage: '이어받을 세션이 없습니다. 앞 턴이 세션을 남기지 못했습니다.'
+        })
+        return
+      }
+      resumeSessionId = source.externalSessionId
+    }
+
     // DB 쓰기와 알림을 한 try에 묶지 않는다. 리스너가 던진 것뿐인데(종료 중 파괴된
     // webContents 등) "시작 기록 실패"라고 로그가 말하면 조사가 DB 쪽으로 헛돈다.
     let started: Run
@@ -127,7 +163,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       model: spec.model,
       permission: spec.permission,
       prompt: spec.prompt,
-      resumeSessionId: spec.resumeSessionId,
+      resumeSessionId,
       executable: spec.executable,
       // 이 한 줄이 빠지면 MCP가 통째로 꺼진다.
       mcp: spec.mcp,
@@ -164,7 +200,8 @@ export function createExecutionService(opts: ExecutionOptions) {
     userPrompt: string
     context: ContextItemRef[]
     parentRunId: string | null
-    resumeSessionId: string | null
+    /** 이어받을 대화. null이면 새 세션이다 */
+    resumeFromRootRunId: string | null
     timeoutMs: number | null
   }
 
@@ -250,9 +287,10 @@ export function createExecutionService(opts: ExecutionOptions) {
       prompt: assembled,
       executable,
       mcp,
-      resumeSessionId: spec.resumeSessionId,
+      resumeFromRootRunId: spec.resumeFromRootRunId,
       timeoutMs: spec.timeoutMs
-    }))
+    // 같은 대화의 두 턴이 동시에 뜨면 --resume이 깨진다 (설계 §3-2).
+    }), created.rootRunId ?? created.id)
 
     // 슬롯이 있었으면 beginRun이 동기로 끝나 running이고, 없었으면 pending이다.
     return opts.runs.get(created.id)
@@ -276,52 +314,55 @@ export function createExecutionService(opts: ExecutionOptions) {
       userPrompt: input.userPrompt,
       context: input.context,
       parentRunId: input.parentRunId ?? null,
-      resumeSessionId: null,
+      resumeFromRootRunId: null,
       timeoutMs: input.timeoutMs ?? null
     })
   }
 
   /**
-   * 원본 run의 세션을 이어받아 새 run을 만든다 (설계 §6).
+   * 대화를 이어받아 새 run을 만든다 (설계 §3-1).
+   *
+   * **세션 자체는 여기서 고르지 않는다.** 실행 중인 턴에 이어 예약한 턴은 지금
+   * 앞 턴의 세션 id가 없을 수 있다 — 그 확인은 beginRun이 실행 직전에 한다
+   * (설계 §3-2). 여기서 `latestSessionRun`을 부르는 것은 잠긴 값(workspaceId·
+   * agentKind·cwd·timeoutMs)의 출처를 정하기 위해서다. 아직 세션을 가진 run이
+   * 하나도 없으면 뿌리(`root`)로 폴백한다.
    *
    * **agentKind와 cwd는 잠긴다** — 세션은 특정 CLI가 특정 디렉토리에서 만든
    * 것이라 다른 조합으로 이어받을 수 없다. 그 규칙이 여기 있어야 나중에
-   * core를 별도 데몬으로 뗄 때 따라간다. 호출자는 바꿀 수 있는 것만 넘긴다.
+   * core를 별도 데몬으로 뗄 때 따라간다.
    */
   async function resume(input: ResumeRunInput): Promise<Run> {
-    let parent: Run
+    let root: Run
     try {
-      parent = opts.runs.get(input.parentRunId)
+      root = opts.runs.get(input.conversationId)
     } catch (err) {
-      // 없는 것과 못 읽는 것을 가른다. 전부 뭉개면 DB 장애가 "원본이 없다"로
+      // 없는 것과 못 읽는 것을 가른다. 전부 뭉개면 DB 장애가 "대화가 없다"로
       // 둔갑해 조사가 엉뚱한 데로 간다.
       if (err instanceof NotFoundError) {
-        throw new Error('이어서 실행할 원본 run이 없습니다. workspace가 지워졌을 수 있습니다.')
+        throw new Error('이어서 실행할 대화가 없습니다. workspace가 지워졌을 수 있습니다.')
       }
       throw err
     }
 
-    if (!parent.externalSessionId) {
-      throw new Error('이어받을 세션이 없습니다. 새 실행으로 시작하세요.')
-    }
+    // 잠긴 값의 출처로만 쓴다. 세션 자체는 beginRun이 실행 직전에 다시 고른다
+    // — 예약된 턴은 지금 세션이 없을 수 있다 (설계 §3-2).
+    const source = opts.runs.latestSessionRun(root.rootRunId ?? root.id) ?? root
 
     return launch({
-      // 잠긴 값
-      workspaceId: parent.workspaceId,
-      agentKind: parent.agentKind,
-      cwd: parent.cwd,
-      resumeSessionId: parent.externalSessionId,
-      parentRunId: parent.id,
+      // 잠긴 값 — 세션을 준 run(또는 아직 없으면 뿌리)에서 가져온다
+      workspaceId: source.workspaceId,
+      agentKind: source.agentKind,
+      cwd: source.cwd,
+      resumeFromRootRunId: root.rootRunId ?? root.id,
+      parentRunId: source.id,
       // 바꿀 수 있는 값
       model: input.model ?? null,
       permission: input.permission,
       userPrompt: input.userPrompt,
       context: input.context,
-      // timeoutMs는 잠긴 값도 바꿀 수 있는 값도 아니다 — 설계 §6이 열거한
-      // 목록에 빠져 있던 자리다. 원본이 타임아웃을 걸고 돌던 run이면 그
-      // 제한이 이어받는 run에서도 유효해야 자연스럽다는 판단으로, 원본의
-      // 성질을 따르기로 한다.
-      timeoutMs: parent.timeoutMs
+      // timeoutMs는 원본의 성질을 따른다 (설계 §6의 목록에 빠져 있던 자리다).
+      timeoutMs: source.timeoutMs
     })
   }
 
@@ -334,6 +375,14 @@ export function createExecutionService(opts: ExecutionOptions) {
    * 어느 쪽이든 **사용자가 스스로 한 일이므로 그 자리에서 확인 표시를 찍는다.**
    * 그래야 인박스에 남는 canceled가 앱이 재시작하며 취소한 것만 남고,
    * "대기 중 취소됨"이라는 이름이 정확해진다 (설계 §5).
+   *
+   * **확인 표시는 취소하는 그 턴이 아니라 뿌리에 찍는다.** 인박스 소속
+   * 판정이 뿌리의 reviewedAt 기준이기 때문이다(`run.ts`의 `inbox()`, 설계
+   * §5). 턴 id에 찍으면 두 방향으로 깨진다: 예약된 뒤 턴을 취소하면 뿌리는
+   * 미확인인 채로 남아 그 대화가 그대로 인박스에 남고, 뿌리(=첫 턴)를
+   * 실행 중에 취소하면 반대로 세션은 살아 있는데 그 대화의 이후 어떤 턴도
+   * 인박스에 나타나지 않게 된다(C-1). 뿌리가 이미 확인돼 있어도 그 대화를
+   * 이어가면 `create()`가 다시 풀어준다(설계 §5 재개 규칙).
    */
   function cancel(runId: string): void {
     if (opts.queue.remove(runId)) {
@@ -341,21 +390,23 @@ export function createExecutionService(opts: ExecutionOptions) {
       // enqueue보다 먼저 끝나므로(launch 참고) 대기 중이던 이 run도 이미
       // 토큰을 쥐고 있을 수 있다 — 반드시 폐기한다.
       releaseMcp(runId)
-      notify(opts.runs.markFinished(runId, {
+      const finished = opts.runs.markFinished(runId, {
         status: 'canceled',
         resultText: null,
         externalSessionId: null,
         needsAnswer: false,
         exitCode: null,
         errorMessage: null
-      }))
-      notify(opts.runs.markReviewed(runId, 'archived'))
+      })
+      notify(finished)
+      notify(opts.runs.markReviewed(finished.rootRunId ?? finished.id, 'archived'))
       return
     }
 
     // 실행 중이다. 종료 기록은 manager의 결과가 오면 finish가 쓴다.
     // 확인 표시는 지금 찍는다 — markFinished는 reviewedAt을 건드리지 않으므로 살아남는다.
-    notify(opts.runs.markReviewed(runId, 'archived'))
+    const target = opts.runs.get(runId)
+    notify(opts.runs.markReviewed(target.rootRunId ?? target.id, 'archived'))
     opts.manager.cancel(runId)
   }
 

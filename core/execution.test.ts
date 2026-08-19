@@ -211,6 +211,187 @@ describe('ExecutionService', () => {
     expect(ctx.queue.snapshot()).toEqual({ running: 0, limit: 3, waiting: 0 })
   })
 
+  it('같은 대화의 두 run은 슬롯이 남아도 동시에 뜨지 않는다', async () => {
+    // execution이 queue.enqueue의 세 번째 인자로 groupKey를 넘겨서
+    // 같은 대화의 두 턴이 순차적으로 실행되게 한다. --resume이 이전 프로세스의
+    // 완료를 요구하므로 동시 실행은 깨진다 (설계 §3-2).
+    const ctrl = createPerRunManager()
+    const local = setup({ manager: ctrl.manager, limit: 3 })
+
+    const first = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '첫째', context: []
+    })
+    // 같은 대화에 속하는 두 번째 run — parentRunId로 뿌리를 물려받는다
+    const second = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '둘째', context: [],
+      parentRunId: first.id
+    })
+
+    expect(second.rootRunId).toBe(first.rootRunId)
+    // 상한이 3인데도 뜨지 않았다 — groupKey가 막은 것이다
+    expect(second.status).toBe('pending')
+    expect(ctrl.started(second.id)).toBe(false)
+    expect(local.queue.snapshot()).toEqual({ running: 1, limit: 3, waiting: 1 })
+
+    ctrl.finish(first.id)
+    await vi.waitFor(() => expect(ctrl.started(second.id)).toBe(true))
+
+    ctrl.finish(second.id)
+    await vi.waitFor(() => {
+      expect(local.queue.snapshot()).toEqual({ running: 0, limit: 3, waiting: 0 })
+    })
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
+  it('다른 대화의 두 run은 상한 안에서 동시에 뜬다', async () => {
+    // 그룹 직렬화는 같은 대화에만 적용된다. 다른 대화는 병렬로 실행할 수 있어야 한다.
+    const ctrl = createPerRunManager()
+    const local = setup({ manager: ctrl.manager, limit: 3 })
+
+    const first = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '첫 대화', context: []
+    })
+    const second = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '다른 대화', context: []
+    })
+
+    // rootRunId가 다르다 — 다른 대화다
+    expect(first.rootRunId ?? first.id).not.toBe(second.rootRunId ?? second.id)
+    // 둘 다 떴다 — 병렬 실행 가능하다
+    expect(first.status).toBe('running')
+    expect(second.status).toBe('running')
+    expect(ctrl.started(first.id)).toBe(true)
+    expect(ctrl.started(second.id)).toBe(true)
+    expect(local.queue.snapshot()).toEqual({ running: 2, limit: 3, waiting: 0 })
+
+    ctrl.finish(first.id)
+    ctrl.finish(second.id)
+    await vi.waitFor(() => {
+      expect(local.queue.snapshot()).toEqual({ running: 0, limit: 3, waiting: 0 })
+    })
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
+  it('예약할 때 세션이 없어도 실행 시점에 앞 턴의 세션을 집는다', async () => {
+    const fake = createPerRunManager()
+    const ctx2 = setup({ manager: fake.manager, limit: 3 })
+    const first = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '1턴', context: []
+    })
+    expect(first.status).toBe('running')
+
+    // 1턴이 도는 중에 2턴을 예약한다. 아직 세션 id가 없다.
+    const second = await ctx2.service.resume({
+      conversationId: first.id, permission: 'edit', userPrompt: '2턴', context: []
+    })
+    // 같은 대화라 슬롯이 둘 남아도 뜨지 않는다 (Task 3).
+    expect(second.status).toBe('pending')
+    expect(fake.started(second.id)).toBe(false)
+
+    fake.finish(first.id, 'sess-1')
+
+    // 이제 2턴이 뜨면서 그 세션을 집는다.
+    await vi.waitFor(() => expect(fake.started(second.id)).toBe(true))
+    expect(ctx2.runs.get(second.id).status).toBe('running')
+    // 헤드라인 약속 그 자체 — "떴다"만으로는 앞 턴의 세션을 실제로 집었는지
+    // 증명하지 못한다. manager.start()에 넘어간 값을 직접 본다.
+    expect(fake.sessionIdFor(second.id)).toBe('sess-1')
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+
+  it('예약한 사이 세션이 하나도 남지 않으면 실패로 끝난다', async () => {
+    const fake = createPerRunManager()
+    const ctx2 = setup({ manager: fake.manager, limit: 3 })
+    const first = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '1턴', context: []
+    })
+    const second = await ctx2.service.resume({
+      conversationId: first.id, permission: 'edit', userPrompt: '2턴', context: []
+    })
+
+    // 1턴이 세션 없이 끝났다. 조용히 새 세션으로 시작하면 agent는 이전 대화를
+    // 모르는 채 돌고, 사용자는 답이 이상해진 이유를 알 방법이 없다.
+    fake.finish(first.id, null)
+
+    await vi.waitFor(() => expect(ctx2.runs.get(second.id).status).toBe('failed'))
+    const stored = ctx2.runs.get(second.id)
+    expect(stored.errorMessage).toContain('이어받을 세션이 없습니다')
+    // 프로세스는 뜬 적이 없다.
+    expect(stored.startedAt).toBeNull()
+    expect(fake.started(second.id)).toBe(false)
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+
+  it('실행 시점의 세션 조회가 던지면 run을 어중간하게 두지 않고 슬롯을 돌려준다', async () => {
+    // latestSessionRun 호출은 원래 resume()의 호출 시점에 있었다 — 그때는 run
+    // 행도 MCP 토큰도 큐 슬롯도 없어 던져도 부작용이 없었다. beginRun으로
+    // 옮기며 셋 다 이미 존재하는 자리가 됐다. wrapRuns로 이 호출만(그것도
+    // beginRun이 부르는 시점에만) 던지게 만들어 새 try/catch가 실제로
+    // 막아주는지 본다.
+    let failing = false
+    const fake = createPerRunManager()
+    const logs = captureConsoleError()
+    const ctx2 = setup({
+      manager: fake.manager,
+      limit: 1,
+      wrapRuns: (runs) => ({
+        ...runs,
+        latestSessionRun: (rootRunId: string) => {
+          if (failing) throw new Error('database is locked')
+          return runs.latestSessionRun(rootRunId)
+        }
+      })
+    })
+
+    const first = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '1턴', context: []
+    })
+    // 아직 failing이 꺼져 있다 — resume()이 잠긴 값의 출처를 구하려고 부르는
+    // 호출은 정상적으로 성공해야 한다.
+    const second = await ctx2.service.resume({
+      conversationId: first.id, permission: 'edit', userPrompt: '2턴', context: []
+    })
+    expect(second.status).toBe('pending')
+    // 다른 대화의 세 번째 run — limit이 1이라 second 뒤에서 같이 기다린다.
+    const third = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '다른 대화', context: []
+    })
+    expect(third.status).toBe('pending')
+
+    // 이제부터 latestSessionRun이 던진다 — beginRun이 second를 띄우려는
+    // 순간을 겨냥한다.
+    failing = true
+    fake.finish(first.id, 'sess-1')
+
+    // (b) 슬롯이 반환되어 다음 대기분(third)이 뜬다.
+    await vi.waitFor(() => expect(fake.started(third.id)).toBe(true))
+    expect(ctx2.runs.get(third.id).status).toBe('running')
+
+    // (a) second는 던진 조회 때문에 시작하지 못했다 — running도 failed도
+    // 아닌 pending으로 남는다. 다음 재시작의 reapStale이 정리할 자리다.
+    expect(fake.started(second.id)).toBe(false)
+    expect(ctx2.runs.get(second.id).status).toBe('pending')
+    expect(ctx2.runs.get(second.id).startedAt).toBeNull()
+    // 조용히 넘어가면 안 된다 — 큐의 catch와 달리 이 실패는 beginRun 안에서
+    // 직접 다뤘으므로, 로그가 유일한 흔적이다.
+    expect(logs.some((line) => line.includes(second.id))).toBe(true)
+
+    fake.finish(third.id)
+    await vi.waitFor(() => {
+      expect(ctx2.queue.snapshot()).toEqual({ running: 0, limit: 1, waiting: 0 })
+    })
+    logs.restore()
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+
   it('preflight가 실패하면 슬롯을 쓰지 않는다', async () => {
     // 실행 파일조차 없는 run이 MCP 포트를 열게 해서는 안 된다 — preflight가
     // mcp.prepare()보다 먼저 와야 한다는 순서 계약을 여기서 함께 고정한다.
@@ -394,6 +575,81 @@ describe('ExecutionService', () => {
     expect(ctx.runs.inbox().map((r) => r.id)).not.toContain(run.id)
   })
 
+  it('예약 턴을 취소하면 뿌리가 확인되어 대화가 인박스에 안 뜬다 (C-1)', async () => {
+    // 리뷰가 잡은 결함: cancel()이 확인 표시를 취소하는 그 턴의 id에 찍으면
+    // (뿌리가 아니라) 뿌리는 미확인인 채로 남는다. inbox()의 소속 판정이
+    // 뿌리 기준이라, 이 대화는 마지막 턴(canceled)과 함께 "대기 중 취소됨"으로
+    // 인박스에 다시 뜬다 — 3b가 cancel()에 확인 표시를 넣은 이유("사용자가
+    // 스스로 한 일") 자체는 맞지만 자리가 틀렸었다.
+    const ctrl = createPerRunManager()
+    const local = setup({ manager: ctrl.manager, limit: 3 })
+
+    const first = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '1턴', context: []
+    })
+    expect(first.status).toBe('running')
+
+    // 1턴이 도는 중에 2턴을 예약한다 — 같은 대화라 슬롯이 남아도 대기한다.
+    const second = await local.service.resume({
+      conversationId: first.id, permission: 'edit', userPrompt: '2턴(예약)', context: []
+    })
+    expect(second.status).toBe('pending')
+
+    local.service.cancel(second.id)
+
+    expect(local.runs.get(second.id).status).toBe('canceled')
+    // 뿌리(1턴)가 확인 표시를 받아야 대화 전체가 인박스에서 빠진다.
+    const root = local.runs.get(first.id)
+    expect(root.reviewedKind).toBe('archived')
+    expect(root.reviewedAt).toBeTypeOf('number')
+
+    ctrl.finish(first.id)
+    await vi.waitFor(() => expect(local.runs.get(first.id).status).toBe('succeeded'))
+    // 대화 전체가 인박스에서 빠져야 한다 — 마지막 턴(취소된 2턴)만 봐서는 안 된다.
+    expect(local.runs.inbox()).toHaveLength(0)
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
+  it('실행 중인 예약 턴을 취소해도 뿌리가 확인되어 대화가 인박스에 안 뜬다 (C-1, 실행 중 분기)', async () => {
+    // 위 C-1 회귀 테스트는 대기 중 취소 분기만 지나간다(취소 대상이 pending이므로).
+    // cancel()의 실행 중 취소 분기(target.rootRunId ?? target.id)도 같은 버그에
+    // 노출될 수 있다 — 예약된 턴이 앞 턴 종료로 자동 실행되면 running이면서
+    // rootRunId와 다른 id를 갖는데, Dock.tsx는 대화의 마지막 턴 id로 취소를 건다.
+    const ctrl = createPerRunManager()
+    const local = setup({ manager: ctrl.manager, limit: 3 })
+
+    const first = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '1턴', context: []
+    })
+    expect(first.status).toBe('running')
+
+    // 1턴이 도는 중에 2턴을 예약한다 — 같은 대화라 슬롯이 남아도 대기한다.
+    const second = await local.service.resume({
+      conversationId: first.id, permission: 'edit', userPrompt: '2턴(예약)', context: []
+    })
+    expect(second.status).toBe('pending')
+
+    // 1턴을 세션과 함께 끝낸다 — 2턴이 자동으로 뜬다(running).
+    ctrl.finish(first.id, 'session-1')
+    await vi.waitFor(() => expect(local.runs.get(second.id).status).toBe('running'))
+
+    // 2턴을 취소한다 — 이제 실행 중 분기다.
+    local.service.cancel(second.id)
+
+    // 뿌리(1턴)가 확인 표시를 받아야 대화 전체가 인박스에서 빠진다.
+    const root = local.runs.get(first.id)
+    expect(root.reviewedKind).toBe('archived')
+    expect(root.reviewedAt).toBeTypeOf('number')
+
+    ctrl.finish(second.id)
+    await vi.waitFor(() => expect(local.runs.get(second.id).status).toBe('succeeded'))
+    // 대화 전체가 인박스에서 빠져야 한다 — "대기 중 취소됨"으로 재등장하면 안 된다.
+    expect(local.runs.inbox()).toHaveLength(0)
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
   it('삼킨 오류를 주입받은 onError로 흘려보낸다', async () => {
     // core/는 나중에 별도 데몬으로 떨어질 수 있으므로 목적지를 스스로 정하지 않는다.
     // 이 테스트는 start()가 삼키는 오류를 본다 — describe('resume') 안에 있던 것을
@@ -427,7 +683,7 @@ describe('ExecutionService', () => {
       expect(parent.externalSessionId).toBe('fake-session')
 
       const child = await ctx.service.resume({
-        parentRunId: parent.id,
+        conversationId: parent.id,
         permission: 'read_only',
         userPrompt: '이어서 해줘',
         context: []
@@ -460,7 +716,7 @@ describe('ExecutionService', () => {
       expect(parent.timeoutMs).toBe(5000)
 
       const child = await ctx.service.resume({
-        parentRunId: parent.id,
+        conversationId: parent.id,
         permission: 'read_only',
         userPrompt: '이어서 해줘',
         context: []
@@ -470,8 +726,10 @@ describe('ExecutionService', () => {
       await vi.waitFor(() => expect(ctx.runs.get(child.id).status).toBe('succeeded'))
     })
 
-    it('이어받을 세션이 없으면 거부한다', async () => {
-      // 실패한 run은 세션이 만들어지기 전에 죽었을 수 있다.
+    it('이어받을 세션이 없으면 실행 시점에 실패로 끝난다', async () => {
+      // 실패한 run은 세션이 만들어지기 전에 죽었을 수 있다. resume() 자체는
+      // 더 이상 거부하지 않는다 — 세션 확인은 beginRun이 실행 직전에 한다
+      // (Task 4, 설계 §3-2).
       const created = ctx.runs.create({
         workspaceId: ctx.workspaceId,
         agentKind: 'claude-code',
@@ -488,15 +746,18 @@ describe('ExecutionService', () => {
         needsAnswer: false, exitCode: 1, errorMessage: '죽음'
       })
 
-      await expect(ctx.service.resume({
-        parentRunId: created.id, permission: 'edit', userPrompt: 'x', context: []
-      })).rejects.toThrow(/세션/)
+      const child = await ctx.service.resume({
+        conversationId: created.id, permission: 'edit', userPrompt: 'x', context: []
+      })
+      expect(child.status).toBe('failed')
+      expect(child.errorMessage).toContain('이어받을 세션이 없습니다')
+      expect(child.startedAt).toBeNull()
     })
 
     it('원본이 없으면 거부한다', async () => {
       await expect(ctx.service.resume({
-        parentRunId: '없는-id', permission: 'edit', userPrompt: 'x', context: []
-      })).rejects.toThrow(/원본/)
+        conversationId: '없는-id', permission: 'edit', userPrompt: 'x', context: []
+      })).rejects.toThrow(/대화/)
     })
 
     it('원본을 읽다 DB가 터지면 그 오류를 그대로 올린다', async () => {
@@ -509,7 +770,7 @@ describe('ExecutionService', () => {
         })
       })
       await expect(ctx2.service.resume({
-        parentRunId: 'whatever', permission: 'edit', userPrompt: 'x', context: []
+        conversationId: 'whatever', permission: 'edit', userPrompt: 'x', context: []
       })).rejects.toThrow(/database is locked/)
       rmSync(ctx2.logDir, { recursive: true, force: true })
     })
@@ -553,12 +814,40 @@ describe('ExecutionService', () => {
       })
 
       await spy.service.resume({
-        parentRunId: seeded.id, permission: 'edit', userPrompt: '이어서', context: []
+        conversationId: seeded.id, permission: 'edit', userPrompt: '이어서', context: []
       })
 
       expect(seen).toEqual(['fake-session'])
       rmSync(spy.logDir, { recursive: true, force: true })
     })
+
+    it('마지막 턴이 세션 없이 실패해도 그 앞 턴에서 이어받는다', async () => {
+      const first = await finishedWithSession()
+      expect(first.externalSessionId).toBe('fake-session')
+
+      // 2턴이 세션 없이 실패한 상황을 만든다 — preflight 실패와 같은 모양이다.
+      const failed = await ctx.service.resume({
+        conversationId: first.id, permission: 'edit', userPrompt: '2턴', context: []
+      })
+      await vi.waitFor(() => expect(ctx.runs.get(failed.id).status).toBe('succeeded'))
+      ctx.runs.markFinished(failed.id, {
+        status: 'failed', resultText: null, externalSessionId: null,
+        needsAnswer: false, exitCode: 1, errorMessage: '실행 파일을 찾을 수 없습니다.'
+      })
+
+      // 3턴은 그 앞 턴(1턴)의 세션을 이어받는다.
+      const third = await ctx.service.resume({
+        conversationId: first.id, permission: 'edit', userPrompt: '3턴', context: []
+      })
+      expect(third.rootRunId).toBe(first.id)
+      // 세션을 준 run이 부모다 — 실패한 2턴이 아니다.
+      expect(third.parentRunId).toBe(first.id)
+    })
+
+    // '세션을 가진 run이 하나도 없으면 던진다'(Task 2)는 여기서 지웠다. resume()이
+    // 더 이상 호출 시점에 세션을 확인하지 않는다 — Task 4가 그 확인을 beginRun의
+    // 실행 시점으로 옮겼다. 같은 시나리오는 이제 최상단 describe의
+    // '예약한 사이 세션이 하나도 남지 않으면 실패로 끝난다'가 덮는다.
   })
 })
 
@@ -736,11 +1025,16 @@ function createPerRunManager() {
   const logPathFor = (runId: string) => resolve(tmpdir(), `one-desk-perrun-${runId}.jsonl`)
   const settlers = new Map<string, (outcome: RunOutcome) => void>()
   const seen = new Set<string>()
+  // manager.start()에 실제로 넘어온 resumeSessionId를 기록한다. beginRun이
+  // 실행 시점에 고른 값이 이 자리로 온다 — 그냥 "떴는지"만으로는 지연 해석이
+  // 앞 턴의 세션을 실제로 집었는지 증명하지 못한다.
+  const resumeSessionIds = new Map<string, string | null>()
 
   const manager: RunManager = {
     logPathFor,
     start: (spec) => {
       seen.add(spec.runId)
+      resumeSessionIds.set(spec.runId, spec.resumeSessionId)
       return new Promise<RunOutcome>((r) => settlers.set(spec.runId, r))
     },
     cancel: () => {},
@@ -751,14 +1045,15 @@ function createPerRunManager() {
   return {
     manager,
     started: (runId: string) => seen.has(runId),
-    finish(runId: string) {
+    sessionIdFor: (runId: string) => resumeSessionIds.get(runId) ?? null,
+    finish(runId: string, sessionId: string | null = null) {
       const settle = settlers.get(runId)
       if (!settle) throw new Error(`시작한 적 없는 run입니다: ${runId}`)
       settlers.delete(runId)
       settle({
         status: 'succeeded',
         resultText: null,
-        externalSessionId: null,
+        externalSessionId: sessionId,
         needsAnswer: false,
         exitCode: 0,
         errorMessage: null,

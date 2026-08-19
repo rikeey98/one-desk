@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { RunEventProvider } from '../store/RunEventContext'
@@ -18,12 +18,18 @@ const repos: Repo[] = [
 // 빈 배열로 충분하다.
 const workspaces: Workspace[] = []
 
+// id만 넘기고 rootRunId를 따로 넘기지 않으면 그 id가 뿌리다 — 부모 없는 run의
+// 기본 모양이다. 여러 run을 한 대화로 묶는 테스트는 rootRunId를 명시적으로 넘긴다.
+//
+// 예전에는 rootRunId가 'run-1'로 하드코딩돼 있었다 — id와 무관하게 항상 같은
+// 값이라 서로 다른 두 run을 넘겨도 조용히 한 대화로 접혔다. Dock이 rootRunId를
+// 읽지 않던 동안은 무해했지만, groupConversations를 쓰기 시작하면 바로 드러난다.
 function makeRun(over: Partial<Run> = {}): Run {
   return {
     id: 'run-1', workspaceId: 'w1', agentKind: 'claude-code', model: null,
     cwd: '/tmp/api', permission: 'edit', userPrompt: '토큰 버그 고쳐줘',
     assembledPrompt: '<task/>', status: 'running', externalSessionId: null,
-    parentRunId: null, resultText: null, needsAnswer: false, timeoutMs: null,
+    parentRunId: null, rootRunId: over.id ?? 'run-1', resultText: null, needsAnswer: false, timeoutMs: null,
     exitCode: null, errorMessage: null, logPath: '/tmp/logs/run-1/stream.jsonl',
     reviewedAt: null, reviewedKind: null, startedAt: 1, endedAt: null,
     createdAt: 1, contextItems: [],
@@ -63,10 +69,10 @@ function makeClient(over: Partial<OneDeskClient['runs']> = {}): OneDeskClient {
 
 function renderDock(
   runs: Run[],
-  client: OneDeskClient,
+  focusConversationId: string | null = null,
+  client: OneDeskClient = makeClient(),
   store: RunEventStore = createRunEventStore(),
-  queueError: string | null = null,
-  focusRun: Run | null = null
+  queueError: string | null = null
 ) {
   render(
     <ClientProvider client={client}>
@@ -84,11 +90,9 @@ function renderDock(
           chips={[]}
           onRemoveChip={vi.fn()}
           onRunStarted={vi.fn()}
-          resumeFrom={null}
           draftPrompt=""
           draftCwd={null}
-          focusRun={focusRun}
-          onExitResume={vi.fn()}
+          focusConversationId={focusConversationId}
         />
       </RunEventProvider>
     </ClientProvider>
@@ -97,53 +101,127 @@ function renderDock(
 }
 
 describe('Dock', () => {
-  it('run마다 탭을 만든다', () => {
-    renderDock(
-      [makeRun({ id: 'run-2', userPrompt: '새 실행' }), makeRun({ id: 'run-1', userPrompt: '옛 실행' })],
-      makeClient()
-    )
+  it('대화마다 탭을 만든다', () => {
+    renderDock([makeRun({ id: 'run-2', userPrompt: '새 실행' }), makeRun({ id: 'run-1', userPrompt: '옛 실행' })])
     expect(screen.getByText('새 실행')).toBeInTheDocument()
     expect(screen.getByText('옛 실행')).toBeInTheDocument()
   })
 
-  it('처음에는 실행 패널을 보여주고 탭을 누르면 그 run의 로그로 바뀐다', async () => {
+  it('3턴 대화가 탭 하나로 뜬다', () => {
+    // 세 run이 모두 같은 대화(rootRunId: 'a1')에 속하면 탭도 하나여야 한다.
+    renderDock([
+      makeRun({ id: 'a3', rootRunId: 'a1', createdAt: 30 }),
+      makeRun({ id: 'a2', rootRunId: 'a1', createdAt: 20 }),
+      makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10, userPrompt: '첫 지시' })
+    ])
+    expect(screen.getAllByRole('button', { name: /첫 지시/ })).toHaveLength(1)
+    // groupConversations 없이 run마다 탭을 만드는 변이라면 대화 탭이 3개(a1·a2·a3
+    // 각각) + "+ 새 대화" 탭까지 4개가 된다 — /첫 지시/ 하나만 봐서는 안 잡힌다
+    // (다른 두 run은 기본 userPrompt를 써서 다른 텍스트로 매치되므로). 총 탭 수로 잡는다.
+    expect(document.querySelectorAll('.dock-tab')).toHaveLength(2)
+  })
+
+  it('탭 배지와 입력부 권한 기본값은 대화의 마지막 턴에서 온다', async () => {
+    // 첫 턴은 running·edit, 마지막 턴은 succeeded·read_only — 둘을 다르게 둬야
+    // "마지막 턴에서 온다"는 것을 첫 턴(conv.runs[0])과 구분해서 확인할 수 있다.
+    renderDock([
+      makeRun({
+        id: 'b2', rootRunId: 'b1', createdAt: 20, status: 'succeeded',
+        permission: 'read_only', userPrompt: '두 번째 말'
+      }),
+      makeRun({
+        id: 'b1', rootRunId: 'b1', createdAt: 10, status: 'running',
+        permission: 'edit', userPrompt: '첫 말'
+      })
+    ])
+
+    // 탭 배지는 마지막 턴(b2, succeeded)에서 온다 — 첫 턴(running)이 아니다.
+    expect(screen.getByText('succeeded')).toBeInTheDocument()
+    expect(screen.queryByText('running')).toBeNull()
+
+    await userEvent.click(screen.getByText('첫 말'))
+    // 입력부의 권한 기본값도 마지막 턴(read_only)에서 온다 — 첫 턴(edit)이 아니다.
+    await waitFor(() => expect(screen.getByLabelText('권한')).toHaveValue('read_only'))
+  })
+
+  it('처음에는 실행 패널을 보여주고 탭을 누르면 그 대화의 로그로 바뀐다', async () => {
     const store = createRunEventStore()
     store.hydrate('run-1', [textEvent('run-1', '옛 로그')])
-    renderDock([makeRun({ id: 'run-1', userPrompt: '옛 실행' })], makeClient(), store)
+    renderDock([makeRun({ id: 'run-1', userPrompt: '옛 실행' })], null, makeClient(), store)
 
     // 실행 패널이 먼저 열린다 (모달이 아니라 도크 확장 — 설계 §9)
-    expect(screen.getByRole('button', { name: '▶ 실행' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '실행' })).toBeInTheDocument()
     expect(screen.queryByText('옛 로그')).toBeNull()
 
     await userEvent.click(screen.getByText('옛 실행'))
+    // run 상태가 running이라 마지막 턴의 로그가 처음부터 펼쳐져 있다 (Task 7).
     expect(await screen.findByText('옛 로그')).toBeInTheDocument()
   })
 
-  it('focusRun이 주어지면 그 run의 로그를 연다', async () => {
-    // 인박스의 "로그 보기"는 화면을 바꾸며 이 컴포넌트를 다시 마운트시킨다.
+  it('focusConversationId가 그 대화를 연다', () => {
+    renderDock([makeRun({ id: 'a1', rootRunId: 'a1', userPrompt: '첫 지시' })], 'a1')
+    // 탭 라벨과 대화록의 첫 턴이 같은 문구('첫 지시')를 보이므로, 대화록 쪽(turn-user)으로
+    // 좁혀 확인한다 — 대화가 실제로 열렸는지(탭만이 아니라 본문까지)를 본다.
+    expect(screen.getByText('첫 지시', { selector: '.turn-user' })).toBeInTheDocument()
+  })
+
+  it('명시적으로 고른 대화가 목록에 없으면 다른 대화로 폴백하지 않는다', () => {
+    // selected는 이제 로그 뷰의 대상만이 아니라 입력부의 전송 대상이기도 하다
+    // (ConversationPanel→RunPanel이 conversation.id로 resume을 부른다). 폴백은
+    // "고른 적이 없을 때"만 적용해야 한다 — pickedId가 있는데 그 대화가
+    // conversations에 없다고 조용히 다른 대화로 떨어지면, 화면과 입력부가 서로
+    // 다른 대화를 가리키는 채로 턴이 엉뚱한 대화로 나갈 수 있다(Important 2).
+    //
+    // 이 상태(비동기 runs 따라잡기 경쟁이 만들어내는 상태)는 경쟁을 기다리지
+    // 않아도 목록에 없는 id를 그대로 넘기는 것만으로 그대로 구성할 수 있다.
+    renderDock(
+      [makeRun({ id: 'a1', rootRunId: 'a1', userPrompt: '실재하는 대화' })],
+      '목록에-없는-id'
+    )
+    // 옛 코드(?? conversations[0])라면 실재하는 다른 대화('실재하는 대화')가 그려진다.
+    expect(screen.queryByText('실재하는 대화', { selector: '.turn-user' })).toBeNull()
+    // 새 코드는 selected가 null이라 ConversationPanel의 빈 상태 문구를 그린다.
+    expect(screen.getByText('지시를 입력하면 대화가 시작됩니다')).toBeInTheDocument()
+  })
+
+  it('focusConversationId가 주어지면 그 대화의 로그를 연다', async () => {
+    // 인박스의 "대화 열기"는 화면을 바꾸며 이 컴포넌트를 다시 마운트시킨다.
     // 내부 view는 'new'로 돌아가므로 App이 지정하지 않으면 실행 패널만 열린다.
     const store = createRunEventStore()
     store.hydrate('run-2', [textEvent('run-2', '두 번째 로그')])
     const target = makeRun({ id: 'run-2', userPrompt: '두 번째 실행', status: 'failed' })
-    renderDock([makeRun({ id: 'run-1', userPrompt: '첫 실행' }), target], makeClient(), store, null, target)
+    renderDock(
+      [makeRun({ id: 'run-1', userPrompt: '첫 실행' }), target],
+      'run-2',
+      makeClient(),
+      store
+    )
 
+    // 대화가 바로 열려 새 대화 안내 대신 그 대화의 지시가 보인다. 탭 라벨도 같은
+    // 문구를 보이므로 대화록 쪽(turn-user)으로 좁혀 확인한다. 입력부(실행 버튼)는
+    // 대화 중에도 다음 턴을 보내기 위해 항상 함께 떠 있으므로 여기서는 보지 않는다.
+    expect(screen.getByText('두 번째 실행', { selector: '.turn-user' })).toBeInTheDocument()
+    expect(screen.queryByText('지시를 입력하면 대화가 시작됩니다')).toBeNull()
+    // failed 상태라 마지막 턴은 접혀 있다 — 펼쳐야 로그가 보인다 (Task 7의 설계).
+    await userEvent.click(screen.getByRole('button', { name: '자세히' }))
     expect(await screen.findByText('두 번째 로그')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '▶ 실행' })).toBeNull()
   })
 
   it('스토어가 비어 있으면 로그 파일에서 되살린다', async () => {
     // 앱을 껐다 켜면 메모리 스토어는 비어 있다. 파일이 유일한 출처다.
     const readLog = vi.fn().mockResolvedValue([textEvent('run-1', '파일에서 온 줄')])
-    renderDock([makeRun({ status: 'succeeded' })], makeClient({ readLog }))
+    renderDock([makeRun({ status: 'succeeded' })], null, makeClient({ readLog }))
 
     await userEvent.click(screen.getByText('토큰 버그 고쳐줘'))
+    // succeeded는 진행 중이 아니라 마지막 턴이 접혀 있다 — 펼쳐야 훅이 걸리고 읽는다.
+    await userEvent.click(screen.getByRole('button', { name: '자세히' }))
     expect(await screen.findByText('파일에서 온 줄')).toBeInTheDocument()
     expect(readLog).toHaveBeenCalledWith('run-1')
   })
 
   it('실행 중인 run에만 취소 버튼을 보여주고 눌리면 취소한다', async () => {
     const cancel = vi.fn().mockResolvedValue(undefined)
-    renderDock([makeRun({ status: 'running' })], makeClient({ cancel }))
+    renderDock([makeRun({ status: 'running' })], null, makeClient({ cancel }))
 
     await userEvent.click(screen.getByText('토큰 버그 고쳐줘'))
     await userEvent.click(screen.getByRole('button', { name: '취소' }))
@@ -154,52 +232,75 @@ describe('Dock', () => {
     // 프로세스가 없을 뿐 사용자에겐 똑같이 걸려 있다. core는 대기 중 취소를 이미
     // 지원하는데(execution.cancel이 큐에서 빼고 canceled로 끝낸다) 버튼이 없으면
     // 그 경로에 손이 닿지 않는다 — 상한이 낮을수록 오래 묶여 있는 쪽이다.
+    //
+    // 대기 중인 턴은 Transcript 자신의 "취소" 버튼도 함께 보여준다(설계상 두 경로
+    // 다 client.runs.cancel로 간다 — 노트 #5) — 그래서 도크 헤더의 취소 버튼만
+    // 콕 집어 확인한다.
     const cancel = vi.fn().mockResolvedValue(undefined)
-    renderDock([makeRun({ status: 'pending', startedAt: null })], makeClient({ cancel }))
+    renderDock([makeRun({ status: 'pending', startedAt: null })], null, makeClient({ cancel }))
 
     await userEvent.click(screen.getByText('토큰 버그 고쳐줘'))
-    await userEvent.click(screen.getByRole('button', { name: '취소' }))
+    const header = document.querySelector<HTMLElement>('.dock-header')!
+    await userEvent.click(within(header).getByRole('button', { name: '취소' }))
     expect(cancel).toHaveBeenCalledWith('run-1')
   })
 
   it('끝난 run에는 취소 버튼이 없다', async () => {
-    renderDock([makeRun({ status: 'succeeded' })], makeClient())
+    renderDock([makeRun({ status: 'succeeded' })])
     await userEvent.click(screen.getByText('토큰 버그 고쳐줘'))
     expect(screen.queryByRole('button', { name: '취소' })).toBeNull()
   })
 
-  it('답변을 기다리는 run은 탭에 표시한다', () => {
+  it('답변을 기다리는 대화는 탭에 표시한다', () => {
     // succeeded로 끝나지만 agent가 질문하고 멈춘 상태다. 배지가 없으면 구분이 안 된다.
-    renderDock([makeRun({ status: 'succeeded', needsAnswer: true })], makeClient())
+    renderDock([makeRun({ status: 'succeeded', needsAnswer: true })])
     expect(screen.getByText('답변 필요')).toBeInTheDocument()
   })
 
-  it('평범하게 끝난 run에는 답변 필요 배지가 없다', () => {
-    renderDock([makeRun({ status: 'succeeded', needsAnswer: false })], makeClient())
+  it('평범하게 끝난 대화에는 답변 필요 배지가 없다', () => {
+    renderDock([makeRun({ status: 'succeeded', needsAnswer: false })])
     expect(screen.queryByText('답변 필요')).toBeNull()
   })
 
   it('run의 오류 메시지를 표시한다', async () => {
-    renderDock([makeRun({ status: 'failed', errorMessage: 'claude를 찾을 수 없습니다' })], makeClient())
+    renderDock([makeRun({ status: 'failed', errorMessage: 'claude를 찾을 수 없습니다' })])
     await userEvent.click(screen.getByText('토큰 버그 고쳐줘'))
+    // 오류는 턴 안에 항상 보인다 — 로그와 달리 펼치지 않아도 된다 (Transcript의 Turn).
     expect(await screen.findByRole('alert')).toHaveTextContent('claude를 찾을 수 없습니다')
   })
 
   it('큐 조회 오류도 기존 배너로 보여준다', () => {
     // 실패하면 표시기가 그냥 안 보이는데, 이 기능이 메우려던 "왜 안 보이지" 공백이
     // 오류 상황에서 되살아난다. 새 배너를 만들지 않고 기존 alert 경로로 흘려야 한다.
-    renderDock([], makeClient(), createRunEventStore(), '큐 상태를 불러오지 못했습니다')
+    renderDock([], null, makeClient(), createRunEventStore(), '큐 상태를 불러오지 못했습니다')
     expect(screen.getByRole('alert')).toHaveTextContent('큐 상태를 불러오지 못했습니다')
   })
 
   it('도크를 접으면 본문이 사라진다', async () => {
     const store = createRunEventStore()
     store.hydrate('run-1', [textEvent('run-1', '로그 줄')])
-    renderDock([makeRun()], makeClient(), store)
+    renderDock([makeRun()], null, makeClient(), store)
 
     await userEvent.click(screen.getByText('토큰 버그 고쳐줘'))
     expect(await screen.findByText('로그 줄')).toBeInTheDocument()
     await userEvent.click(screen.getByText('▾ 실행'))
     expect(screen.queryByText('로그 줄')).toBeNull()
+  })
+
+  it('탭을 옮기면 입력 중이던 프롬프트가 다른 대화로 따라가지 않는다', async () => {
+    // key가 없으면 탭만 옮겨도 RunPanel 인스턴스가 그대로 남아, 입력 중이던
+    // 프롬프트가 다른 대화의 입력부에 그대로 나타난다 — 예전에는 로그 뷰로
+    // 가면 RunPanel 자체가 사라져 저절로 초기화됐지만 지금은 그 안전장치가 없다.
+    renderDock([
+      makeRun({ id: 'c1', rootRunId: 'c1', createdAt: 10, userPrompt: '대화 하나' }),
+      makeRun({ id: 'c2', rootRunId: 'c2', createdAt: 20, userPrompt: '대화 둘' })
+    ])
+
+    await userEvent.click(screen.getByText('대화 둘'))
+    await userEvent.type(screen.getByLabelText('지시'), '아직 안 보낸 말')
+    expect(screen.getByLabelText('지시')).toHaveValue('아직 안 보낸 말')
+
+    await userEvent.click(screen.getByText('대화 하나'))
+    expect(screen.getByLabelText('지시')).toHaveValue('')
   })
 })

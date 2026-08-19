@@ -262,4 +262,147 @@ describe('RunRepository', () => {
       expect(runs.inboxCounts().byWorkspace[other]).toBeUndefined()
     })
   })
+
+  describe('대화 단위 인박스', () => {
+    function succeed(id: string, sessionId = 'sess') {
+      runs.markFinished(id, {
+        status: 'succeeded', resultText: null, externalSessionId: sessionId,
+        needsAnswer: false, exitCode: 0, errorMessage: null
+      })
+    }
+
+    it('3턴 대화가 인박스에 한 줄로 뜬다', () => {
+      const first = runs.create(baseInput())
+      succeed(first.id)
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+      succeed(second.id)
+      const third = runs.create({ ...baseInput(), parentRunId: second.id })
+      succeed(third.id)
+
+      const items = runs.inbox()
+      expect(items).toHaveLength(1)
+      // 보여줄 내용은 마지막 턴에서 온다.
+      expect(items[0]!.id).toBe(third.id)
+      expect(items[0]!.rootRunId).toBe(first.id)
+    })
+
+    it('root를 확인하면 대화가 통째로 내려간다', () => {
+      const first = runs.create(baseInput())
+      succeed(first.id)
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+      succeed(second.id)
+
+      runs.markReviewed(first.id, 'confirmed')
+      expect(runs.inbox()).toHaveLength(0)
+      expect(runs.inboxCounts().total).toBe(0)
+    })
+
+    it('마지막 턴이 아직 돌고 있으면 인박스에 없다', () => {
+      const first = runs.create(baseInput())
+      succeed(first.id)
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+      runs.markStarted(second.id)
+
+      expect(runs.inbox()).toHaveLength(0)
+    })
+
+    it('건수도 대화 단위로 센다', () => {
+      const a = runs.create(baseInput())
+      succeed(a.id)
+      const a2 = runs.create({ ...baseInput(), parentRunId: a.id })
+      succeed(a2.id)
+      const b = runs.create(baseInput())
+      succeed(b.id)
+
+      expect(runs.inboxCounts().total).toBe(2)
+      expect(runs.inboxCounts().byWorkspace[workspaceId]).toBe(2)
+    })
+
+    it('확인한 대화에 새 턴이 생기면 뿌리의 확인 표시가 풀려 다시 인박스에 뜬다 (CT-3)', () => {
+      // markReviewed는 한 번 찍히면 스스로 지워지지 않는다. create()가
+      // parentRunId를 받을 때 뿌리의 확인 표시를 지우지 않으면, 한 번이라도
+      // "확인함"/"보관"한 대화는 그 뒤로 needs_answer가 다시 떠도 영원히
+      // 인박스에 안 뜬다(설계 §5 재개 규칙).
+      const first = runs.create(baseInput())
+      succeed(first.id)
+      runs.markReviewed(first.id, 'confirmed')
+      expect(runs.inbox()).toHaveLength(0)
+      expect(runs.get(first.id).reviewedAt).toBeTypeOf('number')
+
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+
+      // create() 시점에 곧바로 풀린다 — second가 끝나기 전에도 확인된다.
+      const root = runs.get(first.id)
+      expect(root.reviewedAt).toBeNull()
+      expect(root.reviewedKind).toBeNull()
+
+      succeed(second.id)
+      const items = runs.inbox()
+      expect(items).toHaveLength(1)
+      expect(items[0]!.id).toBe(second.id)
+      expect(runs.inboxCounts().total).toBe(1)
+    })
+  })
+
+  describe('rootRunId', () => {
+    it('부모가 없으면 자기 자신이 뿌리다', () => {
+      const first = runs.create(baseInput())
+      expect(first.rootRunId).toBe(first.id)
+    })
+
+    it('부모가 있으면 부모의 뿌리를 물려받는다', () => {
+      const first = runs.create(baseInput())
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+      expect(second.rootRunId).toBe(first.id)
+    })
+
+    it('3단 체인이 전부 같은 뿌리를 갖는다', () => {
+      const first = runs.create(baseInput())
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+      const third = runs.create({ ...baseInput(), parentRunId: second.id })
+      expect(third.rootRunId).toBe(first.id)
+      expect([first, second, third].map((r) => r.rootRunId))
+        .toEqual([first.id, first.id, first.id])
+    })
+
+    it('부모가 사라졌으면 자기 자신이 뿌리다', () => {
+      // parent_run_id에는 외래키가 없다 — 가리키는 run이 없을 수 있다.
+      const orphan = runs.create({ ...baseInput(), parentRunId: 'ghost' })
+      expect(orphan.rootRunId).toBe(orphan.id)
+    })
+  })
+
+  describe('latestSessionRun', () => {
+    function finishWithSession(id: string, sessionId: string | null) {
+      runs.markFinished(id, {
+        status: 'succeeded', resultText: null, externalSessionId: sessionId,
+        needsAnswer: false, exitCode: 0, errorMessage: null
+      })
+    }
+
+    it('세션 id를 가진 가장 최근 run을 고른다', () => {
+      const first = runs.create(baseInput())
+      finishWithSession(first.id, 'sess-1')
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+      finishWithSession(second.id, 'sess-2')
+
+      expect(runs.latestSessionRun(first.id)?.id).toBe(second.id)
+    })
+
+    it('마지막 턴에 세션이 없으면 그 앞 턴을 고른다', () => {
+      // preflight 실패나 MCP 준비 실패로 끝난 run은 프로세스가 뜬 적이 없어
+      // 세션 id가 없다. 이 경우가 체인을 끊으면 안 된다 (설계 §3-1).
+      const first = runs.create(baseInput())
+      finishWithSession(first.id, 'sess-1')
+      const failed = runs.create({ ...baseInput(), parentRunId: first.id })
+      finishWithSession(failed.id, null)
+
+      expect(runs.latestSessionRun(first.id)?.id).toBe(first.id)
+    })
+
+    it('세션을 가진 run이 하나도 없으면 null이다', () => {
+      const first = runs.create(baseInput())
+      expect(runs.latestSessionRun(first.id)).toBeNull()
+    })
+  })
 })

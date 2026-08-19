@@ -14,6 +14,7 @@ import { useMcpStatus } from './hooks/useMcpStatus'
 import { useWorkspaces } from './hooks/useWorkspaces'
 import { useClient } from './client/ClientProvider'
 import { chipKey, type ContextChip } from './context'
+import { conversationIdOf } from './conversation'
 import type { Run } from '@shared/models'
 
 export default function App() {
@@ -21,11 +22,10 @@ export default function App() {
   const [repoId, setRepoId] = useState<string | null>(null)
   const [chips, setChips] = useState<ContextChip[]>([])
   const [view, setView] = useState<'workspace' | 'inbox'>('workspace')
-  // 인박스의 "이어서 실행"·"다시 실행"이 세우고, Dock 아래 RunPanel이 읽는다.
-  const [resumeFrom, setResumeFrom] = useState<Run | null>(null)
-  // 인박스의 "로그 보기"가 세운다. Dock은 화면 전환 때 다시 마운트돼 내부 상태가
-  // 초기화되므로, 어느 run의 로그를 열지 여기서 지정해야 한다.
-  const [focusRun, setFocusRun] = useState<Run | null>(null)
+  // 인박스의 "대화 열기"·"다시 실행"이 세운다. Dock은 화면 전환 때 다시 마운트돼
+  // 내부 상태가 초기화되므로, 어느 대화를 열지 여기서 지정해야 한다.
+  // Dock에는 run이 아니라 그 run이 속한 대화 id로 직접 내려간다 — 변환이 필요 없다.
+  const [focusConversationId, setFocusConversationId] = useState<string | null>(null)
   const [draftPrompt, setDraftPrompt] = useState('')
   // "다시 실행"이 요구하는 작업 디렉토리. 프롬프트만 옮기면 RunPanel의 cwd가 첫 repo로
   // 초기화돼 있어 원본과 다른 저장소에서 agent가 돈다.
@@ -108,6 +108,15 @@ export default function App() {
     })
   }
 
+  /**
+   * 인박스가 부르는 확인 표시. 인박스 항목은 대화의 마지막 턴이므로, 그 id를 그대로
+   * 찍으면 대화가 인박스에서 내려가지 않는다(Task 5의 판정은 root run의 reviewedAt
+   * 기준). 뿌리로 변환해 review에 넘긴다.
+   */
+  function reviewConversation(run: Run, kind: 'confirmed' | 'archived') {
+    review(conversationIdOf(run), kind)
+  }
+
   /** 인박스 항목을 그 run의 workspace 화면으로 데려간다. */
   function goToRun(run: Run) {
     setWorkspaceId(run.workspaceId)
@@ -116,35 +125,37 @@ export default function App() {
     setView('workspace')
   }
 
-  function openLog(run: Run) {
+  /**
+   * 인박스 항목을 그 대화로 데려간다.
+   *
+   * 항목은 대화의 마지막 턴이므로 여는 것은 그 뿌리다. 대화창이 대화록과
+   * 입력을 함께 주므로 "로그 보기"와 "이어서 실행"이 하나로 합쳐졌다 (설계 §5).
+   *
+   * RunPanel의 draftPrompt effect는 대화가 있으면(!conversation이 아니면) 반영하지
+   * 않지만(설계 §7), 그것만 믿고 여기서 draft를 안 지우면 두 컴포넌트에 걸친
+   * 타이밍 계약이 생긴다: Dock이 마운트 첫 렌더부터 focusConversationId로 그
+   * 대화를 미리 찾아 두지 못하면(예: 다른 workspace의 run을 열어 그 workspace의
+   * runs가 아직 안 왔을 때) conversation이 잠깐 비어 있고, 그 찰나에 낡은
+   * draftPrompt가 새어 들어간다(실측: "다시 실행" 뒤 인박스로 돌아가 다른 대화를
+   * 열면 이전 draft가 그 대화 입력에 채워짐). 여기서 미리 비워 두면 그 값 자체가
+   * 없으니 새어 들어갈 것도 없다 — RunPanel의 가드와 함께 두 겹의 방어가 된다.
+   */
+  function openConversation(run: Run) {
     goToRun(run)
-    // Dock은 화면이 바뀌며 다시 마운트돼 내부 view가 'new'로 돌아간다 — 어느 run의
-    // 로그를 열지 여기서 지정하지 않으면 버튼이 실행 패널만 열고 만다.
-    setResumeFrom(null)
     setDraftPrompt('')
     setDraftCwd(null)
-    setFocusRun(run)
-  }
-
-  function startResume(run: Run) {
-    goToRun(run)
-    setResumeFrom(run)
-    // resume 모드의 프롬프트와 맥락 칩은 비어 있다 (설계 §7). "다시 실행"을 눌렀다가
-    // 실행하지 않고 돌아오면 그때 세운 draft가 그대로 남아 프롬프트를 채운다.
-    setDraftPrompt('')
-    setDraftCwd(null)
-    // 로그를 보던 상태가 남아 있으면 Dock이 실행 패널 대신 그 로그를 연다.
-    setFocusRun(null)
+    setFocusConversationId(conversationIdOf(run))
   }
 
   function restart(run: Run) {
     goToRun(run)
-    setResumeFrom(null)
     setDraftPrompt(run.userPrompt)
     // 원본이 돌던 디렉토리까지 함께 옮긴다. 이것이 빠지면 RunPanel이 첫 repo로
     // 실행해 엉뚱한 저장소가 편집된다 (권한 기본값이 edit이다).
     setDraftCwd(run.cwd)
-    setFocusRun(null)
+    // focusConversationId를 비워야 Dock이 새 대화 탭(draftPrompt/draftCwd가 채워진)을
+    // 연다 — 남아 있으면 "다시 실행"이 겨눈 대화가 대신 열린다.
+    setFocusConversationId(null)
   }
 
   /**
@@ -171,7 +182,7 @@ export default function App() {
       title,
       body: run.errorMessage ?? ''
     })
-      .then(() => { review(run.id, 'archived') })
+      .then(() => { review(conversationIdOf(run), 'archived') })
       .catch((err: unknown) => {
         setInboxActionError(err instanceof Error ? err.message : String(err))
       })
@@ -198,9 +209,8 @@ export default function App() {
             items={inboxItems}
             workspaces={workspaces}
             error={inboxActionError ?? inboxError}
-            onReview={review}
-            onOpenLog={openLog}
-            onResume={startResume}
+            onReview={reviewConversation}
+            onOpenConversation={openConversation}
             onRestart={restart}
             onCloseIssue={closeIssue}
             onMakeIssue={makeIssue}
@@ -254,14 +264,11 @@ export default function App() {
               onChangeLimit={changeLimit}
               chips={chips}
               onRemoveChip={toggleChip}
-              resumeFrom={resumeFrom}
               draftPrompt={draftPrompt}
               draftCwd={draftCwd}
-              focusRun={focusRun}
-              onExitResume={() => { setResumeFrom(null); setDraftPrompt(''); setDraftCwd(null) }}
-              // 담은 맥락은 그 run에만 적용된다. 다음 실행은 빈 상태에서 시작한다.
-              // resume 모드도 실행이 시작되면 풀어야 다음이 새 실행으로 돌아간다.
-              onRunStarted={() => { setChips([]); setResumeFrom(null); setDraftPrompt(''); setDraftCwd(null) }}
+              focusConversationId={focusConversationId}
+              // 담은 맥락은 그 턴에만 적용된다. 다음 실행은 빈 상태에서 시작한다.
+              onRunStarted={() => { setChips([]); setDraftPrompt(''); setDraftCwd(null) }}
             />
           </>
         )}

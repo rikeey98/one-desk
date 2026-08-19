@@ -20,12 +20,25 @@ export interface RunQueueOptions {
  */
 export function createRunQueue(opts: RunQueueOptions) {
   let limit = opts.limit
-  const running = new Set<string>()
-  const waiting: { runId: string; start: () => void }[] = []
+  /** runId → groupKey. 그룹 제약이 없으면 null */
+  const running = new Map<string, string | null>()
+  const waiting: { runId: string; groupKey: string | null; start: () => void }[] = []
   let pumping = false
 
   function snapshot(): QueueSnapshot {
     return { running: running.size, limit, waiting: waiting.length }
+  }
+
+  /**
+   * 그 그룹이 이미 하나 돌고 있는가.
+   *
+   * 대화 하나가 자기 자신과 경쟁하면 안 된다 — Claude Code는 이전 프로세스가
+   * 끝나야 --resume이 되므로 같은 대화의 두 턴이 동시에 뜨면 뒤엣것이 깨진다.
+   */
+  function groupBusy(key: string | null): boolean {
+    if (key === null) return false
+    for (const g of running.values()) if (g === key) return true
+    return false
   }
 
   /**
@@ -39,9 +52,13 @@ export function createRunQueue(opts: RunQueueOptions) {
     if (pumping) return
     pumping = true
     try {
-      while (running.size < limit && waiting.length > 0) {
-        const next = waiting.shift()!
-        running.add(next.runId)
+      while (running.size < limit) {
+        // 앞에서부터 보되 그룹이 막힌 항목은 건너뛴다. 건너뛰지 않으면 한 대화가
+        // 뒤의 모든 대화를 막아 전역 상한이 사실상 1이 된다.
+        const i = waiting.findIndex((w) => !groupBusy(w.groupKey))
+        if (i < 0) break
+        const next = waiting.splice(i, 1)[0]!
+        running.set(next.runId, next.groupKey)
         try {
           next.start()
         } catch {
@@ -60,8 +77,8 @@ export function createRunQueue(opts: RunQueueOptions) {
   }
 
   return {
-    enqueue(runId: string, start: () => void): void {
-      waiting.push({ runId, start })
+    enqueue(runId: string, start: () => void, groupKey?: string): void {
+      waiting.push({ runId, groupKey: groupKey ?? null, start })
       pump()
       changed()
     },

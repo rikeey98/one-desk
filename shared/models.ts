@@ -150,6 +150,8 @@ export interface Run {
   status: RunStatus
   externalSessionId: string | null
   parentRunId: string | null
+  /** 대화의 뿌리. 낡은 행은 null이고 그때는 자기 자신이 뿌리다 (설계 §2) */
+  rootRunId: string | null
   resultText: string | null
   needsAnswer: boolean
   timeoutMs: number | null
@@ -180,14 +182,14 @@ export interface StartRunInput {
 }
 
 /**
- * 세션을 이어받아 실행한다.
+ * 대화를 이어받아 실행한다.
  *
  * StartRunInput에도 parentRunId가 있지만 그것은 "원본을 가리키는 기록"일 뿐
  * 세션을 이어받지 않는다. resume은 external_session_id까지 이어받는다.
  */
 export interface ResumeRunInput {
-  /** 이어받을 원본 run */
-  parentRunId: string
+  /** 이어받을 대화 (= root run의 id) */
+  conversationId: string
   model?: string | null
   permission: Permission
   userPrompt: string

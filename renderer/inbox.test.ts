@@ -7,6 +7,9 @@ function run(over: Partial<Run>): Run {
     id: 'r1', workspaceId: 'w1', agentKind: 'claude-code', model: null,
     cwd: '/tmp', permission: 'edit', userPrompt: 'x', assembledPrompt: 'x',
     status: 'succeeded', externalSessionId: null, parentRunId: null,
+    // over.id가 있으면 그것을 뿌리로 본다 — 하드코딩하면 id가 다른 두 run을
+    // 넘겨도 조용히 한 대화로 접힌다(Dock.test.tsx에서 실제로 터진 결함, T2).
+    rootRunId: over.id ?? 'r1',
     resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
     errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
     startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [],

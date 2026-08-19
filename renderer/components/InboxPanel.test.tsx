@@ -17,6 +17,9 @@ function run(over: Partial<Run>): Run {
     id: 'r1', workspaceId: 'w1', agentKind: 'claude-code', model: null,
     cwd: '/tmp', permission: 'edit', userPrompt: '토큰 만료 고쳐줘', assembledPrompt: 'x',
     status: 'succeeded', externalSessionId: 'sess-1', parentRunId: null,
+    // over.id가 있으면 그것을 뿌리로 본다 — 하드코딩하면 id가 다른 두 run을
+    // 넘겨도 조용히 한 대화로 접힌다(Dock.test.tsx에서 실제로 터진 결함, T2).
+    rootRunId: over.id ?? 'r1',
     resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
     errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
     startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [],
@@ -30,8 +33,7 @@ function renderPanel(items: Run[], over: Partial<Parameters<typeof InboxPanel>[0
     workspaces,
     error: null,
     onReview: vi.fn(),
-    onOpenLog: vi.fn(),
-    onResume: vi.fn(),
+    onOpenConversation: vi.fn(),
     onRestart: vi.fn(),
     onCloseIssue: vi.fn(),
     onMakeIssue: vi.fn(),
@@ -58,21 +60,23 @@ describe('InboxPanel', () => {
     expect(screen.getByText('답변 필요')).toBeInTheDocument()
   })
 
-  it('세션이 없으면 이어서 실행을 보여주지 않는다', () => {
-    // 눌러서야 실패를 알게 되면 안 된다.
+  it('세션이 없어도 대화 열기는 보인다 — 이어받을 세션은 core가 대화 전체에서 찾는다', () => {
+    // "로그 보기"와 "이어서 실행"이 하나로 합쳐지기 전에는 마지막 턴에 세션이
+    // 없으면 이어서 실행 버튼 자체를 숨겼다. resume 대상 선택이 core로 넘어가
+    // 마지막 턴에 세션이 없어도 앞선 턴에서 이어받을 수 있으므로(설계 §5·§6),
+    // 화면에서 미리 막을 이유가 없다.
     renderPanel([run({ externalSessionId: null })])
-    expect(screen.queryByRole('button', { name: '이어서 실행' })).toBeNull()
+    expect(screen.getByRole('button', { name: '대화 열기' })).toBeInTheDocument()
   })
 
-  it('세션이 있으면 이어서 실행을 보여준다', () => {
-    renderPanel([run({ externalSessionId: 'sess-1' })])
-    expect(screen.getByRole('button', { name: '이어서 실행' })).toBeInTheDocument()
-  })
-
-  it('대기 중 취소됨에는 로그 보기를 보여주지 않는다', () => {
-    // 시작도 못 한 run이라 로그 파일이 없다.
+  it('대기 중 취소됨에도 대화 열기를 보여준다', () => {
+    // 항목은 run이 아니라 대화다 — 마지막 턴이 시작 전에 취소됐어도 앞의
+    // 턴들에는 대화록이 있을 수 있다(리뷰 I-3). 1턴짜리 대화가 dropped됐다면
+    // Transcript의 pending 이른 반환(status === 'pending'에만 걸림)은 타지
+    // 않는다 — 취소된 턴은 'canceled'라 사용자 프롬프트와 상태 칩이 그려진다.
+    // 그래도 아예 못 여는 것보다 낫다.
     renderPanel([run({ status: 'canceled', externalSessionId: null })])
-    expect(screen.queryByRole('button', { name: '로그 보기' })).toBeNull()
+    expect(screen.getByRole('button', { name: '대화 열기' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '다시 실행' })).toBeInTheDocument()
   })
 
@@ -102,16 +106,20 @@ describe('InboxPanel', () => {
     expect(screen.queryByRole('button', { name: '관련 이슈 닫기' })).toBeNull()
   })
 
-  it('확인함을 누르면 confirmed로 알린다', async () => {
-    const { onReview } = renderPanel([run({})])
+  it('확인함을 누르면 그 run과 함께 confirmed로 알린다', async () => {
+    const item = run({})
+    const { onReview } = renderPanel([item])
     await userEvent.click(screen.getByRole('button', { name: '확인함' }))
-    expect(onReview).toHaveBeenCalledWith('r1', 'confirmed')
+    // App.tsx가 뿌리를 계산할 수 있도록 run 전체를 넘긴다 — id만 넘기면 계산할
+    // 방법이 없다(Task 9).
+    expect(onReview).toHaveBeenCalledWith(item, 'confirmed')
   })
 
-  it('보관을 누르면 archived로 알린다', async () => {
-    const { onReview } = renderPanel([run({ status: 'failed' })])
+  it('보관을 누르면 그 run과 함께 archived로 알린다', async () => {
+    const item = run({ status: 'failed' })
+    const { onReview } = renderPanel([item])
     await userEvent.click(screen.getByRole('button', { name: '보관' }))
-    expect(onReview).toHaveBeenCalledWith('r1', 'archived')
+    expect(onReview).toHaveBeenCalledWith(item, 'archived')
   })
 
   // 개별 긍정 케이스만으로는 shows()의 분기 하나가 틀어져도 잡히지 않는다
@@ -121,18 +129,24 @@ describe('InboxPanel', () => {
   // 쓰므로 "관련 이슈 닫기"가 나오지 않는다. 그것과 별개로, 이슈가 붙으면
   // 카테고리와 무관하게 나온다는 것(완료·미확인이 아닌 "실패"에서도)을 아래
   // "실패 (이슈 첨부)" 행으로 같은 방식으로 확인한다.
-  it('카테고리마다 보이는 행동 버튼 집합이 설계 §5의 표와 정확히 같다', () => {
+  it('카테고리마다 보이는 행동 버튼 집합이 현재 후속 행동 규칙과 정확히 같다', () => {
+    // "로그 보기"·"이어서 실행"(·"답하고 이어서")이 "대화 열기" 하나로 합쳐졌다
+    // (설계 §5, Task 9) — dropped를 포함해 모든 카테고리에서 나온다(리뷰 I-3).
+    // 3b 설계(§5)의 후속 행동표는 항목 단위가 run이던 시절 것이라 "대기 중
+    // 취소됨"에 "대화 열기"가 없다 — 대화 단위로 바뀌며 뒤집혔다(3b 문서의
+    // (†) 참고). 그래서 이 테스트는 그 표가 아니라 아래에 직접 적은, 지금
+    // 실제로 맞아야 하는 집합과 비교한다.
     const table: Array<{ category: string; over: Partial<Run>; expected: string[] }> = [
-      { category: '답변 필요', over: { needsAnswer: true, externalSessionId: 'sess-1' }, expected: ['답하고 이어서', '로그 보기', '보관'] },
-      { category: '완료 · 미확인', over: { externalSessionId: 'sess-1' }, expected: ['이어서 실행', '확인함'] },
-      { category: '실패', over: { status: 'failed', errorMessage: '오류' }, expected: ['로그 보기', '다시 실행', '이슈로 만들기', '보관'] },
+      { category: '답변 필요', over: { needsAnswer: true, externalSessionId: 'sess-1' }, expected: ['대화 열기', '보관'] },
+      { category: '완료 · 미확인', over: { externalSessionId: 'sess-1' }, expected: ['대화 열기', '확인함'] },
+      { category: '실패', over: { status: 'failed', errorMessage: '오류' }, expected: ['대화 열기', '다시 실행', '이슈로 만들기', '보관'] },
       {
         category: '실패 (이슈 첨부)',
         over: { status: 'failed', errorMessage: '오류', contextItems: [{ type: 'issue', id: 'i1' }] },
-        expected: ['로그 보기', '다시 실행', '이슈로 만들기', '보관', '관련 이슈 닫기']
+        expected: ['대화 열기', '다시 실행', '이슈로 만들기', '보관', '관련 이슈 닫기']
       },
-      { category: '중단됨', over: { status: 'interrupted' }, expected: ['로그 보기', '다시 실행', '보관'] },
-      { category: '대기 중 취소됨', over: { status: 'canceled', externalSessionId: null }, expected: ['다시 실행', '보관'] }
+      { category: '중단됨', over: { status: 'interrupted' }, expected: ['대화 열기', '다시 실행', '보관'] },
+      { category: '대기 중 취소됨', over: { status: 'canceled', externalSessionId: null }, expected: ['대화 열기', '다시 실행', '보관'] }
     ]
 
     // 첫 실패에서 멈추면 나머지 카테고리의 상태를 못 본다 — 전부 모아서 한 번에 단언한다.
@@ -144,8 +158,7 @@ describe('InboxPanel', () => {
           workspaces={workspaces}
           error={null}
           onReview={vi.fn()}
-          onOpenLog={vi.fn()}
-          onResume={vi.fn()}
+          onOpenConversation={vi.fn()}
           onRestart={vi.fn()}
           onCloseIssue={vi.fn()}
           onMakeIssue={vi.fn()}
