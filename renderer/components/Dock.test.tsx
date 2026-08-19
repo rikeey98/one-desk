@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { RunEventProvider } from '../store/RunEventContext'
@@ -115,6 +115,33 @@ describe('Dock', () => {
       makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10, userPrompt: '첫 지시' })
     ])
     expect(screen.getAllByRole('button', { name: /첫 지시/ })).toHaveLength(1)
+    // groupConversations 없이 run마다 탭을 만드는 변이라면 대화 탭이 3개(a1·a2·a3
+    // 각각) + "+ 새 대화" 탭까지 4개가 된다 — /첫 지시/ 하나만 봐서는 안 잡힌다
+    // (다른 두 run은 기본 userPrompt를 써서 다른 텍스트로 매치되므로). 총 탭 수로 잡는다.
+    expect(document.querySelectorAll('.dock-tab')).toHaveLength(2)
+  })
+
+  it('탭 배지와 입력부 권한 기본값은 대화의 마지막 턴에서 온다', async () => {
+    // 첫 턴은 running·edit, 마지막 턴은 succeeded·read_only — 둘을 다르게 둬야
+    // "마지막 턴에서 온다"는 것을 첫 턴(conv.runs[0])과 구분해서 확인할 수 있다.
+    renderDock([
+      makeRun({
+        id: 'b2', rootRunId: 'b1', createdAt: 20, status: 'succeeded',
+        permission: 'read_only', userPrompt: '두 번째 말'
+      }),
+      makeRun({
+        id: 'b1', rootRunId: 'b1', createdAt: 10, status: 'running',
+        permission: 'edit', userPrompt: '첫 말'
+      })
+    ])
+
+    // 탭 배지는 마지막 턴(b2, succeeded)에서 온다 — 첫 턴(running)이 아니다.
+    expect(screen.getByText('succeeded')).toBeInTheDocument()
+    expect(screen.queryByText('running')).toBeNull()
+
+    await userEvent.click(screen.getByText('첫 말'))
+    // 입력부의 권한 기본값도 마지막 턴(read_only)에서 온다 — 첫 턴(edit)이 아니다.
+    await waitFor(() => expect(screen.getByLabelText('권한')).toHaveValue('read_only'))
   })
 
   it('처음에는 실행 패널을 보여주고 탭을 누르면 그 대화의 로그로 바뀐다', async () => {

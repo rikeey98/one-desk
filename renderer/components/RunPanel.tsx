@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useClient } from '../client/ClientProvider'
 import type { Permission, Repo, Run, Workspace } from '@shared/models'
 import type { Conversation } from '../conversation'
@@ -53,7 +53,20 @@ export function RunPanel({
 
   // 대화를 이어갈 때는 마지막 턴의 권한에서 출발한다. 낮추면 조용히 깎이고,
   // 올리는 것은 사용자의 판단이다 (설계 §7).
+  //
+  // conversation은 Dock의 groupConversations(runs)가 매번 새로 만드는 객체다 —
+  // useRuns가 onRunUpdate로 새 배열을 세울 때마다 useMemo도 다시 돌아, 같은
+  // 대화라도 참조가 달라진다. [conversation]에 기대면 그 workspace의 아무 run이나
+  // 상태를 바꿀 때마다 이 effect가 다시 돌아, 사용자가 방금 올린 권한이 그 순간
+  // 마지막 턴 값으로 조용히 되감긴다(설계 §7 위반 — 위 effect의 "조용히 덮어쓸
+  // 수 있다" 경고와 같은 사고다). 그래서 대화가 실제로 "바뀌었을 때"(id가
+  // 달라졌을 때)만 반영하도록 이전 id를 ref에 직접 담아 비교한다 — exhaustive-deps
+  // 경고는 conversation을 deps에 그대로 두는 것으로 정직하게 만족시킨다.
+  const conversationIdRef = useRef<string | null>(null)
   useEffect(() => {
+    const id = conversation?.id ?? null
+    if (id === conversationIdRef.current) return
+    conversationIdRef.current = id
     if (conversation) setPermission(conversation.last.permission)
   }, [conversation])
 

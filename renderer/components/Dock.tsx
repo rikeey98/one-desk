@@ -56,8 +56,17 @@ export function Dock({
     setOpen(true)
   }, [focusConversationId])
 
-  // 고른 적이 없으면 가장 최근 대화를 보여준다.
-  const selected = conversations.find((c) => c.id === pickedId) ?? conversations[0] ?? null
+  // 폴백은 "고른 적이 없을 때"(pickedId===null)에만 적용한다. pickedId가 있는데
+  // 그 대화가 지금 conversations에 없다고 조용히 다른 대화로 떨어지면 안 된다 —
+  // selected는 이제 로그 뷰의 대상만이 아니라 입력부의 전송 대상이기도 하다
+  // (ConversationPanel→RunPanel이 conversation.id로 resume을 부른다). focusConversationId로
+  // 막 마운트됐는데 runs가 아직 그 workspace 것으로 안 갈렸거나(useRuns는 workspaceId가
+  // 바뀔 때 목록을 즉시 비우지 않는다), 방금 시작한 run이 아직 목록에 없는(started()가
+  // pickedId를 먼저 세운다) 그 찰나에 폴백이 다른 대화를 골라 버리면, 화면과 입력부가
+  // 다른 대화를 가리키는 채로 ⌘↵을 누르는 순간 턴이 엉뚱한 대화로 나간다.
+  const selected = pickedId
+    ? conversations.find((c) => c.id === pickedId) ?? null
+    : conversations[0] ?? null
   // 큐 조회가 실패하면 표시기가 그냥 안 보인다 — 이 기능이 메우려던 "왜 안 보이지"라는
   // 공백이 오류 상황에서 되살아난다. 새 배너를 만들지 않고 기존 경로로 흘려 보인다.
   const shown = actionError ?? error ?? queueError
@@ -121,7 +130,13 @@ export function Dock({
       {open && (
         <div className="dock-body">
           {shown && <div role="alert" className="form-error">{shown}</div>}
+          {/* key로 대화가 바뀔 때마다 언마운트→재마운트시킨다. key가 없으면 탭만 옮겨도
+              RunPanel 인스턴스가 그대로 남아 입력 중이던 프롬프트·모델이 다른 대화로
+              따라간다 — 예전에는 로그 뷰로 가면 RunPanel 자체가 안 그려져 저절로
+              초기화됐지만, 지금은 대화마다 같은 RunPanel이 계속 떠 있어 그 안전장치가
+              사라졌다. */}
           <ConversationPanel
+            key={view === 'new' ? 'new' : selected?.id ?? 'new'}
             conversation={view === 'new' ? null : selected}
             workspaceId={workspaceId}
             workspaces={workspaces}

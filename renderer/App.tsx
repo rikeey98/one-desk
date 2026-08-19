@@ -117,9 +117,8 @@ export default function App() {
   }
 
   // "로그 보기"와 "이어서 실행"은 이제 하는 일이 같다 — 그 run이 속한 대화로 데려가고
-  // focusRun만 세운다. RunPanel이 대화가 있으면 draftPrompt를 반영하지 않으므로
-  // (설계 §7) 여기서 따로 지우지 않아도 된다. 두 함수를 하나로 합치지는 않는다 —
-  // 인박스가 부르는 자리가 다르고, Task 9에서 "대화 열기" 하나로 다시 갈릴 수 있다.
+  // focusRun만 세운다. 두 함수를 하나로 합치지는 않는다 — 인박스가 부르는 자리가
+  // 다르고, Task 9에서 "대화 열기" 하나로 다시 갈릴 수 있다.
   function openLog(run: Run) {
     goToRun(run)
     // Dock은 화면이 바뀌며 다시 마운트돼 내부 view가 'new'로 돌아간다 — 어느 대화를
@@ -127,8 +126,19 @@ export default function App() {
     setFocusRun(run)
   }
 
+  // RunPanel의 draftPrompt effect는 대화가 있으면(!conversation이 아니면) 반영하지
+  // 않지만(설계 §7), 그것만 믿고 여기서 draft를 안 지우면 두 컴포넌트에 걸친
+  // 타이밍 계약이 생긴다: Dock이 마운트 첫 렌더부터 focusConversationId로 그
+  // 대화를 미리 찾아 두지 못하면(예: 다른 workspace의 run을 열어 그 workspace의
+  // runs가 아직 안 왔을 때) conversation이 잠깐 비어 있고, 그 찰나에 낡은
+  // draftPrompt가 새어 들어간다(실측: "다시 실행" 뒤 인박스로 돌아가 다른 대화를
+  // "이어서 실행"하면 이전 draft가 그 대화 입력에 채워짐). 여기서 미리 비워
+  // 두면 그 값 자체가 없으니 새어 들어갈 것도 없다 — RunPanel의 가드와 함께 두
+  // 겹의 방어가 된다.
   function startResume(run: Run) {
     goToRun(run)
+    setDraftPrompt('')
+    setDraftCwd(null)
     setFocusRun(run)
   }
 

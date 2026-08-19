@@ -259,6 +259,28 @@ describe('RunPanel', () => {
     expect(screen.getByLabelText('권한')).toHaveValue('read_only')
   })
 
+  it('같은 대화의 새 객체로 다시 렌더돼도 사용자가 고른 권한이 유지된다', async () => {
+    // Dock의 groupConversations(runs)는 runs 배열이 바뀔 때마다(useRuns가
+    // onRunUpdate로 새 배열을 세울 때마다) 새 Conversation 객체를 만든다 — 같은
+    // 대화라도, 심지어 그 workspace의 무관한 다른 run이 상태를 바꾸기만 해도
+    // 참조가 달라진다. 권한 초기화 effect가 [conversation] 객체 참조에 기대면
+    // 그때마다 되돌아, 사용자가 막 고른 권한이 곧바로 마지막 턴 값으로 조용히
+    // 되감긴다(설계 §7 위반) — 차단된 도구를 보고 권한을 올렸다가 다음 턴이
+    // 낮아진 권한 그대로 나가는 사고로 이어진다.
+    const client = makeClient()
+    const { rerender } = render(panel(client, repos, [], vi.fn(), 'w1', { conversation }))
+    await waitFor(() => expect(screen.getByLabelText('권한')).toHaveValue('read_only'))
+
+    await userEvent.selectOptions(screen.getByLabelText('권한'), 'full')
+    expect(screen.getByLabelText('권한')).toHaveValue('full')
+
+    // id는 같고 참조만 다른 새 객체 — groupConversations가 다시 도는 것을 흉내낸다.
+    const sameConversationNewObject: Conversation = { ...conversation, runs: [...conversation.runs] }
+    rerender(panel(client, repos, [], vi.fn(), 'w1', { conversation: sameConversationNewObject }))
+
+    expect(screen.getByLabelText('권한')).toHaveValue('full')
+  })
+
   it('대화가 있으면 draftPrompt를 반영하지 않는다', () => {
     // "다시 실행"이 세운 draft가 App에 남아 있어도, 대화를 이어가는 입력은
     // 항상 빈 프롬프트에서 시작해야 한다 (설계 §7).
