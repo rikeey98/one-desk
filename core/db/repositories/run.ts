@@ -115,6 +115,47 @@ export function createRunRepository(db: Database) {
     return parent.rootRunId ?? parent.id
   }
 
+  /** 미확인인 뿌리 run의 id들. 낡은 행은 root_run_id가 null이고 그때는 자기 자신이 뿌리다. */
+  function unreviewedRootIds(): string[] {
+    const roots = db.select({ id: run.id }).from(run)
+      .where(and(
+        isNull(run.reviewedAt),
+        or(isNull(run.rootRunId), eq(run.rootRunId, run.id))
+      )).all()
+    return roots.map((r) => r.id)
+  }
+
+  /**
+   * 미확인 대화마다 마지막 턴 하나씩을 골라낸다. `inbox()`와 `inboxCounts()`가
+   * "대화별로 묶어 마지막 턴을 고른다"는 같은 규칙을 공유하는 자리다 — 따로
+   * 짜면 배지와 목록이 어긋날 수 있다 (설계 §5).
+   *
+   * **컬럼은 호출자가 고른다.** `inbox()`는 화면에 그릴 전체 run이 필요하지만
+   * `inboxCounts()`는 세기만 하면 되므로, `select`로 필요한 컬럼만 읽게 한다
+   * — 배지 갱신마다 `assembled_prompt`까지 포함한 전체 행을 나르는 비용을
+   * 없앤다 (리뷰 I-2).
+   */
+  function lastTurnsOf<T extends { id: string; rootRunId: string | null; status: RunStatus }>(
+    rootIds: string[],
+    select: (rootIds: string[]) => T[]
+  ): T[] {
+    if (rootIds.length === 0) return []
+    const rows = select(rootIds)
+
+    const rootOf = new Set(rootIds)
+    const lastTurn = new Map<string, T>()
+    for (const row of rows) {
+      const key = row.rootRunId ?? row.id
+      // 뿌리가 이미 확인된 대화의 턴이 섞여 들어올 수 있다 — 걸러낸다.
+      if (!rootOf.has(key)) continue
+      if (!lastTurn.has(key)) lastTurn.set(key, row)
+    }
+    return [...lastTurn.values()].filter((r) => INBOX_STATUSES.includes(r.status))
+  }
+
+  /** 두 쿼리가 함께 쓰는 정렬 — 최신순이므로 대화별 첫 행이 마지막 턴이다. */
+  const byLatest = [desc(run.createdAt), desc(sql`rowid`)] as const
+
   /**
    * 지금 사용자의 손이 필요한 대화만 모은다 (설계 §5).
    *
@@ -125,34 +166,13 @@ export function createRunRepository(db: Database) {
    * 모든 workspace를 가로지른다 — 어디에 쌓였는지는 사이드바 배지가 보여준다.
    */
   function inbox(): Run[] {
-    // 미확인인 뿌리들. 낡은 행은 root_run_id가 null이고 그때는 자기 자신이 뿌리다.
-    const roots = db.select({ id: run.id }).from(run)
-      .where(and(
-        isNull(run.reviewedAt),
-        or(isNull(run.rootRunId), eq(run.rootRunId, run.id))
-      )).all()
-    if (roots.length === 0) return []
-
-    const rootIds = roots.map((r) => r.id)
-    const rows = db.select().from(run)
-      .where(or(inArray(run.rootRunId, rootIds), inArray(run.id, rootIds)))
-      // 최신순이므로 대화별 첫 행이 마지막 턴이다.
-      .orderBy(desc(run.createdAt), desc(sql`rowid`)).all()
-
-    const rootOf = new Set(rootIds)
-    const lastTurn = new Map<string, typeof rows[number]>()
-    for (const row of rows) {
-      const key = row.rootRunId ?? row.id
-      // 뿌리가 이미 확인된 대화의 턴이 섞여 들어올 수 있다 — 걸러낸다.
-      if (!rootOf.has(key)) continue
-      if (!lastTurn.has(key)) lastTurn.set(key, row)
-    }
-
-    const items = [...lastTurn.values()]
-      .filter((r) => INBOX_STATUSES.includes(r.status))
-      // endedAt만으로는 같은 밀리초에 끝난 항목들의 순서가 흔들린다.
-      .sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
-    return hydrate(items)
+    const rootIds = unreviewedRootIds()
+    const items = lastTurnsOf(rootIds, (ids) => db.select().from(run)
+      .where(or(inArray(run.rootRunId, ids), inArray(run.id, ids)))
+      .orderBy(...byLatest).all())
+    // endedAt만으로는 같은 밀리초에 끝난 항목들의 순서가 흔들린다.
+    const sorted = [...items].sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
+    return hydrate(sorted)
   }
 
   return {
@@ -293,11 +313,29 @@ export function createRunRepository(db: Database) {
 
     inbox,
 
+    /**
+     * 목록과 같은 "대화별로 묶어 마지막 턴을 고른다" 규칙으로 센다 — 따로
+     * 세면 배지와 목록이 어긋난다. 다만 **hydrate는 하지 않는다.**
+     *
+     * `emitInbox()`가 run 행이 바뀔 때마다(시작·종료·확인·취소) 이걸 부른다
+     * (`core/index.ts`). 예전에는 이 함수가 `inbox()`를 그대로 돌려썼는데,
+     * 그러면 배지 하나 갱신할 때마다 미확인 대화의 모든 턴을 `assembled_prompt`
+     * 포함 전체 컬럼으로 읽고 `hydrate()`(맥락 항목 + 최대 3개 테이블 추가
+     * 조회)까지 돌게 된다 — better-sqlite3는 동기라 그동안 Electron 메인
+     * 프로세스가 그대로 멈춘다 (리뷰 I-2, 실측 3,000대화×4턴에서 167ms).
+     * 여기서는 소속 판정에 필요한 컬럼만 읽고 개수만 센다.
+     */
     inboxCounts(): InboxCounts {
-      // 목록과 같은 규칙으로 센다 — 따로 세면 배지와 목록이 어긋난다.
+      const rootIds = unreviewedRootIds()
+      const items = lastTurnsOf(rootIds, (ids) => db.select({
+        id: run.id, workspaceId: run.workspaceId, rootRunId: run.rootRunId, status: run.status
+      }).from(run)
+        .where(or(inArray(run.rootRunId, ids), inArray(run.id, ids)))
+        .orderBy(...byLatest).all())
+
       const byWorkspace: Record<string, number> = {}
       let total = 0
-      for (const item of inbox()) {
+      for (const item of items) {
         byWorkspace[item.workspaceId] = (byWorkspace[item.workspaceId] ?? 0) + 1
         total += 1
       }
