@@ -4,7 +4,7 @@ workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 
 
 **현재 상태:** 4단계 완료(MCP 서버 — 호스트/도구 아홉 개/권한별 등록/커맨드 배선), `main`에 병합됨(`a19b4fd`). 이슈·메모 본문 편집(설계 `2026-08-14-issue-memo-body-design.md`)도 `main`에 병합됨(`c91438e`) — 저장소의 `updateIfUnchanged`로 낙관적 잠금, 선택한 패널이 커지는 동적 3컬럼, 맥락 담기와 열기 분리, `IssueDetail`·`MemoDetail` 본문 편집기, 그리고 `e2e/body.e2e.ts`가 IPC 왕복(`client.issues.updateIfUnchanged` → preload → `ipcMain.handle` → 저장소)을 실제로 검증한다. **상태 편집은 상세에만 있다** — 목록의 상태 칩은 읽기 전용 배지다(§5·§9). 3b 리뷰가 4단계로 이월한 것 둘 다 해소됐다: `core/`의 `console.error`가 주입식 `onError`로 바뀌었고, `resume`의 catch는 DB 장애를 더 이상 뭉개지 않는다.
 
-**릴리스 파이프라인**(설계 `2026-08-14-release-pipeline-design.md`)이 붙었다. `v*` 태그를 밀면 GitHub Actions가 세 러너에서 각각 빌드해 draft 릴리스에 산출물을 올린다 — `.dmg`(arm64) · portable `.exe`(x64) · `.AppImage`(x64). **네이티브 모듈 때문에 크로스 컴파일은 불가능하다** — `better-sqlite3`를 각 러너에서 그 플랫폼의 Electron ABI에 맞춰 컴파일한다. Windows 러너는 `windows-2022`로 고정돼 있다(최신 이미지의 Visual Studio 18을 node-gyp가 못 읽는다).
+**릴리스 파이프라인**(설계 `2026-08-14-release-pipeline-design.md`)이 붙었다. `v*` 태그를 밀면 GitHub Actions가 빌드해 draft 릴리스에 산출물을 올린다. **지금 빌드하는 것은 Windows portable `.exe`(x64) 하나뿐이다** — 받아서 쓰는 사람이 Windows뿐이고, release job이 `needs: build`라 다른 플랫폼이 깨지면 Windows 산출물까지 못 올라가기 때문이다(워크플로 matrix 주석에 되살리는 법이 적혀 있다). macOS는 개발 장비에서 `pnpm run pack`으로 언제든 만든다. **네이티브 모듈 때문에 크로스 컴파일은 불가능하므로** — `better-sqlite3`를 각 러너에서 그 플랫폼의 Electron ABI에 맞춰 컴파일한다. Windows 러너는 `windows-2022`로 고정돼 있다(최신 이미지의 Visual Studio 18을 node-gyp가 못 읽는다).
 
 **agent는 MCP에 stdio로 붙는다**(설계 `2026-08-14-mcp-stdio-design.md`) — claude가 `core/mcp/bridge.mjs`를 자식 프로세스로 띄우고, 브리지가 앱 안의 HTTP 서버로 중계한다. 사내 프록시가 루프백 HTTP를 403으로 막던 환경 때문이다. `ONE_DESK_REAL_CLI=1 pnpm test realCli`가 진짜 CLI로 이 계약을 검증한다.
 
