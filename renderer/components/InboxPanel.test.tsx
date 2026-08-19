@@ -30,8 +30,7 @@ function renderPanel(items: Run[], over: Partial<Parameters<typeof InboxPanel>[0
     workspaces,
     error: null,
     onReview: vi.fn(),
-    onOpenLog: vi.fn(),
-    onResume: vi.fn(),
+    onOpenConversation: vi.fn(),
     onRestart: vi.fn(),
     onCloseIssue: vi.fn(),
     onMakeIssue: vi.fn(),
@@ -58,21 +57,19 @@ describe('InboxPanel', () => {
     expect(screen.getByText('답변 필요')).toBeInTheDocument()
   })
 
-  it('세션이 없으면 이어서 실행을 보여주지 않는다', () => {
-    // 눌러서야 실패를 알게 되면 안 된다.
+  it('세션이 없어도 대화 열기는 보인다 — 이어받을 세션은 core가 대화 전체에서 찾는다', () => {
+    // "로그 보기"와 "이어서 실행"이 하나로 합쳐지기 전에는 마지막 턴에 세션이
+    // 없으면 이어서 실행 버튼 자체를 숨겼다. resume 대상 선택이 core로 넘어가
+    // 마지막 턴에 세션이 없어도 앞선 턴에서 이어받을 수 있으므로(설계 §5·§6),
+    // 화면에서 미리 막을 이유가 없다.
     renderPanel([run({ externalSessionId: null })])
-    expect(screen.queryByRole('button', { name: '이어서 실행' })).toBeNull()
+    expect(screen.getByRole('button', { name: '대화 열기' })).toBeInTheDocument()
   })
 
-  it('세션이 있으면 이어서 실행을 보여준다', () => {
-    renderPanel([run({ externalSessionId: 'sess-1' })])
-    expect(screen.getByRole('button', { name: '이어서 실행' })).toBeInTheDocument()
-  })
-
-  it('대기 중 취소됨에는 로그 보기를 보여주지 않는다', () => {
-    // 시작도 못 한 run이라 로그 파일이 없다.
+  it('대기 중 취소됨에는 대화 열기를 보여주지 않는다', () => {
+    // 시작도 못 한 run이라 대화록이 없다.
     renderPanel([run({ status: 'canceled', externalSessionId: null })])
-    expect(screen.queryByRole('button', { name: '로그 보기' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '대화 열기' })).toBeNull()
     expect(screen.getByRole('button', { name: '다시 실행' })).toBeInTheDocument()
   })
 
@@ -102,16 +99,20 @@ describe('InboxPanel', () => {
     expect(screen.queryByRole('button', { name: '관련 이슈 닫기' })).toBeNull()
   })
 
-  it('확인함을 누르면 confirmed로 알린다', async () => {
-    const { onReview } = renderPanel([run({})])
+  it('확인함을 누르면 그 run과 함께 confirmed로 알린다', async () => {
+    const item = run({})
+    const { onReview } = renderPanel([item])
     await userEvent.click(screen.getByRole('button', { name: '확인함' }))
-    expect(onReview).toHaveBeenCalledWith('r1', 'confirmed')
+    // App.tsx가 뿌리를 계산할 수 있도록 run 전체를 넘긴다 — id만 넘기면 계산할
+    // 방법이 없다(Task 9).
+    expect(onReview).toHaveBeenCalledWith(item, 'confirmed')
   })
 
-  it('보관을 누르면 archived로 알린다', async () => {
-    const { onReview } = renderPanel([run({ status: 'failed' })])
+  it('보관을 누르면 그 run과 함께 archived로 알린다', async () => {
+    const item = run({ status: 'failed' })
+    const { onReview } = renderPanel([item])
     await userEvent.click(screen.getByRole('button', { name: '보관' }))
-    expect(onReview).toHaveBeenCalledWith('r1', 'archived')
+    expect(onReview).toHaveBeenCalledWith(item, 'archived')
   })
 
   // 개별 긍정 케이스만으로는 shows()의 분기 하나가 틀어져도 잡히지 않는다
@@ -122,16 +123,18 @@ describe('InboxPanel', () => {
   // 카테고리와 무관하게 나온다는 것(완료·미확인이 아닌 "실패"에서도)을 아래
   // "실패 (이슈 첨부)" 행으로 같은 방식으로 확인한다.
   it('카테고리마다 보이는 행동 버튼 집합이 설계 §5의 표와 정확히 같다', () => {
+    // "로그 보기"·"이어서 실행"(·"답하고 이어서")이 "대화 열기" 하나로 합쳐졌다
+    // (설계 §5, Task 9) — dropped를 뺀 모든 카테고리에서 나온다.
     const table: Array<{ category: string; over: Partial<Run>; expected: string[] }> = [
-      { category: '답변 필요', over: { needsAnswer: true, externalSessionId: 'sess-1' }, expected: ['답하고 이어서', '로그 보기', '보관'] },
-      { category: '완료 · 미확인', over: { externalSessionId: 'sess-1' }, expected: ['이어서 실행', '확인함'] },
-      { category: '실패', over: { status: 'failed', errorMessage: '오류' }, expected: ['로그 보기', '다시 실행', '이슈로 만들기', '보관'] },
+      { category: '답변 필요', over: { needsAnswer: true, externalSessionId: 'sess-1' }, expected: ['대화 열기', '보관'] },
+      { category: '완료 · 미확인', over: { externalSessionId: 'sess-1' }, expected: ['대화 열기', '확인함'] },
+      { category: '실패', over: { status: 'failed', errorMessage: '오류' }, expected: ['대화 열기', '다시 실행', '이슈로 만들기', '보관'] },
       {
         category: '실패 (이슈 첨부)',
         over: { status: 'failed', errorMessage: '오류', contextItems: [{ type: 'issue', id: 'i1' }] },
-        expected: ['로그 보기', '다시 실행', '이슈로 만들기', '보관', '관련 이슈 닫기']
+        expected: ['대화 열기', '다시 실행', '이슈로 만들기', '보관', '관련 이슈 닫기']
       },
-      { category: '중단됨', over: { status: 'interrupted' }, expected: ['로그 보기', '다시 실행', '보관'] },
+      { category: '중단됨', over: { status: 'interrupted' }, expected: ['대화 열기', '다시 실행', '보관'] },
       { category: '대기 중 취소됨', over: { status: 'canceled', externalSessionId: null }, expected: ['다시 실행', '보관'] }
     ]
 
@@ -144,8 +147,7 @@ describe('InboxPanel', () => {
           workspaces={workspaces}
           error={null}
           onReview={vi.fn()}
-          onOpenLog={vi.fn()}
-          onResume={vi.fn()}
+          onOpenConversation={vi.fn()}
           onRestart={vi.fn()}
           onCloseIssue={vi.fn()}
           onMakeIssue={vi.fn()}

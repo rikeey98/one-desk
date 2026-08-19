@@ -329,7 +329,37 @@ describe('App', () => {
     expect(inboxLink()).toHaveTextContent('1')
   })
 
-  it('"답하고 이어서"는 그 run의 세션을 이어 실행한다', async () => {
+  it('인박스의 "대화 열기"가 그 대화를 도크에 연다', async () => {
+    // 인박스 항목은 대화의 마지막 턴이다 — 도크가 열어야 하는 것은 그 뿌리다.
+    const turns = [
+      makeRun({ id: 'a2', rootRunId: 'a1', createdAt: 20, userPrompt: '2턴' }),
+      makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10, userPrompt: '첫 지시' })
+    ]
+    const client = makeClient({ list: async () => turns }, { inbox: [turns[0]!] })
+    renderApp(client)
+
+    await userEvent.click(screen.getByRole('button', { name: /인박스/ }))
+    await userEvent.click(screen.getByRole('button', { name: '대화 열기' }))
+
+    // 도크가 그 대화를 열었다 — 첫 턴까지 대화록에 보인다. 도크 탭 라벨도 같은
+    // 글자(대화 제목)를 담고 있어 대화록 말풍선(.turn-user)으로 스코프한다.
+    expect(await screen.findByText('첫 지시', { selector: '.turn-user' })).toBeInTheDocument()
+  })
+
+  it('확인함은 마지막 턴이 아니라 대화의 뿌리에 기록한다', async () => {
+    const markReviewed = vi.fn().mockResolvedValue(undefined)
+    const last = makeRun({ id: 'a2', rootRunId: 'a1', userPrompt: '2턴' })
+    const client = makeClient({ markReviewed }, { inbox: [last] })
+    renderApp(client)
+
+    await userEvent.click(screen.getByRole('button', { name: /인박스/ }))
+    await userEvent.click(screen.getByRole('button', { name: '확인함' }))
+
+    // 'a2'로 찍으면 대화가 인박스에서 내려가지 않는다 — Task 5의 판정은 뿌리 기준이다.
+    expect(markReviewed).toHaveBeenCalledWith('a1', 'confirmed')
+  })
+
+  it('"답변 필요" 항목의 "대화 열기"는 그 run의 세션을 이어 실행한다', async () => {
     const client = makeClient({}, {
       repos: [makeRepo('r1', 'api', '/tmp/api')],
       inbox: [makeRun({
@@ -339,7 +369,7 @@ describe('App', () => {
     renderApp(client)
 
     await openInbox()
-    await userEvent.click(await screen.findByRole('button', { name: '답하고 이어서' }))
+    await userEvent.click(await screen.findByRole('button', { name: '대화 열기' }))
 
     await userEvent.type(await screen.findByPlaceholderText(/무엇을 시킬지/), '이어서 해줘')
     await userEvent.click(screen.getByRole('button', { name: '실행' }))
@@ -438,7 +468,7 @@ describe('App', () => {
     expect(screen.getAllByRole('button', { name: '관련 이슈 닫기' })).toHaveLength(2)
   })
 
-  it('인박스의 "로그 보기"가 그 run의 로그를 연다', async () => {
+  it('인박스의 "대화 열기"가 그 run의 로그를 연다', async () => {
     // 화면이 인박스에서 workspace로 바뀌면 Dock이 다시 마운트되며 내부 view가
     // 'new'로 돌아간다 — 지정하지 않으면 사용자는 새 대화 탭만 보게 된다.
     const failed = makeRun({
@@ -449,7 +479,7 @@ describe('App', () => {
     renderApp(makeClient({}, { repos: [makeRepo('r1', 'api', '/tmp/api')], inbox: [failed] }), store)
 
     await openInbox()
-    await userEvent.click(await screen.findByRole('button', { name: '로그 보기' }))
+    await userEvent.click(await screen.findByRole('button', { name: '대화 열기' }))
 
     // failed는 진행 중이 아니라 대화록의 마지막 턴이 접혀 있다 — 펼쳐야 로그가
     // 보인다(Task 7의 설계). 오류 메시지는 항상 보이므로 먼저 그것으로 도착을 확인한다.
@@ -515,7 +545,10 @@ describe('App', () => {
     expect(await screen.findByPlaceholderText(/무엇을 시킬지/)).toHaveValue('원래 지시')
 
     await userEvent.click(inboxLink())
-    await userEvent.click(await screen.findByRole('button', { name: '답하고 이어서' }))
+    // 두 항목 모두 "대화 열기"를 보여준다(중단됨·답변 필요 둘 다 dropped가 아니다) —
+    // 이름만으로는 모호해 r-ask 카드로 스코프한다.
+    const askItem = (await screen.findByText('질문한 실행')).closest('.inbox-item')!
+    await userEvent.click(within(askItem as HTMLElement).getByRole('button', { name: '대화 열기' }))
 
     expect(await screen.findByPlaceholderText(/무엇을 시킬지/)).toHaveValue('')
   })
