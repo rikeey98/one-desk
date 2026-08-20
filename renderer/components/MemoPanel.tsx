@@ -46,14 +46,6 @@ export function MemoPanel({
           const picked = chipKeys.has(chipKey({ type: 'memo', id: m.id }))
           return (
             <li key={m.id} className="item">
-              {/* 클릭은 "열어본다"다. 맥락에 담는 것은 옆 토글이 맡는다 (설계 §5). */}
-              <button
-                type="button"
-                className={openId === m.id ? 'item-title item-open' : 'item-title'}
-                onClick={() => onOpen(m.id)}
-              >
-                {m.title}
-              </button>
               <button
                 type="button"
                 className={picked ? 'item-pick item-picked' : 'item-pick'}
@@ -61,7 +53,16 @@ export function MemoPanel({
                 aria-pressed={picked}
                 onClick={() => onToggleContext({ type: 'memo', id: m.id, label: m.title })}
               >
-                ＋
+                {picked ? '✓' : ''}
+              </button>
+              {/* 담기 토글이 줄의 맨 앞이다 — 체크박스처럼 읽히도록.
+                  클릭은 "열어본다"이고 맥락에 담는 것은 이 토글이 맡는다 (설계 §5). */}
+              <button
+                type="button"
+                className={openId === m.id ? 'item-title item-open' : 'item-title'}
+                onClick={() => onOpen(m.id)}
+              >
+                {m.title}
               </button>
             </li>
           )

@@ -46,14 +46,6 @@ export function IssuePanel({
           const picked = chipKeys.has(chipKey({ type: 'issue', id: i.id }))
           return (
             <li key={i.id} className="item">
-              {/* 클릭은 "열어본다"다. 맥락에 담는 것은 옆 토글이 맡는다 (설계 §5). */}
-              <button
-                type="button"
-                className={openId === i.id ? 'item-title item-open' : 'item-title'}
-                onClick={() => onOpen(i.id)}
-              >
-                {i.title}
-              </button>
               <button
                 type="button"
                 className={picked ? 'item-pick item-picked' : 'item-pick'}
@@ -61,7 +53,16 @@ export function IssuePanel({
                 aria-pressed={picked}
                 onClick={() => onToggleContext({ type: 'issue', id: i.id, label: i.title })}
               >
-                ＋
+                {picked ? '✓' : ''}
+              </button>
+              {/* 담기 토글이 줄의 맨 앞이다 — 체크박스처럼 읽히도록.
+                  클릭은 "열어본다"이고 맥락에 담는 것은 이 토글이 맡는다 (설계 §5). */}
+              <button
+                type="button"
+                className={openId === i.id ? 'item-title item-open' : 'item-title'}
+                onClick={() => onOpen(i.id)}
+              >
+                {i.title}
               </button>
               {/* 목록의 상태는 읽기 전용이다. 편집은 상세가 맡는다 (설계 §9).
                   여기서 잠기지 않은 update로 쓰면 그 쓰기가 updatedAt을 올려
