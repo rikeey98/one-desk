@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState , useRef } from 'react'
 import { useClient } from '../client/ClientProvider'
+import { clampDockHeight, readDockHeight, writeDockHeight, DEFAULT_DOCK_RATIO } from '../dockHeight'
 import { ConversationPanel } from './ConversationPanel'
 import { SlotIndicator } from './SlotIndicator'
 import { conversationIdOf, groupConversations } from '../conversation'
@@ -31,6 +32,40 @@ export function Dock({
 }) {
   const client = useClient()
   const [open, setOpen] = useState(true)
+  // 도크 높이. 원래 CSS에 34%로 박혀 있어 대화창을 넓힐 방법이 없었다.
+  // 창 크기는 마운트 시점에만 읽는다 — 리사이즈 추적은 이 변경의 범위가 아니고,
+  // 값은 아래 드래그에서 매번 지금 창 크기로 다시 클램프된다.
+  const [height, setHeight] = useState(() => readDockHeight(window.innerHeight))
+  const drag = useRef<{ startY: number; startHeight: number } | null>(null)
+
+  // 포인터를 도크 밖으로 끌어도 따라와야 하므로 window에 건다. 드래그 중에만
+  // 붙였다 떼는 이유는 그것 말고는 매 렌더 리스너가 살아 있을 이유가 없어서다.
+  useEffect(() => {
+    function onMove(e: PointerEvent) {
+      const d = drag.current
+      if (!d) return
+      // 위로 끌면(clientY 감소) 대화창이 커진다.
+      setHeight(clampDockHeight(d.startHeight + (d.startY - e.clientY), window.innerHeight))
+    }
+    function onUp() {
+      if (!drag.current) return
+      drag.current = null
+      setHeight((h) => { writeDockHeight(h); return h })
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+  }, [])
+
+  function resetHeight() {
+    const next = clampDockHeight(window.innerHeight * DEFAULT_DOCK_RATIO, window.innerHeight)
+    setHeight(next)
+    writeDockHeight(next)
+  }
+
   // 실행 패널은 모달이 아니라 도크가 확장된 형태다 —
   // 모달이 뜨면 뒤의 issue/memo를 클릭해 맥락을 담을 수 없다 (설계 §9).
   //
@@ -88,7 +123,26 @@ export function Dock({
   }
 
   return (
-    <section className={open ? 'dock dock-open' : 'dock'}>
+    <section
+      className={open ? 'dock dock-open' : 'dock'}
+      {...(open ? { style: { height } } : {})}
+    >
+      {/* 접힌 도크는 헤더뿐이라 조절할 것이 없다. */}
+      {open && (
+        <div
+          role="separator"
+          aria-label="대화창 크기 조절"
+          aria-orientation="horizontal"
+          className="dock-resizer"
+          onPointerDown={(e) => {
+            // preventDefault를 부르지 않는다 — 부르면 뒤따르는 click/dblclick이
+            // 억제돼 더블클릭 초기화가 죽는다. 드래그 중 텍스트가 선택되는 것은
+            // .dock-resizer의 user-select: none이 막는다.
+            drag.current = { startY: e.clientY, startHeight: height }
+          }}
+          onDoubleClick={resetHeight}
+        />
+      )}
       {/* 토글과 슬롯 표시기는 스크롤되는 탭 스트립 밖에 둔다. 안에 두면 대화 탭이
           늘어났을 때 "왜 내 run이 안 시작하지"를 설명하는 유일한 한 줄이 화면 밖으로
           밀려난다 — 표시기를 둔 이유(스펙 §7)와 정면으로 어긋난다. */}
