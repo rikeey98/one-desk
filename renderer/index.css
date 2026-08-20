@@ -2,7 +2,7 @@
 body { margin: 0; background: #ffffff; color: #18181b; }
 
 .app { display: flex; height: 100vh; font-family: system-ui, sans-serif; }
-.sidebar { flex: 0 0 180px; background: #f4f4f5; border-right: 1px solid #e4e4e7; padding: 12px 10px; }
+.sidebar { flex: 0 0 180px; min-width: 0; overflow-x: hidden; background: #f4f4f5; border-right: 1px solid #e4e4e7; padding: 12px 10px; }
 .sidebar-label { font-size: 10px; letter-spacing: .07em; text-transform: uppercase; opacity: .55; font-weight: 700; margin-bottom: 8px; }
 .sidebar ul { list-style: none; margin: 0; padding: 0; }
 .ws { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; font-size: 13px; }
@@ -160,3 +160,30 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
 .conversation-panel { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
 .conversation-panel .transcript { flex: 1 1 auto; min-height: 0; }
 .conversation-panel .run-panel { flex: 0 0 auto; height: auto; }
+
+/* 이름 바꾸기·삭제 — 평소엔 감춰 두고 호버·포커스에서 드러낸다.
+   DOM에는 항상 있어야 키보드로 닿는다(:focus-within이 그래서 필요하다). */
+/* 삭제 확인 패널이 이름 옆이 아니라 아래로 와야 한다 — 옆에 두면 사이드바가
+   패널 너비만큼 밀려 넓어지고 이름이 세로로 찌그러진다(실측). */
+.ws-row { display: flex; flex-direction: column; }
+.ws-line { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.ws-line .ws { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-actions, .repo-actions { display: flex; gap: 2px; flex: 0 0 auto; opacity: 0; transition: opacity .12s; }
+.ws-line:hover .ws-actions,
+.ws-row:focus-within .ws-actions,
+.repo-slot:hover .repo-actions,
+.repo-slot:focus-within .repo-actions { opacity: 1; }
+.row-action { border: 0; border-radius: 4px; background: transparent; cursor: pointer; font-size: 11px; line-height: 1; padding: 3px 4px; opacity: .6; }
+.row-action:hover { background: #e4e4e7; opacity: 1; }
+.row-action-danger:hover { background: #fee2e2; }
+
+.rename-field { flex: 1; min-width: 0; border: 1px solid #60a5fa; border-radius: 5px; font: inherit; font-size: 13px; padding: 6px 8px; }
+
+/* workspace 삭제는 이슈·메모·실행 기록까지 지운다 — 이름을 받아 무게를 맞춘다. */
+.delete-by-name { display: flex; flex-direction: column; gap: 5px; margin-top: 5px; padding: 7px; border: 1px solid #fca5a5; border-radius: 6px; background: #fef2f2; }
+.delete-by-name-warning { margin: 0; font-size: 11px; line-height: 1.4; color: #991b1b; }
+.delete-by-name-input { border: 1px solid #fca5a5; border-radius: 5px; font: inherit; font-size: 12px; padding: 4px 6px; }
+.delete-by-name-actions { display: flex; gap: 4px; }
+.delete-by-name-actions button { border: 1px solid #e4e4e7; border-radius: 5px; background: #fff; cursor: pointer; font: inherit; font-size: 11px; padding: 3px 9px; }
+.delete-by-name-actions .row-action-danger { border-color: #fca5a5; color: #991b1b; }
+.delete-by-name-actions .row-action-danger:disabled { opacity: .4; cursor: not-allowed; }

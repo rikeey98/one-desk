@@ -15,7 +15,7 @@ describe('핵심 한 바퀴', () => {
     // 1. workspace 만들고 고른다
     await page.getByPlaceholder('새 workspace 이름…').fill('e2e-ws')
     await page.getByPlaceholder('새 workspace 이름…').press('Enter')
-    const wsButton = page.getByRole('button', { name: 'e2e-ws' })
+    const wsButton = page.getByRole('button', { name: 'e2e-ws', exact: true })
     await wsButton.waitFor({ state: 'visible', timeout: 10_000 })
     await wsButton.click()
 

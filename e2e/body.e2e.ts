@@ -11,7 +11,7 @@ describe('이슈 본문', () => {
 
     await page.getByPlaceholder('새 workspace 이름…').fill('e2e-body')
     await page.getByPlaceholder('새 workspace 이름…').press('Enter')
-    const ws = page.getByRole('button', { name: /e2e-body/ })
+    const ws = page.getByRole('button', { name: /^e2e-body$/ })
     await ws.waitFor({ state: 'visible', timeout: 10_000 })
     await ws.click()
 
@@ -48,7 +48,7 @@ describe('이슈 본문', () => {
 
     await page.getByPlaceholder('새 workspace 이름…').fill('e2e-pick')
     await page.getByPlaceholder('새 workspace 이름…').press('Enter')
-    const ws = page.getByRole('button', { name: /e2e-pick/ })
+    const ws = page.getByRole('button', { name: /^e2e-pick$/ })
     await ws.waitFor({ state: 'visible', timeout: 10_000 })
     await ws.click()
 

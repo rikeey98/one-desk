@@ -13,7 +13,7 @@ describe('MCP', () => {
 
     await page.getByPlaceholder('새 workspace 이름…').fill('e2e-mcp')
     await page.getByPlaceholder('새 workspace 이름…').press('Enter')
-    const wsButton = page.getByRole('button', { name: /e2e-mcp/ })
+    const wsButton = page.getByRole('button', { name: /^e2e-mcp$/ })
     await wsButton.waitFor({ state: 'visible', timeout: 10_000 })
     await wsButton.click()
 

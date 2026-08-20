@@ -8,5 +8,8 @@ export function registerWorkspaceHandlers(core: Core) {
   ipcMain.handle(CHANNELS.workspacesCreate, (_e, input: CreateWorkspaceInput) =>
     core.workspaces.create(input)
   )
+  ipcMain.handle(CHANNELS.workspacesRename, (_e, id: string, name: string) =>
+    core.workspaces.rename(id, name)
+  )
   ipcMain.handle(CHANNELS.workspacesRemove, (_e, id: string) => core.workspaces.remove(id))
 }

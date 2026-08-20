@@ -61,6 +61,27 @@ export default function App() {
 
   const chipKeys = useMemo(() => new Set(chips.map(chipKey)), [chips])
 
+  /**
+   * 지운 workspace가 지금 고른 것이면 선택을 푼다.
+   *
+   * 풀지 않으면 사라진 workspace의 화면이 그대로 남아, 이슈·메모 패널이 없는
+   * id로 조회하며 빈 목록을 그린다 — 사용자에게는 "지웠는데 아직 있다"로 보인다.
+   * 맥락 칩과 열린 항목도 그 workspace의 것이므로 함께 비운다.
+   */
+  function forgetWorkspace(id: string) {
+    if (id !== workspaceId) return
+    setWorkspaceId(null)
+    setRepoId(null)
+    setChips([])
+    setOpenItem(null)
+  }
+
+  /** 지운 repo로 걸러 두었으면 필터를 푼다 — 아니면 빈 목록만 남는다. */
+  function forgetRepo(id: string) {
+    if (id !== repoId) return
+    setRepoId(null)
+  }
+
   function selectWorkspace(id: string) {
     setWorkspaceId(id)
     setView('workspace')
@@ -202,6 +223,7 @@ export default function App() {
         counts={inboxCounts}
         countsError={inboxError}
         mcpStatus={mcpStatus}
+        onDeleted={forgetWorkspace}
       />
       <main className="main">
         {view === 'inbox' && (
@@ -230,6 +252,7 @@ export default function App() {
               onSelect={setRepoId}
               chipKeys={chipKeys}
               onToggleContext={toggleChip}
+              onDeleted={forgetRepo}
             />
             <div className="columns">
               <IssuePanel

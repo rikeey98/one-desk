@@ -13,7 +13,7 @@ describe('도크 크기 조절 (실측)', () => {
 
     await page.getByPlaceholder('새 workspace 이름…').fill('resize-ws')
     await page.getByPlaceholder('새 workspace 이름…').press('Enter')
-    await page.getByRole('button', { name: 'resize-ws' }).click()
+    await page.getByRole('button', { name: 'resize-ws', exact: true }).click()
 
     const dock = page.locator('.dock')
     const handle = page.getByRole('separator', { name: '대화창 크기 조절' })

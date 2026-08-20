@@ -8,6 +8,9 @@ export function registerRepoHandlers(core: Core) {
     core.repos.list(workspaceId))
   ipcMain.handle(CHANNELS.reposCreate, (_e, input: CreateRepoInput) =>
     core.repos.create(input))
+  ipcMain.handle(CHANNELS.reposRename, (_e, id: string, name: string) =>
+    core.repos.rename(id, name)
+  )
   ipcMain.handle(CHANNELS.reposRemove, (_e, id: string) =>
     core.repos.remove(id))
 }

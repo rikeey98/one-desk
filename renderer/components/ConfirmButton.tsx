@@ -5,9 +5,14 @@ import { useState, type KeyboardEvent } from 'react'
  *
  * 이 앱에는 모달이 없고 SlotIndicator가 이미 인라인 확인 패턴을 쓴다 (설계 §5).
  */
-export function ConfirmButton({ label, confirmLabel, onConfirm }: {
+export function ConfirmButton({ label, confirmLabel, ariaLabel, onConfirm }: {
   label: string
   confirmLabel: string
+  /**
+   * 접근성 이름. 같은 화면에 이 버튼이 여럿일 때(예: repo마다 하나) 무엇을
+   * 지우는 버튼인지 구분되어야 한다. 없으면 보이는 라벨이 이름이 된다.
+   */
+  ariaLabel?: string
   onConfirm: () => void
 }) {
   const [armed, setArmed] = useState(false)
@@ -28,6 +33,7 @@ export function ConfirmButton({ label, confirmLabel, onConfirm }: {
     <button
       type="button"
       className={armed ? 'confirm-button confirm-armed' : 'confirm-button'}
+      {...(armed || !ariaLabel ? {} : { 'aria-label': ariaLabel })}
       onClick={() => { if (armed) { setArmed(false); onConfirm() } else setArmed(true) }}
       onBlur={() => setArmed(false)}
       onKeyDown={handleKeyDown}
