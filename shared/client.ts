@@ -17,11 +17,15 @@ export interface OneDeskClient {
   workspaces: {
     list(): Promise<Workspace[]>
     create(input: CreateWorkspaceInput): Promise<Workspace>
+    /** 이름만 바꾼다. description 등은 건드리지 않는다. */
+    rename(id: string, name: string): Promise<Workspace>
     remove(id: string): Promise<void>
   }
   repos: {
     list(workspaceId: string): Promise<Repo[]>
     create(input: CreateRepoInput): Promise<Repo>
+    /** 이름만 바꾼다. path는 실행이 도는 실제 디렉토리라 건드리지 않는다. */
+    rename(id: string, name: string): Promise<Repo>
     remove(id: string): Promise<void>
   }
   issues: {

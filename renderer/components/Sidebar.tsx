@@ -1,4 +1,7 @@
+import { useState } from 'react'
 import { AddForm } from './AddForm'
+import { RenameField } from './RenameField'
+import { DeleteByName } from './DeleteByName'
 import { useClient } from '../client/ClientProvider'
 import type { InboxCounts, McpStatus, Workspace } from '@shared/models'
 
@@ -6,7 +9,7 @@ import type { InboxCounts, McpStatus, Workspace } from '@shared/models'
  * 자기 인스턴스를 따로 가지면 다른 인스턴스(App→InboxPanel 등)가 새 workspace를
  * 모르게 된다(App.tsx의 주석 참고). */
 export function Sidebar({
-  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectInbox, counts, countsError, mcpStatus
+  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectInbox, counts, countsError, mcpStatus, onDeleted
 }: {
   workspaces: Workspace[]
   loading: boolean
@@ -16,6 +19,8 @@ export function Sidebar({
   onSelect: (id: string) => void
   view: 'workspace' | 'inbox'
   onSelectInbox: () => void
+  /** 삭제한 workspace를 App이 알아야 고른 상태를 풀 수 있다. */
+  onDeleted: (id: string) => void
   counts: InboxCounts
   /** 인박스 조회 실패. 배지 자리에 표식으로 드러낸다 (설계 §9). */
   countsError: string | null
@@ -24,8 +29,26 @@ export function Sidebar({
 }) {
   const client = useClient()
 
+  const [editing, setEditing] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
+
   async function addWorkspace(name: string) {
     await client.workspaces.create({ name })
+    await refresh()
+  }
+
+  async function renameWorkspace(id: string, name: string) {
+    setEditing(null)
+    await client.workspaces.rename(id, name)
+    await refresh()
+  }
+
+  async function removeWorkspace(id: string) {
+    setDeleting(null)
+    await client.workspaces.remove(id)
+    // 목록을 다시 읽기 전에 알린다 — App이 고른 상태를 풀어야 사라진 workspace의
+    // 화면이 잠깐이라도 남지 않는다.
+    onDeleted(id)
     await refresh()
   }
 
@@ -52,17 +75,59 @@ export function Sidebar({
       )}
       <ul>
         {workspaces.map((w) => (
-          <li key={w.id}>
-            <button
-              type="button"
-              className={w.id === selectedId && view === 'workspace' ? 'ws ws-selected' : 'ws'}
-              onClick={() => onSelect(w.id)}
-            >
-              {w.name}
-              {(counts.byWorkspace[w.id] ?? 0) > 0 && (
-                <span className="badge">{counts.byWorkspace[w.id]}</span>
-              )}
-            </button>
+          <li key={w.id} className="ws-row">
+            <div className="ws-line">
+            {editing === w.id ? (
+              <RenameField
+                initial={w.name}
+                label={`${w.name} 새 이름`}
+                onSubmit={(name) => void renameWorkspace(w.id, name)}
+                onCancel={() => setEditing(null)}
+              />
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={w.id === selectedId && view === 'workspace' ? 'ws ws-selected' : 'ws'}
+                  onClick={() => onSelect(w.id)}
+                >
+                  {w.name}
+                  {(counts.byWorkspace[w.id] ?? 0) > 0 && (
+                    <span className="badge">{counts.byWorkspace[w.id]}</span>
+                  )}
+                </button>
+                {/* 평소엔 CSS로 감춰 두고 호버·포커스에서 드러낸다. DOM에는 항상
+                    있어야 키보드로도 닿는다 — 호버로만 만들면 마우스가 없으면 못 쓴다. */}
+                <span className="ws-actions">
+                  <button
+                    type="button"
+                    className="row-action"
+                    aria-label={`${w.name} 이름 바꾸기`}
+                    onClick={() => { setEditing(w.id); setDeleting(null) }}
+                  >
+                    ✎
+                  </button>
+                  <button
+                    type="button"
+                    className="row-action row-action-danger"
+                    aria-label={`${w.name} 삭제`}
+                    onClick={() => { setDeleting(w.id); setEditing(null) }}
+                  >
+                    🗑
+                  </button>
+                </span>
+              </>
+            )}
+            </div>
+            {deleting === w.id && (
+              /* workspace 삭제는 이슈·메모·실행 기록까지 cascade로 지운다.
+                 repo 쪽의 두 번 누르기로는 무게가 맞지 않아 이름을 받는다. */
+              <DeleteByName
+                name={w.name}
+                onConfirm={() => void removeWorkspace(w.id)}
+                onCancel={() => setDeleting(null)}
+              />
+            )}
           </li>
         ))}
       </ul>

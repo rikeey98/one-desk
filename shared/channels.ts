@@ -1,9 +1,11 @@
 export const CHANNELS = {
   workspacesList: 'workspaces:list',
   workspacesCreate: 'workspaces:create',
+  workspacesRename: 'workspaces:rename',
   workspacesRemove: 'workspaces:remove',
   reposList: 'repos:list',
   reposCreate: 'repos:create',
+  reposRename: 'repos:rename',
   reposRemove: 'repos:remove',
   issuesList: 'issues:list',
   issuesCreate: 'issues:create',

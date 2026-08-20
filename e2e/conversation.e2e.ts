@@ -13,7 +13,7 @@ describe('대화', () => {
     // workspace와 repo 준비 — core-loop.e2e.ts의 1~2단계와 같다.
     await page.getByPlaceholder('새 workspace 이름…').fill('conv-ws')
     await page.getByPlaceholder('새 workspace 이름…').press('Enter')
-    const wsButton = page.getByRole('button', { name: 'conv-ws' })
+    const wsButton = page.getByRole('button', { name: 'conv-ws', exact: true })
     await wsButton.waitFor({ state: 'visible', timeout: 10_000 })
     await wsButton.click()
 

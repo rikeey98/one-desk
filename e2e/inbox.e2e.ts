@@ -11,7 +11,7 @@ describe('결과 인박스', () => {
     // 1. workspace와 repo를 만든다 — repo가 없으면 실행 버튼이 비활성이다
     await page.getByPlaceholder('새 workspace 이름…').fill('e2e-inbox')
     await page.getByPlaceholder('새 workspace 이름…').press('Enter')
-    const wsButton = page.getByRole('button', { name: /e2e-inbox/ })
+    const wsButton = page.getByRole('button', { name: /^e2e-inbox$/ })
     await wsButton.waitFor({ state: 'visible', timeout: 10_000 })
     await wsButton.click()
 

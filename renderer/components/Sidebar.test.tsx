@@ -48,9 +48,11 @@ function renderSidebar(over: {
   counts?: InboxCounts
   countsError?: string | null
   mcpStatus?: McpStatus
+  onDeleted?: (id: string) => void
+  client?: OneDeskClient
 } = {}) {
   render(
-    <ClientProvider client={makeClient()}>
+    <ClientProvider client={over.client ?? makeClient()}>
       <Sidebar
         workspaces={over.workspaces ?? [makeWorkspace('ws-1', 'w1')]}
         loading={over.loading ?? false}
@@ -63,6 +65,7 @@ function renderSidebar(over: {
         counts={over.counts ?? { total: 0, byWorkspace: {} }}
         countsError={over.countsError ?? null}
         mcpStatus={over.mcpStatus ?? { state: 'listening', port: 12345 }}
+        onDeleted={over.onDeleted ?? vi.fn()}
       />
     </ClientProvider>
   )
@@ -90,7 +93,8 @@ describe('Sidebar', () => {
   it('workspace마다 그 workspace의 건수를 단다', () => {
     // 전체만 맞고 workspace별이 0이면 어디에 쌓였는지 알 수 없다.
     renderSidebar({ counts: { total: 3, byWorkspace: { w1: 2 } } })
-    expect(screen.getByRole('button', { name: /ws-1/ })).toHaveTextContent('2')
+    // 이름 바꾸기·삭제 버튼도 이름에 'ws-1'을 담으므로 선택 버튼으로 좁힌다.
+    expect(document.querySelector('.ws')).toHaveTextContent('2')
   })
 
   it('건수가 0인 곳에는 배지를 그리지 않는다', () => {
@@ -116,8 +120,9 @@ describe('Sidebar', () => {
       workspaces: [makeWorkspace('ws-1', 'w1'), makeWorkspace('ws-2', 'w2')],
       counts: { total: 0, byWorkspace: { w1: 0 } }
     })
-    expect(await screen.findByRole('button', { name: /ws-1/ })).not.toHaveTextContent('0')
-    expect(screen.getByRole('button', { name: /ws-2/ })).not.toHaveTextContent('0')
+    const rows = document.querySelectorAll('.ws')
+    expect(rows[0]).not.toHaveTextContent('0')
+    expect(rows[1]).not.toHaveTextContent('0')
   })
 })
 
@@ -135,6 +140,7 @@ function renderSidebarRaw(mcpStatus: McpStatus) {
           onSelect={vi.fn()}
           view="workspace"
           onSelectInbox={vi.fn()}
+          onDeleted={vi.fn()}
           counts={{ total: 0, byWorkspace: {} }}
           countsError={null}
           mcpStatus={status}
@@ -174,5 +180,64 @@ describe('MCP 상태 줄', () => {
     rerender({ state: 'listening', port: 999 })
     expect(screen.queryByText(/MCP 시작 중/)).not.toBeInTheDocument()
     expect(screen.getByText(/MCP :999/)).toBeInTheDocument()
+  })
+})
+
+describe('Sidebar workspace 관리', () => {
+  function clientWith(over: Record<string, unknown>): OneDeskClient {
+    const base = makeClient()
+    return { ...base, workspaces: { ...base.workspaces, ...over } } as unknown as OneDeskClient
+  }
+
+  it('이름 바꾸기를 누르면 그 자리가 입력창이 된다', async () => {
+    renderSidebar({ workspaces: [makeWorkspace('옛 이름', 'w1')] })
+    await userEvent.click(screen.getByRole('button', { name: '옛 이름 이름 바꾸기' }))
+    expect(screen.getByRole('textbox', { name: '옛 이름 새 이름' })).toBeInTheDocument()
+  })
+
+  it('저장하면 rename을 부르고 목록을 다시 읽는다', async () => {
+    const rename = vi.fn().mockResolvedValue(undefined)
+    const refresh = vi.fn().mockResolvedValue(undefined)
+    renderSidebar({ workspaces: [makeWorkspace('옛 이름', 'w1')], client: clientWith({ rename }), refresh })
+
+    await userEvent.click(screen.getByRole('button', { name: '옛 이름 이름 바꾸기' }))
+    await userEvent.clear(screen.getByRole('textbox', { name: '옛 이름 새 이름' }))
+    await userEvent.type(screen.getByRole('textbox', { name: '옛 이름 새 이름' }), '새 이름{Enter}')
+
+    await waitFor(() => expect(rename).toHaveBeenCalledWith('w1', '새 이름'))
+    await waitFor(() => expect(refresh).toHaveBeenCalled())
+  })
+
+  it('삭제는 이름을 정확히 타이핑해야 열린다 — 이슈·메모·실행 기록이 함께 사라진다', async () => {
+    const remove = vi.fn().mockResolvedValue(undefined)
+    renderSidebar({ workspaces: [makeWorkspace('사내 플랫폼', 'w1')], client: clientWith({ remove }) })
+
+    await userEvent.click(screen.getByRole('button', { name: '사내 플랫폼 삭제' }))
+    const confirm = screen.getByRole('button', { name: '사내 플랫폼 삭제 확인' })
+    expect(confirm).toBeDisabled()
+
+    await userEvent.type(screen.getByRole('textbox', { name: '삭제하려면 사내 플랫폼 을 입력' }), '사내 플랫')
+    expect(confirm).toBeDisabled()
+
+    await userEvent.type(screen.getByRole('textbox', { name: '삭제하려면 사내 플랫폼 을 입력' }), '폼')
+    expect(confirm).toBeEnabled()
+
+    await userEvent.click(confirm)
+    await waitFor(() => expect(remove).toHaveBeenCalledWith('w1'))
+  })
+
+  it('삭제하면 App에 알린다 — 고른 workspace가 사라졌는데 화면이 남아 있으면 안 된다', async () => {
+    const onDeleted = vi.fn()
+    renderSidebar({
+      workspaces: [makeWorkspace('ws', 'w1')],
+      client: clientWith({ remove: vi.fn().mockResolvedValue(undefined) }),
+      onDeleted
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: 'ws 삭제' }))
+    await userEvent.type(screen.getByRole('textbox', { name: '삭제하려면 ws 을 입력' }), 'ws')
+    await userEvent.click(screen.getByRole('button', { name: 'ws 삭제 확인' }))
+
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledWith('w1'))
   })
 })

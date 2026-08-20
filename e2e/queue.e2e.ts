@@ -14,7 +14,7 @@ describe('동시 실행 상한', () => {
     // 1. workspace와 repo를 만든다 — repo가 없으면 실행 버튼이 비활성이다
     await page.getByPlaceholder('새 workspace 이름…').fill('e2e-queue')
     await page.getByPlaceholder('새 workspace 이름…').press('Enter')
-    const wsButton = page.getByRole('button', { name: 'e2e-queue' })
+    const wsButton = page.getByRole('button', { name: 'e2e-queue', exact: true })
     await wsButton.waitFor({ state: 'visible', timeout: 10_000 })
     await wsButton.click()
 

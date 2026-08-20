@@ -422,7 +422,11 @@ describe('App', () => {
     renderApp(client)
 
     await userEvent.type(await screen.findByPlaceholderText('새 workspace 이름…'), 'ws2{Enter}')
-    await screen.findByRole('button', { name: /ws2/ })
+    // 이름 바꾸기·삭제 버튼도 이름에 'ws2'를 담으므로 선택 버튼으로 좁힌다.
+    await waitFor(() => {
+      const names = [...document.querySelectorAll('.ws')].map((el) => el.textContent)
+      expect(names.some((n) => n?.includes('ws2'))).toBe(true)
+    })
 
     await openInbox()
     const item = await screen.findByText('새 workspace의 실행')
@@ -1140,5 +1144,42 @@ describe('맥락 담기 토글의 자리와 표시', () => {
 
     await userEvent.click(pick)
     expect(pick).toHaveTextContent('✓')
+  })
+})
+
+describe('삭제 후 선택 정리', () => {
+  // CLAUDE.md: App이 자식에게 내려보내는 prop 한 줄은 그 자체로 되돌릴 수 있는
+  // 변이다. 3a·3b가 두 번 다 이 자리에서 샜다 — 아래 둘은 그 배선을 겨눈다.
+
+  it('고른 workspace를 지우면 선택이 풀린다 — 사라진 workspace의 화면이 남으면 안 된다', async () => {
+    const client = makeClient({}, {})
+    renderApp(client)
+    await selectWorkspace()
+    expect(screen.queryByText('왼쪽에서 workspace를 선택하세요')).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: /삭제$/ }))
+    const name = screen.getByRole('textbox', { name: /삭제하려면/ })
+    await userEvent.type(name, workspace.name)
+    await userEvent.click(screen.getByRole('button', { name: /삭제 확인$/ }))
+
+    expect(await screen.findByText('왼쪽에서 workspace를 선택하세요')).toBeInTheDocument()
+  })
+
+  it('고른 repo를 지우면 필터가 풀린다 — 사라진 repo로 걸러진 빈 목록이 남는다', async () => {
+    const client = makeClient({}, { repos: [makeRepo('r1', 'api', '/tmp/api')] })
+    renderApp(client)
+    await selectWorkspace()
+
+    // repo 카드에는 이름 바꾸기·삭제 버튼이 함께 있어 이름이 겹친다 — 카드로 좁힌다.
+    await waitFor(() => expect(document.querySelector('.repo-card')).toBeTruthy())
+    await userEvent.click(document.querySelector('.repo-card') as HTMLElement)
+
+    await userEvent.click(screen.getByRole('button', { name: 'api 삭제' }))
+    await userEvent.click(screen.getByRole('button', { name: /정말/ }))
+
+    // 필터가 풀렸으면 repo 카드가 다시 선택 해제 상태다.
+    await waitFor(() => {
+      expect(document.querySelector('.repo-card-selected')).toBeNull()
+    })
   })
 })
