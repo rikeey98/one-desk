@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, waitFor, within, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { RunEventProvider } from '../store/RunEventContext'
@@ -74,7 +74,7 @@ function renderDock(
   store: RunEventStore = createRunEventStore(),
   queueError: string | null = null
 ) {
-  render(
+  return render(
     <ClientProvider client={client}>
       <RunEventProvider store={store}>
         <Dock
@@ -97,7 +97,6 @@ function renderDock(
       </RunEventProvider>
     </ClientProvider>
   )
-  return store
 }
 
 describe('Dock', () => {
@@ -302,5 +301,74 @@ describe('Dock', () => {
 
     await userEvent.click(screen.getByText('대화 하나'))
     expect(screen.getByLabelText('지시')).toHaveValue('')
+  })
+})
+
+describe('Dock 크기 조절', () => {
+  // jsdom은 레이아웃을 계산하지 않는다 — 여기서 답할 수 있는 것은 "핸들이
+  // 있는가"와 "드래그가 높이 값을 바꾸는가"뿐이고, "실제로 커 보이는가"는
+  // 앱을 열어야 안다. 그 경계를 흐리지 않으려고 스타일 값만 단언한다.
+  function dock() {
+    return document.querySelector('.dock') as HTMLElement
+  }
+
+  // pointerdown은 React 핸들러가 받아야 하므로 fireEvent로 보낸다(raw dispatch는
+  // 합성 이벤트 계층에 닿지 않는다). move/up은 Dock이 window에 직접 걸어둔
+  // 네이티브 리스너라 window로 보낸다 — 포인터가 도크 밖으로 나가도 따라오게
+  // 하려고 그렇게 돼 있다.
+  function drag(handle: HTMLElement, fromY: number, toY: number) {
+    // fireEvent.pointerDown은 이 jsdom에서 clientY를 싣지 않아 startY가
+    // undefined가 된다. MouseEvent는 좌표를 제대로 나르고, bubbles:true면
+    // React 루트 리스너까지 올라가 onPointerDown이 받는다.
+    handle.dispatchEvent(new MouseEvent('pointerdown', { clientY: fromY, bubbles: true }))
+    // window로 직접 보내는 이벤트는 React의 합성 계층을 거치지 않으므로
+    // 상태 갱신이 자동으로 flush되지 않는다 — act로 감싸야 DOM에 반영된다.
+    act(() => {
+      window.dispatchEvent(new MouseEvent('pointermove', { clientY: toY }))
+      window.dispatchEvent(new MouseEvent('pointerup'))
+    })
+  }
+
+  beforeEach(() => { localStorage.clear() })
+
+  it('열려 있으면 크기 조절 핸들이 있다', () => {
+    renderDock([makeRun({ id: 'a1', rootRunId: 'a1' })])
+    expect(screen.getByRole('separator', { name: '대화창 크기 조절' })).toBeInTheDocument()
+  })
+
+  it('접혀 있으면 핸들이 없다 — 접힌 도크는 헤더뿐이라 조절할 것이 없다', async () => {
+    renderDock([makeRun({ id: 'a1', rootRunId: 'a1' })])
+    // 도크 토글이다. 실행 버튼과 이름이 겹치므로 정확히 지정한다.
+    await userEvent.click(screen.getByRole('button', { name: '▾ 실행' }))
+    expect(screen.queryByRole('separator', { name: '대화창 크기 조절' })).not.toBeInTheDocument()
+  })
+
+  it('위로 끌면 대화창이 커진다', () => {
+    renderDock([makeRun({ id: 'a1', rootRunId: 'a1' })])
+    const before = dock().style.height
+    drag(screen.getByRole('separator', { name: '대화창 크기 조절' }), 500, 300)
+    const after = dock().style.height
+    expect(parseFloat(after)).toBeGreaterThan(parseFloat(before))
+  })
+
+  it('끈 높이가 다음 마운트에 되살아난다', () => {
+    const { unmount } = renderDock([makeRun({ id: 'a1', rootRunId: 'a1' })])
+    drag(screen.getByRole('separator', { name: '대화창 크기 조절' }), 500, 300)
+    const dragged = dock().style.height
+    unmount()
+
+    renderDock([makeRun({ id: 'a1', rootRunId: 'a1' })])
+    expect(dock().style.height).toBe(dragged)
+  })
+
+  it('핸들을 더블클릭하면 기본 높이로 돌아간다', async () => {
+    renderDock([makeRun({ id: 'a1', rootRunId: 'a1' })])
+    const handle = screen.getByRole('separator', { name: '대화창 크기 조절' })
+    const original = dock().style.height
+    drag(handle, 500, 300)
+    expect(dock().style.height).not.toBe(original)
+
+    await userEvent.dblClick(handle)
+    expect(dock().style.height).toBe(original)
   })
 })
