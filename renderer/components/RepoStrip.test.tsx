@@ -55,3 +55,41 @@ describe('RepoStrip', () => {
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith(null))
   })
 })
+
+describe('RepoStrip 맥락 담기 토글', () => {
+  // 이슈·메모 목록과 같은 약속이다 — 셋이 같은 모양이어야 같은 동작으로 읽힌다.
+  function renderStrip(chipKeys = new Set<string>()) {
+    render(
+      <ClientProvider client={client}>
+        <RepoStrip
+          workspaceId="w1"
+          repos={repos}
+          error={null}
+          refresh={vi.fn()}
+          selectedRepoId={null}
+          onSelect={vi.fn()}
+          chipKeys={chipKeys}
+          onToggleContext={vi.fn()}
+        />
+      </ClientProvider>
+    )
+  }
+
+  it('토글이 카드보다 앞에 온다', () => {
+    renderStrip()
+    const pick = screen.getByRole('button', { name: 'api-server 맥락에 담기' })
+    expect(pick.parentElement!.firstElementChild).toBe(pick)
+  })
+
+  it('담긴 repo만 체크 표시를 갖는다', () => {
+    renderStrip(new Set(['repo:r1']))
+    expect(screen.getByRole('button', { name: 'api-server 맥락에 담기' })).toHaveTextContent('✓')
+    expect(screen.getByRole('button', { name: 'web-client 맥락에 담기' })).not.toHaveTextContent('✓')
+  })
+
+  it('담긴 상태를 aria-pressed로도 알린다 — 이슈·메모 짝과 대칭이다', () => {
+    renderStrip(new Set(['repo:r1']))
+    expect(screen.getByRole('button', { name: 'api-server 맥락에 담기' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'web-client 맥락에 담기' })).toHaveAttribute('aria-pressed', 'false')
+  })
+})

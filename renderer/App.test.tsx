@@ -1097,3 +1097,48 @@ describe('run 완료 시 목록 갱신', () => {
     expect((client.issues.list as ReturnType<typeof vi.fn>).mock.calls.length).toBe(after)
   })
 })
+
+describe('맥락 담기 토글의 자리와 표시', () => {
+  // IssuePanel↔MemoPanel은 의도된 중복 쌍이라 항상 대칭이어야 한다(CLAUDE.md).
+  // 한쪽만 고쳐도 통과하지 않도록 둘을 같은 약속으로 묶어 검증한다.
+
+  it('이슈 줄에서 토글이 맨 앞에 온다', async () => {
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    await selectWorkspace()
+
+    const pick = await screen.findByRole('button', { name: '토큰 만료 맥락에 담기' })
+    expect(pick.closest('li')!.firstElementChild).toBe(pick)
+  })
+
+  it('메모 줄에서도 토글이 맨 앞에 온다', async () => {
+    renderApp(makeClient({}, { memos: [makeMemo({ id: 'm1', title: '배포 메모' })] }))
+    await selectWorkspace()
+
+    const pick = await screen.findByRole('button', { name: '배포 메모 맥락에 담기' })
+    expect(pick.closest('li')!.firstElementChild).toBe(pick)
+  })
+
+  // 담기 전/후를 한 테스트에서 본다. 뒤만 보면 "항상 체크가 보인다"는 구현도
+  // 통과하고, 앞만 보면 아무것도 검증하지 못한다.
+  it('이슈는 담을 때만 체크 표시가 생긴다 — 색만으로는 구분이 약하다', async () => {
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    await selectWorkspace()
+
+    const pick = await screen.findByRole('button', { name: '토큰 만료 맥락에 담기' })
+    expect(pick).not.toHaveTextContent('✓')
+
+    await userEvent.click(pick)
+    expect(pick).toHaveTextContent('✓')
+  })
+
+  it('메모도 담을 때만 체크 표시가 생긴다', async () => {
+    renderApp(makeClient({}, { memos: [makeMemo({ id: 'm1', title: '배포 메모' })] }))
+    await selectWorkspace()
+
+    const pick = await screen.findByRole('button', { name: '배포 메모 맥락에 담기' })
+    expect(pick).not.toHaveTextContent('✓')
+
+    await userEvent.click(pick)
+    expect(pick).toHaveTextContent('✓')
+  })
+})
