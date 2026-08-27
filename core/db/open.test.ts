@@ -144,12 +144,15 @@ describe('openDb 마이그레이션', () => {
     const full = resolve(HERE, '../../drizzle')
 
     // 0002 이전 상태를 만든다 — 마이그레이션 파일을 0001까지만 복사한다.
+    // tag 문자열 부정 매칭이 아니라 idx 비교를 쓴다 — 그래야 0002 이후에
+    // 새 마이그레이션(0003 등)이 추가돼도 "0002 미만"이라는 의도가 유지된다.
     const partial = join(dir, 'migrations')
     mkdirSync(join(partial, 'meta'), { recursive: true })
     const journal = JSON.parse(readFileSync(join(full, 'meta/_journal.json'), 'utf8')) as {
-      entries: { tag: string }[]
+      entries: { idx: number; tag: string }[]
     }
-    const keep = journal.entries.filter((e) => !e.tag.startsWith('0002'))
+    const idx0002 = journal.entries.find((e) => e.tag.startsWith('0002'))!.idx
+    const keep = journal.entries.filter((e) => e.idx < idx0002)
     writeFileSync(
       join(partial, 'meta/_journal.json'),
       JSON.stringify({ ...journal, entries: keep })

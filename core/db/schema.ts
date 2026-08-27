@@ -39,8 +39,21 @@ export const issue = sqliteTable('issue', {
   status: text('status', { enum: ['open', 'doing', 'done'] }).notNull().default('open'),
   createdAt: integer('created_at').notNull().default(nowMs()),
   updatedAt: integer('updated_at').notNull().default(nowMs()),
-  closedAt: integer('closed_at')
-}, (t) => [index('issue_workspace_status_idx').on(t.workspaceId, t.status)])
+  closedAt: integer('closed_at'),
+  // 분류 축 셋. 전부 nullable인 것이 핵심이다 — "아직 안 정해졌다"가 정상 상태다.
+  source: text('source', { enum: ['customer', 'plan', 'meeting', 'dev'] }),
+  kind: text('kind', { enum: ['bug', 'feature', 'refactor', 'docs', 'research'] }),
+  // 순서가 있다. 나열 순서가 곧 급한 순서다.
+  priority: text('priority', { enum: ['urgent', 'week', 'someday'] }),
+  // 축 셋이 모두 채워지면 저장소가 찍는다. 호출자가 넘기지 않는다 (closedAt과 같은 모양).
+  triagedAt: integer('triaged_at'),
+  // 사람이 상세를 연 시각. updatedAt과 분리한다 — updatedAt은 agent도 MCP로 올리므로
+  // 그것으로 방치를 판정하면 agent가 건드린 이슈일수록 조용해진다.
+  seenAt: integer('seen_at')
+}, (t) => [
+  index('issue_workspace_status_idx').on(t.workspaceId, t.status),
+  index('issue_triaged_idx').on(t.workspaceId, t.triagedAt)
+])
 
 export const memo = sqliteTable('memo', {
   id: text('id').primaryKey(),
