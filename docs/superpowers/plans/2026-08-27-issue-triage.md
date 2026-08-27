@@ -683,36 +683,47 @@ git commit -m "feat(ipc): wire issues.markSeen through IPC and preload"
 
 - [ ] **Step 1: 실패하는 테스트를 쓴다**
 
-`core/mcp/tools.test.ts`에 더한다. 기존 `callTool` 헬퍼(`:65`)의 시그니처 `(workspaceId, permission, name, args)`를 쓴다.
+`core/mcp/tools.test.ts`에 더한다. **이 파일에는 바깥 스코프의 `issues`도 `wsA`도 없다** — 전부 `beforeEach` 안의 지역 변수이고, 밖에서 볼 수 있는 것은 픽스처 객체 `f`뿐이다(`:15-26`). 도구를 부르는 헬퍼 이름도 `callTool`이 아니라 **`call`**이다(`:63`).
+
+**먼저 픽스처에 `issues` 저장소를 노출한다.** `Fixture` 인터페이스(`:15`)에 한 줄:
+
+```ts
+  issues: ReturnType<typeof createIssueRepository>
+```
+
+그리고 `beforeEach`의 `f = { db, dir, wsA, wsB, repoA, ... }` 객체 리터럴에 `issues,`를 더한다. `issues`는 그 위(`:33`)에서 이미 만들어져 있다.
+
+이제 테스트를 더한다.
 
 ```ts
 describe('분류 축', () => {
   it('create_issue가 축을 받고 triagedAt이 파생된다', async () => {
-    await callTool(wsA, 'edit', 'create_issue', {
+    await call(f.wsA, 'edit', 'create_issue', {
       title: '회의에서 나온 것', source: 'meeting', kind: 'feature', priority: 'week'
     })
-    const [created] = issues.list({ workspaceId: wsA })
+    // beforeEach가 이미 wsA에 이슈 하나('A의 이슈')를 만들어 둔다.
+    // 인덱스로 집으면 그것을 집으므로 반드시 제목으로 찾는다.
+    const created = f.issues.list({ workspaceId: f.wsA })
+      .find((i) => i.title === '회의에서 나온 것')
     expect(created?.source).toBe('meeting')
     expect(created?.triagedAt).not.toBeNull()
   })
 
   it('축을 안 주면 정리 안 된 채로 들어간다', async () => {
-    await callTool(wsA, 'edit', 'create_issue', { title: '축 없이' })
-    const [created] = issues.list({ workspaceId: wsA })
+    await call(f.wsA, 'edit', 'create_issue', { title: '축 없이' })
+    const created = f.issues.list({ workspaceId: f.wsA }).find((i) => i.title === '축 없이')
     expect(created?.triagedAt).toBeNull()
   })
 
   it('update_issue로 나머지 축을 채우면 triagedAt이 찍힌다', async () => {
-    const made = issues.create({ workspaceId: wsA, title: '나중에 분류', source: 'dev' })
-    await callTool(wsA, 'edit', 'update_issue', {
+    const made = f.issues.create({ workspaceId: f.wsA, title: '나중에 분류', source: 'dev' })
+    await call(f.wsA, 'edit', 'update_issue', {
       id: made.id, kind: 'refactor', priority: 'someday'
     })
-    expect(issues.get(made.id).triagedAt).not.toBeNull()
+    expect(f.issues.get(made.id).triagedAt).not.toBeNull()
   })
 })
 ```
-
-⚠️ 파일 상단에서 `issues` 저장소와 `wsA`를 쓸 수 있는지 확인한다. `:37-40`이 `wsA`·`repoA`를 만들고 있으니 같은 스코프의 이름을 그대로 쓴다. 저장소 핸들 이름이 다르면 그 파일이 쓰는 이름을 따른다.
 
 - [ ] **Step 2: 테스트를 돌려 실패를 확인한다**
 
@@ -721,15 +732,14 @@ Expected: `expected undefined to be 'meeting'`으로 FAIL — zod가 모르는 �
 
 - [ ] **Step 3: zod enum을 더한다**
 
-`core/mcp/tools.ts:75-87`의 `ISSUE_STATUS` 정의 **바로 아래에** 같은 패턴으로 붙인다. 기존 코드의 `AssertIssueStatusExhaustive` 트릭은 **enum 값이 `@shared/models`의 타입과 어긋나면 컴파일이 깨지게** 하는 장치다. 새 축 셋도 같은 보호를 받아야 한다.
+`core/mcp/tools.ts:87`의 `const ISSUE_STATUS = z.enum(issueStatusValues)` **바로 아래에** 붙인다. 기존 `AssertIssueStatusExhaustive` 트릭(`:82-85`)은 **enum 값이 `@shared/models`의 타입과 어긋나면 컴파일이 깨지게** 하는 장치다 — 원소가 타입 밖이면 제네릭 제약이, 타입 쪽이 더 많으면 조건부 타입이 `never`가 되어 잡는다. 새 축 셋도 같은 보호를 받아야 하므로 **그 형태를 그대로 복제한다.**
 
 ```ts
 const ISSUE_SOURCE_VALUES = ['customer', 'plan', 'meeting', 'dev'] as const
 const ISSUE_KIND_VALUES = ['bug', 'feature', 'refactor', 'docs', 'research'] as const
 const ISSUE_PRIORITY_VALUES = ['urgent', 'week', 'someday'] as const
 
-// @shared/models의 유니온과 정확히 같은 집합인지 컴파일 타임에 못박는다.
-// 한쪽만 늘리면 여기서 깨진다 — 런타임에 조용히 값이 버려지는 것보다 낫다.
+/** ISSUE_STATUS와 같은 장치다 — 축이 추가·개명되면 이 줄에서 타입 오류가 난다. */
 type AssertSourceExhaustive<T extends readonly IssueSource[]> =
   IssueSource extends T[number] ? T : never
 type AssertKindExhaustive<T extends readonly IssueKind[]> =
@@ -737,18 +747,16 @@ type AssertKindExhaustive<T extends readonly IssueKind[]> =
 type AssertPriorityExhaustive<T extends readonly IssuePriority[]> =
   IssuePriority extends T[number] ? T : never
 
-const ISSUE_SOURCE = z.enum(
-  ISSUE_SOURCE_VALUES as AssertSourceExhaustive<typeof ISSUE_SOURCE_VALUES>
-)
-const ISSUE_KIND = z.enum(
-  ISSUE_KIND_VALUES as AssertKindExhaustive<typeof ISSUE_KIND_VALUES>
-)
-const ISSUE_PRIORITY = z.enum(
-  ISSUE_PRIORITY_VALUES as AssertPriorityExhaustive<typeof ISSUE_PRIORITY_VALUES>
-)
+const issueSourceValues: AssertSourceExhaustive<typeof ISSUE_SOURCE_VALUES> = ISSUE_SOURCE_VALUES
+const issueKindValues: AssertKindExhaustive<typeof ISSUE_KIND_VALUES> = ISSUE_KIND_VALUES
+const issuePriorityValues: AssertPriorityExhaustive<typeof ISSUE_PRIORITY_VALUES> = ISSUE_PRIORITY_VALUES
+
+const ISSUE_SOURCE = z.enum(issueSourceValues)
+const ISSUE_KIND = z.enum(issueKindValues)
+const ISSUE_PRIORITY = z.enum(issuePriorityValues)
 ```
 
-⚠️ `:75-87`의 기존 `ISSUE_STATUS` 코드가 위와 다른 모양이면 **그 모양을 그대로 따라 쓴다.** 목적은 "타입과 enum이 어긋나면 컴파일이 깨진다"이지 특정 문법이 아니다. `IssueSource`·`IssueKind`·`IssuePriority`를 `@shared/models`에서 `import type`으로 가져온다.
+`IssueSource`·`IssueKind`·`IssuePriority`를 `@shared/models`에서 `import type`으로 가져온다(`IssueStatus`가 이미 그렇게 들어와 있다).
 
 - [ ] **Step 4: 두 도구에 축을 더한다**
 
