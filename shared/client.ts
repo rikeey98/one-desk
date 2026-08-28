@@ -38,6 +38,14 @@ export interface OneDeskClient {
      */
     updateIfUnchanged(input: GuardedUpdateIssueInput): Promise<IssueUpdateResult>
     remove(id: string): Promise<void>
+    /**
+     * 사람이 이 이슈를 열었다고 기록한다. **updatedAt을 올리지 않는다** —
+     * 올리면 열려 있는 상세의 낙관적 잠금 기대값이 낡는다.
+     *
+     * 부르는 쪽은 이 호출 뒤에 목록을 다시 읽지 않는다. 정렬이 seenAt 오래된
+     * 순이라, 읽으면 방금 클릭한 항목이 눈앞에서 맨 아래로 도망간다.
+     */
+    markSeen(id: string): Promise<void>
   }
   memos: {
     list(query: ListQuery): Promise<Memo[]>

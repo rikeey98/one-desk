@@ -12,4 +12,5 @@ export function registerIssueHandlers(core: Core) {
     (_e, i: GuardedUpdateIssueInput) => core.issues.updateIfUnchanged(i)
   )
   ipcMain.handle(CHANNELS.issuesRemove, (_e, id: string) => core.issues.remove(id))
+  ipcMain.handle(CHANNELS.issuesMarkSeen, (_e, id: string) => core.issues.markSeen(id))
 }

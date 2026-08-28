@@ -40,7 +40,8 @@ const client: OneDeskClient = {
     update: (input) => call<Issue>(CHANNELS.issuesUpdate, input),
     updateIfUnchanged: (input) =>
       call<IssueUpdateResult>(CHANNELS.issuesUpdateIfUnchanged, input),
-    remove: (id) => call<void>(CHANNELS.issuesRemove, id)
+    remove: (id) => call<void>(CHANNELS.issuesRemove, id),
+    markSeen: (id) => call<void>(CHANNELS.issuesMarkSeen, id)
   },
   memos: {
     list: (query) => call<Memo[]>(CHANNELS.memosList, query),
