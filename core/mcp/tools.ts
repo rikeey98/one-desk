@@ -6,7 +6,7 @@ import type { RepoRepository } from '../db/repositories/repo'
 import type { IssueRepository } from '../db/repositories/issue'
 import type { MemoRepository } from '../db/repositories/memo'
 import type { RunContext } from './host'
-import type { Issue, IssueStatus, Memo } from '@shared/models'
+import type { Issue, IssueStatus, IssueSource, IssueKind, IssuePriority, Memo } from '@shared/models'
 
 export interface McpHostDeps {
   repos: RepoRepository
@@ -86,6 +86,26 @@ const issueStatusValues: AssertIssueStatusExhaustive<typeof ISSUE_STATUS_VALUES>
 
 const ISSUE_STATUS = z.enum(issueStatusValues)
 
+const ISSUE_SOURCE_VALUES = ['customer', 'plan', 'meeting', 'dev'] as const
+const ISSUE_KIND_VALUES = ['bug', 'feature', 'refactor', 'docs', 'research'] as const
+const ISSUE_PRIORITY_VALUES = ['urgent', 'week', 'someday'] as const
+
+/** ISSUE_STATUS와 같은 장치다 — 축이 추가·개명되면 이 줄에서 타입 오류가 난다. */
+type AssertSourceExhaustive<T extends readonly IssueSource[]> =
+  IssueSource extends T[number] ? T : never
+type AssertKindExhaustive<T extends readonly IssueKind[]> =
+  IssueKind extends T[number] ? T : never
+type AssertPriorityExhaustive<T extends readonly IssuePriority[]> =
+  IssuePriority extends T[number] ? T : never
+
+const issueSourceValues: AssertSourceExhaustive<typeof ISSUE_SOURCE_VALUES> = ISSUE_SOURCE_VALUES
+const issueKindValues: AssertKindExhaustive<typeof ISSUE_KIND_VALUES> = ISSUE_KIND_VALUES
+const issuePriorityValues: AssertPriorityExhaustive<typeof ISSUE_PRIORITY_VALUES> = ISSUE_PRIORITY_VALUES
+
+const ISSUE_SOURCE = z.enum(issueSourceValues)
+const ISSUE_KIND = z.enum(issueKindValues)
+const ISSUE_PRIORITY = z.enum(issuePriorityValues)
+
 export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
   const server = new McpServer({ name: MCP_SERVER_NAME, version: '0.1.0' })
 
@@ -130,25 +150,41 @@ export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
     inputSchema: {
       title: z.string().min(1),
       body: z.string().default(''),
-      repoIds: z.array(z.string()).optional().describe('태그할 repo. 같은 workspace여야 한다')
+      repoIds: z.array(z.string()).optional().describe('태그할 repo. 같은 workspace여야 한다'),
+      source: ISSUE_SOURCE.optional().describe('어디서 온 이슈인가'),
+      kind: ISSUE_KIND.optional().describe('무슨 성격의 일인가'),
+      priority: ISSUE_PRIORITY.optional().describe('얼마나 급한가')
     }
-  }, async ({ title, body, repoIds }) => reply(() => deps.issues.create({
-    workspaceId: ctx.workspaceId, title, body, ...(repoIds ? { repoIds } : {})
+  }, async ({ title, body, repoIds, source, kind, priority }) => reply(() => deps.issues.create({
+    workspaceId: ctx.workspaceId, title, body,
+    ...(repoIds ? { repoIds } : {}),
+    // 셋을 다 주면 triagedAt이 파생돼 사람의 훑기를 건너뛴다 (설계 §6).
+    ...(source ? { source } : {}),
+    ...(kind ? { kind } : {}),
+    ...(priority ? { priority } : {})
   })))
 
   server.registerTool('update_issue', {
-    description: '이슈의 상태나 본문을 고친다',
+    description: '이슈의 상태·본문·분류를 고친다',
     inputSchema: {
       id: z.string(),
       status: ISSUE_STATUS.optional(),
-      body: z.string().optional()
+      body: z.string().optional(),
+      source: ISSUE_SOURCE.optional(),
+      kind: ISSUE_KIND.optional(),
+      priority: ISSUE_PRIORITY.optional()
     }
-  }, async ({ id, status, body }) => reply(() => {
+  }, async ({ id, status, body, source, kind, priority }) => reply(() => {
     // 소속 확인이 먼저다. 저장소의 update는 id만 보므로 여기서 막지 않으면
     // 다른 workspace의 이슈가 고쳐진다.
     loadIssue(deps, ctx, id)
     return deps.issues.update({
-      id, ...(status ? { status } : {}), ...(body !== undefined ? { body } : {})
+      id,
+      ...(status ? { status } : {}),
+      ...(body !== undefined ? { body } : {}),
+      ...(source ? { source } : {}),
+      ...(kind ? { kind } : {}),
+      ...(priority ? { priority } : {})
     })
   }))
 

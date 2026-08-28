@@ -23,6 +23,7 @@ interface Fixture {
   memoB: string
   repoA: string
   db: ReturnType<typeof makeTestDb>
+  issues: ReturnType<typeof createIssueRepository>
 }
 
 let f: Fixture
@@ -41,7 +42,7 @@ beforeEach(() => {
 
   const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-mcptools-'))
   f = {
-    db, dir, wsA, wsB, repoA,
+    db, dir, wsA, wsB, repoA, issues,
     issueA: issues.create({ workspaceId: wsA, title: 'A의 이슈', body: '본문 A' }).id,
     issueB: issues.create({ workspaceId: wsB, title: 'B의 이슈', body: '본문 B' }).id,
     memoA: memos.create({ workspaceId: wsA, title: 'A의 메모', body: '메모 A' }).id,
@@ -250,5 +251,33 @@ describe('권한이 도구 등록을 통제한다', () => {
     expect(isError).toBe(true)
     expect(text).toContain('not found')
     expect(createIssueRepository(f.db).get(f.issueA).status).toBe('open')
+  })
+})
+
+describe('분류 축', () => {
+  it('create_issue가 축을 받고 triagedAt이 파생된다', async () => {
+    await call(f.wsA, 'edit', 'create_issue', {
+      title: '회의에서 나온 것', source: 'meeting', kind: 'feature', priority: 'week'
+    })
+    // beforeEach가 이미 wsA에 이슈 하나('A의 이슈')를 만들어 둔다.
+    // 인덱스로 집으면 그것을 집으므로 반드시 제목으로 찾는다.
+    const created = f.issues.list({ workspaceId: f.wsA })
+      .find((i) => i.title === '회의에서 나온 것')
+    expect(created?.source).toBe('meeting')
+    expect(created?.triagedAt).not.toBeNull()
+  })
+
+  it('축을 안 주면 정리 안 된 채로 들어간다', async () => {
+    await call(f.wsA, 'edit', 'create_issue', { title: '축 없이' })
+    const created = f.issues.list({ workspaceId: f.wsA }).find((i) => i.title === '축 없이')
+    expect(created?.triagedAt).toBeNull()
+  })
+
+  it('update_issue로 나머지 축을 채우면 triagedAt이 찍힌다', async () => {
+    const made = f.issues.create({ workspaceId: f.wsA, title: '나중에 분류', source: 'dev' })
+    await call(f.wsA, 'edit', 'update_issue', {
+      id: made.id, kind: 'refactor', priority: 'someday'
+    })
+    expect(f.issues.get(made.id).triagedAt).not.toBeNull()
   })
 })
