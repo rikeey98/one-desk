@@ -160,13 +160,25 @@ describe('IssueRepository', () => {
     })
 
     it('축을 건드리지 않는 갱신은 triagedAt을 바꾸지 않는다', () => {
-      const created = issues.create({
-        workspaceId, title: '알림 메일 오타',
-        source: 'dev', kind: 'docs', priority: 'someday'
-      })
-      const stamped = created.triagedAt
-      issues.update({ id: created.id, body: '본문만 고친다' })
-      expect(issues.get(created.id).triagedAt).toBe(stamped)
+      // touchesAxes 가드가 없으면 본문만 고쳐도 축 셋이 다시 채워진 것으로 읽혀
+      // triagedAt이 새 시각으로 덮인다. create와 update가 같은 밀리초에 떨어지면
+      // 그 새 시각이 옛 시각과 우연히 같아져 가드가 사라져도 이 테스트가 속는다 —
+      // 시계를 벌려야 진짜 시험이 된다.
+      vi.useFakeTimers()
+      try {
+        vi.setSystemTime(1_700_000_000_000)
+        const created = issues.create({
+          workspaceId, title: '알림 메일 오타',
+          source: 'dev', kind: 'docs', priority: 'someday'
+        })
+        const stamped = created.triagedAt
+
+        vi.setSystemTime(1_700_000_001_000)
+        issues.update({ id: created.id, body: '본문만 고친다' })
+        expect(issues.get(created.id).triagedAt).toBe(stamped)
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 
@@ -203,31 +215,57 @@ describe('IssueRepository', () => {
 
   describe('목록 정렬', () => {
     it('안 본 것이 먼저 온다', () => {
-      const a = issues.create({ workspaceId, title: 'A' })
-      const b = issues.create({ workspaceId, title: 'B' })
-      issues.create({ workspaceId, title: 'C' })
+      // markSeen 사이에 시계를 벌려야 seenAt이 진짜로 갈라진다 — 안 그러면
+      // 같은 밀리초에 찍혀 A/B 사이의 순서가 SQLite의 우연한 스캔 순서에 맡겨진다.
+      vi.useFakeTimers()
+      try {
+        vi.setSystemTime(1_700_000_000_000)
+        const a = issues.create({ workspaceId, title: 'A' })
+        const b = issues.create({ workspaceId, title: 'B' })
+        issues.create({ workspaceId, title: 'C' })
 
-      // A와 B는 봤고 C는 한 번도 안 봤다. C가 맨 위여야 한다.
-      issues.markSeen(a.id)
-      issues.markSeen(b.id)
+        // A와 B는 봤고 C는 한 번도 안 봤다. C가 맨 위여야 한다.
+        vi.setSystemTime(1_700_000_001_000)
+        issues.markSeen(a.id)
+        vi.setSystemTime(1_700_000_002_000)
+        issues.markSeen(b.id)
 
-      const titles = issues.list({ workspaceId }).map((i) => i.title)
-      expect(titles[0]).toBe('C')
-      // A를 B보다 먼저 봤으므로 A가 더 오래됐다 → A가 B보다 위
-      expect(titles.indexOf('A')).toBeLessThan(titles.indexOf('B'))
+        const titles = issues.list({ workspaceId }).map((i) => i.title)
+        expect(titles[0]).toBe('C')
+        // A를 B보다 먼저 봤으므로 A가 더 오래됐다 → A가 B보다 위
+        expect(titles.indexOf('A')).toBeLessThan(titles.indexOf('B'))
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('updatedAt이 올라가도 순서가 바뀌지 않는다', () => {
       // agent가 MCP로 본문을 고쳐도 목록 맨 위로 올라오면 안 된다.
-      const a = issues.create({ workspaceId, title: 'A' })
-      const b = issues.create({ workspaceId, title: 'B' })
-      issues.markSeen(a.id)
-      issues.markSeen(b.id)
+      //
+      // 일부러 B를 먼저 보고 A를 나중에 봐서 옛 규칙과 새 규칙이 서로 다른 답을
+      // 내게 만든다 — 옛 updatedAt DESC라면 방금 고친 A가 위였을 것이다. 그래야
+      // 이 테스트가 그 회귀를 실제로 잡는다. 시계를 벌려야 seenAt이 진짜로 갈라진다.
+      vi.useFakeTimers()
+      try {
+        vi.setSystemTime(1_700_000_000_000)
+        const a = issues.create({ workspaceId, title: 'A' })
+        const b = issues.create({ workspaceId, title: 'B' })
 
-      issues.update({ id: a.id, body: 'agent가 쓴 것' })
+        vi.setSystemTime(1_700_000_001_000)
+        issues.markSeen(b.id)
+        vi.setSystemTime(1_700_000_002_000)
+        issues.markSeen(a.id)
 
-      const titles = issues.list({ workspaceId }).map((i) => i.title)
-      expect(titles).toEqual(['A', 'B'])
+        vi.setSystemTime(1_700_000_003_000)
+        issues.update({ id: a.id, body: 'agent가 쓴 것' })
+
+        const titles = issues.list({ workspaceId }).map((i) => i.title)
+        // B를 먼저 봤으므로(seenAt이 더 오래됨) B가 위 — A의 updatedAt이 더
+        // 최근이어도 순서는 바뀌지 않는다.
+        expect(titles).toEqual(['B', 'A'])
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 })
@@ -300,6 +338,27 @@ describe('updateIfUnchanged', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('축을 마저 채우면 updateIfUnchanged로도 triagedAt이 찍힌다', () => {
+    // Previous 타입은 컬럼을 select에 담게 컴파일 타임에 강제할 뿐, 파생이
+    // 실제로 도는지는 보증하지 않는다 — updateIfUnchanged 경로를 직접 검증한다.
+    // IssueDetail이 축을 저장할 때 쓰는 경로가 바로 이것이다.
+    const db = makeTestDb()
+    const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
+    const issues = createIssueRepository(db)
+    const created = issues.create({
+      workspaceId, title: '결제 실패 알림 지연', source: 'customer', kind: 'bug'
+    })
+    expect(created.triagedAt).toBeNull()
+
+    const result = issues.updateIfUnchanged({
+      id: created.id, priority: 'urgent', expectedUpdatedAt: created.updatedAt
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.issue.triagedAt).not.toBeNull()
   })
 
   it('repoIds도 함께 갱신하고, 다른 workspace의 repo는 거부한다', () => {
