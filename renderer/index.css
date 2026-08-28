@@ -187,3 +187,54 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
 .delete-by-name-actions button { border: 1px solid #e4e4e7; border-radius: 5px; background: #fff; cursor: pointer; font: inherit; font-size: 11px; padding: 3px 9px; }
 .delete-by-name-actions .row-action-danger { border-color: #fca5a5; color: #991b1b; }
 .delete-by-name-actions .row-action-danger:disabled { opacity: .4; cursor: not-allowed; }
+
+/* 훑기 배너 — 정리 안 된 이슈가 있을 때만 뜬다 */
+.triage-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  margin: 6px 0;
+  border: 1px solid rgba(224, 108, 0, 0.5);
+  background: rgba(224, 108, 0, 0.12);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.group-axis {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  opacity: 0.8;
+  margin: 6px 0;
+}
+
+.group-header {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  margin-top: 4px;
+  border: none;
+  background: rgba(128, 128, 128, 0.12);
+  border-radius: 5px;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chip {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 99px;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.chip-stale {
+  border-color: rgba(224, 108, 0, 0.6);
+  background: rgba(224, 108, 0, 0.15);
+  opacity: 1;
+}

@@ -258,6 +258,7 @@ export default function App() {
               <IssuePanel
                 workspaceId={workspaceId}
                 repoId={repoId}
+                repos={repos}
                 chipKeys={chipKeys}
                 onToggleContext={toggleChip}
                 expanded={openItem?.panel === 'issue'}
