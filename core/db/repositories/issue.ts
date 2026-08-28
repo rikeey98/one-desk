@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { and, desc, eq, inArray, notInArray, or } from 'drizzle-orm'
+import { and, asc, eq, inArray, notInArray, or, sql } from 'drizzle-orm'
 import type { Database } from '../open'
 import { issue, issueRepo, repo } from '../schema'
 import { NotFoundError } from '../../errors'
 import type {
   Issue, CreateIssueInput, UpdateIssueInput, ListQuery,
-  GuardedUpdateIssueInput, IssueUpdateResult
+  GuardedUpdateIssueInput, IssueUpdateResult, IssueSource, IssueKind, IssuePriority
 } from '@shared/models'
 
 /** db.transaction()의 콜백이 받는 runner. db와 같은 쿼리 빌더 API를 갖는다. */
@@ -62,15 +62,23 @@ export function createIssueRepository(db: Database) {
     return { ...row, repoIds: loadRepoIds([id]).get(id) ?? [] }
   }
 
+  /** buildPatch가 파생을 계산하려면 현재 축 값이 필요하다. */
+  type Previous = {
+    updatedAt: number
+    source: IssueSource | null
+    kind: IssueKind | null
+    priority: IssuePriority | null
+  }
+
   /**
    * UpdateIssueInput을 SET 절로 바꾼다. update와 updateIfUnchanged가 함께 쓴다.
    *
-   * updatedAt은 낙관적 잠금의 버전 노릇도 한다 (설계 §6). 같은 밀리초에 두 번 쓰면
-   * 값이 같아져 "그 사이 바뀌었다"를 놓치므로 반드시 이전 값보다 크게 만든다.
+   * updatedAt은 낙관적 잠금의 버전 노릇도 한다 (본문 편집 설계 §6). 같은 밀리초에
+   * 두 번 쓰면 값이 같아져 "그 사이 바뀌었다"를 놓치므로 반드시 이전 값보다 크게 만든다.
    */
-  function buildPatch(input: UpdateIssueInput, previousUpdatedAt: number): Record<string, unknown> {
+  function buildPatch(input: UpdateIssueInput, previous: Previous): Record<string, unknown> {
     const patch: Record<string, unknown> = {
-      updatedAt: Math.max(Date.now(), previousUpdatedAt + 1)
+      updatedAt: Math.max(Date.now(), previous.updatedAt + 1)
     }
     if (input.title !== undefined) patch['title'] = input.title
     if (input.body !== undefined) patch['body'] = input.body
@@ -78,6 +86,21 @@ export function createIssueRepository(db: Database) {
       patch['status'] = input.status
       // closedAt은 status에서 파생된다. 호출자가 따로 관리하면 둘이 어긋난다.
       patch['closedAt'] = input.status === 'done' ? Date.now() : null
+    }
+
+    // triagedAt도 파생이다 (설계 §3). **축을 건드리는 갱신에서만 다시 계산한다** —
+    // 매번 계산하면 본문만 고쳐도 triagedAt이 새 시각으로 덮여, "언제 정리했나"가
+    // 아무 뜻도 없는 값이 된다.
+    const touchesAxes =
+      input.source !== undefined || input.kind !== undefined || input.priority !== undefined
+    if (touchesAxes) {
+      const source = input.source ?? previous.source
+      const kind = input.kind ?? previous.kind
+      const priority = input.priority ?? previous.priority
+      if (input.source !== undefined) patch['source'] = source
+      if (input.kind !== undefined) patch['kind'] = kind
+      if (input.priority !== undefined) patch['priority'] = priority
+      patch['triagedAt'] = source && kind && priority ? Date.now() : null
     }
     return patch
   }
@@ -99,8 +122,12 @@ export function createIssueRepository(db: Database) {
           )
         : eq(issue.workspaceId, query.workspaceId)
 
+      // 안 본 것이 위로 온다. seenAt이 null인 것(한 번도 안 연 것)이 가장 위다.
+      // 예전의 updatedAt DESC는 정확히 반대로 돌았다 — 안 볼수록 아래로 밀었고,
+      // agent가 MCP로 건드린 이슈를 사람이 본 것처럼 맨 위로 올렸다.
       const rows = db.select().from(issue).where(where)
-        .orderBy(desc(issue.updatedAt), desc(issue.createdAt)).all()
+        .orderBy(sql`(${issue.seenAt} is null) desc`, asc(issue.seenAt), asc(issue.createdAt))
+        .all()
 
       const tagMap = loadRepoIds(rows.map((r) => r.id))
       return rows.map((r) => ({ ...r, repoIds: tagMap.get(r.id) ?? [] }))
@@ -109,6 +136,7 @@ export function createIssueRepository(db: Database) {
     create(input: CreateIssueInput): Issue {
       const id = randomUUID()
       const now = Date.now()
+      const { source = null, kind = null, priority = null } = input
       db.transaction((tx) => {
         assertReposInWorkspace(tx, input.workspaceId, input.repoIds ?? [])
         tx.insert(issue).values({
@@ -116,6 +144,11 @@ export function createIssueRepository(db: Database) {
           workspaceId: input.workspaceId,
           title: input.title,
           body: input.body ?? '',
+          source,
+          kind,
+          priority,
+          // 만들 때도 파생 규칙은 같다. agent가 MCP로 축까지 주면 훑기를 건너뛴다.
+          triagedAt: source && kind && priority ? now : null,
           createdAt: now,
           updatedAt: now
         }).run()
@@ -126,13 +159,19 @@ export function createIssueRepository(db: Database) {
 
     update(input: UpdateIssueInput): Issue {
       const owner = db
-        .select({ workspaceId: issue.workspaceId, updatedAt: issue.updatedAt })
+        .select({
+          workspaceId: issue.workspaceId,
+          updatedAt: issue.updatedAt,
+          source: issue.source,
+          kind: issue.kind,
+          priority: issue.priority
+        })
         .from(issue)
         .where(eq(issue.id, input.id))
         .get()
       if (!owner) throw new NotFoundError(`이슈를 찾을 수 없습니다: ${input.id}`)
 
-      const patch = buildPatch(input, owner.updatedAt)
+      const patch = buildPatch(input, owner)
 
       db.transaction((tx) => {
         tx.update(issue).set(patch).where(eq(issue.id, input.id)).run()
@@ -155,7 +194,13 @@ export function createIssueRepository(db: Database) {
       try {
         db.transaction((tx) => {
           const row = tx
-            .select({ workspaceId: issue.workspaceId, updatedAt: issue.updatedAt })
+            .select({
+              workspaceId: issue.workspaceId,
+              updatedAt: issue.updatedAt,
+              source: issue.source,
+              kind: issue.kind,
+              priority: issue.priority
+            })
             .from(issue)
             .where(eq(issue.id, input.id))
             .get()
@@ -163,7 +208,7 @@ export function createIssueRepository(db: Database) {
           // 던져야 트랜잭션이 롤백된다. 여기서 return하면 앞선 쓰기가 남는다.
           if (row.updatedAt !== input.expectedUpdatedAt) throw CONFLICT
 
-          tx.update(issue).set(buildPatch(input, row.updatedAt))
+          tx.update(issue).set(buildPatch(input, row))
             .where(eq(issue.id, input.id)).run()
           if (input.repoIds !== undefined) {
             assertReposInWorkspace(tx, row.workspaceId, input.repoIds)
@@ -175,6 +220,21 @@ export function createIssueRepository(db: Database) {
         throw err
       }
       return { ok: true, issue: getById(input.id) }
+    },
+
+    /**
+     * 사람이 이슈를 열었다는 사실만 기록한다.
+     *
+     * **buildPatch를 타지 않는다.** updatedAt을 올리면 열려 있는 IssueDetail의
+     * 낙관적 잠금 기대값이 즉시 낡아, 다음 자동 저장이 사용자 자신의 열람을 agent의
+     * 편집으로 착각해 유령 충돌 배너를 띄운다.
+     */
+    markSeen(id: string): void {
+      const result = db.update(issue)
+        .set({ seenAt: Date.now() })
+        .where(eq(issue.id, id))
+        .run()
+      if (result.changes === 0) throw new NotFoundError(`이슈를 찾을 수 없습니다: ${id}`)
     },
 
     remove(id: string): void {

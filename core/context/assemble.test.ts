@@ -7,7 +7,8 @@ const repo = {
 }
 const issue = {
   id: 'i1', workspaceId: 'w1', title: '토큰 만료 버그', body: 'UTC 변환 누락',
-  status: 'doing' as const, repoIds: ['r1'], createdAt: 0, updatedAt: 0, closedAt: null
+  status: 'doing' as const, repoIds: ['r1'], createdAt: 0, updatedAt: 0, closedAt: null,
+  source: null, kind: null, priority: null, triagedAt: null, seenAt: null
 }
 const memo = {
   id: 'm1', workspaceId: 'w1', title: '배포 절차', body: '롤백은 …',

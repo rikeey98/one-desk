@@ -12,6 +12,12 @@ export type McpStatus =
   | { state: 'listening'; port: number }
   | { state: 'failed'; message: string }
 export type IssueStatus = 'open' | 'doing' | 'done'
+/** 이슈가 어디서 왔는가 */
+export type IssueSource = 'customer' | 'plan' | 'meeting' | 'dev'
+/** 무슨 일인가 */
+export type IssueKind = 'bug' | 'feature' | 'refactor' | 'docs' | 'research'
+/** 얼마나 급한가. **나열 순서가 곧 급한 순서다** — 그룹 순서가 여기서 나온다. */
+export type IssuePriority = 'urgent' | 'week' | 'someday'
 
 export interface Workspace {
   id: string
@@ -47,6 +53,13 @@ export interface Issue {
   createdAt: number
   updatedAt: number
   closedAt: number | null
+  source: IssueSource | null
+  kind: IssueKind | null
+  priority: IssuePriority | null
+  /** 축 셋이 다 채워진 시각. null이면 훑기 대기열이다. **저장소가 파생한다.** */
+  triagedAt: number | null
+  /** 사람이 상세를 연 시각. updatedAt과 분리돼 있다 — agent는 이것을 못 올린다. */
+  seenAt: number | null
 }
 
 export interface Memo {
@@ -76,6 +89,9 @@ export interface CreateIssueInput {
   title: string
   body?: string
   repoIds?: string[]
+  source?: IssueSource
+  kind?: IssueKind
+  priority?: IssuePriority
 }
 
 export interface UpdateIssueInput {
@@ -84,6 +100,9 @@ export interface UpdateIssueInput {
   body?: string
   status?: IssueStatus
   repoIds?: string[]
+  source?: IssueSource
+  kind?: IssueKind
+  priority?: IssuePriority
 }
 
 /**

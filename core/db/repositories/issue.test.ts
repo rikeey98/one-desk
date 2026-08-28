@@ -4,6 +4,7 @@ import { createWorkspaceRepository } from './workspace'
 import { createRepoRepository } from './repo'
 import { createIssueRepository } from './issue'
 import type { Database } from '../open'
+import { NotFoundError } from '../../errors'
 
 describe('IssueRepository', () => {
   let db: Database
@@ -63,7 +64,9 @@ describe('IssueRepository', () => {
     expect(updated.repoIds).toEqual([webRepoId])
   })
 
-  it('연달아 생성한 이슈가 최신순으로 정렬된다', async () => {
+  it('연달아 생성한 이슈가 생성순(오래된 것 먼저)으로 정렬된다', async () => {
+    // 셋 다 한 번도 안 봤다(seenAt 전부 null) → 안 본 것 그룹 안에서는
+    // createdAt ASC가 순서를 정한다. 예전에는 updatedAt DESC라 역순이었다.
     issues.create({ workspaceId, title: 'A' })
     await new Promise((r) => setTimeout(r, 5))
     issues.create({ workspaceId, title: 'B' })
@@ -71,7 +74,7 @@ describe('IssueRepository', () => {
     issues.create({ workspaceId, title: 'C' })
 
     const titles = issues.list({ workspaceId }).map((i) => i.title)
-    expect(titles).toEqual(['C', 'B', 'A'])
+    expect(titles).toEqual(['A', 'B', 'C'])
   })
 
   it('태그 삽입이 실패하면 이슈 본문도 저장되지 않는다', () => {
@@ -115,6 +118,117 @@ describe('IssueRepository', () => {
       workspaceId, title: '중복 태그', repoIds: [apiRepoId, apiRepoId]
     })
     expect(created.repoIds).toEqual([apiRepoId])
+  })
+
+  describe('분류 축과 triagedAt 파생', () => {
+    it('축 셋이 다 있으면 triagedAt이 찍힌다', () => {
+      const created = issues.create({
+        workspaceId, title: '결제 취소 API 응답 지연',
+        source: 'customer', kind: 'bug', priority: 'urgent'
+      })
+      expect(created.triagedAt).not.toBeNull()
+      expect(created.source).toBe('customer')
+    })
+
+    it('축이 하나라도 비면 triagedAt은 null이다', () => {
+      const created = issues.create({
+        workspaceId, title: '회원 탈퇴 플로우 문의', source: 'meeting'
+      })
+      expect(created.triagedAt).toBeNull()
+    })
+
+    it('나중에 나머지 축을 채우면 triagedAt이 찍힌다', () => {
+      const created = issues.create({ workspaceId, title: '이미지 업로드 용량 제한' })
+      expect(created.triagedAt).toBeNull()
+
+      issues.update({ id: created.id, source: 'customer', kind: 'feature' })
+      expect(issues.get(created.id).triagedAt).toBeNull()
+
+      issues.update({ id: created.id, priority: 'week' })
+      expect(issues.get(created.id).triagedAt).not.toBeNull()
+    })
+
+    it('백필된 이슈(축 없이 triagedAt만 있음)의 축을 건드리면 대기열로 돌아온다', () => {
+      // 마이그레이션 0003이 만드는 유일한 예외 상태다 (설계 §3). 축을 처음 건드리는
+      // 순간 파생 규칙이 적용돼 예외가 스스로 사라진다.
+      const created = issues.create({ workspaceId, title: '옛 이슈' })
+      db.$client.prepare('UPDATE issue SET triaged_at = created_at WHERE id = ?').run(created.id)
+      expect(issues.get(created.id).triagedAt).not.toBeNull()
+
+      issues.update({ id: created.id, source: 'dev' })
+      expect(issues.get(created.id).triagedAt).toBeNull()
+    })
+
+    it('축을 건드리지 않는 갱신은 triagedAt을 바꾸지 않는다', () => {
+      const created = issues.create({
+        workspaceId, title: '알림 메일 오타',
+        source: 'dev', kind: 'docs', priority: 'someday'
+      })
+      const stamped = created.triagedAt
+      issues.update({ id: created.id, body: '본문만 고친다' })
+      expect(issues.get(created.id).triagedAt).toBe(stamped)
+    })
+  })
+
+  describe('markSeen', () => {
+    it('seenAt을 찍는다', () => {
+      const created = issues.create({ workspaceId, title: '배포 스크립트 문서화' })
+      expect(created.seenAt).toBeNull()
+      issues.markSeen(created.id)
+      expect(issues.get(created.id).seenAt).not.toBeNull()
+    })
+
+    it('updatedAt을 건드리지 않는다', () => {
+      // 이것이 핵심이다. 올리면 열려 있는 IssueDetail의 기대값이 낡아
+      // 다음 자동 저장이 사용자 자신의 열람을 agent의 편집으로 착각한다.
+      //
+      // 시계를 고정해야 진짜 시험이 된다 — create와 markSeen이 같은 밀리초에
+      // 떨어지면 회귀가 나도 두 값이 우연히 같아져 이 테스트가 통과해 버린다.
+      vi.useFakeTimers()
+      try {
+        vi.setSystemTime(1_700_000_000_000)
+        const created = issues.create({ workspaceId, title: '로그인 리다이렉트' })
+        vi.setSystemTime(1_700_000_001_000)
+        issues.markSeen(created.id)
+        expect(issues.get(created.id).updatedAt).toBe(created.updatedAt)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('없는 이슈면 NotFoundError를 던진다', () => {
+      expect(() => issues.markSeen('없는-id')).toThrow(NotFoundError)
+    })
+  })
+
+  describe('목록 정렬', () => {
+    it('안 본 것이 먼저 온다', () => {
+      const a = issues.create({ workspaceId, title: 'A' })
+      const b = issues.create({ workspaceId, title: 'B' })
+      issues.create({ workspaceId, title: 'C' })
+
+      // A와 B는 봤고 C는 한 번도 안 봤다. C가 맨 위여야 한다.
+      issues.markSeen(a.id)
+      issues.markSeen(b.id)
+
+      const titles = issues.list({ workspaceId }).map((i) => i.title)
+      expect(titles[0]).toBe('C')
+      // A를 B보다 먼저 봤으므로 A가 더 오래됐다 → A가 B보다 위
+      expect(titles.indexOf('A')).toBeLessThan(titles.indexOf('B'))
+    })
+
+    it('updatedAt이 올라가도 순서가 바뀌지 않는다', () => {
+      // agent가 MCP로 본문을 고쳐도 목록 맨 위로 올라오면 안 된다.
+      const a = issues.create({ workspaceId, title: 'A' })
+      const b = issues.create({ workspaceId, title: 'B' })
+      issues.markSeen(a.id)
+      issues.markSeen(b.id)
+
+      issues.update({ id: a.id, body: 'agent가 쓴 것' })
+
+      const titles = issues.list({ workspaceId }).map((i) => i.title)
+      expect(titles).toEqual(['A', 'B'])
+    })
   })
 })
 

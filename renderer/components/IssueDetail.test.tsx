@@ -9,7 +9,8 @@ import type { OneDeskClient } from '@shared/client'
 function makeIssue(over: Partial<Issue> = {}): Issue {
   return {
     id: 'i1', workspaceId: 'w1', title: '토큰 만료', body: '원본', status: 'open',
-    repoIds: [], createdAt: 0, updatedAt: 100, closedAt: null, ...over
+    repoIds: [], createdAt: 0, updatedAt: 100, closedAt: null,
+    source: null, kind: null, priority: null, triagedAt: null, seenAt: null, ...over
   }
 }
 
