@@ -110,4 +110,13 @@ describe('IssuePanel 그룹', () => {
     renderPanel([makeIssue({ id: 'a', title: 'A', priority: 'urgent', seenAt: old })])
     expect(await screen.findByLabelText('오래 방치됨')).toBeInTheDocument()
   })
+
+  it('행에 성격·출처 축 칩을 보여준다', async () => {
+    renderPanel([makeIssue({ id: 'a', title: 'A', kind: 'bug', source: 'customer' })])
+    await screen.findByRole('button', { name: 'A' })
+    // 칩 클래스까지 확인한다 — 전역 .chip과 충돌해 클릭 가능한 파란 배경을
+    // 물려받는 사고를 이 테스트가 함께 막는다.
+    expect(screen.getByText('버그')).toHaveClass('axis-chip')
+    expect(screen.getByText('고객')).toHaveClass('axis-chip')
+  })
 })

@@ -15,8 +15,8 @@ const AXES: GroupAxis[] = ['priority', 'source', 'kind', 'repo']
 function AxisChips({ issue }: { issue: Issue }) {
   return (
     <>
-      {issue.kind && <span className="chip">{KIND_LABELS[issue.kind]}</span>}
-      {issue.source && <span className="chip">{SOURCE_LABELS[issue.source]}</span>}
+      {issue.kind && <span className="axis-chip">{KIND_LABELS[issue.kind]}</span>}
+      {issue.source && <span className="axis-chip">{SOURCE_LABELS[issue.source]}</span>}
     </>
   )
 }
@@ -132,7 +132,7 @@ export function IssuePanel({
                       </button>
                       <AxisChips issue={i} />
                       {isStale(i, now) && (
-                        <span className="chip chip-stale" aria-label="오래 방치됨">⚠</span>
+                        <span className="axis-chip axis-chip-stale" aria-label="오래 방치됨">⚠</span>
                       )}
                       {/* 목록의 상태와 축은 읽기 전용이다. 편집은 상세가 맡는다.
                           여기서 잠기지 않은 update로 쓰면 그 쓰기가 updatedAt을 올려

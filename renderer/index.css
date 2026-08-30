@@ -224,16 +224,23 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
   cursor: pointer;
 }
 
-.chip {
+/* .chip(index.css:121)은 도크 맥락 칩이 이미 쓰고 있는 전역 이름이다 — 같은
+   이름을 여기서 다시 선언하면 동일 우선순위에서 이 규칙이 나중에 이겨,
+   RunPanel의 파란 테두리 칩이 조용히 다시 칠해진다. 별도 이름으로 분리한다. */
+.axis-chip {
   font-size: 11px;
   padding: 1px 7px;
   border-radius: 99px;
   border: 1px solid rgba(128, 128, 128, 0.4);
+  background: transparent;
   opacity: 0.8;
   white-space: nowrap;
+  /* 표시 전용이다 — 클릭 가능해 보이면 안 된다. 나중에 .chip에 cursor: pointer가
+     생겨도 물려받지 않도록 명시한다. */
+  cursor: default;
 }
 
-.chip-stale {
+.axis-chip-stale {
   border-color: rgba(224, 108, 0, 0.6);
   background: rgba(224, 108, 0, 0.15);
   opacity: 1;
