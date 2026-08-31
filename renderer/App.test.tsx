@@ -179,7 +179,10 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
         if (prev.updatedAt !== input.expectedUpdatedAt) return { ok: false, current: prev }
         return { ok: true, issue: writeIssue(input) }
       }),
-      remove: vi.fn(async (id: string) => { issues = issues.filter((i) => i.id !== id) })
+      remove: vi.fn(async (id: string) => { issues = issues.filter((i) => i.id !== id) }),
+      // IssueDetail이 마운트 때마다 부른다 (Task 8). 여기서는 열람 기록 자체를
+      // 검증하지 않으므로 목만 채워 둔다.
+      markSeen: vi.fn(async () => {})
     },
     memos: {
       list: vi.fn(async () => memos),

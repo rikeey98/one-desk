@@ -24,6 +24,7 @@ function makeClient(over: Partial<OneDeskClient['issues']> = {}): OneDeskClient 
         ok: true as const, issue: makeIssue({ ...i, updatedAt: 200 })
       })),
       remove: vi.fn(),
+      markSeen: vi.fn(async () => {}),
       ...over
     }
   } as unknown as OneDeskClient
@@ -308,5 +309,47 @@ describe('IssueDetail', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(600) })
 
     expect(client.issues.updateIfUnchanged).not.toHaveBeenCalled()
+  })
+})
+
+describe('IssueDetail 열람 기록', () => {
+  it('마운트하면 markSeen을 부른다', async () => {
+    const markSeen = vi.fn(async () => {})
+    renderDetail(makeClient({ markSeen }), makeIssue({ id: 'i1' }))
+    await waitFor(() => expect(markSeen).toHaveBeenCalledWith('i1'))
+  })
+
+  it('markSeen이 실패해도 화면은 멀쩡하다', async () => {
+    // 열람 기록은 부수적이다. 이슈를 여는 행위가 이것 때문에 실패하면 안 된다.
+    const markSeen = vi.fn(async () => { throw new Error('DB 실패') })
+    renderDetail(makeClient({ markSeen }), makeIssue({ id: 'i1' }))
+    await waitFor(() => expect(markSeen).toHaveBeenCalled())
+    expect(await screen.findByLabelText('본문')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('markSeen은 목록을 다시 읽게 하지 않는다', async () => {
+    // 정렬이 seenAt 오래된 순이라, 읽으면 방금 클릭한 항목이 눈앞에서 도망간다.
+    const markSeen = vi.fn(async () => {})
+    const props = renderDetail(makeClient({ markSeen }), makeIssue({ id: 'i1' }))
+    await waitFor(() => expect(markSeen).toHaveBeenCalled())
+    expect(props.onChanged).not.toHaveBeenCalled()
+  })
+})
+
+describe('IssueDetail 축 편집', () => {
+  it('축을 고르면 잠긴 경로로 저장한다', async () => {
+    const updateIfUnchanged = vi.fn(async (i: { id: string }) => ({
+      ok: true as const, issue: makeIssue({ id: i.id, updatedAt: 600 })
+    }))
+    renderDetail(
+      makeClient({ updateIfUnchanged }),
+      makeIssue({ id: 'i1', updatedAt: 500 })
+    )
+    await userEvent.selectOptions(await screen.findByLabelText('급함'), 'urgent')
+
+    await waitFor(() => expect(updateIfUnchanged).toHaveBeenCalledWith({
+      id: 'i1', priority: 'urgent', expectedUpdatedAt: 500
+    }))
   })
 })

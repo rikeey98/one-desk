@@ -1,9 +1,15 @@
-import { useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useClient } from '../client/ClientProvider'
 import { useDebouncedSave } from '../hooks/useDebouncedSave'
 import { ConflictBanner } from './ConflictBanner'
 import { ConfirmButton } from './ConfirmButton'
-import type { Issue, IssueStatus } from '@shared/models'
+import {
+  PRIORITY_ORDER, SOURCE_ORDER, KIND_ORDER,
+  PRIORITY_LABELS, SOURCE_LABELS, KIND_LABELS
+} from '../issueAxes'
+import type {
+  Issue, IssueStatus, IssueSource, IssueKind, IssuePriority
+} from '@shared/models'
 
 export function IssueDetail({ issue, onChanged, onDeleted, onRequestClose }: {
   issue: Issue
@@ -17,6 +23,9 @@ export function IssueDetail({ issue, onChanged, onDeleted, onRequestClose }: {
   const [title, setTitle] = useState(issue.title)
   const [body, setBody] = useState(issue.body)
   const [status, setStatus] = useState(issue.status)
+  const [source, setSource] = useState(issue.source)
+  const [kind, setKind] = useState(issue.kind)
+  const [priority, setPriority] = useState(issue.priority)
   const [error, setError] = useState<string | null>(null)
   const [conflict, setConflict] = useState<Issue | null>(null)
   // 배너 상태를 ref로도 들고 있는다. Esc 경로는 flush를 await한 뒤에 충돌 여부를 봐야
@@ -30,12 +39,30 @@ export function IssueDetail({ issue, onChanged, onDeleted, onRequestClose }: {
   // 때마다 버퍼를 초기화하면 타이핑 중에 글자가 되돌아간다.
   const expected = useRef(issue.updatedAt)
 
+  /**
+   * 사람이 이 이슈를 열었다는 기록. **마운트 때 한 번만이다.**
+   *
+   * - 실패해도 삼킨다. 열람 기록은 부수적이고, 이슈를 여는 행위가 이것 때문에
+   *   실패하면 안 된다.
+   * - **onChanged를 부르지 않는다.** 목록 정렬이 seenAt 오래된 순이라, 여기서
+   *   목록을 다시 읽으면 방금 클릭한 항목이 눈앞에서 맨 아래로 도망간다.
+   *   반영은 다음 마운트로 미룬다.
+   * - issue.id가 바뀌면 IssuePanel의 key가 이 컴포넌트를 통째로 다시 마운트하므로
+   *   의존성 배열은 마운트 한 번을 뜻한다.
+   */
+  useEffect(() => {
+    void client.issues.markSeen(issue.id).catch(() => {})
+  }, [client, issue.id])
+
   function showConflict(next: Issue | null) {
     conflictRef.current = next
     setConflict(next)
   }
 
-  async function persist(patch: { title?: string; body?: string; status?: IssueStatus }) {
+  async function persist(patch: {
+    title?: string; body?: string; status?: IssueStatus
+    source?: IssueSource; kind?: IssueKind; priority?: IssuePriority
+  }) {
     setError(null)
     const result = await client.issues.updateIfUnchanged({
       id: issue.id, ...patch, expectedUpdatedAt: expected.current
@@ -58,6 +85,17 @@ export function IssueDetail({ issue, onChanged, onDeleted, onRequestClose }: {
     setStatus(next)
     void (async () => {
       try { await persist({ status: next }) }
+      catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    })()
+  }
+
+  /**
+   * 훑기 축 편집도 status와 같은 이유로 persist(잠긴 경로)를 탄다 —
+   * 잠기지 않은 update로 쓰면 이 화면의 기대값만 낡아 유령 충돌 배너가 뜬다.
+   */
+  function changeAxis(patch: { source?: IssueSource; kind?: IssueKind; priority?: IssuePriority }) {
+    void (async () => {
+      try { await persist(patch) }
       catch (err) { setError(err instanceof Error ? err.message : String(err)) }
     })()
   }
@@ -161,6 +199,60 @@ export function IssueDetail({ issue, onChanged, onDeleted, onRequestClose }: {
         <option value="doing">doing</option>
         <option value="done">done</option>
       </select>
+      <label>
+        출처
+        <select
+          aria-label="출처"
+          value={source ?? ''}
+          onChange={(e) => {
+            const next = e.target.value as IssueSource | ''
+            if (!next) return   // 축을 지우는 길은 만들지 않는다 (설계 §6)
+            setSource(next)
+            changeAxis({ source: next })
+          }}
+        >
+          <option value="">미지정</option>
+          {SOURCE_ORDER.map((v) => (
+            <option key={v} value={v}>{SOURCE_LABELS[v]}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        성격
+        <select
+          aria-label="성격"
+          value={kind ?? ''}
+          onChange={(e) => {
+            const next = e.target.value as IssueKind | ''
+            if (!next) return   // 축을 지우는 길은 만들지 않는다 (설계 §6)
+            setKind(next)
+            changeAxis({ kind: next })
+          }}
+        >
+          <option value="">미지정</option>
+          {KIND_ORDER.map((v) => (
+            <option key={v} value={v}>{KIND_LABELS[v]}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        급함
+        <select
+          aria-label="급함"
+          value={priority ?? ''}
+          onChange={(e) => {
+            const next = e.target.value as IssuePriority | ''
+            if (!next) return   // 축을 지우는 길은 만들지 않는다 (설계 §6)
+            setPriority(next)
+            changeAxis({ priority: next })
+          }}
+        >
+          <option value="">미지정</option>
+          {PRIORITY_ORDER.map((v) => (
+            <option key={v} value={v}>{PRIORITY_LABELS[v]}</option>
+          ))}
+        </select>
+      </label>
       <textarea
         aria-label="본문"
         className="detail-body"
