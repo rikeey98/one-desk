@@ -198,18 +198,28 @@ describe('IssuePanel 훑기', () => {
     // 분류와 열람은 다른 행위다. 축을 찍었다는 이유로 방치 시계가 리셋되면
     // 훑기가 방치를 감추는 도구가 된다 (설계 §3 ③).
     //
-    // **카드가 아직 화면에 있는 동안 확인한다.** 다음을 눌러 확인하면 그 시점엔
-    // 이미 카드가 걷히고 같은 이슈로 IssueDetail이 마운트된 뒤라, Task 8이
-    // IssueDetail에 markSeen을 넣는 순간 이 단언이 훑기와 무관한 이유로 빨개진다.
-    const mocks = renderPanel(
+    // **아무것도 열리지 않은 상태에서 시작해, 훑어보기 자신이 열게 한다.**
+    // renderPanel처럼 openId를 미리 프리셋하면 triaging이 아직 false인 첫 렌더에서
+    // IssueDetail이 먼저 마운트되고 그 markSeen 이펙트(Task 8)가 먼저 찍혀버려,
+    // 이 단언이 훑기와 무관한 이유로 빨개진다 — 실제로 그렇게 한 번 빨개졌었다.
+    // 이 시나리오 자체는 실제 앱에서도 일어날 수 있고(상세를 이미 열어 본 이슈를
+    // 그 자리에서 훑는 경우) 그때 seenAt이 찍히는 것은 올바른 동작이다. 이 테스트가
+    // 좁혀서 지키려는 것은 "훑기 흐름 자체는" seenAt을 찍지 않는다는 것뿐이다.
+    //
+    // renderControlledPanel로 진짜 openId state를 써서, 훑어보기 클릭이 onOpen을
+    // 직접 몰아 triaging과 openId가 같은 배치로 함께 세워지게 한다 — 그러면
+    // IssueDetail은 이 테스트 동안 한 번도 마운트되지 않고, TriageCard만 뜬다.
+    const mocks = renderControlledPanel(
       [makeIssue({ id: 'a', title: 'A', triagedAt: null })],
-      { openId: 'a', expanded: true }
+      null
     )
     await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
-    await userEvent.click(screen.getByRole('button', { name: '회의' }))
+    await userEvent.click(await screen.findByRole('button', { name: '회의' }))
     await userEvent.click(screen.getByRole('button', { name: '버그' }))
     await userEvent.click(screen.getByRole('button', { name: '긴급' }))
 
+    // 카드가 여전히 화면에 있다 — IssueDetail로 넘어가지 않았다는 방증이다.
+    expect(screen.getByRole('button', { name: '다음' })).toBeInTheDocument()
     expect(mocks.markSeen).not.toHaveBeenCalled()
   })
 
