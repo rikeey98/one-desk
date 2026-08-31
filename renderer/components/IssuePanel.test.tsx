@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { IssuePanel } from './IssuePanel'
@@ -118,5 +118,62 @@ describe('IssuePanel 그룹', () => {
     // 물려받는 사고를 이 테스트가 함께 막는다.
     expect(screen.getByText('버그')).toHaveClass('axis-chip')
     expect(screen.getByText('고객')).toHaveClass('axis-chip')
+  })
+})
+
+describe('IssuePanel 훑기', () => {
+  it('훑어보기를 누르면 첫 대기 항목이 열린다', async () => {
+    const onOpen = vi.fn()
+    renderPanel([makeIssue({ id: 'a', title: 'A', triagedAt: null })], { onOpen })
+    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    expect(onOpen).toHaveBeenCalledWith('a')
+  })
+
+  it('축 셋을 찍고 다음을 누르면 저장한다', async () => {
+    const mocks = renderPanel(
+      [makeIssue({ id: 'a', title: 'A', triagedAt: null })],
+      { openId: 'a', expanded: true }
+    )
+    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    await userEvent.click(screen.getByRole('button', { name: '회의' }))
+    await userEvent.click(screen.getByRole('button', { name: '버그' }))
+    await userEvent.click(screen.getByRole('button', { name: '긴급' }))
+    await userEvent.click(screen.getByRole('button', { name: '다음' }))
+
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith({
+      id: 'a', source: 'meeting', kind: 'bug', priority: 'urgent'
+    }))
+  })
+
+  it('훑기는 seenAt을 찍지 않는다', async () => {
+    // 분류와 열람은 다른 행위다. 축을 찍었다는 이유로 방치 시계가 리셋되면
+    // 훑기가 방치를 감추는 도구가 된다 (설계 §3 ③).
+    const mocks = renderPanel(
+      [makeIssue({ id: 'a', title: 'A', triagedAt: null })],
+      { openId: 'a', expanded: true }
+    )
+    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    await userEvent.click(screen.getByRole('button', { name: '회의' }))
+    await userEvent.click(screen.getByRole('button', { name: '버그' }))
+    await userEvent.click(screen.getByRole('button', { name: '긴급' }))
+    await userEvent.click(screen.getByRole('button', { name: '다음' }))
+
+    await waitFor(() => expect(mocks.update).toHaveBeenCalled())
+    expect(mocks.markSeen).not.toHaveBeenCalled()
+  })
+
+  it('건너뛴 이슈는 대기열에 남는다', async () => {
+    const mocks = renderPanel(
+      [
+        makeIssue({ id: 'a', title: 'A', triagedAt: null }),
+        makeIssue({ id: 'b', title: 'B', triagedAt: null })
+      ],
+      { openId: 'a', expanded: true }
+    )
+    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    await userEvent.click(screen.getByRole('button', { name: '건너뛰기' }))
+
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(screen.getByText(/정리 안 됨 \(2\)/)).toBeInTheDocument()
   })
 })

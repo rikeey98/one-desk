@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Panel } from './Panel'
 import { AddForm } from './AddForm'
 import { IssueDetail } from './IssueDetail'
+import { TriageCard, type TriagePick } from './TriageCard'
 import { useIssues } from '../hooks/useIssues'
 import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextChip } from '../context'
@@ -48,6 +49,45 @@ export function IssuePanel({
     if (openId && !open) onOpen(openId)
   }, [openId, open, onOpen])
 
+  // 훑기 상태는 IssuePanel이 갖는다 — App.tsx에 올리지 않는다.
+  // 다른 컴포넌트가 이 상태를 쓰지 않으므로 App의 openItem 계약이 그대로 남고,
+  // 부수적으로 "App이 내려보내는 prop 한 줄"이라는 변이 취약점이 늘지 않는다.
+  const [triaging, setTriaging] = useState(false)
+  const [triageError, setTriageError] = useState<string | null>(null)
+
+  /** 훑기 대기열. 저장소가 준 순서를 그대로 쓴다. */
+  const queue = useMemo(
+    () => issues.filter((i) => i.triagedAt === null && i.status !== 'done'),
+    [issues]
+  )
+
+  function startTriage() {
+    const first = queue[0]
+    if (!first) return
+    setTriaging(true)
+    if (openId !== first.id) onOpen(first.id)
+  }
+
+  /** 다음 대기 항목으로. 없으면 훑기를 끝낸다. */
+  function advance(fromId: string) {
+    const rest = queue.filter((i) => i.id !== fromId)
+    const next = rest[0]
+    if (!next) {
+      setTriaging(false)
+      if (openId) onOpen(openId)   // 같은 id로 부르면 App의 토글이 접는다
+      return
+    }
+    onOpen(next.id)
+  }
+
+  async function saveTriage(id: string, pick: TriagePick) {
+    // 잠기지 않은 update를 쓴다. 훑기는 본문을 건드리지 않으므로 사람과 agent가
+    // 같은 글자를 다툴 일이 없고, 여기서 잠그면 agent가 방금 본문을 채운 이슈를
+    // 분류조차 못 한다.
+    await client.issues.update({ id, ...pick })
+    await refresh()
+  }
+
   const now = Date.now()
   const groups = useMemo(() => groupIssues(issues, axis, repos), [issues, axis, repos])
   const untriaged = untriagedCount(issues)
@@ -79,6 +119,7 @@ export function IssuePanel({
         // 0건일 때는 그리지 않는다 — 상주하는 잔소리가 된다 (설계 §4).
         <div className="triage-banner">
           <span>⚠ 정리 안 됨 ({untriaged})</span>
+          <button type="button" onClick={startTriage}>훑어보기</button>
         </div>
       )}
 
@@ -126,7 +167,7 @@ export function IssuePanel({
                       <button
                         type="button"
                         className={openId === i.id ? 'item-title item-open' : 'item-title'}
-                        onClick={() => onOpen(i.id)}
+                        onClick={() => { setTriaging(false); onOpen(i.id) }}
                       >
                         {i.title}
                       </button>
@@ -153,6 +194,7 @@ export function IssuePanel({
   return (
     <Panel title="Issues" expanded={expanded}>
       {listError && <div role="alert" className="form-error">{listError}</div>}
+      {triageError && <div role="alert" className="form-error">{triageError}</div>}
       {/* 감싸는 div의 엘리먼트 타입을 확장 여부와 무관하게 항상 유지한다.
           expanded에 따라 div ↔ Fragment로 타입이 바뀌면 React가 이 자리를
           통째로 언마운트-재마운트해 item-title 버튼의 DOM 정체성이 사라진다 —
@@ -164,7 +206,28 @@ export function IssuePanel({
         <div className={expanded ? 'panel-split-list' : undefined}>{list}</div>
         {expanded && (
           <div className="panel-split-detail">
-            {open && (
+            {open && triaging && (
+              <TriageCard
+                key={open.id}
+                issue={open}
+                position={queue.findIndex((i) => i.id === open.id) + 1}
+                total={queue.length}
+                onDone={(pick) => {
+                  void (async () => {
+                    try {
+                      await saveTriage(open.id, pick)
+                      advance(open.id)
+                    } catch (err) {
+                      // 충돌하면 그 한 건에서 멈춘다. 자동으로 넘어가면 사용자가
+                      // 방금 찍은 축이 어디로 갔는지 모른 채 대기열만 줄어든다.
+                      setTriageError(err instanceof Error ? err.message : String(err))
+                    }
+                  })()
+                }}
+                onSkip={() => advance(open.id)}
+              />
+            )}
+            {open && !triaging && (
               <IssueDetail
                 // key가 핵심이다. 다른 이슈로 옮기면 상세를 통째로 다시 마운트해,
                 // 옛 컴포넌트가 자기 클로저를 들고 언마운트되며 대기 중인 저장을

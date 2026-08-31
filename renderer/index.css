@@ -201,6 +201,23 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
   font-size: 12px;
 }
 
+/* 훑기 카드 — 상세 자리에 뜨는 축 선택 카드 */
+.triage-card { padding: 12px; }
+.triage-position { font-size: 11px; opacity: 0.6; }
+.triage-title { margin: 8px 0 16px; font-size: 15px; }
+.triage-row { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.triage-row-label { width: 40px; font-size: 12px; opacity: 0.7; }
+.triage-pick {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 5px;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+  background: transparent;
+  cursor: pointer;
+}
+.triage-picked { border-color: currentColor; background: rgba(128, 128, 128, 0.2); font-weight: 600; }
+.triage-actions { display: flex; justify-content: space-between; margin-top: 18px; }
+
 .group-axis {
   display: flex;
   align-items: center;
