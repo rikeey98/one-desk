@@ -6,7 +6,7 @@ import { TriageCard, type TriagePick } from './TriageCard'
 import { useIssues } from '../hooks/useIssues'
 import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextChip } from '../context'
-import { groupIssues, isStale, untriagedCount } from '../issueGroups'
+import { groupIssues, isStale, nextInQueue } from '../issueGroups'
 import { AXIS_LABELS, SOURCE_LABELS, KIND_LABELS, type GroupAxis } from '../issueAxes'
 import type { Issue, Repo } from '@shared/models'
 
@@ -68,12 +68,23 @@ export function IssuePanel({
     if (openId !== first.id) onOpen(first.id)
   }
 
-  /** 다음 대기 항목으로. 없으면 훑기를 끝낸다. */
+  /** 훑기를 끝낸다 — 화면 전환과 함께 남아 있던 오류 배너도 걷는다. */
+  function endTriage() {
+    setTriaging(false)
+    setTriageError(null)
+  }
+
+  /**
+   * 다음 대기 항목으로. 없으면 훑기를 끝낸다.
+   *
+   * **`queue`에서 `fromId`를 뺀 첫 항목을 고르지 않는다.** 그러면 건너뛴 항목이
+   * 계속 큐에 남아 있어 "다음"이 매번 그 앞 항목으로 되돌아간다 — 위치 기반의
+   * `nextInQueue`로 걸어야 건너뛰기를 반복해도 앞으로 나아간다.
+   */
   function advance(fromId: string) {
-    const rest = queue.filter((i) => i.id !== fromId)
-    const next = rest[0]
+    const next = nextInQueue(queue, fromId)
     if (!next) {
-      setTriaging(false)
+      endTriage()
       if (openId) onOpen(openId)   // 같은 id로 부르면 App의 토글이 접는다
       return
     }
@@ -90,7 +101,9 @@ export function IssuePanel({
 
   const now = Date.now()
   const groups = useMemo(() => groupIssues(issues, axis, repos), [issues, axis, repos])
-  const untriaged = untriagedCount(issues)
+  // 배너 개수는 큐에서 뽑는다 — untriagedCount의 술어를 여기서 다시 적으면
+  // 배너 숫자와 걸음의 분모(queue.length)가 따로 놀 수 있다.
+  const untriaged = queue.length
 
   function toggleGroup(key: string) {
     setCollapsed((prev) => {
@@ -167,7 +180,7 @@ export function IssuePanel({
                       <button
                         type="button"
                         className={openId === i.id ? 'item-title item-open' : 'item-title'}
-                        onClick={() => { setTriaging(false); onOpen(i.id) }}
+                        onClick={() => { endTriage(); onOpen(i.id) }}
                       >
                         {i.title}
                       </button>
@@ -213,6 +226,10 @@ export function IssuePanel({
                 position={queue.findIndex((i) => i.id === open.id) + 1}
                 total={queue.length}
                 onDone={(pick) => {
+                  // 시도를 새로 시작할 때마다 지난 오류를 지운다 — 안 지우면 재시도가
+                  // 성공해도 빨간 배너가 세션 내내 남아, 이미 안 막혀 있는데 막혀
+                  // 있다고 계속 말하게 된다.
+                  setTriageError(null)
                   void (async () => {
                     try {
                       await saveTriage(open.id, pick)

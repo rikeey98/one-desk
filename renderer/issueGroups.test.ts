@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { groupIssues, isStale, untriagedCount } from './issueGroups'
+import { groupIssues, isStale, untriagedCount, nextInQueue } from './issueGroups'
 import { STALE_MS } from './issueAxes'
 import type { Issue, Repo } from '@shared/models'
 
@@ -109,5 +109,30 @@ describe('untriagedCount', () => {
   it('done은 세지 않는다', () => {
     // 정리되지 않은 채 끝난 이슈를 이제 와서 분류하라고 요구하지 않는다.
     expect(untriagedCount([makeIssue({ triagedAt: null, status: 'done' })])).toBe(0)
+  })
+})
+
+describe('nextInQueue', () => {
+  it('중간 항목은 다음 항목을 돌려준다', () => {
+    const queue = [makeIssue({ id: 'a' }), makeIssue({ id: 'b' }), makeIssue({ id: 'c' })]
+    expect(nextInQueue(queue, 'a')?.id).toBe('b')
+  })
+
+  it('마지막 항목은 undefined를 돌려준다', () => {
+    const queue = [makeIssue({ id: 'a' }), makeIssue({ id: 'b' })]
+    expect(nextInQueue(queue, 'b')).toBeUndefined()
+  })
+
+  it('앞서 건너뛴 항목이어도 앞으로 나아간다', () => {
+    // 회귀 재현: "fromId를 뺀 첫 항목"으로 고르던 옛 rest[0] 로직은 a를 건너뛰고
+    // b를 저장한 뒤 advance('b')를 부르면 rest = [a, c] 중 a를 돌려줘 뒤로 갔다.
+    // 위치로 고르면 b 다음은 항상 c다 — 건너뛴 이력과 무관하다.
+    const queue = [makeIssue({ id: 'a' }), makeIssue({ id: 'b' }), makeIssue({ id: 'c' })]
+    expect(nextInQueue(queue, 'b')?.id).toBe('c')
+  })
+
+  it('큐에 없는 id는 undefined를 돌려준다', () => {
+    const queue = [makeIssue({ id: 'a' }), makeIssue({ id: 'b' })]
+    expect(nextInQueue(queue, 'z')).toBeUndefined()
   })
 })

@@ -30,6 +30,19 @@ export function untriagedCount(issues: Issue[]): number {
 }
 
 /**
+ * 훑기 큐에서 `fromId` 다음 항목. 없으면 undefined다.
+ *
+ * **저장 경로와 건너뛰기 경로가 같은 답을 내야 한다.** 저장한 항목은 refresh 뒤
+ * 큐에서 빠지지만 건너뛴 항목은 남으므로, "fromId를 뺀 첫 항목"으로 고르면
+ * 건너뛰기가 앞 항목으로 되돌아간다. 위치로 골라야 두 경로가 같이 전진한다.
+ */
+export function nextInQueue(queue: Issue[], fromId: string): Issue | undefined {
+  const at = queue.findIndex((i) => i.id === fromId)
+  if (at === -1) return undefined
+  return queue[at + 1]
+}
+
+/**
  * 이슈를 그룹으로 나눈다.
  *
  * **정렬은 하지 않는다** (설계 §5). 저장소가 `seenAt` 오래된 순으로 이미 정렬해서

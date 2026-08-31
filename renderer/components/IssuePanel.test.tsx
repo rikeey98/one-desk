@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -61,6 +62,54 @@ function renderPanel(issues: Issue[], over: {
     </ClientProvider>
   )
   return mocks
+}
+
+/**
+ * `openId`를 실제 App.tsx처럼 상태로 들고 `onOpen`에 반응해 갱신하는 렌더러.
+ * `renderPanel`의 `onOpen`은 호출을 기록만 할 뿐 재렌더를 일으키지 않아, 건너뛰기를
+ * 연달아 누르는 걸음이 매번 같은 `fromId`에서 시작해 버린다 — 그래서는 두 번째
+ * 건너뛰기가 첫 번째로 되돌아가는 회귀(rest[0])를 이 헬퍼 없이는 잡을 수 없다.
+ */
+function renderControlledPanel(issues: Issue[], initialOpenId: string | null): PanelMocks & { opened: string[] } {
+  const mocks: PanelMocks = {
+    list: vi.fn(async () => issues),
+    create: vi.fn(),
+    update: vi.fn(async (i: { id: string }) => makeIssue({ id: i.id })),
+    markSeen: vi.fn(async () => {})
+  }
+  const client = {
+    issues: {
+      ...mocks,
+      updateIfUnchanged: vi.fn(),
+      remove: vi.fn()
+    },
+    events: { onRunUpdate: () => () => {} }
+  } as unknown as OneDeskClient
+
+  const opened: string[] = []
+
+  function Wrapper() {
+    const [openId, setOpenId] = useState<string | null>(initialOpenId)
+    return (
+      <IssuePanel
+        workspaceId="ws"
+        repoId={null}
+        repos={[]}
+        chipKeys={new Set()}
+        onToggleContext={() => {}}
+        expanded={true}
+        openId={openId}
+        onOpen={(id) => { opened.push(id); setOpenId((prev) => (prev === id ? null : id)) }}
+      />
+    )
+  }
+
+  render(
+    <ClientProvider client={client}>
+      <Wrapper />
+    </ClientProvider>
+  )
+  return { ...mocks, opened }
 }
 
 describe('IssuePanel 그룹', () => {
@@ -148,6 +197,10 @@ describe('IssuePanel 훑기', () => {
   it('훑기는 seenAt을 찍지 않는다', async () => {
     // 분류와 열람은 다른 행위다. 축을 찍었다는 이유로 방치 시계가 리셋되면
     // 훑기가 방치를 감추는 도구가 된다 (설계 §3 ③).
+    //
+    // **카드가 아직 화면에 있는 동안 확인한다.** 다음을 눌러 확인하면 그 시점엔
+    // 이미 카드가 걷히고 같은 이슈로 IssueDetail이 마운트된 뒤라, Task 8이
+    // IssueDetail에 markSeen을 넣는 순간 이 단언이 훑기와 무관한 이유로 빨개진다.
     const mocks = renderPanel(
       [makeIssue({ id: 'a', title: 'A', triagedAt: null })],
       { openId: 'a', expanded: true }
@@ -156,9 +209,7 @@ describe('IssuePanel 훑기', () => {
     await userEvent.click(screen.getByRole('button', { name: '회의' }))
     await userEvent.click(screen.getByRole('button', { name: '버그' }))
     await userEvent.click(screen.getByRole('button', { name: '긴급' }))
-    await userEvent.click(screen.getByRole('button', { name: '다음' }))
 
-    await waitFor(() => expect(mocks.update).toHaveBeenCalled())
     expect(mocks.markSeen).not.toHaveBeenCalled()
   })
 
@@ -175,5 +226,80 @@ describe('IssuePanel 훑기', () => {
 
     expect(mocks.update).not.toHaveBeenCalled()
     expect(screen.getByText(/정리 안 됨 \(2\)/)).toBeInTheDocument()
+  })
+
+  it('저장이 충돌하면 그 이슈에서 멈추고 경고를 보여준다', async () => {
+    const onOpen = vi.fn()
+    const mocks = renderPanel(
+      [
+        makeIssue({ id: 'a', title: 'A', triagedAt: null }),
+        makeIssue({ id: 'b', title: 'B', triagedAt: null })
+      ],
+      { openId: 'a', expanded: true, onOpen }
+    )
+    mocks.update.mockRejectedValueOnce(new Error('충돌'))
+
+    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    await userEvent.click(screen.getByRole('button', { name: '회의' }))
+    await userEvent.click(screen.getByRole('button', { name: '버그' }))
+    await userEvent.click(screen.getByRole('button', { name: '긴급' }))
+    await userEvent.click(screen.getByRole('button', { name: '다음' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('충돌')
+    // advance()가 다음 이슈로 넘어가지 않았다 — 방금 찍은 축이 어디로 갔는지
+    // 모른 채 대기열만 줄어드는 걸 막는다. (openId가 처음부터 'a'라 로딩 중
+    // useEffect가 onOpen('a')를 부르는 건 이 테스트의 관심사가 아니다 —
+    // 큐의 다음 항목인 'b'로 넘어가지 않았는지만 본다.)
+    expect(onOpen).not.toHaveBeenCalledWith('b')
+  })
+
+  it('충돌 후 재시도가 성공하면 경고가 사라진다', async () => {
+    // 큐에 둘을 넣는다 — 하나뿐이면 재시도 성공이 곧 훑기 종료(endTriage)라
+    // 그쪽 경로의 정리와 이 테스트가 겨냥한 "시도 시작 시 지우기" 경로가
+    // 뒤섞여 버린다. 계속 걸어야 할 항목을 남겨 둬야 후자만 따로 검증된다.
+    const mocks = renderPanel(
+      [
+        makeIssue({ id: 'a', title: 'A', triagedAt: null }),
+        makeIssue({ id: 'b', title: 'B', triagedAt: null })
+      ],
+      { openId: 'a', expanded: true }
+    )
+    mocks.update.mockRejectedValueOnce(new Error('충돌'))
+
+    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    await userEvent.click(screen.getByRole('button', { name: '회의' }))
+    await userEvent.click(screen.getByRole('button', { name: '버그' }))
+    await userEvent.click(screen.getByRole('button', { name: '긴급' }))
+    await userEvent.click(screen.getByRole('button', { name: '다음' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('충돌')
+
+    // 두 번째 시도는 성공한다 (mockRejectedValueOnce는 한 번만 실패시킨다).
+    // 훑기는 끝나지 않고 다음 항목으로 이어진다 — endTriage가 아니라
+    // 시도 시작 시점의 초기화가 경고를 지웠어야 한다.
+    await userEvent.click(screen.getByRole('button', { name: '다음' }))
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(2))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('건너뛰기를 거듭하면 대기열을 앞으로 걷는다', async () => {
+    // 회귀: "fromId를 뺀 첫 항목"으로 고르던 옛 advance()는 a를 건너뛰면 b를 열고,
+    // b를 건너뛰면 다시 a로 돌아갔다 — c는 건너뛰기로 영영 닿지 못했다.
+    const { opened } = renderControlledPanel([
+      makeIssue({ id: 'a', title: 'A', triagedAt: null }),
+      makeIssue({ id: 'b', title: 'B', triagedAt: null }),
+      makeIssue({ id: 'c', title: 'C', triagedAt: null })
+    ], null)
+
+    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    expect(opened.at(-1)).toBe('a')
+
+    await userEvent.click(await screen.findByRole('button', { name: '건너뛰기' }))
+    expect(opened.at(-1)).toBe('b')
+
+    await userEvent.click(await screen.findByRole('button', { name: '건너뛰기' }))
+    expect(opened.at(-1)).toBe('c')
+
+    // a로 되돌아간 적이 없어야 한다 — 첫 훑어보기 클릭 한 번만 a를 열었다.
+    expect(opened.filter((id) => id === 'a')).toHaveLength(1)
   })
 })
