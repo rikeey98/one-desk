@@ -128,6 +128,12 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
 .detail-title { padding: 5px 8px; border: 1px solid #e4e4e7; border-radius: 5px; font: inherit; font-size: 14px; font-weight: 600; }
 /* 배경색은 .status-open/doing/done이 그대로 준다. 나머지(크기·모서리)만 덮어쓴다. */
 .detail-status { align-self: flex-start; padding: 3px 8px; border: 1px solid #e4e4e7; border-radius: 5px; font: inherit; font-size: 12px; cursor: pointer; }
+/* 출처·성격·급함 select를 감싼 label. .detail이 column flex라 클래스가 없으면
+   기본 align-items: stretch를 그대로 물려받아 폭 전체로 늘어나 쌓인다 — 바로 위
+   .detail-status 알약과 같은 모양(왼쪽 정렬, 작은 크기)으로 맞춘다. 값은 새로
+   만들지 않고 .detail-status 것을 그대로 재사용한다. */
+.detail-axis { align-self: flex-start; display: flex; align-items: center; gap: 4px; font-size: 12px; }
+.detail-axis select { padding: 3px 8px; border: 1px solid #e4e4e7; border-radius: 5px; font: inherit; cursor: pointer; }
 .detail-body { flex: 1; min-height: 120px; padding: 7px 9px; border: 1px solid #e4e4e7; border-radius: 5px; font: inherit; font-size: 13px; resize: none; }
 .detail-actions { display: flex; justify-content: flex-end; }
 .confirm-button { border: 1px solid #e4e4e7; border-radius: 5px; background: #fff; cursor: pointer; font: inherit; font-size: 11px; padding: 3px 9px; }

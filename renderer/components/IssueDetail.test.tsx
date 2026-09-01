@@ -180,7 +180,11 @@ describe('IssueDetail', () => {
   it('다시 불러오기가 최신 본문을 띄운다', async () => {
     const client = makeClient({
       updateIfUnchanged: vi.fn(async () => ({
-        ok: false as const, current: makeIssue({ body: 'agent가 쓴 것', updatedAt: 300 })
+        ok: false as const,
+        // priority까지 함께 흘려보낸다 — agent가 고친 최신 이슈는 축도 다를 수
+        // 있고, onReload가 title/body/status만 되돌리고 축을 빠뜨리면 이 값은
+        // 절대 화면에 반영되지 않는다.
+        current: makeIssue({ body: 'agent가 쓴 것', updatedAt: 300, priority: 'urgent' })
       }))
     })
     renderDetail(client)
@@ -188,6 +192,9 @@ describe('IssueDetail', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(600) })
     await userEvent.click(screen.getByRole('button', { name: '다시 불러오기' }))
     expect(screen.getByLabelText('본문')).toHaveValue('agent가 쓴 것')
+    // 축도 최신 값으로 되돌아가야 한다 — onReload가 source/kind/priority를
+    // 빠뜨리면 마운트 때의 값(여기서는 미지정, '')이 그대로 남는다.
+    expect(screen.getByLabelText('급함')).toHaveValue('urgent')
     // queryByText는 정규화된 전체 문자열 매치라 배너 문구('이 항목이 그 사이
     // 바뀌었습니다.')와 부분 일치해도 항상 null을 돌려준다 — 배너가 남아 있어도
     // 이 단언은 계속 통과해 무력하다. role로 실제 마운트 여부를 본다.
@@ -201,7 +208,8 @@ describe('IssueDetail', () => {
     // 함께 스테일한 값을 몰래 써버려 화면과 DB가 갈린다 (설계 §6).
     const client = makeClient({
       updateIfUnchanged: vi.fn(async () => ({
-        ok: false as const, current: makeIssue({ body: 'agent가 쓴 것', updatedAt: 300 })
+        ok: false as const,
+        current: makeIssue({ body: 'agent가 쓴 것', updatedAt: 300, priority: 'urgent' })
       }))
     })
     renderDetail(client)
@@ -220,6 +228,9 @@ describe('IssueDetail', () => {
     // 흉내내지 않아 오직 onReload 자신의 취소 여부만 남긴다.
     fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }))
 
+    // 이 경로(타이핑 도중 다시 불러오기)에서도 축이 함께 되돌아간다.
+    await waitFor(() => expect(screen.getByLabelText('급함')).toHaveValue('urgent'))
+
     vi.mocked(client.issues.updateIfUnchanged).mockClear()
     await act(async () => { await vi.advanceTimersByTimeAsync(600) })
 
@@ -232,7 +243,8 @@ describe('IssueDetail', () => {
     // "성공한 저장이 기대값을 갱신…" 테스트의 대칭 성질이다 (설계 §6).
     const updateIfUnchanged = vi.fn()
       .mockResolvedValueOnce({
-        ok: false as const, current: makeIssue({ body: 'agent가 쓴 것', updatedAt: 300 })
+        ok: false as const,
+        current: makeIssue({ body: 'agent가 쓴 것', updatedAt: 300, priority: 'urgent' })
       })
       .mockResolvedValue({
         ok: true as const, issue: makeIssue({ body: 'agent가 쓴 것 더', updatedAt: 400 })
@@ -242,6 +254,9 @@ describe('IssueDetail', () => {
     await userEvent.type(screen.getByLabelText('본문'), '!')
     await act(async () => { await vi.advanceTimersByTimeAsync(600) })
     await userEvent.click(screen.getByRole('button', { name: '다시 불러오기' }))
+    // 다시 불러온 직후 축도 최신 값이어야 한다 — 그래야 아래 본문 저장이 그
+    // 값을 조용히 덮어쓰는 게 아니라는 것도 함께 보증된다.
+    expect(screen.getByLabelText('급함')).toHaveValue('urgent')
 
     await userEvent.type(screen.getByLabelText('본문'), '?')
     await act(async () => { await vi.advanceTimersByTimeAsync(600) })
@@ -263,6 +278,26 @@ describe('IssueDetail', () => {
     await userEvent.click(screen.getByRole('button', { name: '덮어쓰기' }))
     expect(client.issues.update).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'i1', body: '원본!' })
+    )
+  })
+
+  it('덮어쓰기가 축 선택도 함께 쓴다', async () => {
+    // 실패 시나리오: agent가 이슈를 고친 사이 사람이 급함을 고르면
+    // updateIfUnchanged가 즉시 충돌로 튕겨나가 배너가 뜬다. 이때 덮어쓰기를
+    // 누르면 방금 고른 축이 같이 실려야 한다 — title/body/status만 보내면
+    // 축 선택이 조용히 사라진다.
+    const client = makeClient({
+      updateIfUnchanged: vi.fn(async () => ({
+        ok: false as const, current: makeIssue({ updatedAt: 300 })
+      }))
+    })
+    renderDetail(client)
+    await userEvent.selectOptions(await screen.findByLabelText('급함'), 'urgent')
+    await waitFor(() => expect(conflictAlert()).toHaveTextContent('그 사이 바뀌었습니다'))
+
+    await userEvent.click(screen.getByRole('button', { name: '덮어쓰기' }))
+    expect(client.issues.update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'i1', priority: 'urgent' })
     )
   })
 
@@ -338,7 +373,41 @@ describe('IssueDetail 열람 기록', () => {
 })
 
 describe('IssueDetail 축 편집', () => {
-  it('축을 고르면 잠긴 경로로 저장한다', async () => {
+  // 세 축(출처/성격/급함)은 라벨·순서·값만 다른 같은 모양의 select다(AxisSelect로
+  // 뽑혀 있다). 셋 다 따로 테스트해야 한다 — 그러지 않으면 예컨대 출처 select의
+  // onPick이 실은 setKind/changeAxis({ kind })를 부르는 복붙 실수(성격 컬럼에
+  // 조용히 쓰는 것)를, 급함 하나만 도는 테스트로는 절대 못 잡는다.
+  it('출처를 고르면 잠긴 경로로 저장한다', async () => {
+    const updateIfUnchanged = vi.fn(async (i: { id: string }) => ({
+      ok: true as const, issue: makeIssue({ id: i.id, updatedAt: 600 })
+    }))
+    renderDetail(
+      makeClient({ updateIfUnchanged }),
+      makeIssue({ id: 'i1', updatedAt: 500 })
+    )
+    await userEvent.selectOptions(await screen.findByLabelText('출처'), 'customer')
+
+    await waitFor(() => expect(updateIfUnchanged).toHaveBeenCalledWith({
+      id: 'i1', source: 'customer', expectedUpdatedAt: 500
+    }))
+  })
+
+  it('성격을 고르면 잠긴 경로로 저장한다', async () => {
+    const updateIfUnchanged = vi.fn(async (i: { id: string }) => ({
+      ok: true as const, issue: makeIssue({ id: i.id, updatedAt: 600 })
+    }))
+    renderDetail(
+      makeClient({ updateIfUnchanged }),
+      makeIssue({ id: 'i1', updatedAt: 500 })
+    )
+    await userEvent.selectOptions(await screen.findByLabelText('성격'), 'bug')
+
+    await waitFor(() => expect(updateIfUnchanged).toHaveBeenCalledWith({
+      id: 'i1', kind: 'bug', expectedUpdatedAt: 500
+    }))
+  })
+
+  it('급함을 고르면 잠긴 경로로 저장한다', async () => {
     const updateIfUnchanged = vi.fn(async (i: { id: string }) => ({
       ok: true as const, issue: makeIssue({ id: i.id, updatedAt: 600 })
     }))
@@ -351,5 +420,21 @@ describe('IssueDetail 축 편집', () => {
     await waitFor(() => expect(updateIfUnchanged).toHaveBeenCalledWith({
       id: 'i1', priority: 'urgent', expectedUpdatedAt: 500
     }))
+  })
+
+  it('미지정을 고르면 아무 일도 하지 않는다', async () => {
+    // <option value="">미지정</option>은 미분류 이슈가 뭔가 선택된 채로 보이게
+    // 하려고 있을 뿐이다 — 고르는 행위 자체가 축을 지우는 길이 되면 안 된다
+    // (설계 §6). setState가 없는 이 경로는 리렌더가 안 일어나 통제된 select가
+    // DOM을 되돌리는 것에 기대는데, 이 동작은 눈에 잘 안 띄어 단언이 필요하다.
+    const client = makeClient()
+    renderDetail(client, makeIssue({ id: 'i1', priority: 'urgent' }))
+    const select = await screen.findByLabelText('급함')
+    expect(select).toHaveValue('urgent')
+
+    await userEvent.selectOptions(select, '')
+
+    expect(select).toHaveValue('urgent')
+    expect(client.issues.updateIfUnchanged).not.toHaveBeenCalled()
   })
 })

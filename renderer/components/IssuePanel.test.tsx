@@ -220,6 +220,18 @@ describe('IssuePanel 훑기', () => {
 
     // 카드가 여전히 화면에 있다 — IssueDetail로 넘어가지 않았다는 방증이다.
     expect(screen.getByRole('button', { name: '다음' })).toBeInTheDocument()
+
+    // 다음까지 눌러 saveTriage → advance를 실제로 타야 한다. 여기서 멈추면
+    // 저장이 실려 있는 절반(saveTriage/advance)은 전혀 실행되지 않아, 그 안에
+    // markSeen이 있어도 이 테스트가 못 잡는다 — 큐가 issue 하나뿐이라 advance는
+    // endTriage() + onOpen(openId)로 이어지고, 이미 열려 있던 openId('a')를 같은
+    // id로 다시 여는 것이라 App과 같은 토글 규칙으로 openId가 null로 접혀
+    // IssueDetail은 여기서도 마운트되지 않는다.
+    await userEvent.click(screen.getByRole('button', { name: '다음' }))
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith({
+      id: 'a', source: 'meeting', kind: 'bug', priority: 'urgent'
+    }))
+
     expect(mocks.markSeen).not.toHaveBeenCalled()
   })
 

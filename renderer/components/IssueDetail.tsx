@@ -11,6 +11,44 @@ import type {
   Issue, IssueStatus, IssueSource, IssueKind, IssuePriority
 } from '@shared/models'
 
+/**
+ * 훑기 축 하나를 고르는 select. 출처/성격/급함이 라벨·순서·값만 다르고 나머지는
+ * 완전히 같아서 복붙해 두면 한쪽 핸들러가 실은 다른 축의 setter를 부르는 실수(예:
+ * 출처 select가 kind를 쓰는 것)가 타입 체크도 못 잡고 조용히 통과한다 — 뽑아내
+ * 그 자리를 아예 없앤다.
+ *
+ * `TriageCard.tsx`의 `AxisRow`와 같은 목적, 다른 컨트롤이다. `AxisRow`는 버튼
+ * 여러 개로 값을 고르고(훑기 카드), 여기는 이미 분류된 값을 상세에서 바꾸는
+ * 자리라 드롭다운 하나를 쓴다 — `AxisRow`를 재사용하지 않고 형제로 새로 둔 이유다.
+ */
+function AxisSelect<T extends string>({ label, value, order, labels, onPick }: {
+  label: string
+  value: T | null
+  order: readonly T[]
+  labels: Record<T, string>
+  onPick: (value: T) => void
+}) {
+  return (
+    <label className="detail-axis">
+      {label}
+      <select
+        aria-label={label}
+        value={value ?? ''}
+        onChange={(e) => {
+          const next = e.target.value as T | ''
+          if (!next) return   // 축을 지우는 길은 만들지 않는다 (설계 §6)
+          onPick(next)
+        }}
+      >
+        <option value="">미지정</option>
+        {order.map((v) => (
+          <option key={v} value={v}>{labels[v]}</option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
 export function IssueDetail({ issue, onChanged, onDeleted, onRequestClose }: {
   issue: Issue
   /** 목록을 다시 읽게 한다 */
@@ -158,6 +196,12 @@ export function IssueDetail({ issue, onChanged, onDeleted, onRequestClose }: {
             setTitle(conflict.title)
             setBody(conflict.body)
             setStatus(conflict.status)
+            // 축 셋도 같이 되돌린다. 안 그러면 사람이 방금 고른 축(예: 급함=긴급)이
+            // updateIfUnchanged 실패로 DB에는 반영되지 않았는데도 화면엔 계속 남아,
+            // "다시 불러오기"를 눌러도 DB의 실제 값(예: 미지정)과 어긋난 채로 보인다.
+            setSource(conflict.source)
+            setKind(conflict.kind)
+            setPriority(conflict.priority)
             expected.current = conflict.updatedAt
             showConflict(null)
             onChanged()
@@ -166,7 +210,11 @@ export function IssueDetail({ issue, onChanged, onDeleted, onRequestClose }: {
             void (async () => {
               try {
                 const saved = await client.issues.update({
-                  id: issue.id, title, body, status
+                  // 축 셋도 같이 보낸다 — 빠뜨리면 방금 고른 축이 덮어쓰기에서
+                  // 조용히 사라진다. 로컬 state는 null일 수 있어(미분류) update의
+                  // 옵셔널 필드(undefined만 허용) 타입에 맞춰 변환한다.
+                  id: issue.id, title, body, status,
+                  source: source ?? undefined, kind: kind ?? undefined, priority: priority ?? undefined
                 })
                 expected.current = saved.updatedAt
                 showConflict(null)
@@ -199,60 +247,18 @@ export function IssueDetail({ issue, onChanged, onDeleted, onRequestClose }: {
         <option value="doing">doing</option>
         <option value="done">done</option>
       </select>
-      <label>
-        출처
-        <select
-          aria-label="출처"
-          value={source ?? ''}
-          onChange={(e) => {
-            const next = e.target.value as IssueSource | ''
-            if (!next) return   // 축을 지우는 길은 만들지 않는다 (설계 §6)
-            setSource(next)
-            changeAxis({ source: next })
-          }}
-        >
-          <option value="">미지정</option>
-          {SOURCE_ORDER.map((v) => (
-            <option key={v} value={v}>{SOURCE_LABELS[v]}</option>
-          ))}
-        </select>
-      </label>
-      <label>
-        성격
-        <select
-          aria-label="성격"
-          value={kind ?? ''}
-          onChange={(e) => {
-            const next = e.target.value as IssueKind | ''
-            if (!next) return   // 축을 지우는 길은 만들지 않는다 (설계 §6)
-            setKind(next)
-            changeAxis({ kind: next })
-          }}
-        >
-          <option value="">미지정</option>
-          {KIND_ORDER.map((v) => (
-            <option key={v} value={v}>{KIND_LABELS[v]}</option>
-          ))}
-        </select>
-      </label>
-      <label>
-        급함
-        <select
-          aria-label="급함"
-          value={priority ?? ''}
-          onChange={(e) => {
-            const next = e.target.value as IssuePriority | ''
-            if (!next) return   // 축을 지우는 길은 만들지 않는다 (설계 §6)
-            setPriority(next)
-            changeAxis({ priority: next })
-          }}
-        >
-          <option value="">미지정</option>
-          {PRIORITY_ORDER.map((v) => (
-            <option key={v} value={v}>{PRIORITY_LABELS[v]}</option>
-          ))}
-        </select>
-      </label>
+      <AxisSelect
+        label="출처" value={source} order={SOURCE_ORDER} labels={SOURCE_LABELS}
+        onPick={(next) => { setSource(next); changeAxis({ source: next }) }}
+      />
+      <AxisSelect
+        label="성격" value={kind} order={KIND_ORDER} labels={KIND_LABELS}
+        onPick={(next) => { setKind(next); changeAxis({ kind: next }) }}
+      />
+      <AxisSelect
+        label="급함" value={priority} order={PRIORITY_ORDER} labels={PRIORITY_LABELS}
+        onPick={(next) => { setPriority(next); changeAxis({ priority: next }) }}
+      />
       <textarea
         aria-label="본문"
         className="detail-body"
