@@ -91,6 +91,10 @@ export function createIssueRepository(db: Database) {
     // triagedAt도 파생이다 (설계 §3). **축을 건드리는 갱신에서만 다시 계산한다** —
     // 매번 계산하면 본문만 고쳐도 triagedAt이 새 시각으로 덮여, "언제 정리했나"가
     // 아무 뜻도 없는 값이 된다.
+    // 다만 이미 분류된 이슈의 축 하나만 다시 바꿔도 triagedAt은 지금 시각으로
+    // 다시 찍힌다 — "최초 분류 시각"이 아니라 "마지막으로 축을 건드린 시각"이다.
+    // triagedAt은 지금 null 여부로만 쓰이므로 무해하지만, 훗날 "분류한 날짜"를
+    // 화면에 보여줄 일이 생기면 이 재스탬핑이 문제가 된다.
     const touchesAxes =
       input.source !== undefined || input.kind !== undefined || input.priority !== undefined
     if (touchesAxes) {
@@ -125,6 +129,10 @@ export function createIssueRepository(db: Database) {
       // 안 본 것이 위로 온다. seenAt이 null인 것(한 번도 안 연 것)이 가장 위다.
       // 예전의 updatedAt DESC는 정확히 반대로 돌았다 — 안 볼수록 아래로 밀었고,
       // agent가 MCP로 건드린 이슈를 사람이 본 것처럼 맨 위로 올렸다.
+      // 첫 정렬 키 `(seenAt is null) desc`는 SQLite에서 사실 군더더기다 — 일반
+      // ASC 정렬만으로도 NULL이 먼저 오므로 이 키가 없어도 결과는 같다. 의도를
+      // 드러내려고 일부러 남겨뒀다. 다만 표현식이 첫 정렬 키라 이 쿼리는 seenAt
+      // 단일 컬럼 인덱스를 못 타니, 나중에 정렬이 느려지면 이 키부터 의심할 것.
       const rows = db.select().from(issue).where(where)
         .orderBy(sql`(${issue.seenAt} is null) desc`, asc(issue.seenAt), asc(issue.createdAt))
         .all()

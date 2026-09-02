@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { IssuePanel } from './IssuePanel'
-import type { Issue, Repo } from '@shared/models'
+import type { Issue, Repo, Run } from '@shared/models'
 import type { OneDeskClient } from '@shared/client'
 
 const NOW = Date.now()
@@ -301,6 +301,82 @@ describe('IssuePanel 훑기', () => {
     await userEvent.click(screen.getByRole('button', { name: '다음' }))
     await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(2))
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('저장 실패 후 건너뛰면 경고가 사라진다', async () => {
+    // onSkip이 advance만 부르고 triageError를 안 지우면, 방금 연 다음 이슈 위에
+    // 앞 이슈의 실패 메시지가 그대로 남는다 — 그 이슈가 막힌 것처럼 보인다.
+    const mocks = renderPanel(
+      [
+        makeIssue({ id: 'a', title: 'A', triagedAt: null }),
+        makeIssue({ id: 'b', title: 'B', triagedAt: null })
+      ],
+      { openId: 'a', expanded: true }
+    )
+    mocks.update.mockRejectedValueOnce(new Error('충돌'))
+
+    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    await userEvent.click(screen.getByRole('button', { name: '회의' }))
+    await userEvent.click(screen.getByRole('button', { name: '버그' }))
+    await userEvent.click(screen.getByRole('button', { name: '긴급' }))
+    await userEvent.click(screen.getByRole('button', { name: '다음' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('충돌')
+
+    await userEvent.click(screen.getByRole('button', { name: '건너뛰기' }))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('열린 이슈가 큐에서 빠져도 위치가 0번째로 내려가지 않는다', async () => {
+    // 카드가 열려 있는 동안 agent가 MCP로 같은 이슈를 분류하면, run 완료 구독이
+    // 목록을 다시 읽어 그 이슈가 큐에서 빠진다 — findIndex가 -1을 주는 자리다.
+    let runUpdateCb: ((run: Run) => void) | undefined
+    const listMock = vi.fn(async () => [
+      makeIssue({ id: 'a', title: 'A', triagedAt: null }),
+      makeIssue({ id: 'b', title: 'B', triagedAt: null })
+    ])
+    const client = {
+      issues: {
+        list: listMock,
+        create: vi.fn(),
+        update: vi.fn(async (i: { id: string }) => makeIssue({ id: i.id })),
+        updateIfUnchanged: vi.fn(),
+        markSeen: vi.fn(async () => {}),
+        remove: vi.fn()
+      },
+      events: {
+        onRunUpdate: (cb: (run: Run) => void) => { runUpdateCb = cb; return () => {} }
+      }
+    } as unknown as OneDeskClient
+
+    render(
+      <ClientProvider client={client}>
+        <IssuePanel
+          workspaceId="ws"
+          repoId={null}
+          repos={[]}
+          chipKeys={new Set()}
+          onToggleContext={() => {}}
+          expanded={true}
+          openId="a"
+          onOpen={() => {}}
+        />
+      </ClientProvider>
+    )
+
+    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    expect(await screen.findByText('2건 중 1번째')).toBeInTheDocument()
+
+    // 이제 목록이 'a'를 이미 분류된 것으로 돌려주게 하고, run 완료를 흉내낸다.
+    listMock.mockResolvedValue([
+      makeIssue({ id: 'a', title: 'A', triagedAt: NOW, source: 'meeting', kind: 'bug', priority: 'urgent' }),
+      makeIssue({ id: 'b', title: 'B', triagedAt: null })
+    ])
+    await act(async () => {
+      runUpdateCb?.({ workspaceId: 'ws', id: 'run-1', endedAt: NOW } as unknown as Run)
+    })
+
+    expect(await screen.findByText('1건 중 1번째')).toBeInTheDocument()
+    expect(screen.queryByText(/0번째/)).not.toBeInTheDocument()
   })
 
   it('건너뛰기를 거듭하면 대기열을 앞으로 걷는다', async () => {

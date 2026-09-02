@@ -47,17 +47,29 @@ function loadMemo(deps: McpHostDeps, ctx: RunContext, id: string): Memo {
   return row
 }
 
-/** list_issues가 돌려주는 요약 형태. body를 뺀다 — get_issue와 대칭. */
+/**
+ * list_issues가 돌려주는 요약 형태. body를 뺀다 — get_issue와 대칭.
+ *
+ * 분류 축과 triagedAt은 넣는다 (설계 §6) — agent가 회의 메모를 이슈로 쪼개 넣고
+ * 어떤 것이 아직 미분류인지 목록만 보고 판단하게 하려면 요약에서도 보여야 한다.
+ */
 interface IssueSummary {
   id: string
   title: string
   status: IssueStatus
   updatedAt: number
   repoIds: string[]
+  source: IssueSource | null
+  kind: IssueKind | null
+  priority: IssuePriority | null
+  triagedAt: number | null
 }
 
 function issueSummary(row: Issue): IssueSummary {
-  return { id: row.id, title: row.title, status: row.status, updatedAt: row.updatedAt, repoIds: row.repoIds }
+  return {
+    id: row.id, title: row.title, status: row.status, updatedAt: row.updatedAt, repoIds: row.repoIds,
+    source: row.source, kind: row.kind, priority: row.priority, triagedAt: row.triagedAt
+  }
 }
 
 /** issueSummary와 대칭. memo에는 status가 없다. */
@@ -114,7 +126,7 @@ export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
   }, async () => reply(() => deps.repos.list(ctx.workspaceId)))
 
   server.registerTool('list_issues', {
-    description: '이 workspace의 이슈 요약 목록 (id·title·status·updatedAt·repoIds — 본문은 빠진다). 본문이 필요하면 get_issue를 쓴다.',
+    description: '이 workspace의 이슈 요약 목록 (id·title·status·updatedAt·repoIds·source·kind·priority·triagedAt — 본문은 빠진다). source/kind/priority가 비어 있거나 triagedAt이 null이면 아직 분류되지 않은 이슈다. 본문이 필요하면 get_issue를 쓴다.',
     inputSchema: {
       status: ISSUE_STATUS.optional().describe('상태로 거른다'),
       repoId: z.string().optional().describe('이 repo에 태그된 것과 공통 항목만')

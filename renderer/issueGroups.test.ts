@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { groupIssues, isStale, untriagedCount, nextInQueue } from './issueGroups'
+import { groupIssues, isStale, untriagedCount, triageQueue, nextInQueue } from './issueGroups'
 import { STALE_MS } from './issueAxes'
 import type { Issue, Repo } from '@shared/models'
 
@@ -109,6 +109,31 @@ describe('untriagedCount', () => {
   it('done은 세지 않는다', () => {
     // 정리되지 않은 채 끝난 이슈를 이제 와서 분류하라고 요구하지 않는다.
     expect(untriagedCount([makeIssue({ triagedAt: null, status: 'done' })])).toBe(0)
+  })
+})
+
+describe('triageQueue', () => {
+  it('triagedAt이 없는 것만 남긴다', () => {
+    const queue = triageQueue([
+      makeIssue({ id: 'a', triagedAt: null }),
+      makeIssue({ id: 'b', triagedAt: NOW })
+    ])
+    expect(queue.map((i) => i.id)).toEqual(['a'])
+  })
+
+  it('done은 제외한다', () => {
+    // untriagedCount와 같은 술어를 써야 한다 — IssuePanel의 배너 개수와
+    // 훑기 큐(TriageCard의 분모)가 이 함수 하나에서 나온다.
+    const queue = triageQueue([makeIssue({ triagedAt: null, status: 'done' })])
+    expect(queue).toHaveLength(0)
+  })
+
+  it('저장소가 준 순서를 보존한다', () => {
+    const queue = triageQueue([
+      makeIssue({ id: 'first', triagedAt: null }),
+      makeIssue({ id: 'second', triagedAt: null })
+    ])
+    expect(queue.map((i) => i.id)).toEqual(['first', 'second'])
   })
 })
 

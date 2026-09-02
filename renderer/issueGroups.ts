@@ -24,9 +24,21 @@ export function isStale(issue: Issue, now: number): boolean {
   return now - (issue.seenAt ?? issue.createdAt) > STALE_MS
 }
 
+/**
+ * 훑기 대기열. 저장소가 준 순서를 그대로 쓴다.
+ *
+ * 배너 개수·훑기 진행률·다음 대상 선택이 전부 이 술어 하나에서 나와야 한다.
+ * 컴포넌트가 이 술어를 다시 적으면 두 자리가 어긋날 수 있다 — 실제로 한 번
+ * `IssuePanel`이 `queue`를 인라인으로 다시 만들며 `untriagedCount`가 프로덕션에서
+ * 죽은 채 남았던 자리다.
+ */
+export function triageQueue(issues: Issue[]): Issue[] {
+  return issues.filter((i) => i.triagedAt === null && i.status !== 'done')
+}
+
 /** 훑기 대기열의 크기. 배너가 이 값을 쓴다. */
 export function untriagedCount(issues: Issue[]): number {
-  return issues.filter((i) => i.triagedAt === null && i.status !== 'done').length
+  return triageQueue(issues).length
 }
 
 /**

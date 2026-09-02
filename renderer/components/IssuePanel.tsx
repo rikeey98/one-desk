@@ -6,7 +6,7 @@ import { TriageCard, type TriagePick } from './TriageCard'
 import { useIssues } from '../hooks/useIssues'
 import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextChip } from '../context'
-import { groupIssues, isStale, nextInQueue } from '../issueGroups'
+import { groupIssues, isStale, nextInQueue, triageQueue } from '../issueGroups'
 import { AXIS_LABELS, SOURCE_LABELS, KIND_LABELS, type GroupAxis } from '../issueAxes'
 import type { Issue, Repo } from '@shared/models'
 
@@ -55,11 +55,8 @@ export function IssuePanel({
   const [triaging, setTriaging] = useState(false)
   const [triageError, setTriageError] = useState<string | null>(null)
 
-  /** 훑기 대기열. 저장소가 준 순서를 그대로 쓴다. */
-  const queue = useMemo(
-    () => issues.filter((i) => i.triagedAt === null && i.status !== 'done'),
-    [issues]
-  )
+  /** 훑기 대기열. 저장소가 준 순서를 그대로 쓴다 — 술어는 issueGroups의 triageQueue 하나뿐이다. */
+  const queue = useMemo(() => triageQueue(issues), [issues])
 
   function startTriage() {
     const first = queue[0]
@@ -101,8 +98,8 @@ export function IssuePanel({
 
   const now = Date.now()
   const groups = useMemo(() => groupIssues(issues, axis, repos), [issues, axis, repos])
-  // 배너 개수는 큐에서 뽑는다 — untriagedCount의 술어를 여기서 다시 적으면
-  // 배너 숫자와 걸음의 분모(queue.length)가 따로 놀 수 있다.
+  // 배너 개수는 큐에서 뽑는다 — queue 자체가 triageQueue를 쓰므로 배너 숫자와
+  // 걸음의 분모(queue.length)가 항상 같은 술어에서 나온다.
   const untriaged = queue.length
 
   function toggleGroup(key: string) {
@@ -223,7 +220,10 @@ export function IssuePanel({
               <TriageCard
                 key={open.id}
                 issue={open}
-                position={queue.findIndex((i) => i.id === open.id) + 1}
+                // 열려 있는 이슈가 큐에 없을 수 있다 — 카드가 떠 있는 동안 agent가
+                // MCP로 같은 이슈를 분류해 refresh 후 큐에서 빠지는 경우다. findIndex는
+                // 그때 -1을 주므로 1로 바닥을 깔아 "0번째"를 보여주지 않는다.
+                position={Math.max(1, queue.findIndex((i) => i.id === open.id) + 1)}
                 total={queue.length}
                 onDone={(pick) => {
                   // 시도를 새로 시작할 때마다 지난 오류를 지운다 — 안 지우면 재시도가
@@ -241,7 +241,13 @@ export function IssuePanel({
                     }
                   })()
                 }}
-                onSkip={() => advance(open.id)}
+                onSkip={() => {
+                  // 지난 카드의 실패 배너를 지운다 — 안 지우면 이 카드(다음 이슈)
+                  // 위에 앞 이슈의 실패 메시지가 그대로 남아, 방금 연 이슈가 막힌
+                  // 것처럼 보인다.
+                  setTriageError(null)
+                  advance(open.id)
+                }}
               />
             )}
             {open && !triaging && (

@@ -100,7 +100,9 @@ describe('읽기 도구', () => {
     const rows = JSON.parse(text)
     expect(rows).toHaveLength(1)
     expect(rows[0]).not.toHaveProperty('body')
-    expect(Object.keys(rows[0]).sort()).toEqual(['id', 'repoIds', 'status', 'title', 'updatedAt'])
+    expect(Object.keys(rows[0]).sort()).toEqual(
+      ['id', 'kind', 'priority', 'repoIds', 'source', 'status', 'title', 'triagedAt', 'updatedAt']
+    )
   })
 
   it('list_issues는 status로 거른다', async () => {
@@ -279,5 +281,23 @@ describe('분류 축', () => {
       id: made.id, kind: 'refactor', priority: 'someday'
     })
     expect(f.issues.get(made.id).triagedAt).not.toBeNull()
+  })
+
+  it('list_issues 요약에도 축과 triagedAt이 보인다', async () => {
+    // 설계 §6: 회의 메모를 이슈로 쪼개 넣을 때, agent가 목록만 보고 어느 것이
+    // 아직 미분류인지 판단할 수 있어야 한다 — get_issue로 하나씩 확인시키면
+    // 이슈가 많을수록 컨텍스트만 태운다.
+    f.issues.create({
+      workspaceId: f.wsA, title: '분류된 이슈', source: 'meeting', kind: 'feature', priority: 'week'
+    })
+    const { text } = await call(f.wsA, 'read_only', 'list_issues')
+    const rows = JSON.parse(text) as Array<{
+      title: string; source: string | null; kind: string | null; priority: string | null; triagedAt: number | null
+    }>
+    const row = rows.find((r) => r.title === '분류된 이슈')
+    expect(row?.source).toBe('meeting')
+    expect(row?.kind).toBe('feature')
+    expect(row?.priority).toBe('week')
+    expect(row?.triagedAt).not.toBeNull()
   })
 })
