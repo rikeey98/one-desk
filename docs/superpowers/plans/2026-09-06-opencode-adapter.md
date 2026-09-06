@@ -1,6 +1,6 @@
 # OpenCode 어댑터 구현 계획
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** one-desk가 Claude Code 외에 OpenCode로도 헤드리스 실행을 돌릴 수 있게 하는 두 번째 `AgentAdapter`를 붙인다.
 
@@ -67,7 +67,7 @@ OpenCode의 세 권한 단계를 `OPENCODE_PERMISSION`에 실을 순수 객체�
 - Consumes: `Permission` (`@shared/models`)
 - Produces: `opencodePermissionConfig(permission: Permission): Record<string, 'allow' | 'deny'>`, `OPENCODE_PERMISSION_KEYS: readonly string[]`
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `core/runner/permission.test.ts` 끝에 더한다.
 
@@ -133,12 +133,12 @@ describe('opencodePermissionConfig', () => {
 })
 ```
 
-- [ ] **Step 2: 돌려서 실패를 확인한다**
+- [x] **Step 2: 돌려서 실패를 확인한다**
 
 Run: `pnpm test permission`
 Expected: FAIL — `opencodePermissionConfig is not a function` (import 오류)
 
-- [ ] **Step 3: 구현한다**
+- [x] **Step 3: 구현한다**
 
 `core/runner/permission.ts` 끝에 더한다.
 
@@ -192,21 +192,21 @@ export function opencodePermissionConfig(
 }
 ```
 
-- [ ] **Step 4: 돌려서 통과를 확인한다**
+- [x] **Step 4: 돌려서 통과를 확인한다**
 
 Run: `pnpm test permission`
 Expected: PASS
 
-- [ ] **Step 5: 회귀 테스트가 진짜인지 확인한다**
+- [x] **Step 5: 회귀 테스트가 진짜인지 확인한다**
 
 `opencodePermissionConfig`의 `if (permission === 'edit') config['edit'] = 'allow'` 줄을 잠시 지우고 `pnpm test permission`을 돌린다. "편집 허용은 edit만 더 연다"가 실패해야 한다. 확인 후 되돌린다.
 
-- [ ] **Step 6: 전체 테스트와 타입체크**
+- [x] **Step 6: 전체 테스트와 타입체크**
 
 Run: `pnpm test && pnpm typecheck`
 Expected: 전부 통과
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add core/runner/permission.ts core/runner/permission.test.ts
@@ -230,7 +230,7 @@ git commit -m "feat(runner): map permission levels to an OpenCode permission con
 - Consumes: `opencodePermissionConfig` (Task 1), `findExecutable`·`isBatchShim`·`LookupOptions` (`../executable`), `ResolvedRunSpec`·`SpawnSpec`·`PreflightResult` (`../types`)
 - Produces: `opencodeAdapter` — `kind: 'opencode'`, `preflight(explicitPath, opts?)`, `buildCommand(spec)`. `common.ts`가 `withLoopbackBypass(env)`, `stripNeedsAnswer(raw)`, `summarize(content)`를 내보낸다.
 
-- [ ] **Step 1: `common.ts`를 만든다 (동작 변화 없는 이동)**
+- [x] **Step 1: `common.ts`를 만든다 (동작 변화 없는 이동)**
 
 `core/runner/adapters/claudeCode.ts`에서 `LOOPBACK_HOSTS`·`withLoopbackBypass`·`NEEDS_ANSWER_MARK`·`stripNeedsAnswer`·`summarize`를 **주석까지 그대로** 잘라내 `core/runner/adapters/common.ts`로 옮기고 `export`를 붙인다. 파일 머리에 다음 주석을 단다.
 
@@ -248,12 +248,12 @@ git commit -m "feat(runner): map permission levels to an OpenCode permission con
 
 `claudeCode.ts`는 셋을 `import { stripNeedsAnswer, summarize, withLoopbackBypass } from './common'`으로 바꾼다.
 
-- [ ] **Step 2: 이동이 아무것도 깨지 않았는지 확인한다**
+- [x] **Step 2: 이동이 아무것도 깨지 않았는지 확인한다**
 
 Run: `pnpm test claudeCode && pnpm typecheck`
 Expected: PASS — 기존 claude 테스트가 전부 초록이어야 한다. 하나라도 빨간색이면 잘라내기가 잘못된 것이다.
 
-- [ ] **Step 3: 실패하는 테스트를 쓴다**
+- [x] **Step 3: 실패하는 테스트를 쓴다**
 
 `core/runner/adapters/opencode.command.test.ts`
 
@@ -377,12 +377,12 @@ describe('opencodeAdapter.preflight', () => {
 })
 ```
 
-- [ ] **Step 4: 돌려서 실패를 확인한다**
+- [x] **Step 4: 돌려서 실패를 확인한다**
 
 Run: `pnpm test opencode.command`
 Expected: FAIL — `./opencode` 모듈이 없다
 
-- [ ] **Step 5: 어댑터를 만든다**
+- [x] **Step 5: 어댑터를 만든다**
 
 `core/runner/adapters/opencode.ts`
 
@@ -460,21 +460,21 @@ export const opencodeAdapter = {
 } satisfies AgentAdapter
 ```
 
-- [ ] **Step 6: 돌려서 통과를 확인한다**
+- [x] **Step 6: 돌려서 통과를 확인한다**
 
 Run: `pnpm test opencode.command`
 Expected: PASS
 
-- [ ] **Step 7: 회귀 테스트가 진짜인지 확인한다**
+- [x] **Step 7: 회귀 테스트가 진짜인지 확인한다**
 
 `buildCommand`의 `if (spec.permission === 'full') args.push('--auto')`를 `args.push('--auto')`로 잠시 바꾸고 돌린다. "--auto는 전체 허용에서만 붙는다"가 실패해야 한다. 되돌린다.
 
-- [ ] **Step 8: 전체 테스트와 린트**
+- [x] **Step 8: 전체 테스트와 린트**
 
 Run: `pnpm test && pnpm typecheck && pnpm lint`
 Expected: 전부 통과
 
-- [ ] **Step 9: 커밋**
+- [x] **Step 9: 커밋**
 
 ```bash
 git add core/runner/adapters/common.ts core/runner/adapters/opencode.ts \
@@ -497,7 +497,7 @@ NDJSON 한 줄을 정규화 이벤트로 옮긴다.
 - Consumes: `stripNeedsAnswer`·`summarize` (`./common`), `RunEventInit`·`ToolEffect` (`@shared/events`)
 - Produces: `opencodeAdapter.parseLine(line: string, runId: string): RunEventInit[]`
 
-- [ ] **Step 1: 실측 픽스처를 뜬다**
+- [x] **Step 1: 실측 픽스처를 뜬다**
 
 opencode에 로그인돼 있어야 하고 **무료 모델이라 비용이 들지 않는다.** 빈 디렉토리에서 돌린다.
 
@@ -519,7 +519,7 @@ cp stream.ndjson <repo>/core/runner/adapters/fixtures/opencode-stream.jsonl
 
 **모델을 못 쓰는 환경이면** 위 성질을 만족하는 줄을 손으로 만들어 넣되, 커밋 메시지에 "합성 픽스처"임을 남긴다. 설계 §6-2가 요구하는 것은 *실제 형태*이지 특정 실행이 아니다.
 
-- [ ] **Step 2: 실패하는 테스트를 쓴다**
+- [x] **Step 2: 실패하는 테스트를 쓴다**
 
 `core/runner/adapters/opencode.parse.test.ts`
 
@@ -628,12 +628,12 @@ describe('opencodeAdapter.parseLine — 단위', () => {
 })
 ```
 
-- [ ] **Step 3: 돌려서 실패를 확인한다**
+- [x] **Step 3: 돌려서 실패를 확인한다**
 
 Run: `pnpm test opencode.parse`
 Expected: FAIL — `parseLine`이 빈 배열만 낸다
 
-- [ ] **Step 4: parseLine을 구현한다**
+- [x] **Step 4: parseLine을 구현한다**
 
 `core/runner/adapters/opencode.ts`의 `parseLine` 자리를 갈아끼우고, 파일 위쪽에 도구 표를 더한다.
 
@@ -734,20 +734,20 @@ function targetPaths(input: unknown): string[] {
   }
 ```
 
-- [ ] **Step 5: 돌려서 통과를 확인한다**
+- [x] **Step 5: 돌려서 통과를 확인한다**
 
 Run: `pnpm test opencode.parse`
 Expected: PASS
 
-- [ ] **Step 6: 회귀 테스트가 진짜인지 확인한다**
+- [x] **Step 6: 회귀 테스트가 진짜인지 확인한다**
 
 `TOOL_EFFECTS`에서 `write: 'write'`를 잠시 지우고 돌린다. "쓰기 도구를 write 효과와 대상 경로로 옮긴다"가 실패해야 한다. 되돌린다.
 
-- [ ] **Step 7: 전체 테스트와 린트**
+- [x] **Step 7: 전체 테스트와 린트**
 
 Run: `pnpm test && pnpm typecheck && pnpm lint`
 
-- [ ] **Step 8: 커밋**
+- [x] **Step 8: 커밋**
 
 ```bash
 git add core/runner/adapters/opencode.ts core/runner/adapters/opencode.parse.test.ts \
@@ -770,7 +770,7 @@ git commit -m "feat(runner): parse the OpenCode NDJSON stream into normalized ev
 - Consumes: `opencodePermissionConfig` (Task 1), `withLoopbackBypass` (Task 2)
 - Produces: `VerifyRunnableInput { executable: string; cwd: string; permission: Permission }`, `AgentAdapter.verifyRunnable?(input): Promise<PreflightResult>`, `opencodeAdapter.verifyRunnable(input, probe?)`, `type ConfigProbe = (input: { executable: string; cwd: string; env: Record<string, string> }) => Promise<string>`
 
-- [ ] **Step 1: 타입을 더한다**
+- [x] **Step 1: 타입을 더한다**
 
 `core/runner/types.ts`
 
@@ -796,7 +796,7 @@ export interface VerifyRunnableInput {
   verifyRunnable?(input: VerifyRunnableInput): Promise<PreflightResult>
 ```
 
-- [ ] **Step 2: 실패하는 테스트를 쓴다**
+- [x] **Step 2: 실패하는 테스트를 쓴다**
 
 `core/runner/adapters/opencode.verify.test.ts`
 
@@ -863,12 +863,12 @@ describe('opencodeAdapter.verifyRunnable', () => {
 })
 ```
 
-- [ ] **Step 3: 돌려서 실패를 확인한다**
+- [x] **Step 3: 돌려서 실패를 확인한다**
 
 Run: `pnpm test opencode.verify`
 Expected: FAIL — `verifyRunnable is not a function`
 
-- [ ] **Step 4: 구현한다**
+- [x] **Step 4: 구현한다**
 
 `core/runner/adapters/opencode.ts`에 더한다.
 
@@ -953,20 +953,20 @@ const defaultProbe: ConfigProbe = async ({ executable, cwd, env }) => {
 
 `VerifyRunnableInput`을 `../types`에서 import한다.
 
-- [ ] **Step 5: 돌려서 통과를 확인한다**
+- [x] **Step 5: 돌려서 통과를 확인한다**
 
 Run: `pnpm test opencode.verify`
 Expected: PASS
 
-- [ ] **Step 6: 회귀 테스트가 진짜인지 확인한다**
+- [x] **Step 6: 회귀 테스트가 진짜인지 확인한다**
 
 `asking.length === 0` 검사를 `true`로 잠시 바꿔 항상 통과하게 만들고 돌린다. "ask가 남아 있으면 거부하고 키 이름을 알려준다"가 실패해야 한다. 되돌린다.
 
-- [ ] **Step 7: 전체 테스트와 타입체크**
+- [x] **Step 7: 전체 테스트와 타입체크**
 
 Run: `pnpm test && pnpm typecheck && pnpm lint`
 
-- [ ] **Step 8: 커밋**
+- [x] **Step 8: 커밋**
 
 ```bash
 git add core/runner/types.ts core/runner/adapters/opencode.ts \
@@ -986,7 +986,7 @@ git commit -m "feat(runner): reject a run when OpenCode still resolves a permiss
 - Consumes: `VerifyRunnableInput`·`PreflightResult` (Task 4)
 - Produces: `ExecutionOptions.verifyRunnable?: (agentKind: AgentKind, input: VerifyRunnableInput) => Promise<PreflightResult>`
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `core/execution.test.ts`의 `SetupOptions`에 통로를 하나 더한다.
 
@@ -1061,12 +1061,12 @@ git commit -m "feat(runner): reject a run when OpenCode still resolves a permiss
 
 `AgentKind`·`VerifyRunnableInput`·`PreflightResult` import를 파일 머리에 더한다.
 
-- [ ] **Step 2: 돌려서 실패를 확인한다**
+- [x] **Step 2: 돌려서 실패를 확인한다**
 
 Run: `pnpm test execution`
 Expected: FAIL — `verifyRunnable`이 옵션에 없다
 
-- [ ] **Step 3: 구현한다**
+- [x] **Step 3: 구현한다**
 
 `core/execution.ts`의 옵션 타입에 더한다.
 
@@ -1105,20 +1105,20 @@ Expected: FAIL — `verifyRunnable`이 옵션에 없다
     }
 ```
 
-- [ ] **Step 4: 돌려서 통과를 확인한다**
+- [x] **Step 4: 돌려서 통과를 확인한다**
 
 Run: `pnpm test execution`
 Expected: PASS
 
-- [ ] **Step 5: 회귀 테스트가 진짜인지 확인한다**
+- [x] **Step 5: 회귀 테스트가 진짜인지 확인한다**
 
 `if (!verified.ok)` 블록을 잠시 지우고 돌린다. "verifyRunnable이 거부하면…"이 실패해야 한다. 되돌린다.
 
-- [ ] **Step 6: 전체 테스트**
+- [x] **Step 6: 전체 테스트**
 
 Run: `pnpm test && pnpm typecheck`
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add core/execution.ts core/execution.test.ts
@@ -1141,7 +1141,7 @@ OpenCode의 MCP 설정은 키 이름과 구조가 claude와 다르다.
 - Consumes: `AgentKind` (`@shared/models`), `McpConfigTarget` (기존)
 - Produces: `writeMcpConfig(dir, runId, target, agentKind: AgentKind)`, `RunContext.agentKind: AgentKind`
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `core/mcp/configFile.test.ts`에 더한다.
 
@@ -1204,12 +1204,12 @@ it('두 형식 모두 0600으로 쓴다', () => {
 })
 ```
 
-- [ ] **Step 2: 돌려서 실패를 확인한다**
+- [x] **Step 2: 돌려서 실패를 확인한다**
 
 Run: `pnpm test configFile`
 Expected: FAIL — 네 번째 인자를 받지 않는다
 
-- [ ] **Step 3: `configFile.ts`를 고친다**
+- [x] **Step 3: `configFile.ts`를 고친다**
 
 `writeMcpConfig`의 본문 조립을 두 함수로 가르고 인자를 하나 받는다.
 
@@ -1283,7 +1283,7 @@ export function writeMcpConfig(
 > **그 catch를 없애거나 완화하지 말 것** — 없애면 opencode가 설정 없이 떠서
 > 사용자의 `ask` 설정으로 되돌아간다.
 
-- [ ] **Step 4: 호스트와 실행 서비스를 잇는다**
+- [x] **Step 4: 호스트와 실행 서비스를 잇는다**
 
 `core/mcp/host.ts`의 `RunContext`에 더한다.
 
@@ -1319,20 +1319,20 @@ export interface RunContext {
         })
 ```
 
-- [ ] **Step 5: 돌려서 통과를 확인한다**
+- [x] **Step 5: 돌려서 통과를 확인한다**
 
 Run: `pnpm test configFile && pnpm test mcp && pnpm typecheck`
 Expected: PASS. 타입 오류가 나면 `RunContext`를 만드는 다른 자리(테스트 포함)에 `agentKind`를 더한다.
 
-- [ ] **Step 6: 회귀 테스트가 진짜인지 확인한다**
+- [x] **Step 6: 회귀 테스트가 진짜인지 확인한다**
 
 `opencodeBody`의 `command`를 claude처럼 문자열로 잠시 바꾸고 돌린다. opencode 형식 테스트가 실패해야 한다. 되돌린다.
 
-- [ ] **Step 7: 전체 테스트**
+- [x] **Step 7: 전체 테스트**
 
 Run: `pnpm test && pnpm typecheck && pnpm lint`
 
-- [ ] **Step 8: 커밋**
+- [x] **Step 8: 커밋**
 
 ```bash
 git add core/mcp/configFile.ts core/mcp/configFile.test.ts core/mcp/host.ts core/execution.ts
@@ -1354,7 +1354,7 @@ git commit -m "feat(mcp): write the run config in the agent's own format"
 - Consumes: `opencodeAdapter` (Task 2·3·4)
 - Produces: 없음 (배선)
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `core/runner/fixtures.test.ts`에 더한다.
 
@@ -1397,12 +1397,12 @@ describe('createAdapters', () => {
 })
 ```
 
-- [ ] **Step 2: 돌려서 실패를 확인한다**
+- [x] **Step 2: 돌려서 실패를 확인한다**
 
 Run: `pnpm test fixtures`
 Expected: FAIL — `fake-opencode.mjs`가 없다
 
-- [ ] **Step 3: 가짜 CLI를 만든다**
+- [x] **Step 3: 가짜 CLI를 만든다**
 
 `core/runner/fixtures/fake-opencode.mjs`
 
@@ -1463,7 +1463,7 @@ process.stdin.on('end', () => {
 chmod +x core/runner/fixtures/fake-opencode.mjs
 ```
 
-- [ ] **Step 4: 배선을 바꾼다**
+- [x] **Step 4: 배선을 바꾼다**
 
 `core/index.ts`
 
@@ -1502,12 +1502,12 @@ export function createAdapters(): Record<AgentKind, AgentAdapter> {
     },
 ```
 
-- [ ] **Step 5: 돌려서 통과를 확인한다**
+- [x] **Step 5: 돌려서 통과를 확인한다**
 
 Run: `pnpm test fixtures && pnpm test index`
 Expected: PASS
 
-- [ ] **Step 6: 전체 테스트와 경계 확인**
+- [x] **Step 6: 전체 테스트와 경계 확인**
 
 ```bash
 pnpm test && pnpm typecheck && pnpm lint
@@ -1515,7 +1515,7 @@ grep -rn "from 'electron'" core/                        # 출력 없어야 함
 grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 ```
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add core/index.ts core/runner/fixtures/fake-opencode.mjs core/runner/fixtures.test.ts
@@ -1536,7 +1536,7 @@ git commit -m "feat(core): wire the OpenCode adapter and add a fake CLI fixture"
 - Consumes: `Workspace.defaultAgentKind` (기존 스키마), `conversation.last.agentKind`
 - Produces: 없음 (UI)
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `renderer/components/RunPanel.test.tsx`의 `makeWorkspace`가 `defaultAgentKind`를 리터럴로 박고 있다. 인자를 하나 더 받게 고친다.
 
@@ -1601,12 +1601,12 @@ it('대화를 이어갈 때는 원본의 agent로 잠긴다', async () => {
 })
 ```
 
-- [ ] **Step 2: 돌려서 실패를 확인한다**
+- [x] **Step 2: 돌려서 실패를 확인한다**
 
 Run: `pnpm test RunPanel`
 Expected: FAIL — agent combobox가 없다
 
-- [ ] **Step 3: 구현한다**
+- [x] **Step 3: 구현한다**
 
 `RunPanel.tsx`에 권한 드롭다운과 같은 모양으로 더한다.
 
@@ -1638,23 +1638,23 @@ useEffect(() => {
 
 130행의 `agentKind: 'claude-code'`를 `agentKind`로 바꾼다.
 
-- [ ] **Step 4: 돌려서 통과를 확인한다**
+- [x] **Step 4: 돌려서 통과를 확인한다**
 
 Run: `pnpm test RunPanel`
 Expected: PASS
 
-- [ ] **Step 5: 회귀 테스트가 진짜인지 확인한다**
+- [x] **Step 5: 회귀 테스트가 진짜인지 확인한다**
 
 `agentKind`를 다시 `'claude-code'` 리터럴로 잠시 되돌리고 돌린다. 두 테스트가 실패해야 한다. 되돌린다.
 
-- [ ] **Step 6: 전체 테스트와 경계 확인**
+- [x] **Step 6: 전체 테스트와 경계 확인**
 
 ```bash
 pnpm test && pnpm typecheck && pnpm lint
 grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 ```
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add renderer/components/RunPanel.tsx renderer/components/RunPanel.test.tsx
@@ -1669,7 +1669,7 @@ git commit -m "feat(renderer): pick the agent per run instead of hardcoding clau
 - Modify: `CLAUDE.md`
 - Modify: `docs/superpowers/specs/2026-08-07-one-desk-design.md`
 
-- [ ] **Step 1: 전체 설계의 §346을 정정한다**
+- [x] **Step 1: 전체 설계의 §346을 정정한다**
 
 설계 문서 §11이 요구한 그대로다. `2026-08-07-one-desk-design.md`의 §346 문단 뒤에 다음을 덧붙인다.
 
@@ -1682,7 +1682,7 @@ git commit -m "feat(renderer): pick the agent per run instead of hardcoding clau
 > 자세한 근거는 `2026-09-06-opencode-adapter-design.md` §2·§3.
 ```
 
-- [ ] **Step 2: `CLAUDE.md`를 갱신한다**
+- [x] **Step 2: `CLAUDE.md`를 갱신한다**
 
 "현재 상태" 문단에 OpenCode 어댑터가 붙었음을 적고, "밟으면 조용히 깨지는 것들"에 다음 셋을 더한다.
 
@@ -1707,7 +1707,7 @@ git commit -m "feat(renderer): pick the agent per run instead of hardcoding clau
 
 문서 표에 새 설계·계획 두 줄을 더한다.
 
-- [ ] **Step 3: 커밋**
+- [x] **Step 3: 커밋**
 
 ```bash
 git add CLAUDE.md docs/superpowers/specs/2026-08-07-one-desk-design.md
@@ -1718,7 +1718,7 @@ git commit -m "docs: record the OpenCode config merge rules and their consequenc
 
 ## 마무리
 
-- [ ] `pnpm test && pnpm typecheck && pnpm lint`가 전부 초록
-- [ ] `pnpm test:e2e`가 초록 (`pnpm dev`와 동시에 돌리지 않는다)
-- [ ] 경계 확인 두 줄이 빈 출력
-- [ ] 계획의 체크박스가 전부 채워짐
+- [x] `pnpm test && pnpm typecheck && pnpm lint`가 전부 초록
+- [x] `pnpm test:e2e`가 초록 (`pnpm dev`와 동시에 돌리지 않는다)
+- [x] 경계 확인 두 줄이 빈 출력
+- [x] 계획의 체크박스가 전부 채워짐
