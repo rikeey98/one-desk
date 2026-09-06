@@ -1,5 +1,9 @@
 import { access, constants } from 'node:fs/promises'
-import type { AgentAdapter, PreflightResult, ResolvedRunSpec, SpawnSpec } from '../types'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import type {
+  AgentAdapter, PreflightResult, ResolvedRunSpec, SpawnSpec, VerifyRunnableInput
+} from '../types'
 import { opencodePermissionConfig } from '../permission'
 import { findExecutable, isBatchShim, type LookupOptions } from '../executable'
 import { stripNeedsAnswer, summarize, withLoopbackBypass } from './common'
@@ -27,6 +31,25 @@ function targetPaths(input: unknown): string[] {
   if (typeof input !== 'object' || input === null) return []
   const path = (input as Record<string, unknown>)['filePath']
   return typeof path === 'string' ? [path] : []
+}
+
+const execFileAsync = promisify(execFile)
+
+/**
+ * 해결된 설정을 JSON 문자열로 가져온다. 테스트가 갈아끼우는 이음매다.
+ *
+ * **동기 실행을 쓰면 안 된다.** `execFileSync`는 이벤트 루프를 막아 같은
+ * 프로세스에 떠 있는 MCP 서버가 연결을 받지 못하게 만든다.
+ */
+export type ConfigProbe = (input: {
+  executable: string
+  cwd: string
+  env: Record<string, string>
+}) => Promise<string>
+
+const defaultProbe: ConfigProbe = async ({ executable, cwd, env }) => {
+  const { stdout } = await execFileAsync(executable, ['debug', 'config'], { cwd, env })
+  return stdout
 }
 
 const BATCH_SHIM_REASON =
@@ -87,6 +110,57 @@ export const opencodeAdapter = {
 
     // 프롬프트는 stdin으로 넘긴다 — RunManager가 쓰고 닫는다.
     return { cmd: spec.executable, args, env, cwd: spec.cwd }
+  },
+
+  /**
+   * 실행 직전 마지막 확인 — 해결된 설정에 `ask`가 남아 있지 않은지 본다.
+   *
+   * 15개 키를 전부 명시해도 구멍이 셋 남는다: opencode가 나중에 추가하는 키,
+   * OPENCODE_PERMISSION이 깨진 JSON일 때의 조용한 무시, MCP 도구 이름 같은
+   * 임의 키. 셋 다 증상이 같다 — **헤드리스 실행이 아무 말 없이 영원히 멈추고
+   * 동시 실행 슬롯을 계속 점유한다** (설계 §3-3·§8).
+   *
+   * 모델을 호출하지 않으므로 비용도 지연도 작다.
+   */
+  async verifyRunnable(
+    input: VerifyRunnableInput,
+    probe: ConfigProbe = defaultProbe
+  ): Promise<PreflightResult> {
+    const env = withLoopbackBypass(process.env)
+    // 실제로 실행에 쓸 환경변수를 그대로 실어야 검사가 의미를 갖는다.
+    env['OPENCODE_PERMISSION'] = JSON.stringify(opencodePermissionConfig(input.permission))
+
+    let raw: string
+    try {
+      raw = await probe({ executable: input.executable, cwd: input.cwd, env })
+    } catch {
+      return {
+        ok: false,
+        reason: `OpenCode 설정을 확인하지 못했습니다. ${input.cwd} 에서 실행할 수 있는지 보세요.`
+      }
+    }
+
+    let permission: unknown
+    try {
+      permission = (JSON.parse(raw) as Record<string, unknown>)['permission']
+    } catch {
+      return { ok: false, reason: 'OpenCode 설정을 확인하지 못했습니다. 출력을 읽을 수 없습니다.' }
+    }
+
+    if (typeof permission !== 'object' || permission === null) return { ok: true }
+
+    const asking = Object.entries(permission as Record<string, unknown>)
+      .filter(([, value]) => value === 'ask')
+      .map(([key]) => key)
+    if (asking.length === 0) return { ok: true }
+
+    return {
+      ok: false,
+      reason:
+        `${asking.join(', ')} 권한이 '물어보기'로 남아 있어 실행할 수 없습니다. ` +
+        '헤드리스 실행에는 답할 사람이 없어 멈춥니다. ' +
+        `${input.cwd}/opencode.json 에서 해당 항목을 지우거나 allow/deny로 바꾸세요.`
+    }
   },
 
   parseLine(line: string, runId: string): RawEvent[] {

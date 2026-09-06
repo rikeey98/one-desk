@@ -35,6 +35,13 @@ export interface ResolvedRunSpec {
   mcp: McpRunConfig | null
 }
 
+/** 실행 직전 마지막 확인에 필요한 것. preflight는 cwd를 받지 않는다. */
+export interface VerifyRunnableInput {
+  executable: string
+  cwd: string
+  permission: Permission
+}
+
 export interface SpawnSpec {
   cmd: string
   args: string[]
@@ -53,4 +60,12 @@ export interface AgentAdapter {
    * 어댑터가 seq를 매기면 여러 run이 돌 때 순번이 꼬인다.
    */
   parseLine(line: string, runId: string): RunEventInit[]
+  /**
+   * preflight를 통과한 뒤, 실제로 쓸 cwd와 권한으로 마지막 확인을 한다.
+   *
+   * **필요한 어댑터만 구현한다.** claude는 권한 플래그를 우리가 전부 소유하므로
+   * 합쳐질 남의 설정이 없다. OpenCode는 설정이 병합되고 그중 일부는 우리가
+   * 이길 수 없어(설계 §2-3) 이 단계가 필요하다.
+   */
+  verifyRunnable?(input: VerifyRunnableInput): Promise<PreflightResult>
 }
