@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useClient } from '../client/ClientProvider'
-import type { Permission, Repo, Run, Workspace } from '@shared/models'
+import type { AgentKind, Permission, Repo, Run, Workspace } from '@shared/models'
 import type { Conversation } from '../conversation'
 import type { ContextChip } from '../context'
 
@@ -39,10 +39,20 @@ export function RunPanel({
   // "다시 실행"이 요구한 경로가 지금 repo 목록에 없을 때 그 경로를 담는다.
   const [missingCwd, setMissingCwd] = useState<string | null>(null)
   const [permission, setPermission] = useState<Permission>('edit')
+  const [agentKind, setAgentKind] = useState<AgentKind>('claude-code')
   const [model, setModel] = useState('')
   const [prompt, setPrompt] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // agent 기본값도 workspace에서 오고 선택은 그 run에만 적용된다. 권한과 달리
+  // 대화를 이어갈 때는 **잠긴다** — 세션은 특정 CLI가 특정 디렉토리에서 만든
+  // 것이라 다른 조합으로 이어받을 수 없다 (전체 설계 §362). 잠겨 있으니 권한
+  // 쪽처럼 사용자가 고른 값을 지켜줄 ref가 필요 없다.
+  useEffect(() => {
+    if (conversation) setAgentKind(conversation.last.agentKind)
+    else if (workspace) setAgentKind(workspace.defaultAgentKind)
+  }, [workspace, conversation])
 
   // 권한 기본값은 workspace의 defaultPermission이고, 선택은 그 run에만 적용된다 (설계 §7).
   // 대화를 이어갈 때는 원본(마지막 턴)의 권한이 우선이다 — workspace 조회가 비동기라
@@ -127,7 +137,7 @@ export function RunPanel({
           })
         : await client.runs.start({
             workspaceId,
-            agentKind: 'claude-code',
+            agentKind,
             model: model.trim() || null,
             cwd,
             permission,
@@ -168,9 +178,15 @@ export function RunPanel({
       <div className="run-settings">
         <label>
           agent
-          {/* OpenCode 어댑터는 5단계에 들어온다. 지금 고르게 하면 Claude Code가 실행돼 혼란만 준다. */}
-          <select value="claude-code" disabled>
+          {/* 대화를 이어갈 때만 잠긴다 — 세션은 특정 CLI가 만든 것이라
+              다른 CLI로 이어받을 수 없다 (전체 설계 §362). */}
+          <select
+            value={agentKind}
+            disabled={Boolean(conversation)}
+            onChange={(e) => setAgentKind(e.target.value as AgentKind)}
+          >
             <option value="claude-code">Claude Code</option>
+            <option value="opencode">OpenCode</option>
           </select>
         </label>
         <label>
