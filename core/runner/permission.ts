@@ -60,3 +60,51 @@ export function claudeCodePermissionArgs(
       ]
   }
 }
+
+/**
+ * OpenCode의 권한 키. config 스키마 `$defs.PermissionConfig`가 열거하는 것
+ * 그대로다 (1.18.27 실측, 15개).
+ *
+ * **전부 명시해야 한다.** OpenCode는 설정을 키 단위로 병합하므로, 이름을 대지
+ * 않은 키는 프로젝트 `opencode.json`이나 전역 설정의 값이 그대로 살아남는다.
+ * 거기 `ask`가 있으면 헤드리스 실행이 답할 사람 없이 멈춘다 (설계 §2-1·§3-1).
+ */
+export const OPENCODE_PERMISSION_KEYS = [
+  'bash', 'doom_loop', 'edit', 'external_directory', 'glob', 'grep', 'list',
+  'lsp', 'question', 'read', 'skill', 'task', 'todowrite', 'webfetch', 'websearch'
+] as const
+
+/** 읽기 전용에서 살려두는 키. 위 READ_ONLY_TOOLS와 대응이 어긋나지 않게 유지한다. */
+const OPENCODE_READ_KEYS = [
+  'read', 'glob', 'grep', 'list', 'lsp', 'todowrite', 'webfetch', 'websearch'
+]
+
+/**
+ * 권한 단계를 `OPENCODE_PERMISSION` 환경변수에 실을 객체로 바꾼다.
+ *
+ * **파일이 아니라 환경변수인 이유:** `OPENCODE_CONFIG`가 가리키는 파일은 run의
+ * cwd에 있는 `opencode.json`에게 진다. 환경변수만이 그것을 이긴다 (설계 §2).
+ *
+ * `"*"`도 넣지만 그것은 미래에 생길 키를 위한 것이지 보호 수단이 아니다 —
+ * 구체적인 키가 와일드카드를 이긴다 (설계 §2-2).
+ *
+ * 절대 규칙: 어떤 경우에도 'ask'를 만들지 않는다 (설계 §7).
+ */
+export function opencodePermissionConfig(
+  permission: Permission
+): Record<string, 'allow' | 'deny'> {
+  const config: Record<string, 'allow' | 'deny'> = {}
+
+  if (permission === 'full') {
+    config['*'] = 'allow'
+    for (const key of OPENCODE_PERMISSION_KEYS) config[key] = 'allow'
+    return config
+  }
+
+  config['*'] = 'deny'
+  for (const key of OPENCODE_PERMISSION_KEYS) config[key] = 'deny'
+  for (const key of OPENCODE_READ_KEYS) config[key] = 'allow'
+  // 편집 허용은 파일 수정만 더 연다. bash는 그대로 막힌다 (전체 설계 §7).
+  if (permission === 'edit') config['edit'] = 'allow'
+  return config
+}
