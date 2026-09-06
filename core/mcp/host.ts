@@ -5,7 +5,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { buildServer, type McpHostDeps } from './tools'
 import { clearMcpConfigs, MCP_SERVER_NAME, removeMcpConfig, writeMcpConfig } from './configFile'
 import { consoleErrorSink, type ErrorSink } from '../errors'
-import type { McpStatus, Permission } from '@shared/models'
+import type { AgentKind, McpStatus, Permission } from '@shared/models'
 
 // 설정 파일의 mcpServers 키와 --allowedTools의 접두사가 같은 상수를 보도록
 // configFile.ts에 정의를 두고 여기서는 re-export만 한다 (host↔tools 순환을
@@ -16,6 +16,8 @@ export interface RunContext {
   runId: string
   workspaceId: string
   permission: Permission
+  /** 설정 파일 형식이 CLI마다 다르다. */
+  agentKind: AgentKind
 }
 
 export interface PreparedMcp {
@@ -146,7 +148,7 @@ export function createMcpHost(opts: McpHostOptions) {
         bridgePath: opts.bridgePath,
         url,
         token
-      })
+      }, ctx.agentKind)
       return { token, url, configFile }
     },
 

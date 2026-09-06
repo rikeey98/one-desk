@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { createCore, type Core } from './index'
+import { createAdapters, createCore, type Core } from './index'
 import { DEFAULT_CONCURRENCY_LIMIT } from './db/repositories/setting'
 import type { InboxCounts, McpStatus } from '@shared/models'
 
@@ -211,5 +211,17 @@ describe('createCore', () => {
 
     expect(seen.at(-1)).toEqual({ total: 0, byWorkspace: {} })
     expect(core.inbox.list()).toHaveLength(0)
+  })
+})
+
+describe('createAdapters', () => {
+  it('opencode는 OpenCode 어댑터를 쓴다', () => {
+    // 임시 매핑(opencode → claudeCodeAdapter)이 남아 있으면 여기서 걸린다.
+    // 배선 한 줄은 그 자체로 되돌릴 수 있는 변이다.
+    expect(createAdapters()['opencode'].kind).toBe('opencode')
+  })
+
+  it('claude-code 매핑은 그대로다', () => {
+    expect(createAdapters()['claude-code'].kind).toBe('claude-code')
   })
 })

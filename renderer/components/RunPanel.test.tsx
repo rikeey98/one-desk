@@ -5,7 +5,7 @@ import { ClientProvider } from '../client/ClientProvider'
 import { RunPanel } from './RunPanel'
 import { groupConversations } from '../conversation'
 import type { OneDeskClient } from '@shared/client'
-import type { Permission, Repo, Run, Workspace } from '@shared/models'
+import type { AgentKind, Permission, Repo, Run, Workspace } from '@shared/models'
 import type { Conversation } from '../conversation'
 import type { ContextChip } from '../context'
 
@@ -13,9 +13,12 @@ const repos: Repo[] = [
   { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, createdAt: 0 }
 ]
 
-function makeWorkspace(defaultPermission: Permission): Workspace {
+function makeWorkspace(
+  defaultPermission: Permission,
+  defaultAgentKind: AgentKind = 'claude-code'
+): Workspace {
   return {
-    id: 'w1', name: 'ws', description: null, defaultAgentKind: 'claude-code',
+    id: 'w1', name: 'ws', description: null, defaultAgentKind,
     defaultModelClaude: null, defaultModelOpencode: null, defaultPermission,
     claudePath: null, opencodePath: null, createdAt: 0, updatedAt: 0
   }
@@ -101,13 +104,6 @@ function renderPanel(
 }
 
 describe('RunPanel', () => {
-  it('agent는 claude-code만 고를 수 있다', async () => {
-    // OpenCode 어댑터는 5단계에 들어온다. 지금 고르면 Claude Code가 실행돼 혼란만 준다.
-    renderPanel(makeClient())
-    const select = await screen.findByLabelText('agent')
-    expect(select).toBeDisabled()
-    expect(select.querySelectorAll('option')).toHaveLength(1)
-  })
 
   it('권한 기본값은 workspace의 defaultPermission이다', async () => {
     renderPanel(makeClient(), repos, [], vi.fn(), {}, [makeWorkspace('read_only')])
@@ -349,5 +345,51 @@ describe('RunPanel', () => {
     renderPanel(makeClient(), repos, [], vi.fn(), { reserved: true })
     await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '또 하나')
     expect(screen.getByRole('button', { name: '실행' })).toBeDisabled()
+  })
+})
+
+describe('RunPanel — agent 선택', () => {
+  it('workspace 기본값을 agent로 쓴다', async () => {
+    const start = vi.fn().mockResolvedValue({ id: 'run-1' })
+    const client = makeClient({ start })
+    renderPanel(client, repos, [], vi.fn(), {}, [makeWorkspace('edit', 'opencode')])
+
+    await userEvent.type(await screen.findByPlaceholderText(/무엇을 시킬지/), '뭐든')
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
+
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ agentKind: 'opencode' }))
+  })
+
+  it('agent를 바꾸면 그 run에만 적용된다', async () => {
+    // 권한과 같은 규칙이다 — 선택은 그 run에만 적용된다 (전체 설계 §386).
+    const start = vi.fn().mockResolvedValue({ id: 'run-1' })
+    const client = makeClient({ start })
+    renderPanel(client, repos, [], vi.fn(), {}, [makeWorkspace('edit', 'claude-code')])
+
+    await userEvent.selectOptions(screen.getByLabelText('agent'), 'opencode')
+    await userEvent.type(await screen.findByPlaceholderText(/무엇을 시킬지/), '뭐든')
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
+
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ agentKind: 'opencode' }))
+  })
+
+  it('대화를 이어갈 때는 원본의 agent로 잠긴다', async () => {
+    // 세션은 특정 CLI가 특정 디렉토리에서 만든 것이라 다른 조합으로 이어받을 수
+    // 없다 (전체 설계 §362).
+    const opencodeParent: Run = {
+      id: 'p9', workspaceId: 'w1', agentKind: 'opencode', model: null,
+      cwd: '/tmp/api', permission: 'edit', userPrompt: '원래 지시', assembledPrompt: 'x',
+      status: 'succeeded', externalSessionId: 'ses_1', parentRunId: null, rootRunId: 'p9',
+      resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
+      errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
+      startedAt: 1, endedAt: 2, createdAt: 0, contextItems: []
+    }
+    const opencodeConversation = groupConversations([opencodeParent])[0]!
+
+    renderPanel(makeClient(), repos, [], vi.fn(), { conversation: opencodeConversation },
+      [makeWorkspace('edit', 'claude-code')])
+
+    await waitFor(() => expect(screen.getByLabelText('agent')).toHaveValue('opencode'))
+    expect(screen.getByLabelText('agent')).toBeDisabled()
   })
 })

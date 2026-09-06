@@ -14,7 +14,9 @@ workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 
 
 **대화(세션을 이어가는 대화)**가 10개 태스크로 완성돼 `main`에 병합됐다(`79a612e`, 설계 `2026-08-18-conversation-design.md`, 계획 `2026-08-18-conversation.md`). v0.2.0으로 릴리스됐다 — **첫 실행에 마이그레이션이 돈다**(`run.root_run_id` 추가 + 기존 행 백필). run은 더 이상 일회용이 아니라 전부 대화다: `run.rootRunId`가 턴을 한 대화로 묶고(승계 규칙은 "부모의 rootRunId, 부모가 없으면 자기 id"), 도크는 run이 아니라 대화 단위 탭이며(`Dock.tsx`의 `groupConversations`), 인박스 항목도 대화 하나당 한 줄로 그 대화의 마지막 턴을 보여준다 — "로그 보기"·"이어서 실행" 두 버튼이 "대화 열기" 하나로 합쳐졌다. **대화당 예약은 하나뿐이다**(설계 §3-2): 앞 턴이 도는 중에 다음 지시를 보내면 그 턴은 `pending`으로 대기 버블만 만들고 전송이 잠긴다 — `RunQueue`의 `groupKey`(대화의 root run id)가 같은 대화의 두 턴이 동시에 뜨는 것을 막는다(`claude --resume`은 이전 프로세스가 끝나야 한다). 대화록의 각 턴은 **진행 중일 때만 기본으로 펼쳐지고**, 끝난 턴은 접힌 채로 "자세히"를 눌러야 도구 호출 같은 세부가 보인다(최종 답변 자체는 항상 보인다). `e2e/conversation.e2e.ts`가 화면을 벗어나지 않고 3턴을 실제로 주고받아 이 핵심 약속 — 특히 "앞 턴이 끝나면 예약된 턴이 자동으로 뜬다" — 을 검증한다.
 
-다음은 5단계(OpenCode 어댑터 · asset 스캔 · diff 뷰어)다. **착수를 막던 환경변수 결정은 해소됐다**(아래 절). 본문 작업이 넷으로 쪼갠 것 중 첫째였으므로 나머지 셋(마크다운 렌더링 · 검색/필터/정렬 · run 완료 구독)도 후보로 남아 있다. 대화 기능은 이 목록과 별개로 진행돼 완료·병합됐다(위 절). 그중 **run 완료 구독은 이미 해소됐으므로** 남은 것은 마크다운 렌더링과 검색/필터/정렬 둘이다.
+**5단계의 첫 하위 과제인 OpenCode 어댑터가 붙었다**(설계 `2026-09-06-opencode-adapter-design.md`, 계획 `2026-09-06-opencode-adapter.md`). 마이그레이션은 없다 — 스키마에 이미 `defaultAgentKind`·`defaultModelOpencode`·`opencodePath`가 있었다. 실행 패널의 agent 드롭다운이 열렸고(그전까지 `disabled`였다), 대화를 이어갈 때만 잠긴다. 5단계는 세 하위 시스템이 서로 독립이라 **하나의 스펙으로 묶지 않고 각각 spec → plan → 구현 사이클을 따로 돈다.**
+
+남은 5단계 과제는 asset 스캔과 diff 뷰어다. **착수를 막던 환경변수 결정은 해소됐다**(아래 절). 본문 작업이 넷으로 쪼갠 것 중 첫째였으므로 나머지 셋(마크다운 렌더링 · 검색/필터/정렬 · run 완료 구독)도 후보로 남아 있다. 대화 기능은 이 목록과 별개로 진행돼 완료·병합됐다(위 절). 그중 **run 완료 구독은 이미 해소됐으므로** 남은 것은 마크다운 렌더링과 검색/필터/정렬 둘이다.
 
 **이슈 훑기**가 붙었다(설계 `2026-08-27-issue-triage-design.md`, 계획 `2026-08-27-issue-triage.md`). **첫 실행에 마이그레이션 `0003`이 돈다** — 컬럼 다섯 추가 + 기존 이슈의 `triaged_at` 백필. 이슈를 제목 한 줄로 던져 넣고 분류는 나중에 훑기로 몰아서 한다. 목록은 축(급함·출처·성격·repo)으로 묶고 접되 **접혀도 개수는 보이며**, 그룹 안은 `seenAt` 오래된 순이다. MCP `create_issue`가 축을 받으므로 agent가 회의 메모를 이슈로 쪼개며 분류까지 끝낼 수 있다.
 
@@ -128,6 +130,14 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **ad-hoc 서명(`identity: '-'`)은 hardened runtime의 라이브러리 검증에 걸린다.** Team ID가 없어 Electron Framework조차 로드되지 않고 앱이 아예 안 뜬다 — `build/entitlements.mac.plist`의 `com.apple.security.cs.disable-library-validation`이 그것을 푼다. **설정이 문법에 맞는 것과 앱이 열리는 것은 다르다** — DMG를 실제로 열어봐야만 드러난다.
 
+**OpenCode는 설정을 병합하고, 우리가 이길 수 없는 자리가 있다.** 우선순위는 `OPENCODE_PERMISSION` 환경변수 > 프로젝트 `opencode.json` > `OPENCODE_CONFIG`가 가리키는 파일 > 전역 설정이고, `permission` 안에서 키 단위로 합쳐진다. **`"*"`는 구체 키를 이기지 못한다** — 소스 우선순위와 무관하게 구체적인 키가 와일드카드를 이긴다. 그래서 권한은 파일이 아니라 환경변수로 넘기고 알려진 키 15개를 전부 명시한다. 이름을 대지 않은 키는 남의 설정 값이 그대로 산다.
+
+**OpenCode는 설정이 잘못돼도 조용히 무시한다.** `OPENCODE_CONFIG`가 없는 파일을 가리켜도, 거기에 인라인 JSON을 넣어도(경로만 받는다), `OPENCODE_PERMISSION`이 깨진 JSON이어도 **종료 코드 0으로 사용자 설정에 그대로 되돌아간다.** 셋 다 증상이 같다 — 헤드리스 실행이 아무 말 없이 영원히 멈추고 동시 실행 슬롯을 계속 점유한다. `opencodeAdapter.verifyRunnable`이 실행 직전에 해결된 설정을 다시 읽어 `ask`가 남았는지 보는 이유이고, 그래서 그 검사는 선택이 아니다.
+
+**OpenCode의 `tool_use`는 이미 끝난 도구를 보고한다.** `part.state.status`가 `completed`이고 출력까지 함께 온다(그래서 한 줄이 `tool_use`와 `tool_result` 두 이벤트가 된다). 그 대가로 **전체 설계 §553의 "쓰기 도구 호출을 감지하면 원본을 복사한다"가 OpenCode에서는 성립하지 않는다** — 복사할 시점에 원본이 이미 없다. diff 뷰어 설계에서 정면으로 다뤄야 한다.
+
+**OpenCode에는 claude의 `result` 같은 종료 이벤트가 없다.** 스트림이 그냥 끝난다. 그래서 어댑터가 `text` 줄마다 `result`를 함께 내고 `RunManager`가 덮어써 마지막 것이 남는다. `text`에서 `result`를 빼면 `resultText`가 영영 null이 되는데, run은 종료 코드 0이라 **성공으로 끝나고 결과만 비어 보인다.**
+
 **같은 대화의 두 턴은 동시에 뜨면 안 된다** — `claude --resume`은 이전 프로세스가 끝나야 한다. `RunQueue`의 `groupKey`가 막고 있다.
 
 **`root_run_id`를 NOT NULL로 "고치지" 말 것** — SQLite에서 그러려면 테이블을 다시 만들어야 하고, 그 `DROP TABLE run`이 `run_context_item`의 cascade를 태워 모든 맥락 기록을 지운다. 마이그레이션의 `PRAGMA foreign_keys=OFF`는 트랜잭션 안이라 무시된다.
@@ -184,5 +194,7 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 | `docs/superpowers/plans/2026-08-18-conversation.md` | 대화 구현 계획 (완료, 10개 태스크) |
 | `docs/superpowers/specs/2026-08-27-issue-triage-design.md` | 이슈 훑기 설계 — 분류 축, `triagedAt` 파생(§3), `seenAt`과 방치(§3), 훑기 UI(§4), 대칭 규칙의 끝(§9) |
 | `docs/superpowers/plans/2026-08-27-issue-triage.md` | 이슈 훑기 구현 계획 (9개 태스크) |
+| `docs/superpowers/specs/2026-09-06-opencode-adapter-design.md` | OpenCode 어댑터 설계 — 설정 병합 규칙 실측(§2), 권한과 `ask` 검사(§3), 스트림 파싱(§6), 다른 설계로 넘긴 발견(§10) |
+| `docs/superpowers/plans/2026-09-06-opencode-adapter.md` | OpenCode 어댑터 구현 계획 (9개 태스크) |
 
 **설계 문서의 결정을 코드에서 임의로 바꾸지 않는다.** 설계에 구멍이 보이면 고치지 말고 지적할 것 — 그게 더 값지다.

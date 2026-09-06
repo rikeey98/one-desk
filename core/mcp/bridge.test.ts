@@ -70,7 +70,7 @@ function runBridge(
 
 describe('stdio 브리지', () => {
   it('tools/list를 서버까지 왕복시킨다', async () => {
-    const p = await host.prepare({ runId: 'r1', workspaceId, permission: 'edit' })
+    const p = await host.prepare({ runId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code' })
     const [line] = await runBridge(
       { ONE_DESK_MCP_URL: p.url, ONE_DESK_MCP_TOKEN: p.token },
       [JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })],
@@ -83,7 +83,7 @@ describe('stdio 브리지', () => {
 
   it('read_only 토큰에는 쓰기 도구가 안 보인다 — 권한은 서버가 정한다', async () => {
     // 브리지는 멍청한 파이프다. 권한 게이팅을 브리지로 옮기지 않았다는 것을 고정한다.
-    const p = await host.prepare({ runId: 'r2', workspaceId, permission: 'read_only' })
+    const p = await host.prepare({ runId: 'r2', workspaceId, permission: 'read_only', agentKind: 'claude-code' })
     const [line] = await runBridge(
       { ONE_DESK_MCP_URL: p.url, ONE_DESK_MCP_TOKEN: p.token },
       [JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })],
@@ -95,7 +95,7 @@ describe('stdio 브리지', () => {
   })
 
   it('토큰이 틀리면 매달리지 않고 JSON-RPC 오류를 돌려준다', async () => {
-    const p = await host.prepare({ runId: 'r3', workspaceId, permission: 'edit' })
+    const p = await host.prepare({ runId: 'r3', workspaceId, permission: 'edit', agentKind: 'claude-code' })
     const [line] = await runBridge(
       { ONE_DESK_MCP_URL: p.url, ONE_DESK_MCP_TOKEN: 'wrong' },
       [JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/list' })],
@@ -116,7 +116,7 @@ describe('stdio 브리지', () => {
   })
 
   it('id 없는 알림에는 아무것도 쓰지 않는다', async () => {
-    const p = await host.prepare({ runId: 'r4', workspaceId, permission: 'edit' })
+    const p = await host.prepare({ runId: 'r4', workspaceId, permission: 'edit', agentKind: 'claude-code' })
     const out = await runBridge(
       { ONE_DESK_MCP_URL: p.url, ONE_DESK_MCP_TOKEN: p.token },
       [JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })],

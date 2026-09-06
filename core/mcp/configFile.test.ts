@@ -31,12 +31,12 @@ afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
 describe('writeMcpConfig', () => {
   it.skipIf(POSIX_ONLY)('소유자만 읽을 수 있는 파일을 만든다', () => {
     // 이 파일에 토큰이 그대로 들어 있다. 다른 사용자가 읽으면 workspace가 열린다.
-    const file = writeMcpConfig(join(dir, 'mcp'), 'run-1', target({ url: 'http://127.0.0.1:1/mcp', token: 'tok' }))
+    const file = writeMcpConfig(join(dir, 'mcp'), 'run-1', target({ url: 'http://127.0.0.1:1/mcp', token: 'tok' }), 'claude-code')
     expect(statSync(file).mode & 0o777).toBe(0o600)
   })
 
   it('CLI가 읽는 형식으로 토큰을 담는다', () => {
-    const file = writeMcpConfig(join(dir, 'mcp'), 'run-1', target({ url: 'http://127.0.0.1:9/mcp', token: 'tok-abc' }))
+    const file = writeMcpConfig(join(dir, 'mcp'), 'run-1', target({ url: 'http://127.0.0.1:9/mcp', token: 'tok-abc' }), 'claude-code')
     const parsed = JSON.parse(readFileSync(file, 'utf8'))
     // MCP_SERVER_NAME으로 접근한다 — 리터럴 'onedesk'를 쓰면 상수가 바뀌어도
     // 이 테스트는 여전히 초록이라 설정 파일의 키와 --allowedTools의 접두사가
@@ -67,13 +67,13 @@ describe('writeMcpConfig', () => {
     chmodSync(file, 0o644)
     expect(statSync(file).mode & 0o777).toBe(0o644)
 
-    writeMcpConfig(mcpDir, 'run-2', target({ url: 'http://127.0.0.1:1/mcp', token: 'tok' }))
+    writeMcpConfig(mcpDir, 'run-2', target({ url: 'http://127.0.0.1:1/mcp', token: 'tok' }), 'claude-code')
     expect(statSync(file).mode & 0o777).toBe(0o600)
   })
 
   it('removeMcpConfig가 지우고, 없어도 던지지 않는다', () => {
     const mcpDir = join(dir, 'mcp')
-    const file = writeMcpConfig(mcpDir, 'run-1', target({ url: 'http://127.0.0.1:1/mcp', token: 'tok' }))
+    const file = writeMcpConfig(mcpDir, 'run-1', target({ url: 'http://127.0.0.1:1/mcp', token: 'tok' }), 'claude-code')
     removeMcpConfig(mcpDir, 'run-1')
     expect(existsSync(file)).toBe(false)
     expect(() => removeMcpConfig(mcpDir, 'run-1')).not.toThrow()
@@ -81,9 +81,43 @@ describe('writeMcpConfig', () => {
 
   it('clearMcpConfigs가 디렉토리째 치운다', () => {
     const mcpDir = join(dir, 'mcp')
-    writeMcpConfig(mcpDir, 'a', target({ url: 'http://127.0.0.1:1/mcp', token: 't' }))
-    writeMcpConfig(mcpDir, 'b', target({ url: 'http://127.0.0.1:1/mcp', token: 't' }))
+    writeMcpConfig(mcpDir, 'a', target({ url: 'http://127.0.0.1:1/mcp', token: 't' }), 'claude-code')
+    writeMcpConfig(mcpDir, 'b', target({ url: 'http://127.0.0.1:1/mcp', token: 't' }), 'claude-code')
     clearMcpConfigs(mcpDir)
     expect(existsSync(mcpDir)).toBe(false)
+  })
+})
+
+describe('writeMcpConfig — agent 종류별 형식', () => {
+  it('opencode는 mcp.<이름>에 type/local과 command 배열로 쓴다', () => {
+    const file = writeMcpConfig(join(dir, 'mcp'), 'run-1', target({}), 'opencode')
+    const body = JSON.parse(readFileSync(file, 'utf8'))
+
+    expect(body.mcpServers).toBeUndefined()
+    const server = body.mcp[MCP_SERVER_NAME]
+    expect(server.type).toBe('local')
+    // claude는 command와 args가 따로지만 opencode는 배열 하나다.
+    expect(server.command).toEqual(['/fake/electron', '/fake/bridge.mjs'])
+    // env가 아니라 environment다.
+    expect(server.environment.ELECTRON_RUN_AS_NODE).toBe('1')
+    expect(server.environment.ONE_DESK_MCP_TOKEN).toBe('tok')
+    expect(server.enabled).toBe(true)
+    // 기본 5초는 브리지가 한 번 더 중계하는 구조에 빠듯하다.
+    expect(server.timeout).toBeGreaterThanOrEqual(30000)
+  })
+
+  it('claude 형식은 그대로다', () => {
+    const file = writeMcpConfig(join(dir, 'mcp'), 'run-1', target({}), 'claude-code')
+    const body = JSON.parse(readFileSync(file, 'utf8'))
+    expect(body.mcp).toBeUndefined()
+    expect(body.mcpServers[MCP_SERVER_NAME].args).toEqual(['/fake/bridge.mjs'])
+  })
+
+  it.skipIf(POSIX_ONLY)('두 형식 모두 0600으로 쓴다', () => {
+    // 어느 쪽이든 토큰이 들어 있다.
+    for (const kind of ['claude-code', 'opencode'] as const) {
+      const file = writeMcpConfig(join(dir, 'mcp'), `run-${kind}`, target({}), kind)
+      expect(statSync(file).mode & 0o777).toBe(0o600)
+    }
   })
 })

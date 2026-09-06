@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { claudeCodePermissionArgs } from './permission'
+import { claudeCodePermissionArgs, opencodePermissionConfig, OPENCODE_PERMISSION_KEYS } from './permission'
 import type { Permission } from '@shared/models'
 
 const ALL: Permission[] = ['read_only', 'edit', 'full']
@@ -94,5 +94,61 @@ describe('claudeCodePermissionArgs — MCP 승인', () => {
     for (const p of ALL) {
       expect(claudeCodePermissionArgs(p, ['mcp__onedesk']).join(' ')).not.toContain('ask')
     }
+  })
+})
+
+describe('opencodePermissionConfig', () => {
+  it.each(ALL)('%s에 ask가 하나도 없다', (level) => {
+    // 설계 §7·§382. 헤드리스에서 ask는 곧 무한 대기다.
+    const values = Object.values(opencodePermissionConfig(level))
+    expect(values).not.toContain('ask')
+    expect(values.every((v) => v === 'allow' || v === 'deny')).toBe(true)
+  })
+
+  it.each(ALL)('%s가 알려진 키 15개를 전부 명시한다', (level) => {
+    // 이름을 대지 않은 키는 repo·전역 설정의 값이 그대로 살아남는다 (설계 §2-1).
+    const config = opencodePermissionConfig(level)
+    for (const key of OPENCODE_PERMISSION_KEYS) {
+      expect(config, `${key}가 빠졌다`).toHaveProperty(key)
+    }
+  })
+
+  it('키 목록이 실측한 15개다', () => {
+    expect([...OPENCODE_PERMISSION_KEYS].sort()).toEqual([
+      'bash', 'doom_loop', 'edit', 'external_directory', 'glob', 'grep',
+      'list', 'lsp', 'question', 'read', 'skill', 'task', 'todowrite',
+      'webfetch', 'websearch'
+    ])
+  })
+
+  it('읽기 전용은 읽기만 연다', () => {
+    const config = opencodePermissionConfig('read_only')
+    expect(config['read']).toBe('allow')
+    expect(config['grep']).toBe('allow')
+    expect(config['edit']).toBe('deny')
+    expect(config['bash']).toBe('deny')
+    expect(config['*']).toBe('deny')
+  })
+
+  it('편집 허용은 edit만 더 연다 — bash는 여전히 막힌다', () => {
+    // 전체 설계 §7 "파일 수정 자동 승인, 그 외 차단".
+    const config = opencodePermissionConfig('edit')
+    expect(config['edit']).toBe('allow')
+    expect(config['bash']).toBe('deny')
+  })
+
+  it('전체 허용은 전부 연다', () => {
+    const config = opencodePermissionConfig('full')
+    expect(config['bash']).toBe('allow')
+    expect(config['*']).toBe('allow')
+    expect(Object.values(config).every((v) => v === 'allow')).toBe(true)
+  })
+
+  it('question은 전체 허용에서만 열린다', () => {
+    // OpenCode에는 사람에게 되묻는 도구가 따로 있다. 헤드리스에서 열려 있으면
+    // 답할 사람 없이 멈춘다 (설계 §3-2).
+    expect(opencodePermissionConfig('read_only')['question']).toBe('deny')
+    expect(opencodePermissionConfig('edit')['question']).toBe('deny')
+    expect(opencodePermissionConfig('full')['question']).toBe('allow')
   })
 })
