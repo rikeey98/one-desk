@@ -6,7 +6,7 @@ import { assemblePrompt } from './context/assemble'
 import type { FinishRunInput, RunRepository } from './db/repositories/run'
 import type { RunManager } from './runner/manager'
 import type { RunQueue } from './runner/queue'
-import type { McpRunConfig, PreflightResult } from './runner/types'
+import type { McpRunConfig, PreflightResult, VerifyRunnableInput } from './runner/types'
 import { MCP_SERVER_NAME, type McpHost } from './mcp/host'
 import { consoleErrorSink, NotFoundError, type ErrorSink } from './errors'
 import type { AgentKind, ContextItemRef, Permission, ResumeRunInput, Run, StartRunInput } from '@shared/models'
@@ -22,6 +22,14 @@ export interface ExecutionOptions {
   /** core가 삼킨 오류를 흘려보낼 곳 */
   onError?: ErrorSink
   resolveExecutable: (agentKind: AgentKind, workspaceId: string) => Promise<PreflightResult>
+  /**
+   * preflight 뒤 마지막 확인. 어댑터가 구현했을 때만 불린다.
+   * 실행 파일 탐색과 달리 cwd와 권한이 있어야 하는 검사라 자리가 따로다.
+   */
+  verifyRunnable?: (
+    agentKind: AgentKind,
+    input: VerifyRunnableInput
+  ) => Promise<PreflightResult>
   /** run 행이 바뀔 때마다 불린다. 시작 이후의 상태 변화는 이 경로로만 알 수 있다. */
   onRunUpdate?: (run: Run) => void
   /** 테스트에서 가짜 CLI를 주입하는 통로 */
@@ -248,6 +256,26 @@ export function createExecutionService(opts: ExecutionOptions) {
     }
 
     const executable = preflight.executable
+
+    // preflight와 같은 자리에 두는 이유도 같다 — 확인되지 않은 run이 포트를
+    // 열거나 슬롯을 잡았다 놓는 낭비를 만들지 않고, startedAt이 null인 실패로 남는다.
+    if (opts.verifyRunnable) {
+      const verified = await opts.verifyRunnable(spec.agentKind, {
+        executable,
+        cwd: spec.cwd,
+        permission: spec.permission
+      })
+      if (!verified.ok) {
+        return notify(opts.runs.markFinished(created.id, {
+          status: 'failed',
+          resultText: null,
+          externalSessionId: null,
+          needsAnswer: false,
+          exitCode: null,
+          errorMessage: verified.reason ?? '실행 전 확인에 실패했습니다.'
+        }))
+      }
+    }
 
     // MCP 준비는 preflight 뒤, enqueue 앞이다. 실행 파일조차 없는 run이 포트를
     // 열게 하지 않고, 실패해도 슬롯을 잡았다 놓는 낭비 없이 startedAt이 null인

@@ -12,8 +12,8 @@ import { createRunManager, type RunManager, type RunOutcome } from './runner/man
 import { createRunQueue } from './runner/queue'
 import { claudeCodeAdapter } from './runner/adapters/claudeCode'
 import { createExecutionService } from './execution'
-import type { Run } from '@shared/models'
-import type { PreflightResult } from './runner/types'
+import type { AgentKind, Run } from '@shared/models'
+import type { PreflightResult, VerifyRunnableInput } from './runner/types'
 import type { McpHost } from './mcp/host'
 import { consoleErrorSink, type ErrorSink } from './errors'
 
@@ -32,6 +32,11 @@ interface SetupOptions {
   mcp?: McpHost
   /** core가 삼킨 오류를 흘려보낼 곳을 재현하는 통로 */
   onError?: ErrorSink
+  /** 어댑터의 마지막 확인을 물리는 통로. 없으면 부르지 않는다 */
+  verifyRunnable?: (
+    agentKind: AgentKind,
+    input: VerifyRunnableInput
+  ) => Promise<PreflightResult>
 }
 
 function setup(options: SetupOptions = {}) {
@@ -54,6 +59,7 @@ function setup(options: SetupOptions = {}) {
     db, runs, manager, queue,
     ...(options.mcp ? { mcp: options.mcp } : {}),
     ...(options.onError ? { onError: options.onError } : {}),
+    ...(options.verifyRunnable ? { verifyRunnable: options.verifyRunnable } : {}),
     resolveExecutable: options.preflight ?? (async () => ({ ok: true, executable: process.execPath })),
     onRunUpdate: (run) => {
       updates.push(run)
@@ -82,6 +88,61 @@ describe('ExecutionService', () => {
       context: [{ type: 'issue' as const, id: ctx.issueId }]
     })
   }
+
+  it('verifyRunnable이 거부하면 run이 시작하지 않고 실패로 끝난다', async () => {
+    const verifyRunnable = vi.fn(async () => ({
+      ok: false, reason: "bash 권한이 '물어보기'로 남아 있어 실행할 수 없습니다."
+    }))
+    const local = setup({ verifyRunnable })
+    try {
+      const run = await local.service.start({
+        workspaceId: local.workspaceId,
+        agentKind: 'opencode' as const,
+        cwd: process.cwd(),
+        permission: 'edit' as const,
+        userPrompt: '고쳐줘',
+        context: []
+      })
+
+      const saved = local.runs.get(run.id)
+      expect(saved.status).toBe('failed')
+      expect(saved.errorMessage).toContain('물어보기')
+      // preflight 실패와 같은 성질 — 슬롯을 잡은 적이 없다.
+      expect(saved.startedAt).toBeNull()
+    } finally {
+      rmSync(local.logDir, { recursive: true, force: true })
+    }
+  })
+
+  it('verifyRunnable에 실제로 쓸 실행 파일·cwd·권한을 넘긴다', async () => {
+    // 이걸 빠뜨리면 실행할 때와 다른 조건을 검사하게 되어 검사가 무의미해진다.
+    const verifyRunnable = vi.fn(async () => ({ ok: true }))
+    const local = setup({ verifyRunnable })
+    try {
+      await local.service.start({
+        workspaceId: local.workspaceId,
+        agentKind: 'opencode' as const,
+        cwd: process.cwd(),
+        permission: 'read_only' as const,
+        userPrompt: '봐줘',
+        context: []
+      })
+
+      expect(verifyRunnable).toHaveBeenCalledWith('opencode', {
+        executable: process.execPath,
+        cwd: process.cwd(),
+        permission: 'read_only'
+      })
+    } finally {
+      rmSync(local.logDir, { recursive: true, force: true })
+    }
+  })
+
+  it('verifyRunnable이 없으면 그대로 진행한다', async () => {
+    // claude 어댑터는 구현하지 않는다. 기본 setup에는 통로가 없다.
+    const run = await startBase()
+    expect(ctx.runs.get(run.id).status).not.toBe('failed')
+  })
 
   it('맥락을 조립해 assembledPrompt에 담고 run을 저장한다', async () => {
     const run = await startBase()
