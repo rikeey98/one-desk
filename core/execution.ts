@@ -286,7 +286,8 @@ export function createExecutionService(opts: ExecutionOptions) {
         const prepared = await opts.mcp.prepare({
           runId: created.id,
           workspaceId: spec.workspaceId,
-          permission: spec.permission
+          permission: spec.permission,
+          agentKind: spec.agentKind
         })
         mcp = { serverName: MCP_SERVER_NAME, ...prepared }
       } catch (err) {

@@ -1,5 +1,6 @@
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { AgentKind } from '@shared/models'
 
 /**
  * MCP 서버 이름. 설정 파일의 `mcpServers` 키이자 CLI가 도구 이름을 붙이는
@@ -31,13 +32,11 @@ export interface McpConfigTarget {
   token: string
 }
 
-export function writeMcpConfig(dir: string, runId: string, target: McpConfigTarget): string {
-  mkdirSync(dir, { recursive: true, mode: 0o700 })
-  const file = join(dir, `${runId}.json`)
+function claudeBody(target: McpConfigTarget): string {
   // stdio 전송이다 — claude가 브리지를 자식 프로세스로 띄우고 표준입출력으로
   // 대화한다. HTTP였을 때는 사내 프록시가 루프백 요청을 403으로 막아 이 환경에서
-  // 아예 붙지 못했다. stdio 구간에는 네트워크가 없어 프록시가 관여할 수 없다.
-  const body = JSON.stringify({
+  // 아예 못 썼다. stdio 구간에는 네트워크가 없어 프록시가 관여할 수 없다.
+  return JSON.stringify({
     mcpServers: {
       [MCP_SERVER_NAME]: {
         command: target.execPath,
@@ -51,6 +50,41 @@ export function writeMcpConfig(dir: string, runId: string, target: McpConfigTarg
       }
     }
   })
+}
+
+/**
+ * OpenCode는 키 이름과 구조가 다르다 — `mcp`, `type: "local"`, `command`가
+ * 배열이고 `env`가 `environment`다. 전송은 똑같이 stdio라 bridge.mjs는 그대로다.
+ */
+function opencodeBody(target: McpConfigTarget): string {
+  return JSON.stringify({
+    mcp: {
+      [MCP_SERVER_NAME]: {
+        type: 'local',
+        command: [target.execPath, target.bridgePath],
+        environment: {
+          ELECTRON_RUN_AS_NODE: '1',
+          ONE_DESK_MCP_URL: target.url,
+          ONE_DESK_MCP_TOKEN: target.token
+        },
+        enabled: true,
+        // 지정하지 않으면 기본 5초다. 브리지가 앱 안의 HTTP 서버로 한 번 더
+        // 중계하는 구조라 여유를 둔다.
+        timeout: 30_000
+      }
+    }
+  })
+}
+
+export function writeMcpConfig(
+  dir: string,
+  runId: string,
+  target: McpConfigTarget,
+  agentKind: AgentKind
+): string {
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  const file = join(dir, `${runId}.json`)
+  const body = agentKind === 'opencode' ? opencodeBody(target) : claudeBody(target)
   // writeFileSync의 mode 옵션은 파일을 "새로" 만들 때만 적용된다 — 이미 존재하는
   // 파일(예: 이전 비정상 종료가 남긴 동명 파일)을 열 때는 기존 권한이 그대로
   // 남는다. chmodSync로 매번 명시적으로 0600을 강제해 그 경우까지 막는다.
