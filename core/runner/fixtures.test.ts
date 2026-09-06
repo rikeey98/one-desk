@@ -7,6 +7,7 @@ import { dirname, resolve } from 'node:path'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FAKE = resolve(HERE, 'fixtures/fake-claude.mjs')
 const FAKE_MCP = resolve(HERE, 'fixtures/fake-claude-mcp.mjs')
+const FAKE_OPENCODE = resolve(HERE, 'fixtures/fake-opencode.mjs')
 
 /**
  * 이 픽스처들은 shebang이 달린 .mjs 파일이고, e2e가 실행 파일로 직접 spawn한다.
@@ -43,5 +44,32 @@ describe.skipIf(POSIX_ONLY)('fake-claude.mjs', () => {
       env: { ...process.env, ONE_DESK_FAKE_DELAY_MS: '300' }
     })
     expect(Date.now() - started).toBeGreaterThanOrEqual(300)
+  })
+})
+
+describe.skipIf(POSIX_ONLY)('fake-opencode.mjs', () => {
+  it('실행 권한을 갖는다', () => {
+    expect(statSync(FAKE_OPENCODE).mode & 0o111).toBeGreaterThan(0)
+  })
+
+  it('직접 실행하면 opencode 형식 NDJSON을 낸다', () => {
+    const out = execFileSync(FAKE_OPENCODE, [], { input: '', encoding: 'utf8' })
+    const lines = out.trim().split('\n')
+    expect(lines.length).toBeGreaterThan(1)
+    const first = JSON.parse(lines[0]!) as { type: string; sessionID: string }
+    expect(first).toMatchObject({ type: 'step_start' })
+    expect(String(first.sessionID)).toMatch(/^ses/)
+    // 마지막에 최종 텍스트가 있어야 result가 합성된다.
+    expect(lines.some((l) => (JSON.parse(l) as { type: string }).type === 'text')).toBe(true)
+  })
+
+  it('debug config에는 해결된 설정을 낸다', () => {
+    // verifyRunnable이 실행 직전에 이걸 부른다. NDJSON을 뱉으면 JSON.parse가
+    // 깨져 모든 run이 거부된다.
+    const out = execFileSync(FAKE_OPENCODE, ['debug', 'config'], {
+      input: '', encoding: 'utf8',
+      env: { ...process.env, OPENCODE_PERMISSION: '{"bash":"deny"}' }
+    })
+    expect(JSON.parse(out)).toEqual({ permission: { bash: 'deny' } })
   })
 })

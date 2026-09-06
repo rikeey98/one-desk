@@ -10,6 +10,7 @@ import { createRunRepository } from './db/repositories/run'
 import { createRunManager } from './runner/manager'
 import { createExecutionService } from './execution'
 import { claudeCodeAdapter } from './runner/adapters/claudeCode'
+import { opencodeAdapter } from './runner/adapters/opencode'
 import { resolveAgentPath } from './runner/agentPath'
 import { createSettingRepository } from './db/repositories/setting'
 import { createRunQueue } from './runner/queue'
@@ -18,6 +19,18 @@ import { consoleErrorSink, type ErrorSink } from './errors'
 import type { AgentAdapter } from './runner/types'
 import type { RunEvent } from '@shared/events'
 import type { AgentKind, InboxCounts, McpStatus, QueueSnapshot, Run } from '@shared/models'
+
+/**
+ * agent 종류 → 어댑터. **밖으로 꺼낸 이유는 테스트가 이 한 줄을 볼 수 있게
+ * 하기 위해서다** — 배선(맵 한 줄)은 그 자체로 되돌릴 수 있는 변이이고,
+ * 과거 두 단계에서 새어나간 자리는 예외 없이 이런 한 줄이었다.
+ */
+export function createAdapters(): Record<AgentKind, AgentAdapter> {
+  return {
+    'claude-code': claudeCodeAdapter,
+    opencode: opencodeAdapter
+  }
+}
 
 export interface CoreOptions {
   /** DB와 로그를 둘 디렉토리. Electron의 userData 경로를 main이 넘긴다. */
@@ -69,12 +82,7 @@ export function createCore(opts: CoreOptions) {
     onError
   })
 
-  // opencode에 claudeCodeAdapter를 매핑하는 것은 임시다 (5단계에 OpenCode 어댑터).
-  // 그때까지 UI에서 OpenCode를 고를 수 없게 막는다.
-  const adapters: Record<AgentKind, AgentAdapter> = {
-    'claude-code': claudeCodeAdapter,
-    opencode: claudeCodeAdapter
-  }
+  const adapters = createAdapters()
 
   const emitter = new EventEmitter()
 
@@ -101,6 +109,10 @@ export function createCore(opts: CoreOptions) {
     resolveExecutable: async (agentKind, workspaceId) => {
       const ws = workspaces.list().find((w) => w.id === workspaceId) ?? null
       return adapters[agentKind].preflight(resolveAgentPath(agentKind, ws))
+    },
+    verifyRunnable: async (agentKind, input) => {
+      const adapter = adapters[agentKind]
+      return adapter.verifyRunnable ? adapter.verifyRunnable(input) : { ok: true }
     },
     onRunUpdate: (run) => {
       emitter.emit(RUN_UPDATE, run)
