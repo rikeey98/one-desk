@@ -7,7 +7,8 @@ import type {
   GuardedUpdateMemoInput, MemoUpdateResult,
   ListQuery, StartRunInput, QueueSnapshot,
   InboxCounts,
-  McpStatus, ResumeRunInput
+  McpStatus, ResumeRunInput,
+  Asset, CreateAuthoredAssetInput, GuardedUpdateAssetInput, AssetUpdateResult, ListAssetQuery
 } from './models'
 import type { RunEvent } from './events'
 
@@ -57,6 +58,18 @@ export interface OneDeskClient {
      */
     updateIfUnchanged(input: GuardedUpdateMemoInput): Promise<MemoUpdateResult>
     remove(id: string): Promise<void>
+  }
+  assets: {
+    list(query: ListAssetQuery): Promise<Asset[]>
+    createAuthored(input: CreateAuthoredAssetInput): Promise<Asset>
+    /**
+     * 낙관적 잠금 갱신. 충돌은 던지지 않고 `{ ok: false, current }`로 온다 —
+     * preload가 IPC 오류의 클래스를 벗겨내 메시지만 남기므로 예외로는 가려낼 수 없다.
+     */
+    updateIfUnchanged(input: GuardedUpdateAssetInput): Promise<AssetUpdateResult>
+    remove(id: string): Promise<void>
+    /** 다시 훑고, 갱신된 목록을 돌려준다 */
+    rescan(workspaceId: string): Promise<Asset[]>
   }
   runs: {
     list(workspaceId: string): Promise<Run[]>

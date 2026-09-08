@@ -10,7 +10,8 @@ import type { OneDeskClient } from '@shared/client'
 import type {
   CreateIssueInput, CreateMemoInput, CreateRepoInput, CreateWorkspaceInput,
   GuardedUpdateIssueInput, GuardedUpdateMemoInput, InboxCounts, Issue, IssueUpdateResult,
-  McpStatus, Memo, MemoUpdateResult, Repo, Run, UpdateIssueInput, UpdateMemoInput, Workspace
+  McpStatus, Memo, MemoUpdateResult, Repo, Run, UpdateIssueInput, UpdateMemoInput, Workspace,
+  Asset
 } from '@shared/models'
 
 const workspace: Workspace = {
@@ -61,6 +62,7 @@ interface Seed {
   workspaces?: Workspace[]
   issues?: Issue[]
   memos?: Memo[]
+  assets?: Asset[]
   mcpStatus?: McpStatus
 }
 
@@ -85,6 +87,7 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
   const mcpStatus: McpStatus = seed.mcpStatus ?? { state: 'listening', port: 12345 }
   let issues: Issue[] = seed.issues ?? []
   let memos: Memo[] = seed.memos ?? []
+  const assets: Asset[] = seed.assets ?? []
   // updatedAt은 단조 증가한다 (설계 §6). 저장소의 Math.max(Date.now(), 이전+1)에서
   // 잠금이 기대는 성질만 남긴 것이다.
   let clock = 1_000
@@ -202,6 +205,13 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
         return { ok: true, memo: writeMemo(input) }
       }),
       remove: vi.fn(async (id: string) => { memos = memos.filter((m) => m.id !== id) })
+    },
+    assets: {
+      list: vi.fn(async () => assets),
+      createAuthored: vi.fn(),
+      updateIfUnchanged: vi.fn(),
+      remove: vi.fn(),
+      rescan: vi.fn(async () => [])
     },
     runs: {
       list: vi.fn(async (workspaceId: string) => started.filter((r) => r.workspaceId === workspaceId)),
@@ -1185,5 +1195,32 @@ describe('삭제 후 선택 정리', () => {
     await waitFor(() => {
       expect(document.querySelector('.repo-card-selected')).toBeNull()
     })
+  })
+})
+
+describe('App — AssetPanel 배선', () => {
+  const skill: Asset = {
+    id: 'a1', workspaceId: 'w1', kind: 'skill', source: 'discovered',
+    name: '알파 스킬', description: '설명', repoId: 'r1',
+    filePath: '/tmp/api/.claude/skills/알파/SKILL.md', content: null,
+    lastSeenAt: 1000, createdAt: 0, updatedAt: 0
+  }
+
+  it('workspace의 asset이 패널에 뜬다', async () => {
+    // App이 workspaceId를 안 내려보내면 패널이 목록을 부르지 못한다.
+    renderApp(makeClient({}, { assets: [skill] }))
+    await selectWorkspace()
+    expect(await screen.findByText('알파 스킬')).toBeInTheDocument()
+  })
+
+  it('asset을 담으면 실행 패널의 칩이 된다', async () => {
+    // App이 onToggleContext를 안 내려보내면 담기가 아무 일도 하지 않는다.
+    renderApp(makeClient({}, { assets: [skill] }))
+    await selectWorkspace()
+    await screen.findByText('알파 스킬')
+
+    await userEvent.click(screen.getByRole('button', { name: '알파 스킬 맥락에 담기' }))
+
+    expect(await screen.findByRole('button', { name: '알파 스킬 ✕' })).toBeInTheDocument()
   })
 })

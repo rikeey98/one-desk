@@ -1,15 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import { and, eq, inArray } from 'drizzle-orm'
 import type { Database } from './db/open'
-import { issue, memo, repo } from './db/schema'
-import { assemblePrompt } from './context/assemble'
+import { readFile } from 'node:fs/promises'
+import { issue, memo, repo, asset } from './db/schema'
+import { assemblePrompt, type AssetForPrompt } from './context/assemble'
 import type { FinishRunInput, RunRepository } from './db/repositories/run'
 import type { RunManager } from './runner/manager'
 import type { RunQueue } from './runner/queue'
 import type { McpRunConfig, PreflightResult, VerifyRunnableInput } from './runner/types'
 import { MCP_SERVER_NAME, type McpHost } from './mcp/host'
 import { consoleErrorSink, NotFoundError, type ErrorSink } from './errors'
-import type { AgentKind, ContextItemRef, Permission, ResumeRunInput, Run, StartRunInput } from '@shared/models'
+import type { AgentKind, Asset, ContextItemRef, Permission, ResumeRunInput, Run, StartRunInput } from '@shared/models'
+import type { RunEventInit } from '@shared/events'
 
 export interface ExecutionOptions {
   db: Database
@@ -97,6 +99,8 @@ export function createExecutionService(opts: ExecutionOptions) {
     /** 이어받을 대화. null이면 새 세션이다 */
     resumeFromRootRunId: string | null
     timeoutMs: number | null
+    /** 실행 전에 이미 아는 문제를 사용자에게 보이게 한다 (설계 §5-3) */
+    preEvents: RunEventInit[]
   }): void {
     // **세션은 여기서 고른다 — launch 시점이 아니다 (설계 §3-2).**
     // 실행 중에 예약된 턴은 만들어질 때 앞 턴이 아직 안 끝나 세션 id가 없다.
@@ -176,6 +180,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       // 이 한 줄이 빠지면 MCP가 통째로 꺼진다.
       mcp: spec.mcp,
       timeoutMs: spec.timeoutMs,
+      ...(spec.preEvents.length > 0 ? { preEvents: spec.preEvents } : {}),
       ...(opts.extraArgs ? { extraArgs: opts.extraArgs } : {})
     }).then(
       (outcome) => finish(runId, {
@@ -214,10 +219,11 @@ export function createExecutionService(opts: ExecutionOptions) {
   }
 
   async function launch(spec: LaunchSpec): Promise<Run> {
-    const { repos, issues, memos } = collectContext(opts.db, spec)
+    const { repos, issues, memos, assets } = collectContext(opts.db, spec)
+    const { resolved, missing } = await resolveAssets(assets)
 
     const assembled = assemblePrompt({
-      repos, issues, memos, userPrompt: spec.userPrompt
+      repos, issues, memos, assets: resolved, userPrompt: spec.userPrompt
     })
 
     // 로그 경로가 run id를 포함하므로 id를 먼저 정한다.
@@ -317,7 +323,16 @@ export function createExecutionService(opts: ExecutionOptions) {
       executable,
       mcp,
       resumeFromRootRunId: spec.resumeFromRootRunId,
-      timeoutMs: spec.timeoutMs
+      timeoutMs: spec.timeoutMs,
+      // 맥락에 담았는데 파일을 읽지 못한 asset을 사용자에게 알린다. 조용히 빼면
+      // agent가 읽고도 무시했다고 오해한다 (설계 §5-3). run은 실패시키지 않는다.
+      preEvents: missing.map((a) => ({
+        type: 'error' as const,
+        runId: created.id,
+        at: Date.now(),
+        message:
+          `맥락에 담은 ${a.kind} '${a.name}'의 파일을 읽을 수 없어 프롬프트에서 빠졌습니다: ${a.filePath ?? ''}`
+      }))
     // 같은 대화의 두 턴이 동시에 뜨면 --resume이 깨진다 (설계 §3-2).
     }), created.rootRunId ?? created.id)
 
@@ -450,6 +465,7 @@ function collectContext(db: Database, input: { workspaceId: string; context: Con
   const repoIds = ids('repo')
   const issueIds = ids('issue')
   const memoIds = ids('memo')
+  const assetIds = ids('asset')
 
   const repos = repoIds.length === 0 ? [] : db.select().from(repo)
     .where(and(eq(repo.workspaceId, input.workspaceId), inArray(repo.id, repoIds))).all()
@@ -457,17 +473,51 @@ function collectContext(db: Database, input: { workspaceId: string; context: Con
     .where(and(eq(issue.workspaceId, input.workspaceId), inArray(issue.id, issueIds))).all()
   const memoRows = memoIds.length === 0 ? [] : db.select().from(memo)
     .where(and(eq(memo.workspaceId, input.workspaceId), inArray(memo.id, memoIds))).all()
+  const assetRows = assetIds.length === 0 ? [] : db.select().from(asset)
+    .where(and(eq(asset.workspaceId, input.workspaceId), inArray(asset.id, assetIds))).all()
 
   // 4단계에서 MCP를 통해 agent가 임의 id를 넘길 수 있다. workspace 밖 항목은 거부한다.
   assertFound(repoIds, repos.map((r) => r.id), 'repo')
   assertFound(issueIds, issueRows.map((r) => r.id), 'issue')
   assertFound(memoIds, memoRows.map((r) => r.id), 'memo')
+  assertFound(assetIds, assetRows.map((r) => r.id), 'asset')
 
   return {
     repos,
     issues: issueRows.map((r) => ({ ...r, repoIds: [] })),
-    memos: memoRows.map((r) => ({ ...r, repoIds: [] }))
+    memos: memoRows.map((r) => ({ ...r, repoIds: [] })),
+    assets: assetRows as Asset[]
   }
+}
+
+/**
+ * 프롬프트에 실을 asset 본문을 채운다.
+ *
+ * authored는 DB에 본문이 있고, discovered는 **실행 시점에 디스크에서 읽는다**
+ * (설계 §2-2) — 파일이 수정돼도 항상 최신이 반영된다.
+ *
+ * 읽지 못한 것은 빼되 **조용히 빼지 않는다.** 호출자가 preEvents로 알린다 (설계 §5-3).
+ */
+async function resolveAssets(
+  rows: Asset[]
+): Promise<{ resolved: AssetForPrompt[]; missing: Asset[] }> {
+  const resolved: AssetForPrompt[] = []
+  const missing: Asset[] = []
+  for (const row of rows) {
+    if (row.source === 'authored') {
+      resolved.push({
+        kind: row.kind, name: row.name, description: row.description, content: row.content ?? ''
+      })
+      continue
+    }
+    try {
+      const content = await readFile(row.filePath ?? '', 'utf8')
+      resolved.push({ kind: row.kind, name: row.name, description: row.description, content })
+    } catch {
+      missing.push(row)
+    }
+  }
+  return { resolved, missing }
 }
 
 function assertFound(requested: string[], found: string[], label: string): void {

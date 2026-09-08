@@ -33,7 +33,7 @@ export default function App() {
   // 확장된 패널과 그 안에서 열린 항목. **한 번에 하나뿐이다.**
   // 각 패널이 따로 들면 둘 다 열린 상태가 만들어지고, 컬럼 비율을 누가 정하는지도
   // 흐려진다. useRepos·useWorkspaces를 자식이 각자 부르다 두 번 사고가 났다.
-  const [openItem, setOpenItem] = useState<{ panel: 'issue' | 'memo'; id: string } | null>(null)
+  const [openItem, setOpenItem] = useState<{ panel: 'issue' | 'memo' | 'asset'; id: string } | null>(null)
   const { runs, error: runsError } = useRuns(workspaceId)
   // RepoStrip과 RunPanel(Dock 아래)이 각자 useRepos를 부르면 서로의 상태를 모른다 —
   // repo를 등록해도 RunPanel의 작업 디렉토리 select가 영원히 비는 실제 결함이었다.
@@ -97,7 +97,7 @@ export default function App() {
   }
 
   /** 같은 항목을 다시 누르면 접는다. 다른 패널을 누르면 그쪽으로 옮겨간다. */
-  function openIn(panel: 'issue' | 'memo', id: string) {
+  function openIn(panel: 'issue' | 'memo' | 'asset', id: string) {
     setOpenItem((prev) => (prev?.panel === panel && prev.id === id ? null : { panel, id }))
   }
 
@@ -274,7 +274,15 @@ export default function App() {
                 openId={openItem?.panel === 'memo' ? openItem.id : null}
                 onOpen={(id) => openIn('memo', id)}
               />
-              <AssetPanel />
+              <AssetPanel
+                workspaceId={workspaceId}
+                repos={repos}
+                chipKeys={chipKeys}
+                onToggleContext={toggleChip}
+                expanded={openItem?.panel === 'asset'}
+                openId={openItem?.panel === 'asset' ? openItem.id : null}
+                onOpen={(id) => openIn('asset', id)}
+              />
             </div>
             <Dock
               runs={runs}

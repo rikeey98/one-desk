@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url'
 import { openDb } from './db/open'
 import { createWorkspaceRepository } from './db/repositories/workspace'
 import { createRepoRepository } from './db/repositories/repo'
+import { createAssetRepository } from './db/repositories/asset'
+import { createAssetService } from './assets/service'
 import { createIssueRepository } from './db/repositories/issue'
 import { createMemoRepository } from './db/repositories/memo'
 import { createRunRepository } from './db/repositories/run'
@@ -69,6 +71,13 @@ export function createCore(opts: CoreOptions) {
   const memos = createMemoRepository(db)
   const repos = createRepoRepository(db)
   const runs = createRunRepository(db)
+  const assetRows = createAssetRepository(db)
+  const assetService = createAssetService({ assets: assetRows, repos })
+
+  // 부팅 스캔 (설계 §3-2). await하지 않는다 — 앱이 뜨는 것을 막지 않는다.
+  // 실패해도 앱은 정상이고 목록만 낡으므로 onError로 흘려보낸다.
+  void assetService.scanAll().catch((err: unknown) => onError('asset 부팅 스캔 실패', err))
+
   // 앱 시작 시 유령 run 정리 (설계 §11). 프로세스가 없는데 running/pending으로
   // 남아 있는 run은 이전 실행이 비정상 종료된 흔적이다.
   runs.reapStale()
@@ -137,7 +146,42 @@ export function createCore(opts: CoreOptions) {
 
   return {
     workspaces,
-    repos,
+
+    /**
+     * repo 저장소에 "등록하면 곧바로 훑는다"만 얹는다 (설계 §3-2).
+     * IPC 핸들러를 얇게 두기 위해 여기서 붙인다 — 핸들러는 core 호출만 한다.
+     */
+    repos: {
+      ...repos,
+      async create(input: Parameters<typeof repos.create>[0]) {
+        const made = repos.create(input)
+        // **스캔을 기다린 뒤에 돌려준다.** 기다리지 않으면 화면이 목록을 다시 읽는
+        // 시점에 스캔이 아직 안 끝나 있어, 방금 등록한 repo의 asset이 새로고침을
+        // 누르기 전까지 안 보인다. 디렉토리 셋을 읽는 일이라 비용이 작다.
+        //
+        // 스캔 실패가 등록을 무르지는 않는다 — repo는 등록됐고, 목록만 비어 보인다.
+        try {
+          await assetService.scanRepo(made.workspaceId, made.id)
+        } catch (err) {
+          onError('repo 등록 후 asset 스캔 실패', err)
+        }
+        return made
+      }
+    },
+
+    assets: {
+      list: assetRows.list,
+      createAuthored: assetRows.createAuthored,
+      updateIfUnchanged: assetRows.updateIfUnchanged,
+      remove: assetRows.remove,
+
+      /** 다시 훑고 갱신된 목록을 준다. 새로고침 버튼이 부른다 */
+      async rescan(workspaceId: string) {
+        await assetService.scanWorkspace(workspaceId)
+        return assetRows.list({ workspaceId })
+      }
+    },
+
     issues,
     memos,
     runs,

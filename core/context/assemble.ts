@@ -1,9 +1,18 @@
-import type { Repo, Issue, Memo } from '@shared/models'
+import type { Repo, Issue, Memo, AssetKind } from '@shared/models'
+
+/** 프롬프트에 실을 asset. 본문은 호출자가 채운다 — discovered는 디스크에서 읽는다 */
+export interface AssetForPrompt {
+  kind: AssetKind
+  name: string
+  description: string | null
+  content: string
+}
 
 export interface AssembleInput {
   repos: Repo[]
   issues: Issue[]
   memos: Memo[]
+  assets: AssetForPrompt[]
   userPrompt: string
 }
 
@@ -48,6 +57,23 @@ export function assemblePrompt(input: AssembleInput): string {
     )
     sections.push(`  <memos>\n${items.join('\n')}\n  </memos>`)
   }
+
+  // discovered asset의 본문은 호출자가 디스크에서 읽어 넘긴다 — 조립기는 순수하게
+  // 둔다(설계 §5-2). 본문은 반드시 이스케이프한다: 외부 repo의 파일이라
+  // 신뢰할 수 없는 입력이다.
+  const assetBlock = (kind: AssetKind, tag: string): void => {
+    const picked = input.assets.filter((a) => a.kind === kind)
+    if (picked.length === 0) return
+    const items = picked.map((a) =>
+      `    <${kind} name="${esc(a.name)}">\n` +
+      `      <description>${esc(a.description ?? '')}</description>\n` +
+      `      <content>${esc(a.content)}</content>\n` +
+      `    </${kind}>`
+    )
+    sections.push(`  <${tag}>\n${items.join('\n')}\n  </${tag}>`)
+  }
+  assetBlock('skill', 'skills')
+  assetBlock('agent', 'agents')
 
   if (sections.length > 0) {
     parts.push(`<context>\n${sections.join('\n')}\n</context>`)

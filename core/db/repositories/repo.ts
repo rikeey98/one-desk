@@ -47,6 +47,16 @@ export function createRepoRepository(db: Database) {
 
     remove(id: string): void {
       db.delete(repo).where(eq(repo.id, id)).run()
+    },
+
+    /**
+     * repo가 하나라도 있는 workspace의 id들. 부팅 스캔이 쓴다.
+     *
+     * workspace 저장소를 끌어들이지 않는 이유: 필요한 것은 "훑을 것이 있는
+     * workspace"뿐이고, repo가 없는 workspace는 스캔할 대상이 없다.
+     */
+    workspaceIds(): string[] {
+      return db.selectDistinct({ id: repo.workspaceId }).from(repo).all().map((r) => r.id)
     }
   }
 }

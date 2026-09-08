@@ -230,3 +230,49 @@ export interface InboxCounts {
   /** workspace id → 그 workspace의 미처리 건수. 0인 workspace는 키가 없다. */
   byWorkspace: Record<string, number>
 }
+
+export type AssetKind = 'skill' | 'agent'
+export type AssetSource = 'discovered' | 'authored'
+
+export interface Asset {
+  id: string
+  workspaceId: string
+  kind: AssetKind
+  source: AssetSource
+  name: string
+  description: string | null
+  /** discovered일 때 발견된 repo */
+  repoId: string | null
+  /** discovered일 때 절대 경로 */
+  filePath: string | null
+  /** authored일 때만 본문이 여기 있다. discovered는 실행 시점에 디스크에서 읽는다 */
+  content: string | null
+  /** discovered일 때 마지막으로 파일을 본 시각. null이면 authored다 */
+  lastSeenAt: number | null
+  createdAt: number
+  updatedAt: number
+}
+
+export interface CreateAuthoredAssetInput {
+  workspaceId: string
+  kind: AssetKind
+  name: string
+  description?: string | null
+  content?: string
+}
+
+export interface GuardedUpdateAssetInput {
+  id: string
+  expectedUpdatedAt: number
+  name?: string
+  description?: string | null
+  content?: string
+}
+
+export type AssetUpdateResult =
+  | { ok: true; asset: Asset }
+  | { ok: false; current: Asset }
+
+export interface ListAssetQuery {
+  workspaceId: string
+}

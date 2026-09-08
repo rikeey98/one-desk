@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { mkdtempSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { makeTestDb } from './db/repositories/testing'
 import { createWorkspaceRepository } from './db/repositories/workspace'
 import { createRepoRepository } from './db/repositories/repo'
 import { createIssueRepository } from './db/repositories/issue'
 import { createRunRepository, type RunRepository } from './db/repositories/run'
+import { createAssetRepository } from './db/repositories/asset'
 import { createRunManager, type RunManager, type RunOutcome } from './runner/manager'
 import { createRunQueue } from './runner/queue'
 import { claudeCodeAdapter } from './runner/adapters/claudeCode'
@@ -141,6 +142,77 @@ describe('ExecutionService', () => {
   it('verifyRunnable이 없으면 그대로 진행한다', async () => {
     // claude 어댑터는 구현하지 않는다. 기본 setup에는 통로가 없다.
     const run = await startBase()
+    expect(ctx.runs.get(run.id).status).not.toBe('failed')
+  })
+
+  it('맥락에 담은 authored asset의 본문이 프롬프트에 실린다', async () => {
+    const made = createAssetRepository(ctx.db).createAuthored({
+      workspaceId: ctx.workspaceId, kind: 'skill', name: '내 스킬', content: '# DB 본문'
+    })
+
+    const run = await ctx.service.start({
+      workspaceId: ctx.workspaceId, agentKind: 'claude-code' as const,
+      cwd: process.cwd(), permission: 'edit' as const, userPrompt: '해줘',
+      context: [{ type: 'asset' as const, id: made.id }]
+    })
+
+    expect(run.assembledPrompt).toContain('# DB 본문')
+    expect(run.assembledPrompt).toContain('<skills>')
+  })
+
+  it('discovered asset의 본문은 실행 시점에 디스크에서 읽는다', async () => {
+    // DB에 본문이 없다. 파일을 고치면 다음 실행에 그대로 반영돼야 한다 (설계 §2-2).
+    const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-asset-'))
+    try {
+      const file = resolve(dir, 'SKILL.md')
+      writeFileSync(file, '# 처음 본문')
+      const repoId = createRepoRepository(ctx.db)
+        .create({ workspaceId: ctx.workspaceId, name: 'assets', path: dir }).id
+      const assets = createAssetRepository(ctx.db)
+      assets.upsertDiscovered({
+        workspaceId: ctx.workspaceId, repoId, seenAt: 1,
+        found: [{ kind: 'skill', name: '알파', description: null, filePath: file }]
+      })
+      const id = assets.list({ workspaceId: ctx.workspaceId })[0]!.id
+
+      writeFileSync(file, '# 고친 본문')
+      const run = await ctx.service.start({
+        workspaceId: ctx.workspaceId, agentKind: 'claude-code' as const,
+        cwd: process.cwd(), permission: 'edit' as const, userPrompt: '해줘',
+        context: [{ type: 'asset' as const, id }]
+      })
+
+      expect(run.assembledPrompt).toContain('# 고친 본문')
+      expect(run.assembledPrompt).not.toContain('# 처음 본문')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('파일이 사라진 asset을 담으면 조용히 빼지 않고 알린다', async () => {
+    // 조용히 빼면 사용자는 agent가 읽고도 무시했다고 오해한다 (설계 §5-3).
+    const repoId = createRepoRepository(ctx.db)
+      .create({ workspaceId: ctx.workspaceId, name: 'gone', path: '/tmp/없는곳' }).id
+    const assets = createAssetRepository(ctx.db)
+    assets.upsertDiscovered({
+      workspaceId: ctx.workspaceId, repoId, seenAt: 1,
+      found: [{ kind: 'skill', name: '사라짐', description: null, filePath: '/tmp/없는곳/SKILL.md' }]
+    })
+    const id = assets.list({ workspaceId: ctx.workspaceId })[0]!.id
+
+    const run = await ctx.service.start({
+      workspaceId: ctx.workspaceId, agentKind: 'claude-code' as const,
+      cwd: process.cwd(), permission: 'edit' as const, userPrompt: '해줘',
+      context: [{ type: 'asset' as const, id }]
+    })
+    await vi.waitFor(() => expect(ctx.runs.get(run.id).status).toBe('succeeded'))
+
+    const events = readFileSync(run.logPath, 'utf8').split('\n').filter(Boolean)
+      .map((l) => JSON.parse(l) as { type: string; message?: string })
+    const error = events.find((e) => e.type === 'error')
+    expect(error, '사라진 asset을 알리는 error 이벤트가 없다').toBeDefined()
+    expect(error!.message).toContain('사라짐')
+    // run 자체는 실패시키지 않는다 — 나머지 맥락으로 할 수 있는 일이 있다.
     expect(ctx.runs.get(run.id).status).not.toBe('failed')
   })
 

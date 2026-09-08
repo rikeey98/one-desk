@@ -1,6 +1,6 @@
 # asset 스캔 구현 계획
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** repo에 있는 skill/agent 파일을 발견해 목록에 띄우고, 앱에서 직접 쓴 것과 함께 맥락에 담아 실행에 실어 보낸다.
 
@@ -78,7 +78,7 @@
 **Interfaces:**
 - Produces: `asset` 테이블. 컬럼은 `id` `workspaceId` `kind` `source` `name` `description` `repoId` `filePath` `content` `lastSeenAt` `createdAt` `updatedAt`
 
-- [ ] **Step 1: 스키마에 테이블을 더한다**
+- [x] **Step 1: 스키마에 테이블을 더한다**
 
 `core/db/schema.ts`. `uniqueIndex`를 import 목록에 더한다.
 
@@ -111,12 +111,12 @@ export const asset = sqliteTable('asset', {
 ])
 ```
 
-- [ ] **Step 2: 마이그레이션을 생성한다**
+- [x] **Step 2: 마이그레이션을 생성한다**
 
 Run: `pnpm db:generate`
 Expected: `drizzle/0004_*.sql`이 생긴다. 열어서 `CREATE TABLE \`asset\``와 `CREATE UNIQUE INDEX \`asset_discovered_idx\``가 있는지 확인한다. **기존 테이블을 건드리는 문장이 있으면 안 된다** — 있으면 스키마 정의를 잘못 건드린 것이다.
 
-- [ ] **Step 3: 실패하는 테스트를 쓴다**
+- [x] **Step 3: 실패하는 테스트를 쓴다**
 
 `core/db/migrations.test.ts`의 이웃 테스트가 쓰는 준비 코드를 그대로 쓴다.
 
@@ -167,18 +167,18 @@ it('같은 (workspace, repo, file_path)를 두 번 넣으면 거부된다', () =
 })
 ```
 
-- [ ] **Step 4: 돌려서 실패를 확인한다**
+- [x] **Step 4: 돌려서 실패를 확인한다**
 
 Run: `pnpm test migrations`
 Expected: FAIL — `asset` 테이블이 없어 `PRAGMA table_info`가 빈 배열
 
 > Step 1·2를 이미 했다면 이 테스트는 바로 통과한다. 그때는 **스키마의 `uniqueIndex` 줄을 잠시 지우고 `pnpm db:generate`를 다시 돌려** 두 번째 테스트가 실패하는지 확인한 뒤 되돌린다. 제약이 진짜로 걸려 있는지 확인하는 것이 목적이다.
 
-- [ ] **Step 5: 전체 테스트와 타입체크**
+- [x] **Step 5: 전체 테스트와 타입체크**
 
 Run: `pnpm test && pnpm typecheck`
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add core/db/schema.ts drizzle/ core/db/migrations.test.ts
@@ -196,7 +196,7 @@ git commit -m "feat(db): add the asset table with a discovered-identity index"
 **Interfaces:**
 - Produces: `parseFrontmatter(text: string): { name: string | null; description: string | null }`
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `core/assets/frontmatter.test.ts`
 
@@ -265,12 +265,12 @@ describe('parseFrontmatter', () => {
 })
 ```
 
-- [ ] **Step 2: 돌려서 실패를 확인한다**
+- [x] **Step 2: 돌려서 실패를 확인한다**
 
 Run: `pnpm test frontmatter`
 Expected: FAIL — 모듈이 없다
 
-- [ ] **Step 3: 구현한다**
+- [x] **Step 3: 구현한다**
 
 `core/assets/frontmatter.ts`
 
@@ -328,20 +328,20 @@ function unquote(value: string): string {
 }
 ```
 
-- [ ] **Step 4: 돌려서 통과를 확인한다**
+- [x] **Step 4: 돌려서 통과를 확인한다**
 
 Run: `pnpm test frontmatter`
 Expected: PASS
 
-- [ ] **Step 5: 회귀 테스트가 진짜인지 확인한다**
+- [x] **Step 5: 회귀 테스트가 진짜인지 확인한다**
 
 여러 줄을 이어붙이는 `if (head === '')` 블록을 잠시 지우고 돌린다. "다음 줄부터 들여쓴 여러 줄을 이어붙인다"와 "블록 지시자를 떼고 이어붙인다"가 실패해야 한다. 되돌린다.
 
-- [ ] **Step 6: 전체 테스트와 린트**
+- [x] **Step 6: 전체 테스트와 린트**
 
 Run: `pnpm test && pnpm typecheck && pnpm lint`
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add core/assets/frontmatter.ts core/assets/frontmatter.test.ts
@@ -362,7 +362,7 @@ git commit -m "feat(assets): read name and description from SKILL.md frontmatter
 - Consumes: `parseFrontmatter` (Task 2)
 - Produces: `scanRepo(repoPath: string): Promise<FoundAsset[]>`, `interface FoundAsset { kind: 'skill' | 'agent'; name: string; description: string | null; filePath: string }`
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `core/assets/scan.test.ts`
 
@@ -432,12 +432,12 @@ describe('scanRepo', () => {
 })
 ```
 
-- [ ] **Step 2: 돌려서 실패를 확인한다**
+- [x] **Step 2: 돌려서 실패를 확인한다**
 
 Run: `pnpm test assets/scan`
 Expected: FAIL — 모듈이 없다
 
-- [ ] **Step 3: 구현한다**
+- [x] **Step 3: 구현한다**
 
 `core/assets/scan.ts`
 
@@ -519,20 +519,20 @@ async function readMeta(
 }
 ```
 
-- [ ] **Step 4: 돌려서 통과를 확인한다**
+- [x] **Step 4: 돌려서 통과를 확인한다**
 
 Run: `pnpm test assets/scan`
 Expected: PASS
 
-- [ ] **Step 5: 회귀 테스트가 진짜인지 확인한다**
+- [x] **Step 5: 회귀 테스트가 진짜인지 확인한다**
 
 `dirs`와 `markdownFiles`의 `catch { return [] }`를 `catch { throw }`로 잠시 바꾸고 돌린다. "디렉토리가 하나도 없으면 빈 배열이다"와 "repo 경로 자체가 없으면"이 실패해야 한다. 되돌린다.
 
-- [ ] **Step 6: 전체 테스트와 린트**
+- [x] **Step 6: 전체 테스트와 린트**
 
 Run: `pnpm test && pnpm typecheck && pnpm lint`
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add core/assets/scan.ts core/assets/scan.test.ts
@@ -552,7 +552,7 @@ git commit -m "feat(assets): walk a repo for skill and agent files"
 - Consumes: `asset` 테이블 (Task 1), `FoundAsset` (Task 3)
 - Produces: `createAssetRepository(db)` — `list(query)`, `get(id)`, `createAuthored(input)`, `updateIfUnchanged(input)`, `remove(id)`, `upsertDiscovered(input)`. 타입 `Asset`, `AssetKind`, `AssetSource`, `CreateAuthoredAssetInput`, `GuardedUpdateAssetInput`, `AssetUpdateResult`
 
-- [ ] **Step 1: `shared/models.ts`에 타입을 더한다**
+- [x] **Step 1: `shared/models.ts`에 타입을 더한다**
 
 ```ts
 export type AssetKind = 'skill' | 'agent'
@@ -602,7 +602,7 @@ export interface ListAssetQuery {
 }
 ```
 
-- [ ] **Step 2: 실패하는 테스트를 쓴다**
+- [x] **Step 2: 실패하는 테스트를 쓴다**
 
 `core/db/repositories/asset.test.ts`
 
@@ -747,12 +747,12 @@ describe('authored', () => {
 })
 ```
 
-- [ ] **Step 3: 돌려서 실패를 확인한다**
+- [x] **Step 3: 돌려서 실패를 확인한다**
 
 Run: `pnpm test repositories/asset`
 Expected: FAIL — 모듈이 없다
 
-- [ ] **Step 4: 구현한다**
+- [x] **Step 4: 구현한다**
 
 `core/db/repositories/asset.ts`
 
@@ -903,20 +903,20 @@ export function createAssetRepository(db: Database) {
 export type AssetRepository = ReturnType<typeof createAssetRepository>
 ```
 
-- [ ] **Step 5: 돌려서 통과를 확인한다**
+- [x] **Step 5: 돌려서 통과를 확인한다**
 
 Run: `pnpm test repositories/asset`
 Expected: PASS
 
-- [ ] **Step 6: 회귀 테스트가 진짜인지 확인한다**
+- [x] **Step 6: 회귀 테스트가 진짜인지 확인한다**
 
 `upsertDiscovered`의 `if (existing)` 분기를 지워 항상 insert하게 만들고 돌린다. "두 번 봐도 행이 늘지 않는다"가 실패해야 한다. 되돌린다.
 
-- [ ] **Step 7: 전체 테스트와 린트**
+- [x] **Step 7: 전체 테스트와 린트**
 
 Run: `pnpm test && pnpm typecheck && pnpm lint`
 
-- [ ] **Step 8: 커밋**
+- [x] **Step 8: 커밋**
 
 ```bash
 git add core/db/repositories/asset.ts core/db/repositories/asset.test.ts shared/models.ts
@@ -937,7 +937,7 @@ git commit -m "feat(db): add the asset repository with scan upsert and optimisti
 - Consumes: `scanRepo` (Task 3), `AssetRepository` (Task 4)
 - Produces: `createAssetService({ assets, repos })` — `scanRepo(workspaceId, repoId)`, `scanWorkspace(workspaceId)`, `scanAll()`
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `core/assets/service.test.ts`
 
@@ -1036,12 +1036,12 @@ describe('createAssetService', () => {
 })
 ```
 
-- [ ] **Step 2: 돌려서 실패를 확인한다**
+- [x] **Step 2: 돌려서 실패를 확인한다**
 
 Run: `pnpm test assets/service`
 Expected: FAIL — 모듈이 없다
 
-- [ ] **Step 3: 구현한다**
+- [x] **Step 3: 구현한다**
 
 `core/assets/service.ts`
 
@@ -1097,20 +1097,20 @@ export type AssetService = ReturnType<typeof createAssetService>
 > workspace 저장소를 여기 끌어들이지 않기 위해서다: 필요한 것은 "repo가 하나라도
 > 있는 workspace"뿐이고, repo가 없는 workspace는 훑을 것이 없다.
 
-- [ ] **Step 4: 돌려서 통과를 확인한다**
+- [x] **Step 4: 돌려서 통과를 확인한다**
 
 Run: `pnpm test assets/service`
 Expected: PASS
 
-- [ ] **Step 5: 회귀 테스트가 진짜인지 확인한다**
+- [x] **Step 5: 회귀 테스트가 진짜인지 확인한다**
 
 `scanOne`의 `seenAt: Date.now()`를 고정값 `0`으로 잠시 바꾸고 돌린다. Task 4의 "다시 보면 lastSeenAt을 갱신한다"는 저장소 테스트라 안 걸리므로, 여기서는 대신 `upsertDiscovered` 호출을 통째로 지우고 "repo 하나를 훑어 저장한다"가 실패하는지 본다. 되돌린다.
 
-- [ ] **Step 6: 전체 테스트와 린트**
+- [x] **Step 6: 전체 테스트와 린트**
 
 Run: `pnpm test && pnpm typecheck && pnpm lint`
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add core/assets/service.ts core/assets/service.test.ts core/db/repositories/repo.ts
@@ -1130,7 +1130,7 @@ git commit -m "feat(assets): scan a repo, a workspace, or everything"
 - Consumes: `AssetRepository` (Task 4), `AssetService` (Task 5)
 - Produces: `client.assets.list/createAuthored/updateIfUnchanged/remove/rescan`, `core.assets`, `core.assetService`
 
-- [ ] **Step 1: 채널을 더한다**
+- [x] **Step 1: 채널을 더한다**
 
 `shared/channels.ts`의 `memosRemove` 다음에.
 
@@ -1143,7 +1143,7 @@ git commit -m "feat(assets): scan a repo, a workspace, or everything"
   assetsRescan: 'assets:rescan',
 ```
 
-- [ ] **Step 2: 클라이언트 인터페이스를 더한다**
+- [x] **Step 2: 클라이언트 인터페이스를 더한다**
 
 `shared/client.ts`의 `memos` 블록 다음에. 타입 import에 `Asset`·`CreateAuthoredAssetInput`·`GuardedUpdateAssetInput`·`AssetUpdateResult`·`ListAssetQuery`를 더한다.
 
@@ -1162,7 +1162,7 @@ git commit -m "feat(assets): scan a repo, a workspace, or everything"
   }
 ```
 
-- [ ] **Step 3: IPC 핸들러를 만든다**
+- [x] **Step 3: IPC 핸들러를 만든다**
 
 `electron/ipc/assets.ts`
 
@@ -1194,7 +1194,7 @@ export function registerAssetHandlers(core: Core) {
 
 `electron/ipc/index.ts`에 import와 `registerAssetHandlers(core)` 한 줄을 더한다.
 
-- [ ] **Step 4: preload 브리지를 더한다**
+- [x] **Step 4: preload 브리지를 더한다**
 
 `electron/preload.ts`의 `memos` 블록 다음에.
 
@@ -1209,7 +1209,7 @@ export function registerAssetHandlers(core: Core) {
   },
 ```
 
-- [ ] **Step 5: core에 배선한다**
+- [x] **Step 5: core에 배선한다**
 
 `core/index.ts`. import를 더하고, 저장소·서비스를 만들고, **repo 생성 시와 부팅 시 스캔**을 건다.
 
@@ -1226,12 +1226,12 @@ export function registerAssetHandlers(core: Core) {
 그 자리에서 `void assetService.scanRepo(...)`를 부르고, 없으면 IPC 핸들러의 repo 생성
 직후에 부른다 — **어느 쪽이든 repo 등록이 스캔을 촉발해야 한다**(설계 §3-2).
 
-- [ ] **Step 6: 타입체크와 전체 테스트**
+- [x] **Step 6: 타입체크와 전체 테스트**
 
 Run: `pnpm typecheck && pnpm test && pnpm lint`
 Expected: 통과. `Core` 타입이 바뀌었으므로 이를 쓰는 테스트가 깨지면 채운다.
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add shared/channels.ts shared/client.ts electron/ipc/ electron/preload.ts core/index.ts
@@ -1251,7 +1251,7 @@ git commit -m "feat(ipc): expose assets and rescan through IPC"
 - Consumes: `Asset` (Task 4)
 - Produces: `AssembleInput`에 `assets: AssetForPrompt[]` 추가, `interface AssetForPrompt { kind: AssetKind; name: string; description: string | null; content: string }`. `StartSpec`에 `preEvents?: RunEventInit[]`
 
-- [ ] **Step 1: 조립기 테스트를 쓴다**
+- [x] **Step 1: 조립기 테스트를 쓴다**
 
 `core/context/assemble.test.ts`에 더한다.
 
@@ -1301,12 +1301,12 @@ it('asset이 없으면 블록을 만들지 않는다', () => {
 })
 ```
 
-- [ ] **Step 2: 돌려서 실패를 확인한다**
+- [x] **Step 2: 돌려서 실패를 확인한다**
 
 Run: `pnpm test assemble`
 Expected: FAIL — `assets`가 `AssembleInput`에 없다
 
-- [ ] **Step 3: 조립기를 고친다**
+- [x] **Step 3: 조립기를 고친다**
 
 `core/context/assemble.ts`
 
@@ -1340,12 +1340,12 @@ export interface AssetForPrompt {
   assetBlock('agent', 'agents')
 ```
 
-- [ ] **Step 4: 돌려서 통과를 확인한다**
+- [x] **Step 4: 돌려서 통과를 확인한다**
 
 Run: `pnpm test assemble`
 Expected: PASS. `AssembleInput`이 바뀌었으므로 기존 호출부(`core/execution.ts`)에 `assets: []`를 채워 타입을 맞춘다.
 
-- [ ] **Step 5: 실행 서비스 테스트를 쓴다**
+- [x] **Step 5: 실행 서비스 테스트를 쓴다**
 
 `core/execution.test.ts`에 더한다.
 
@@ -1433,12 +1433,12 @@ it('파일이 사라진 asset을 담으면 조용히 빼지 않고 알린다', a
 > `ctx.service.readLog`가 없으면 로그 파일을 직접 읽는다. 이웃 테스트가 로그를
 > 확인하는 방식을 그대로 따른다.
 
-- [ ] **Step 6: 돌려서 실패를 확인한다**
+- [x] **Step 6: 돌려서 실패를 확인한다**
 
 Run: `pnpm test execution`
 Expected: FAIL — asset 맥락을 모은다는 개념이 아직 없다
 
-- [ ] **Step 7: manager에 실행 전 이벤트 통로를 더한다**
+- [x] **Step 7: manager에 실행 전 이벤트 통로를 더한다**
 
 `core/runner/manager.ts`의 `StartSpec`에.
 
@@ -1457,7 +1457,7 @@ Expected: FAIL — asset 맥락을 모은다는 개념이 아직 없다
     for (const raw of spec.preEvents ?? []) emit(raw)
 ```
 
-- [ ] **Step 8: 실행 서비스를 고친다**
+- [x] **Step 8: 실행 서비스를 고친다**
 
 `core/execution.ts`.
 
@@ -1508,20 +1508,20 @@ Expected: FAIL — asset 맥락을 모은다는 개념이 아직 없다
 
 그리고 `manager.start`에 `preEvents`를 넘긴다.
 
-- [ ] **Step 9: 돌려서 통과를 확인한다**
+- [x] **Step 9: 돌려서 통과를 확인한다**
 
 Run: `pnpm test execution && pnpm test assemble`
 Expected: PASS
 
-- [ ] **Step 10: 회귀 테스트가 진짜인지 확인한다**
+- [x] **Step 10: 회귀 테스트가 진짜인지 확인한다**
 
 `preEvents`를 만드는 줄을 잠시 지우고 돌린다. "파일이 사라진 asset을 담으면 조용히 빼지 않고 알린다"가 실패해야 한다. 되돌린다.
 
-- [ ] **Step 11: 전체 테스트와 린트**
+- [x] **Step 11: 전체 테스트와 린트**
 
 Run: `pnpm test && pnpm typecheck && pnpm lint`
 
-- [ ] **Step 12: 커밋**
+- [x] **Step 12: 커밋**
 
 ```bash
 git add core/context/ core/execution.ts core/execution.test.ts core/runner/manager.ts
@@ -1541,7 +1541,7 @@ git commit -m "feat(context): carry assets into the prompt and report missing fi
 - Consumes: `client.assets` (Task 6)
 - Produces: `useAssets(workspaceId)` — `{ assets, error, refresh, rescan }`. `AssetPanel` props: `{ workspaceId, chips, onToggleChip, onPick }`
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `renderer/components/AssetPanel.test.tsx`. 이 디렉토리의 이웃 테스트가 쓰는 `ClientProvider` 준비를 그대로 따른다.
 
@@ -1643,12 +1643,12 @@ describe('AssetPanel', () => {
 })
 ```
 
-- [ ] **Step 2: 돌려서 실패를 확인한다**
+- [x] **Step 2: 돌려서 실패를 확인한다**
 
 Run: `pnpm test AssetPanel`
 Expected: FAIL — `AssetPanel`이 자리표시자라 prop을 받지 않는다
 
-- [ ] **Step 3: 훅을 만든다**
+- [x] **Step 3: 훅을 만든다**
 
 `renderer/hooks/useAssets.ts`. `useMemos`의 모양을 따르되 `onRunUpdate` 구독은 두지 않는다 — agent가 MCP로 asset을 만들 수 없다(설계 §1의 "빠지는 것").
 
@@ -1688,7 +1688,7 @@ export function useAssets(workspaceId: string | null) {
 }
 ```
 
-- [ ] **Step 4: 패널을 만든다**
+- [x] **Step 4: 패널을 만든다**
 
 `renderer/components/AssetPanel.tsx`. 자리표시자를 걷어낸다.
 
@@ -1756,7 +1756,7 @@ export function AssetPanel({ workspaceId, chips, onToggleChip }: AssetPanelProps
 }
 ```
 
-- [ ] **Step 5: App에 배선한다**
+- [x] **Step 5: App에 배선한다**
 
 `renderer/App.tsx:277`의 `<AssetPanel />`에 prop을 내려보낸다.
 
@@ -1771,24 +1771,24 @@ export function AssetPanel({ workspaceId, chips, onToggleChip }: AssetPanelProps
 `MemoPanel`이 받는 것과 같은 이름·같은 값을 쓴다. **이 한 줄이 그 자체로 되돌릴 수
 있는 변이다** — 지우거나 다른 값을 넘겨도 테스트가 잡아야 한다.
 
-- [ ] **Step 6: 돌려서 통과를 확인한다**
+- [x] **Step 6: 돌려서 통과를 확인한다**
 
 Run: `pnpm test AssetPanel && pnpm test App`
 Expected: PASS
 
-- [ ] **Step 7: 회귀 테스트가 진짜인지 확인한다**
+- [x] **Step 7: 회귀 테스트가 진짜인지 확인한다**
 
 `isMissing`의 `if (item.source !== 'discovered') return false`를 지우고 돌린다.
 "authored에는 '없음'이 절대 붙지 않는다"가 실패해야 한다. 되돌린다.
 
-- [ ] **Step 8: 전체 테스트와 경계 확인**
+- [x] **Step 8: 전체 테스트와 경계 확인**
 
 ```bash
 pnpm test && pnpm typecheck && pnpm lint
 grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 ```
 
-- [ ] **Step 9: 커밋**
+- [x] **Step 9: 커밋**
 
 ```bash
 git add renderer/hooks/useAssets.ts renderer/components/AssetPanel.tsx \
@@ -1809,7 +1809,7 @@ git commit -m "feat(renderer): list discovered and authored assets"
 - Consumes: `client.assets.createAuthored`·`updateIfUnchanged` (Task 6)
 - Produces: `AssetDetail` props `{ asset, onChanged }`
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [x] **Step 1: 실패하는 테스트를 쓴다**
 
 `renderer/components/AssetDetail.test.tsx`. `MemoDetail.test.tsx`가 쓰는 준비를 그대로 따른다.
 
@@ -1858,12 +1858,12 @@ it('충돌하면 배너를 띄운다', async () => {
 })
 ```
 
-- [ ] **Step 2: 돌려서 실패를 확인한다**
+- [x] **Step 2: 돌려서 실패를 확인한다**
 
 Run: `pnpm test AssetDetail`
 Expected: FAIL — 모듈이 없다
 
-- [ ] **Step 3: 구현한다**
+- [x] **Step 3: 구현한다**
 
 `renderer/components/AssetDetail.tsx`. **저장 경로는 `MemoDetail.tsx`를 그대로
 옮긴다** — `useDebouncedSave`, `expected` ref, `ConflictBanner`, 그리고 성공한 응답의
@@ -1898,24 +1898,24 @@ return (
 `AssetPanel`에는 authored를 만드는 입력(이름 + kind 선택 + 추가 버튼)을 더한다.
 이슈·메모 패널의 "새 … 제목…" 입력과 같은 모양이다.
 
-- [ ] **Step 4: 돌려서 통과를 확인한다**
+- [x] **Step 4: 돌려서 통과를 확인한다**
 
 Run: `pnpm test AssetDetail && pnpm test AssetPanel`
 Expected: PASS
 
-- [ ] **Step 5: 회귀 테스트가 진짜인지 확인한다**
+- [x] **Step 5: 회귀 테스트가 진짜인지 확인한다**
 
 성공 응답에서 `expected.current`를 갱신하는 줄을 지우고 돌린다.
 "성공한 저장마다 기대값을 갱신한다"가 실패해야 한다. 되돌린다.
 
-- [ ] **Step 6: 전체 테스트와 경계 확인**
+- [x] **Step 6: 전체 테스트와 경계 확인**
 
 ```bash
 pnpm test && pnpm typecheck && pnpm lint
 grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 ```
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add renderer/components/AssetDetail.tsx renderer/components/AssetDetail.test.tsx \
@@ -1931,7 +1931,7 @@ git commit -m "feat(renderer): write and edit authored assets"
 - Create: `e2e/asset.e2e.ts`
 - Modify: `CLAUDE.md`, `docs/superpowers/specs/2026-08-07-one-desk-design.md`
 
-- [ ] **Step 1: e2e를 쓴다**
+- [x] **Step 1: e2e를 쓴다**
 
 `e2e/asset.e2e.ts`
 
@@ -1991,13 +1991,13 @@ describe('asset 스캔', () => {
 > 것 — repo 등록이 실제로 스캔을 촉발하고, 결과가 IPC를 건너 화면에 뜨고, 담아서
 > 실행하는 한 바퀴가 돈다는 것 — 이다.
 
-- [ ] **Step 2: 돌려서 통과를 확인한다**
+- [x] **Step 2: 돌려서 통과를 확인한다**
 
 Run: `pnpm test:e2e`
 Expected: PASS. **`pnpm dev`와 동시에 돌리지 않는다** — `test:e2e`의 빌드 산출물이
 dev가 감시하는 `out/`을 덮어쓴다.
 
-- [ ] **Step 3: 전체 설계 문서를 보완한다**
+- [x] **Step 3: 전체 설계 문서를 보완한다**
 
 `2026-08-07-one-desk-design.md`에 설계 §9의 넷을 반영한다.
 
@@ -2008,7 +2008,7 @@ dev가 감시하는 `out/`을 덮어쓴다.
 
 각 항목에 `2026-09-07-asset-scan-design.md`의 해당 절을 가리키는 한 줄을 붙인다.
 
-- [ ] **Step 4: `CLAUDE.md`를 갱신한다**
+- [x] **Step 4: `CLAUDE.md`를 갱신한다**
 
 "현재 상태"에 asset 스캔이 붙었음과 **마이그레이션 0004가 첫 실행에 돈다**는 것을 적는다.
 "밟으면 조용히 깨지는 것들"에 다음을 더한다.
@@ -2033,7 +2033,7 @@ SQLite가 유니크 인덱스에서 NULL을 서로 다르게 취급하므로 여
 
 문서 표에 설계·계획 두 줄을 더한다.
 
-- [ ] **Step 5: 전체 검증**
+- [x] **Step 5: 전체 검증**
 
 ```bash
 pnpm test && pnpm typecheck && pnpm lint && pnpm test:e2e
@@ -2041,7 +2041,7 @@ grep -rn "from 'electron'" core/                        # 출력 없어야 함
 grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 ```
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add e2e/asset.e2e.ts CLAUDE.md docs/superpowers/specs/2026-08-07-one-desk-design.md
@@ -2052,7 +2052,7 @@ git commit -m "docs: record the asset identity key and scan invariants"
 
 ## 마무리
 
-- [ ] `pnpm test && pnpm typecheck && pnpm lint`가 전부 초록
-- [ ] `pnpm test:e2e`가 초록
-- [ ] 경계 확인 두 줄이 빈 출력
-- [ ] 계획의 체크박스가 전부 채워짐
+- [x] `pnpm test && pnpm typecheck && pnpm lint`가 전부 초록
+- [x] `pnpm test:e2e`가 초록
+- [x] 경계 확인 두 줄이 빈 출력
+- [x] 계획의 체크박스가 전부 채워짐
