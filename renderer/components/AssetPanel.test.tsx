@@ -98,3 +98,35 @@ describe('AssetPanel', () => {
     await waitFor(() => expect(client.assets.list).not.toHaveBeenCalled())
   })
 })
+
+describe('AssetPanel — authored 만들기', () => {
+  it('이름을 넣으면 skill로 만든다', async () => {
+    const createAuthored = vi.fn().mockResolvedValue(asset({ source: 'authored' }))
+    renderPanel(makeClient([], { createAuthored }))
+
+    await userEvent.type(screen.getByPlaceholderText('새 asset 이름…'), '내 스킬{Enter}')
+
+    expect(createAuthored).toHaveBeenCalledWith({
+      workspaceId: 'w1', kind: 'skill', name: '내 스킬'
+    })
+  })
+
+  it('종류를 agent로 바꾸면 agent로 만든다', async () => {
+    const createAuthored = vi.fn().mockResolvedValue(asset({ source: 'authored' }))
+    renderPanel(makeClient([], { createAuthored }))
+
+    await userEvent.selectOptions(screen.getByLabelText('새 asset 종류'), 'agent')
+    await userEvent.type(screen.getByPlaceholderText('새 asset 이름…'), '내 agent{Enter}')
+
+    expect(createAuthored).toHaveBeenCalledWith({
+      workspaceId: 'w1', kind: 'agent', name: '내 agent'
+    })
+  })
+
+  it('이름을 누르면 상세가 열린다', async () => {
+    const onOpen = vi.fn()
+    renderPanel(makeClient([asset({ name: '알파' })]), { onOpen })
+    await userEvent.click(await screen.findByRole('button', { name: '알파' }))
+    expect(onOpen).toHaveBeenCalledWith('a1')
+  })
+})

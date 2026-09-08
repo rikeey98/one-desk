@@ -1,5 +1,9 @@
+import { useEffect, useState } from 'react'
 import { Panel } from './Panel'
+import { AddForm } from './AddForm'
+import { AssetDetail } from './AssetDetail'
 import { useAssets } from '../hooks/useAssets'
+import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextChip } from '../context'
 import type { Asset, AssetKind } from '@shared/models'
 
@@ -16,13 +20,32 @@ export function isMissing(item: Asset, latestSeenAt: number): boolean {
 }
 
 export function AssetPanel({
-  workspaceId, chipKeys, onToggleContext
+  workspaceId, chipKeys, onToggleContext, expanded, openId, onOpen
 }: {
   workspaceId: string | null
   chipKeys: Set<string>
   onToggleContext: (chip: ContextChip) => void
+  expanded?: boolean
+  openId?: string | null
+  onOpen?: (id: string) => void
 }) {
-  const { assets, error, rescan } = useAssets(workspaceId)
+  const client = useClient()
+  const { assets, error, rescan, refresh } = useAssets(workspaceId)
+  // 새로 만들 asset의 종류. 이름만 받는 AddForm과 짝을 이룬다.
+  const [newKind, setNewKind] = useState<AssetKind>('skill')
+
+  const open = openId ? assets.find((a) => a.id === openId) ?? null : null
+
+  // 열린 항목이 목록에서 사라졌으면(지워졌으면) 접는다.
+  useEffect(() => {
+    if (openId && !open && onOpen) onOpen(openId)
+  }, [openId, open, onOpen])
+
+  async function addAuthored(name: string) {
+    if (!workspaceId) return
+    await client.assets.createAuthored({ workspaceId, kind: newKind, name })
+    await refresh()
+  }
 
   // "없음"의 기준선. 그 workspace에서 가장 최근에 파일을 본 시각이다.
   const latestSeenAt = assets.reduce((max, a) => Math.max(max, a.lastSeenAt ?? 0), 0)
@@ -49,7 +72,11 @@ export function AssetPanel({
                 </button>
                 {/* 이름·설명·경로는 평문이다. 외부 repo의 파일에서 왔으므로
                     마크다운으로 그리지 않는다 (설계 §6-3). */}
-                <span className="asset-name">{a.name}</span>
+                <button
+                  type="button"
+                  className="item-open"
+                  onClick={() => onOpen?.(a.id)}
+                >{a.name}</button>
                 <span className="asset-desc">{a.description ?? ''}</span>
                 <span className="asset-origin">
                   {a.source === 'authored' ? '앱에서 작성' : (a.filePath ?? '')}
@@ -63,12 +90,38 @@ export function AssetPanel({
     )
   }
 
-  return (
-    <Panel title="Skills / Agents">
-      <button type="button" onClick={() => void rescan()}>새로고침</button>
+  const list = (
+    <>
+      <div className="asset-add">
+        <select
+          aria-label="새 asset 종류"
+          value={newKind}
+          onChange={(e) => setNewKind(e.target.value as AssetKind)}
+        >
+          <option value="skill">skill</option>
+          <option value="agent">agent</option>
+        </select>
+        <AddForm placeholder="새 asset 이름…" onSubmit={addAuthored} />
+        <button type="button" onClick={() => void rescan()}>새로고침</button>
+      </div>
       {error && <div role="alert">{error}</div>}
       {group('skill', 'SKILLS')}
       {group('agent', 'AGENTS')}
+    </>
+  )
+
+  return (
+    <Panel title="Skills / Agents">
+      {expanded && open
+        ? (
+            <AssetDetail
+              key={open.id}
+              asset={open}
+              onChanged={() => { void refresh() }}
+              onDeleted={() => { onOpen?.(open.id); void refresh() }}
+            />
+          )
+        : list}
     </Panel>
   )
 }
