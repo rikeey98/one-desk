@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createAdapters, createCore, type Core } from './index'
 import { DEFAULT_CONCURRENCY_LIMIT } from './db/repositories/setting'
@@ -223,5 +223,45 @@ describe('createAdapters', () => {
 
   it('claude-code 매핑은 그대로다', () => {
     expect(createAdapters()['claude-code'].kind).toBe('claude-code')
+  })
+})
+
+describe('asset 스캔 배선', () => {
+  it('repo를 등록하면 그 repo를 훑는다', async () => {
+    // 설계 §3-2의 세 시점 중 하나. 이 한 줄이 빠져도 새로고침으로는 목록이
+    // 채워지므로, 테스트가 없으면 "등록해도 안 뜬다"를 아무도 못 잡는다.
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+
+    const repoPath = join(dataDir, 'repo')
+    const skillDir = join(repoPath, '.claude', 'skills', '알파')
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: 알파\ndescription: 스킬\n---\n')
+
+    core.repos.create({ workspaceId, name: 'api', path: repoPath })
+
+    await vi.waitFor(() => {
+      expect(core.assets.list({ workspaceId }).map((a) => a.name)).toEqual(['알파'])
+    })
+    close(core)
+  })
+
+  it('rescan은 다시 훑고 갱신된 목록을 준다', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    const repoPath = join(dataDir, 'repo')
+    mkdirSync(repoPath, { recursive: true })
+    core.repos.create({ workspaceId, name: 'api', path: repoPath })
+
+    // 등록 뒤에 파일이 생겼다 — 새로고침이 이 경우를 위해 있다.
+    const skillDir = join(repoPath, '.claude', 'skills', '베타')
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: 베타\n---\n')
+
+    const after = await core.assets.rescan(workspaceId)
+    expect(after.map((a) => a.name)).toEqual(['베타'])
+    close(core)
   })
 })

@@ -18,6 +18,12 @@ export const CHANNELS = {
   memosUpdate: 'memos:update',
   memosUpdateIfUnchanged: 'memos:updateIfUnchanged',
   memosRemove: 'memos:remove',
+  assetsList: 'assets:list',
+  assetsCreateAuthored: 'assets:createAuthored',
+  assetsUpdateIfUnchanged: 'assets:updateIfUnchanged',
+  assetsRemove: 'assets:remove',
+  /** 지금 workspace의 모든 repo를 다시 훑는다 */
+  assetsRescan: 'assets:rescan',
   runsList: 'runs:list',
   runsStart: 'runs:start',
   runsCancel: 'runs:cancel',
