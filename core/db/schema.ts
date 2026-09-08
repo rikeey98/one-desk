@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, primaryKey, index } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, primaryKey, index, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import { sql } from 'drizzle-orm'
 
 const nowMs = () => sql`(unixepoch() * 1000)`
@@ -134,4 +134,31 @@ export const runContextItem = sqliteTable('run_context_item', {
   itemId: text('item_id')
 }, (t) => [
   index('run_context_run_idx').on(t.runId)
+])
+
+export const asset = sqliteTable('asset', {
+  id: text('id').primaryKey(),
+  workspaceId: text('workspace_id').notNull()
+    .references(() => workspace.id, { onDelete: 'cascade' }),
+  kind: text('kind', { enum: ['skill', 'agent'] }).notNull(),
+  source: text('source', { enum: ['discovered', 'authored'] }).notNull(),
+  name: text('name').notNull(),
+  description: text('description'),
+  // discovered일 때만 채운다. repo를 지우면 그 repo에서 발견한 것도 함께 사라진다 —
+  // 사용자가 repo를 뗀 것은 의도된 행동이고, 다시 등록하면 다시 스캔된다.
+  // 과거 run이 무엇을 첨부했는지는 assembledPrompt에 남는다 (설계 §5).
+  repoId: text('repo_id').references(() => repo.id, { onDelete: 'cascade' }),
+  filePath: text('file_path'),
+  /** authored일 때만. discovered의 본문은 실행 시점에 디스크에서 읽는다 (설계 §2-2) */
+  content: text('content'),
+  /** discovered일 때 마지막으로 파일을 본 시각. 이 값으로 "없음"을 판정한다 */
+  lastSeenAt: integer('last_seen_at'),
+  createdAt: integer('created_at').notNull().default(nowMs()),
+  updatedAt: integer('updated_at').notNull().default(nowMs())
+}, (t) => [
+  index('asset_workspace_idx').on(t.workspaceId),
+  // **동일성 키.** 없으면 스캔할 때마다 같은 파일이 새 행으로 쌓인다 (설계 §3-3).
+  // authored 행은 repo_id와 file_path가 둘 다 NULL인데, SQLite는 유니크 인덱스에서
+  // NULL을 서로 다른 값으로 취급하므로 authored를 여러 개 만들어도 걸리지 않는다.
+  uniqueIndex('asset_discovered_idx').on(t.workspaceId, t.repoId, t.filePath)
 ])

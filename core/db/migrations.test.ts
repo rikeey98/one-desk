@@ -53,3 +53,79 @@ describe('0003 마이그레이션', () => {
     }
   })
 })
+
+describe('0004 마이그레이션', () => {
+  it('asset 테이블과 동일성 인덱스를 만든다', () => {
+    const work = mkdtempSync(join(tmpdir(), 'one-desk-mig-'))
+    try {
+      const db = openDb({ file: join(work, 'test.db'), migrationsDir: 'drizzle' })
+      const cols = db.$client.prepare('PRAGMA table_info(asset)').all() as { name: string }[]
+      expect(cols.map((c) => c.name).sort()).toEqual([
+        'content', 'created_at', 'description', 'file_path', 'id', 'kind',
+        'last_seen_at', 'name', 'repo_id', 'source', 'updated_at', 'workspace_id'
+      ])
+
+      const idx = db.$client
+        .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='asset'")
+        .all() as { name: string }[]
+      expect(idx.map((i) => i.name)).toContain('asset_discovered_idx')
+
+      // Windows는 열린 핸들이 있는 파일을 지우지 못한다.
+      db.$client.close()
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  })
+
+  it('같은 (workspace, repo, file_path)를 두 번 넣으면 거부된다', () => {
+    // 이 제약이 없으면 스캔이 돌 때마다 같은 파일이 새 행으로 쌓인다.
+    const work = mkdtempSync(join(tmpdir(), 'one-desk-mig-'))
+    try {
+      const db = openDb({ file: join(work, 'test.db'), migrationsDir: 'drizzle' })
+      db.$client.exec(`
+        INSERT INTO workspace (id, name, created_at, updated_at) VALUES ('ws', 'ws', 1, 1);
+        INSERT INTO repo (id, workspace_id, name, path, created_at)
+        VALUES ('r1', 'ws', 'api', '/tmp/api', 1);
+      `)
+      const insert = (id: string): void => {
+        db.$client.prepare(
+          `INSERT INTO asset (id, workspace_id, kind, source, name, repo_id, file_path,
+           created_at, updated_at)
+           VALUES (?, 'ws', 'skill', 'discovered', 'x', 'r1', '/a/SKILL.md', 1, 1)`
+        ).run(id)
+      }
+
+      insert('a1')
+      expect(() => insert('a2')).toThrow(/UNIQUE/)
+
+      db.$client.close()
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  })
+
+  it('authored 행은 여러 개 만들 수 있다', () => {
+    // repo_id와 file_path가 둘 다 NULL이다. SQLite가 유니크 인덱스에서 NULL을
+    // 서로 다르게 취급하지 않으면 두 번째에서 터진다.
+    const work = mkdtempSync(join(tmpdir(), 'one-desk-mig-'))
+    try {
+      const db = openDb({ file: join(work, 'test.db'), migrationsDir: 'drizzle' })
+      db.$client.exec(`
+        INSERT INTO workspace (id, name, created_at, updated_at) VALUES ('ws', 'ws', 1, 1);
+      `)
+      const insert = (id: string): void => {
+        db.$client.prepare(
+          `INSERT INTO asset (id, workspace_id, kind, source, name, created_at, updated_at)
+           VALUES (?, 'ws', 'skill', 'authored', 'x', 1, 1)`
+        ).run(id)
+      }
+
+      insert('a1')
+      expect(() => insert('a2')).not.toThrow()
+
+      db.$client.close()
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  })
+})
