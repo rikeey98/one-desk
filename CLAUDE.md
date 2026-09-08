@@ -16,7 +16,9 @@ workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 
 
 **5단계의 첫 하위 과제인 OpenCode 어댑터가 붙었다**(설계 `2026-09-06-opencode-adapter-design.md`, 계획 `2026-09-06-opencode-adapter.md`). 마이그레이션은 없다 — 스키마에 이미 `defaultAgentKind`·`defaultModelOpencode`·`opencodePath`가 있었다. 실행 패널의 agent 드롭다운이 열렸고(그전까지 `disabled`였다), 대화를 이어갈 때만 잠긴다. 5단계는 세 하위 시스템이 서로 독립이라 **하나의 스펙으로 묶지 않고 각각 spec → plan → 구현 사이클을 따로 돈다.**
 
-남은 5단계 과제는 asset 스캔과 diff 뷰어다. **착수를 막던 환경변수 결정은 해소됐다**(아래 절). 본문 작업이 넷으로 쪼갠 것 중 첫째였으므로 나머지 셋(마크다운 렌더링 · 검색/필터/정렬 · run 완료 구독)도 후보로 남아 있다. 대화 기능은 이 목록과 별개로 진행돼 완료·병합됐다(위 절). 그중 **run 완료 구독은 이미 해소됐으므로** 남은 것은 마크다운 렌더링과 검색/필터/정렬 둘이다.
+**asset 스캔도 붙었다**(설계 `2026-09-07-asset-scan-design.md`, 계획 `2026-09-07-asset-scan.md`). **첫 실행에 마이그레이션 `0004`가 돈다** — `asset` 테이블 하나가 추가된다. repo의 `.claude/skills/*/SKILL.md`·`.claude/agents/*.md`·`.opencode/agent/*.md`를 훑어 목록에 띄우고(`discovered`), 앱에서 직접 쓴 것(`authored`)과 함께 맥락에 담아 실행에 실어 보낸다. `SKILLS / AGENTS` 패널의 자리표시자가 사라졌다.
+
+남은 5단계 과제는 diff 뷰어 하나다. **착수를 막던 환경변수 결정은 해소됐다**(아래 절). 본문 작업이 넷으로 쪼갠 것 중 첫째였으므로 나머지 셋(마크다운 렌더링 · 검색/필터/정렬 · run 완료 구독)도 후보로 남아 있다. 대화 기능은 이 목록과 별개로 진행돼 완료·병합됐다(위 절). 그중 **run 완료 구독은 이미 해소됐으므로** 남은 것은 마크다운 렌더링과 검색/필터/정렬 둘이다.
 
 **이슈 훑기**가 붙었다(설계 `2026-08-27-issue-triage-design.md`, 계획 `2026-08-27-issue-triage.md`). **첫 실행에 마이그레이션 `0003`이 돈다** — 컬럼 다섯 추가 + 기존 이슈의 `triaged_at` 백필. 이슈를 제목 한 줄로 던져 넣고 분류는 나중에 훑기로 몰아서 한다. 목록은 축(급함·출처·성격·repo)으로 묶고 접되 **접혀도 개수는 보이며**, 그룹 안은 `seenAt` 오래된 순이다. MCP `create_issue`가 축을 받으므로 agent가 회의 메모를 이슈로 쪼개며 분류까지 끝낼 수 있다.
 
@@ -130,6 +132,18 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **ad-hoc 서명(`identity: '-'`)은 hardened runtime의 라이브러리 검증에 걸린다.** Team ID가 없어 Electron Framework조차 로드되지 않고 앱이 아예 안 뜬다 — `build/entitlements.mac.plist`의 `com.apple.security.cs.disable-library-validation`이 그것을 푼다. **설정이 문법에 맞는 것과 앱이 열리는 것은 다르다** — DMG를 실제로 열어봐야만 드러난다.
 
+**asset의 동일성 키는 `(workspace_id, repo_id, file_path)`다.** 유니크 인덱스가 없으면 스캔이 돌 때마다 같은 파일이 새 행으로 쌓이는데, 목록이 조금씩 길어질 뿐 오류가 없어 한참 모른다. `authored` 행은 `repo_id`와 `file_path`가 둘 다 NULL이고 SQLite가 유니크 인덱스에서 NULL을 서로 다르게 취급하므로 여러 개 만들 수 있다.
+
+**스캔은 `authored` 행을 건드리면 안 된다.** `source`로 갈라 보지 않으면 앱에서 쓴 asset이 첫 스캔에 전부 "없음"이 된다 — 파일이 없으니 당연히 안 보인다. 같은 이유로 화면의 "없음" 판정도 `source === 'discovered'`를 먼저 본다.
+
+**사라진 asset을 지우지 않는다.** `last_seen_at`으로 "없음"만 표시한다. 지우면 그 asset을 첨부했던 과거 run의 기록이 끊긴다(전체 설계 §232).
+
+**`core.repos.create`는 스캔을 await한다 — 이 `await`는 어떤 테스트도 고정하지 못한다.** 기다리지 않으면 화면이 목록을 다시 읽는 시점에 스캔이 아직 안 끝나 있어 방금 등록한 repo의 asset이 새로고침 전까지 안 보인다. 그런데 스캔이 워낙 빨라 e2e는 `await`를 빼도 통과한다(실측). 지우지 말 것 — 통과는 경합에서 이긴 것이지 옳아서가 아니다.
+
+**asset 목록은 repo 목록이 바뀌면 다시 읽어야 한다.** `useAssets`가 `repoKey`(repo id를 이어붙인 문자열)를 의존성으로 받는 이유다. 이것이 빠지면 repo를 등록해도 asset이 화면에 나타나지 않는다 — 실제로 e2e가 여기서 걸렸다.
+
+**asset 본문은 신뢰할 수 없는 입력이다.** 외부 repo의 SKILL.md를 그대로 화면에 그리고 프롬프트에 싣는다. 조립기는 반드시 이스케이프하고, 화면은 평문으로 그린다. 나중에 마크다운 렌더링을 붙일 때 이 자리를 먼저 다뤄야 한다 — 렌더링에 구멍이 있으면 그 스크립트가 `window.oneDesk`로 `runs.start({ permission: 'full' })`을 부를 수 있다.
+
 **OpenCode는 설정을 병합하고, 우리가 이길 수 없는 자리가 있다.** 우선순위는 `OPENCODE_PERMISSION` 환경변수 > 프로젝트 `opencode.json` > `OPENCODE_CONFIG`가 가리키는 파일 > 전역 설정이고, `permission` 안에서 키 단위로 합쳐진다. **`"*"`는 구체 키를 이기지 못한다** — 소스 우선순위와 무관하게 구체적인 키가 와일드카드를 이긴다. 그래서 권한은 파일이 아니라 환경변수로 넘기고 알려진 키 15개를 전부 명시한다. 이름을 대지 않은 키는 남의 설정 값이 그대로 산다.
 
 **OpenCode는 설정이 잘못돼도 조용히 무시한다.** `OPENCODE_CONFIG`가 없는 파일을 가리켜도, 거기에 인라인 JSON을 넣어도(경로만 받는다), `OPENCODE_PERMISSION`이 깨진 JSON이어도 **종료 코드 0으로 사용자 설정에 그대로 되돌아간다.** 셋 다 증상이 같다 — 헤드리스 실행이 아무 말 없이 영원히 멈추고 동시 실행 슬롯을 계속 점유한다. `opencodeAdapter.verifyRunnable`이 실행 직전에 해결된 설정을 다시 읽어 `ask`가 남았는지 보는 이유이고, 그래서 그 검사는 선택이 아니다.
@@ -196,5 +210,7 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 | `docs/superpowers/plans/2026-08-27-issue-triage.md` | 이슈 훑기 구현 계획 (9개 태스크) |
 | `docs/superpowers/specs/2026-09-06-opencode-adapter-design.md` | OpenCode 어댑터 설계 — 설정 병합 규칙 실측(§2), 권한과 `ask` 검사(§3), 스트림 파싱(§6), 다른 설계로 넘긴 발견(§10) |
 | `docs/superpowers/plans/2026-09-06-opencode-adapter.md` | OpenCode 어댑터 구현 계획 (9개 태스크) |
+| `docs/superpowers/specs/2026-09-07-asset-scan-design.md` | asset 스캔 설계 — 데이터 모델과 `updated_at`(§2), 스캔 시점과 동일성(§3), frontmatter 파서(§4), 맥락 조립(§5), UI와 평문 렌더(§6) |
+| `docs/superpowers/plans/2026-09-07-asset-scan.md` | asset 스캔 구현 계획 (10개 태스크) |
 
 **설계 문서의 결정을 코드에서 임의로 바꾸지 않는다.** 설계에 구멍이 보이면 고치지 말고 지적할 것 — 그게 더 값지다.

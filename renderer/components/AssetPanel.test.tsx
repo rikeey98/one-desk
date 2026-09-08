@@ -33,6 +33,7 @@ function renderPanel(client: OneDeskClient, props: Record<string, unknown> = {})
     <ClientProvider client={client}>
       <AssetPanel
         workspaceId="w1"
+        repos={[]}
         chipKeys={new Set<string>()}
         onToggleContext={vi.fn()}
         {...props}

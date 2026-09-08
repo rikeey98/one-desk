@@ -276,6 +276,7 @@ export default function App() {
               />
               <AssetPanel
                 workspaceId={workspaceId}
+                repos={repos}
                 chipKeys={chipKeys}
                 onToggleContext={toggleChip}
                 expanded={openItem?.panel === 'asset'}

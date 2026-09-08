@@ -5,7 +5,7 @@ import { AssetDetail } from './AssetDetail'
 import { useAssets } from '../hooks/useAssets'
 import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextChip } from '../context'
-import type { Asset, AssetKind } from '@shared/models'
+import type { Asset, AssetKind, Repo } from '@shared/models'
 
 /**
  * "없음" 판정. 그 workspace에서 가장 최근에 본 시각보다 오래된 discovered asset이
@@ -20,9 +20,11 @@ export function isMissing(item: Asset, latestSeenAt: number): boolean {
 }
 
 export function AssetPanel({
-  workspaceId, chipKeys, onToggleContext, expanded, openId, onOpen
+  workspaceId, repos, chipKeys, onToggleContext, expanded, openId, onOpen
 }: {
   workspaceId: string | null
+  /** 지금 workspace의 repo들. 목록이 바뀌면 asset을 다시 읽는다 */
+  repos: Repo[]
   chipKeys: Set<string>
   onToggleContext: (chip: ContextChip) => void
   expanded?: boolean
@@ -30,7 +32,7 @@ export function AssetPanel({
   onOpen?: (id: string) => void
 }) {
   const client = useClient()
-  const { assets, error, rescan, refresh } = useAssets(workspaceId)
+  const { assets, error, rescan, refresh } = useAssets(workspaceId, repos.map((r) => r.id).join(','))
   // 새로 만들 asset의 종류. 이름만 받는 AddForm과 짝을 이룬다.
   const [newKind, setNewKind] = useState<AssetKind>('skill')
 

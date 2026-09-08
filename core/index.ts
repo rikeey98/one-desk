@@ -153,11 +153,18 @@ export function createCore(opts: CoreOptions) {
      */
     repos: {
       ...repos,
-      create(input: Parameters<typeof repos.create>[0]) {
+      async create(input: Parameters<typeof repos.create>[0]) {
         const made = repos.create(input)
-        // 스캔 실패가 등록을 무르지 않는다. 목록만 비어 보이고 새로고침으로 다시 된다.
-        void assetService.scanRepo(made.workspaceId, made.id)
-          .catch((err: unknown) => onError('repo 등록 후 asset 스캔 실패', err))
+        // **스캔을 기다린 뒤에 돌려준다.** 기다리지 않으면 화면이 목록을 다시 읽는
+        // 시점에 스캔이 아직 안 끝나 있어, 방금 등록한 repo의 asset이 새로고침을
+        // 누르기 전까지 안 보인다. 디렉토리 셋을 읽는 일이라 비용이 작다.
+        //
+        // 스캔 실패가 등록을 무르지는 않는다 — repo는 등록됐고, 목록만 비어 보인다.
+        try {
+          await assetService.scanRepo(made.workspaceId, made.id)
+        } catch (err) {
+          onError('repo 등록 후 asset 스캔 실패', err)
+        }
         return made
       }
     },
