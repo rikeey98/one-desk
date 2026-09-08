@@ -39,6 +39,12 @@ export interface StartSpec {
   timeoutMs?: number | null
   /** 테스트에서 가짜 CLI를 주입하는 통로. 실제 실행에서는 비어 있다. */
   extraArgs?: string[]
+  /**
+   * 프로세스를 띄우기 전에 먼저 흘려보낼 이벤트. 실행 전에 이미 알고 있는
+   * 문제(예: 맥락에 담은 파일이 사라졌다)를 사용자에게 보이게 하는 통로다.
+   * 조용히 넘기면 사용자는 agent가 읽고도 무시했다고 오해한다.
+   */
+  preEvents?: RunEventInit[]
 }
 
 export interface RunOutcome {
@@ -115,6 +121,9 @@ export function createRunManager(opts: RunManagerOptions) {
         if (event.sessionId) sessionId = event.sessionId
       }
     }
+
+    // 프로세스보다 먼저 흘린다. seq가 0부터라 로그의 맨 앞에 온다.
+    for (const raw of spec.preEvents ?? []) emit(raw)
 
     const child = spawn(built.cmd, args, {
       cwd: built.cwd,
