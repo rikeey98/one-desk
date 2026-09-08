@@ -274,7 +274,11 @@ export default function App() {
                 openId={openItem?.panel === 'memo' ? openItem.id : null}
                 onOpen={(id) => openIn('memo', id)}
               />
-              <AssetPanel />
+              <AssetPanel
+                workspaceId={workspaceId}
+                chipKeys={chipKeys}
+                onToggleContext={toggleChip}
+              />
             </div>
             <Dock
               runs={runs}
