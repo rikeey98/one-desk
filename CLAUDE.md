@@ -18,6 +18,10 @@ workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 
 
 **asset 스캔도 붙었다**(설계 `2026-09-07-asset-scan-design.md`, 계획 `2026-09-07-asset-scan.md`). **첫 실행에 마이그레이션 `0004`가 돈다** — `asset` 테이블 하나가 추가된다. repo의 `.claude/skills/*/SKILL.md`·`.claude/agents/*.md`·`.opencode/agent/*.md`를 훑어 목록에 띄우고(`discovered`), 앱에서 직접 쓴 것(`authored`)과 함께 맥락에 담아 실행에 실어 보낸다. `SKILLS / AGENTS` 패널의 자리표시자가 사라졌다.
 
+**asset 범위가 글로벌까지 넓어졌다**(intent·spec·plan은 `docs/sdlc/asset-scope/`). **첫 실행에 마이그레이션 `0005`가 돈다** — 동일성 인덱스를 갈아끼우고 그 전에 중복 행을 정리한다. repo 루트뿐 아니라 `~/.claude/skills` 같은 **글로벌 경로**도 훑고, 그 경로는 **사이드바 하단의 설정 화면**에서 claude용·opencode용을 따로 정한다. 목록은 repo를 고르면 글로벌 + 그 repo만 보여주고, run이 끝나면 그 workspace를 다시 훑는다.
+
+**문서 체계가 하나 늘었다.** 이 작업부터 `docs/sdlc/<기능>/`에 intent → spec → plan 세 artifact를 두고 각각 사람의 승인을 받는다. 기존 `docs/superpowers/{specs,plans}/`는 그대로 두고 새 작업만 이쪽을 쓴다.
+
 남은 5단계 과제는 diff 뷰어 하나다. **착수를 막던 환경변수 결정은 해소됐다**(아래 절). 본문 작업이 넷으로 쪼갠 것 중 첫째였으므로 나머지 셋(마크다운 렌더링 · 검색/필터/정렬 · run 완료 구독)도 후보로 남아 있다. 대화 기능은 이 목록과 별개로 진행돼 완료·병합됐다(위 절). 그중 **run 완료 구독은 이미 해소됐으므로** 남은 것은 마크다운 렌더링과 검색/필터/정렬 둘이다.
 
 **이슈 훑기**가 붙었다(설계 `2026-08-27-issue-triage-design.md`, 계획 `2026-08-27-issue-triage.md`). **첫 실행에 마이그레이션 `0003`이 돈다** — 컬럼 다섯 추가 + 기존 이슈의 `triaged_at` 백필. 이슈를 제목 한 줄로 던져 넣고 분류는 나중에 훑기로 몰아서 한다. 목록은 축(급함·출처·성격·repo)으로 묶고 접되 **접혀도 개수는 보이며**, 그룹 안은 `seenAt` 오래된 순이다. MCP `create_issue`가 축을 받으므로 agent가 회의 메모를 이슈로 쪼개며 분류까지 끝낼 수 있다.
@@ -132,7 +136,12 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **ad-hoc 서명(`identity: '-'`)은 hardened runtime의 라이브러리 검증에 걸린다.** Team ID가 없어 Electron Framework조차 로드되지 않고 앱이 아예 안 뜬다 — `build/entitlements.mac.plist`의 `com.apple.security.cs.disable-library-validation`이 그것을 푼다. **설정이 문법에 맞는 것과 앱이 열리는 것은 다르다** — DMG를 실제로 열어봐야만 드러난다.
 
-**asset의 동일성 키는 `(workspace_id, repo_id, file_path)`다.** 유니크 인덱스가 없으면 스캔이 돌 때마다 같은 파일이 새 행으로 쌓이는데, 목록이 조금씩 길어질 뿐 오류가 없어 한참 모른다. `authored` 행은 `repo_id`와 `file_path`가 둘 다 NULL이고 SQLite가 유니크 인덱스에서 NULL을 서로 다르게 취급하므로 여러 개 만들 수 있다.
+**asset의 동일성 키는 `(workspace_id, file_path)`다 — `repo_id`를 넣지 말 것.** 글로벌 asset은 `repo_id`가 NULL인데 SQLite가 유니크 인덱스에서 NULL을 서로 다르게 취급한다. 키에 `repo_id`가 남아 있으면 스캔마다 같은 글로벌 skill이 새 행으로 쌓이는데, 목록이 조금씩 길어질 뿐 오류가 없어 한참 모른다. **저장소의 조회도 같은 키를 봐야 한다** — `eq(asset.repoId, null)`은 SQL에서 `repo_id = NULL`이 되어 절대 참이 되지 않으므로, 글로벌이 매번 INSERT를 시도하다 유니크 인덱스에 걸려 스캔이 통째로 죽는다. authored는 `file_path`가 NULL이라 여전히 여러 개 만들 수 있다.
+
+**`createSettingRepository`와 `CoreOptions`는 `homeDir`를 필수로 받는다.** 글로벌 경로의 기본값이 홈 기준인데 `core/`에서 `os.homedir()`를 부르면 **테스트가 개발자의 실제 홈을 훑어** 사람마다 결과가 달라진다. 선택 인자로 바꾸지 말 것 — 빠뜨리면 글로벌 경로가 조용히 비고, 그게 이 기능이 고치려던 증상 그 자체다.
+
+**`core/index.ts`에서 `settings`는 `assetService`보다 먼저 선언해야 한다.** asset 서비스의 `globalRoots`가 `settings`를 닫아 잡는데, repo가 하나도 없는 workspace에서는 부팅 스캔이 같은 틱에 그 함수를 불러 **TDZ 오류**가 난다.
+
 
 **스캔은 `authored` 행을 건드리면 안 된다.** `source`로 갈라 보지 않으면 앱에서 쓴 asset이 첫 스캔에 전부 "없음"이 된다 — 파일이 없으니 당연히 안 보인다. 같은 이유로 화면의 "없음" 판정도 `source === 'discovered'`를 먼저 본다.
 
@@ -212,5 +221,6 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 | `docs/superpowers/plans/2026-09-06-opencode-adapter.md` | OpenCode 어댑터 구현 계획 (9개 태스크) |
 | `docs/superpowers/specs/2026-09-07-asset-scan-design.md` | asset 스캔 설계 — 데이터 모델과 `updated_at`(§2), 스캔 시점과 동일성(§3), frontmatter 파서(§4), 맥락 조립(§5), UI와 평문 렌더(§6) |
 | `docs/superpowers/plans/2026-09-07-asset-scan.md` | asset 스캔 구현 계획 (10개 태스크) |
+| `docs/sdlc/asset-scope/` | asset 범위 확장 — intent(문제)·spec(FR/NFR과 정책 검토)·plan(12단계). 글로벌 경로, 설정 화면, repo 필터 |
 
 **설계 문서의 결정을 코드에서 임의로 바꾸지 않는다.** 설계에 구멍이 보이면 고치지 말고 지적할 것 — 그게 더 값지다.
