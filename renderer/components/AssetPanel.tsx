@@ -19,12 +19,26 @@ export function isMissing(item: Asset, latestSeenAt: number): boolean {
   return (item.lastSeenAt ?? 0) < latestSeenAt
 }
 
+/**
+ * 줄에 보여줄 출처. 경로를 그대로 쓰면 길어서 읽히지 않는다 — 전체 경로는 title로 남긴다.
+ *
+ * `repo_id`가 없는 discovered가 곧 글로벌이다. 별도 컬럼을 두지 않고 기존 값에서
+ * 파생한다(docs/sdlc/asset-scope/spec.md).
+ */
+function originOf(item: Asset, repos: Repo[]): string {
+  if (item.source === 'authored') return '앱에서 작성'
+  if (!item.repoId) return '글로벌'
+  return repos.find((r) => r.id === item.repoId)?.name ?? '알 수 없는 repo'
+}
+
 export function AssetPanel({
-  workspaceId, repos, chipKeys, onToggleContext, expanded, openId, onOpen
+  workspaceId, repos, repoId, chipKeys, onToggleContext, expanded, openId, onOpen
 }: {
   workspaceId: string | null
-  /** 지금 workspace의 repo들. 목록이 바뀌면 asset을 다시 읽는다 */
+  /** 지금 workspace의 repo들. 목록이 바뀌면 asset을 다시 읽고, 출처 이름을 여기서 찾는다 */
   repos: Repo[]
+  /** 고른 repo. 주면 글로벌·그 repo·앱에서 작성한 것만 보인다 */
+  repoId: string | null
   chipKeys: Set<string>
   onToggleContext: (chip: ContextChip) => void
   expanded?: boolean
@@ -32,7 +46,7 @@ export function AssetPanel({
   onOpen?: (id: string) => void
 }) {
   const client = useClient()
-  const { assets, error, rescan, refresh } = useAssets(workspaceId, repos.map((r) => r.id).join(','))
+  const { assets, error, rescan, refresh } = useAssets(workspaceId, repos.map((r) => r.id).join(','), repoId)
   // 새로 만들 asset의 종류. 이름만 받는 AddForm과 짝을 이룬다.
   const [newKind, setNewKind] = useState<AssetKind>('skill')
 
@@ -51,6 +65,8 @@ export function AssetPanel({
 
   // "없음"의 기준선. 그 workspace에서 가장 최근에 파일을 본 시각이다.
   const latestSeenAt = assets.reduce((max, a) => Math.max(max, a.lastSeenAt ?? 0), 0)
+
+  const origin = (a: Asset): string => originOf(a, repos)
 
   const group = (kind: AssetKind, title: string) => {
     const items = assets.filter((a) => a.kind === kind)
@@ -80,9 +96,7 @@ export function AssetPanel({
                   onClick={() => onOpen?.(a.id)}
                 >{a.name}</button>
                 <span className="asset-desc">{a.description ?? ''}</span>
-                <span className="asset-origin">
-                  {a.source === 'authored' ? '앱에서 작성' : (a.filePath ?? '')}
-                </span>
+                <span className="asset-origin" title={a.filePath ?? ''}>{origin(a)}</span>
                 {isMissing(a, latestSeenAt) && <span className="chip-badge">없음</span>}
               </li>
             )
