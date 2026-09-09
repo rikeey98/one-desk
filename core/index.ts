@@ -81,7 +81,19 @@ export function createCore(opts: CoreOptions) {
   const repos = createRepoRepository(db)
   const runs = createRunRepository(db)
   const assetRows = createAssetRepository(db)
-  const assetService = createAssetService({ assets: assetRows, repos })
+  const settings = createSettingRepository(db, opts.homeDir)
+
+  const assetService = createAssetService({
+    assets: assetRows,
+    repos,
+    // 설정에서 바뀌므로 매번 읽는다.
+    globalRoots: () => {
+      const roots = settings.globalRoots()
+      return [...roots.claude, ...roots.opencode]
+    },
+    // repo가 없는 workspace에도 글로벌은 보여야 하므로 workspace 저장소에서 받는다.
+    workspaceIds: () => workspaces.list().map((w) => w.id)
+  })
 
   // 부팅 스캔 (설계 §3-2). await하지 않는다 — 앱이 뜨는 것을 막지 않는다.
   // 실패해도 앱은 정상이고 목록만 낡으므로 onError로 흘려보낸다.
@@ -104,7 +116,6 @@ export function createCore(opts: CoreOptions) {
 
   const emitter = new EventEmitter()
 
-  const settings = createSettingRepository(db, opts.homeDir)
   const queue = createRunQueue({
     limit: settings.concurrencyLimit(),
     onChange: (snapshot) => emitter.emit(QUEUE_UPDATE, snapshot)
