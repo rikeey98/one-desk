@@ -25,8 +25,11 @@ function makeDataDir(): string {
   return dir
 }
 
-function open(dataDir: string): Core {
-  const core = createCore({ dataDir, migrationsDir: MIGRATIONS_DIR })
+function open(dataDir: string, homeDir?: string): Core {
+  // 홈은 반드시 임시 경로다 — 진짜 홈을 훑으면 개발자마다 결과가 달라진다.
+  const core = createCore({
+    dataDir, migrationsDir: MIGRATIONS_DIR, homeDir: homeDir ?? join(dataDir, 'home')
+  })
   cores.push(core)
   return core
 }

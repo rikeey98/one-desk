@@ -48,6 +48,15 @@ export interface CoreOptions {
   bridgePath?: string
   /** 브리지를 띄울 실행 파일. 기본은 현재 프로세스(패키징 앱에서는 Electron 바이너리). */
   execPath?: string
+  /**
+   * 사용자 홈 디렉토리. 글로벌 asset 경로의 기본값이 여기서 나온다.
+   *
+   * **`core/`가 스스로 알지 않는다.** `os.homedir()`를 여기서 부르면 테스트가 개발자의
+   * 실제 홈을 훑게 되어 사람마다 결과가 달라진다. main이 `app.getPath('home')`을 넘기고,
+   * 테스트는 임시 디렉토리를 넘긴다. 선택 인자로 두지 않는다 — 빠뜨리면 글로벌 경로가
+   * 조용히 비고, 그것이 이번에 고치려던 증상 그 자체다.
+   */
+  homeDir: string
   /** core가 삼킨 오류를 흘려보낼 곳. 기본은 stderr */
   onError?: ErrorSink
 }
@@ -95,7 +104,7 @@ export function createCore(opts: CoreOptions) {
 
   const emitter = new EventEmitter()
 
-  const settings = createSettingRepository(db)
+  const settings = createSettingRepository(db, opts.homeDir)
   const queue = createRunQueue({
     limit: settings.concurrencyLimit(),
     onChange: (snapshot) => emitter.emit(QUEUE_UPDATE, snapshot)

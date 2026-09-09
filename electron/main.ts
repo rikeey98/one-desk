@@ -109,6 +109,7 @@ if (dataDirError) {
     try {
       core = createCore({
         dataDir: app.getPath('userData'),
+        homeDir: app.getPath('home'),
         migrationsDir: resolveMigrationsDir(),
         bridgePath: resolveBridgePath(),
         // core는 목적지를 모른다. main이 정한다.
