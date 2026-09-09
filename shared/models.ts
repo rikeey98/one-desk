@@ -278,3 +278,9 @@ export interface ListAssetQuery {
   /** 주면 글로벌·그 repo·앱에서 작성한 것만 돌려준다 */
   repoId?: string | null
 }
+
+/** agent 종류별 글로벌 asset 경로. 설정 화면이 편집한다 */
+export interface GlobalRoots {
+  claude: string[]
+  opencode: string[]
+}

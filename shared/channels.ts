@@ -24,6 +24,8 @@ export const CHANNELS = {
   assetsRemove: 'assets:remove',
   /** 지금 workspace의 모든 repo를 다시 훑는다 */
   assetsRescan: 'assets:rescan',
+  settingsGetGlobalRoots: 'settings:getGlobalRoots',
+  settingsSetGlobalRoots: 'settings:setGlobalRoots',
   runsList: 'runs:list',
   runsStart: 'runs:start',
   runsCancel: 'runs:cancel',
