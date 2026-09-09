@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, isNull, or } from 'drizzle-orm'
 import type { Database } from '../open'
 import { asset } from '../schema'
 import type {
@@ -9,7 +9,8 @@ import type { FoundAsset } from '../../assets/scan'
 
 export interface UpsertDiscoveredInput {
   workspaceId: string
-  repoId: string
+  /** 발견된 repo. **글로벌 경로에서 발견했으면 null이다** */
+  repoId: string | null
   /** 이번 스캔의 시각. 발견한 것에만 찍는다 */
   seenAt: number
   found: FoundAsset[]
@@ -25,10 +26,21 @@ export function createAssetRepository(db: Database) {
   return {
     get: getById,
 
+    /**
+     * repo를 지정하면 **글로벌 + 그 repo + 앱에서 작성한 것**만 준다.
+     *
+     * 이슈·메모의 필터 규칙과 같은 모양이다(전체 설계 §150) — 그 repo 것과 "공통"이
+     * 함께 보인다. asset에서 `repo_id`가 NULL인 것이 곧 공통이고, 글로벌과 authored가
+     * 둘 다 거기 해당한다.
+     */
     list(query: ListAssetQuery): Asset[] {
-      return db.select().from(asset)
-        .where(eq(asset.workspaceId, query.workspaceId))
-        .all() as Asset[]
+      const where = query.repoId
+        ? and(
+            eq(asset.workspaceId, query.workspaceId),
+            or(isNull(asset.repoId), eq(asset.repoId, query.repoId))
+          )
+        : eq(asset.workspaceId, query.workspaceId)
+      return db.select().from(asset).where(where).all() as Asset[]
     },
 
     createAuthored(input: CreateAuthoredAssetInput): Asset {

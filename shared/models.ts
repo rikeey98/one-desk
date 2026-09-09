@@ -275,4 +275,6 @@ export type AssetUpdateResult =
 
 export interface ListAssetQuery {
   workspaceId: string
+  /** 주면 글로벌·그 repo·앱에서 작성한 것만 돌려준다 */
+  repoId?: string | null
 }

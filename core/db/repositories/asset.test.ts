@@ -151,3 +151,62 @@ describe('authored', () => {
     })).toThrow(/discovered/)
   })
 })
+
+describe('글로벌 asset', () => {
+  const global1 = {
+    kind: 'skill' as const, name: '글로벌 알파', description: null,
+    filePath: '/home/.claude/skills/알파/SKILL.md'
+  }
+
+  it('repoId가 null이면 글로벌로 저장된다', () => {
+    assets.upsertDiscovered({ workspaceId, repoId: null, seenAt: 100, found: [global1] })
+    const list = assets.list({ workspaceId })
+    expect(list).toHaveLength(1)
+    expect(list[0]).toMatchObject({ source: 'discovered', repoId: null, lastSeenAt: 100 })
+  })
+
+  it('두 번 훑어도 행이 늘지 않는다', () => {
+    // repo_id를 조회 키에 넣으면 `repo_id = NULL`이 절대 참이 되지 않아 매번 INSERT를
+    // 시도하고 유니크 인덱스에 걸린다. 이 테스트가 그것을 잡는다.
+    assets.upsertDiscovered({ workspaceId, repoId: null, seenAt: 100, found: [global1] })
+    assets.upsertDiscovered({ workspaceId, repoId: null, seenAt: 200, found: [global1] })
+    const list = assets.list({ workspaceId })
+    expect(list).toHaveLength(1)
+    expect(list[0]!.lastSeenAt).toBe(200)
+  })
+})
+
+describe('list의 repo 필터', () => {
+  it('repo를 지정하면 글로벌·그 repo·authored만 나온다', () => {
+    const other = createRepoRepository(db).create({ workspaceId, name: 'web', path: '/tmp/web' }).id
+    assets.upsertDiscovered({
+      workspaceId, repoId, seenAt: 1,
+      found: [{ kind: 'skill', name: 'api 것', description: null, filePath: '/tmp/api/a/SKILL.md' }]
+    })
+    assets.upsertDiscovered({
+      workspaceId, repoId: other, seenAt: 1,
+      found: [{ kind: 'skill', name: 'web 것', description: null, filePath: '/tmp/web/a/SKILL.md' }]
+    })
+    assets.upsertDiscovered({
+      workspaceId, repoId: null, seenAt: 1,
+      found: [{ kind: 'skill', name: '글로벌 것', description: null, filePath: '/home/g/SKILL.md' }]
+    })
+    assets.createAuthored({ workspaceId, kind: 'skill', name: '앱에서 쓴 것' })
+
+    const names = assets.list({ workspaceId, repoId }).map((a) => a.name).sort()
+    expect(names).toEqual(['api 것', '글로벌 것', '앱에서 쓴 것'].sort())
+  })
+
+  it('repo를 지정하지 않으면 전부 나온다', () => {
+    const other = createRepoRepository(db).create({ workspaceId, name: 'web', path: '/tmp/web' }).id
+    assets.upsertDiscovered({
+      workspaceId, repoId, seenAt: 1,
+      found: [{ kind: 'skill', name: 'api 것', description: null, filePath: '/tmp/api/a/SKILL.md' }]
+    })
+    assets.upsertDiscovered({
+      workspaceId, repoId: other, seenAt: 1,
+      found: [{ kind: 'skill', name: 'web 것', description: null, filePath: '/tmp/web/a/SKILL.md' }]
+    })
+    expect(assets.list({ workspaceId })).toHaveLength(2)
+  })
+})
