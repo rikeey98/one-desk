@@ -157,8 +157,12 @@ export const asset = sqliteTable('asset', {
   updatedAt: integer('updated_at').notNull().default(nowMs())
 }, (t) => [
   index('asset_workspace_idx').on(t.workspaceId),
-  // **동일성 키.** 없으면 스캔할 때마다 같은 파일이 새 행으로 쌓인다 (설계 §3-3).
-  // authored 행은 repo_id와 file_path가 둘 다 NULL인데, SQLite는 유니크 인덱스에서
-  // NULL을 서로 다른 값으로 취급하므로 authored를 여러 개 만들어도 걸리지 않는다.
-  uniqueIndex('asset_discovered_idx').on(t.workspaceId, t.repoId, t.filePath)
+  // **동일성 키.** 없으면 스캔할 때마다 같은 파일이 새 행으로 쌓인다.
+  //
+  // repo_id를 키에서 뺀 이유: 글로벌 asset은 repo_id가 NULL이고 SQLite는 유니크
+  // 인덱스에서 NULL을 서로 다른 값으로 취급한다 — 키에 남겨두면 글로벌이 스캔마다
+  // 새 행이 된다. 파일 경로 자체가 유일하므로 repo_id는 애초에 필요 없었다.
+  // authored는 file_path가 NULL이라 여전히 여러 개 만들 수 있다.
+  // (docs/sdlc/asset-scope/spec.md — 2026-09-07 설계 §3-3을 대체함)
+  uniqueIndex('asset_discovered_idx').on(t.workspaceId, t.filePath)
 ])

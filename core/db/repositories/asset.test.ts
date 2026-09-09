@@ -67,10 +67,27 @@ describe('upsertDiscovered', () => {
     expect(still.lastSeenAt).toBeNull()
   })
 
-  it('같은 파일명이 다른 repo에 있으면 서로 다른 행이다', () => {
+  it('repo가 달라도 같은 파일이면 한 행이다', () => {
+    // 파일 경로가 곧 동일성이다. 한 repo가 다른 repo 안에 있으면 같은 파일이 양쪽에서
+    // 발견되는데, 그때 행이 둘로 갈리면 목록에 같은 skill이 두 번 뜬다.
+    // (docs/sdlc/asset-scope/spec.md — 2026-09-07 설계 §3-3을 대체함)
     const other = createRepoRepository(db).create({ workspaceId, name: 'web', path: '/tmp/web' }).id
     assets.upsertDiscovered({ workspaceId, repoId, seenAt: 100, found: [found] })
-    assets.upsertDiscovered({ workspaceId, repoId: other, seenAt: 100, found: [found] })
+    assets.upsertDiscovered({ workspaceId, repoId: other, seenAt: 200, found: [found] })
+
+    const list = assets.list({ workspaceId })
+    expect(list).toHaveLength(1)
+    // 나중에 발견한 repo로 갱신된다.
+    expect(list[0]).toMatchObject({ repoId: other, lastSeenAt: 200 })
+  })
+
+  it('경로가 다르면 별개 행이다', () => {
+    const other = createRepoRepository(db).create({ workspaceId, name: 'web', path: '/tmp/web' }).id
+    assets.upsertDiscovered({ workspaceId, repoId, seenAt: 100, found: [found] })
+    assets.upsertDiscovered({
+      workspaceId, repoId: other, seenAt: 100,
+      found: [{ ...found, filePath: '/tmp/web/a/SKILL.md' }]
+    })
     expect(assets.list({ workspaceId })).toHaveLength(2)
   })
 })

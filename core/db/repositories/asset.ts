@@ -63,15 +63,19 @@ export function createAssetRepository(db: Database) {
     upsertDiscovered(input: UpsertDiscoveredInput): void {
       db.transaction((tx) => {
         for (const item of input.found) {
+          // **조회 키는 (workspace_id, file_path)다 — repo_id를 넣지 않는다.**
+          // 글로벌 asset은 repo_id가 NULL인데 SQL의 `repo_id = NULL`은 절대 참이 되지
+          // 않아, 넣어두면 매번 INSERT를 시도하다 유니크 인덱스에 걸려 스캔이 죽는다.
+          // 유니크 인덱스와 같은 키를 봐야 한다.
           const existing = tx.select().from(asset).where(and(
             eq(asset.workspaceId, input.workspaceId),
-            eq(asset.repoId, input.repoId),
             eq(asset.filePath, item.filePath)
           )).get()
 
           if (existing) {
             tx.update(asset).set({
               kind: item.kind,
+              repoId: input.repoId,
               name: item.name,
               description: item.description,
               lastSeenAt: input.seenAt,
