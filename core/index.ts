@@ -6,6 +6,7 @@ import { createWorkspaceRepository } from './db/repositories/workspace'
 import { createRepoRepository } from './db/repositories/repo'
 import { createAssetRepository } from './db/repositories/asset'
 import { createAssetService } from './assets/service'
+import type { GlobalRoots } from './db/repositories/setting'
 import { createIssueRepository } from './db/repositories/issue'
 import { createMemoRepository } from './db/repositories/memo'
 import { createRunRepository } from './db/repositories/run'
@@ -147,6 +148,12 @@ export function createCore(opts: CoreOptions) {
       emitter.emit(RUN_UPDATE, run)
       // 종료·취소·확인 표시가 전부 이 경로를 지난다.
       emitInbox()
+      // 끝난 run이면 그 workspace를 다시 훑는다. agent가 실행 중에 만든 skill 파일이
+      // 새로고침 없이 목록에 뜬다. 확인함/보관 같은 후속 갱신으로는 돌지 않는다.
+      if (run.endedAt !== null) {
+        void assetService.scanWorkspace(run.workspaceId)
+          .catch((err: unknown) => onError('run 후 asset 재스캔 실패', err))
+      }
     }
   })
 
@@ -199,6 +206,23 @@ export function createCore(opts: CoreOptions) {
       async rescan(workspaceId: string) {
         await assetService.scanWorkspace(workspaceId)
         return assetRows.list({ workspaceId })
+      }
+    },
+
+    settings: {
+      globalRoots: () => settings.globalRoots(),
+
+      /**
+       * 경로를 저장하고 **곧바로 전부 다시 훑는다.**
+       *
+       * 설정 화면은 본문을 차지하므로 저장 직후 사용자는 asset 목록을 보고 있지 않다.
+       * 저장만 하고 끝내면 workspace로 돌아가 새로고침을 눌러야 반영되는데, 그 한
+       * 단계를 사람이 기억할 이유가 없다.
+       */
+      async setGlobalRoots(roots: GlobalRoots) {
+        const saved = settings.setGlobalRoots(roots)
+        await assetService.scanAll()
+        return saved
       }
     },
 

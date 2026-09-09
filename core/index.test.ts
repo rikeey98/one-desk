@@ -268,3 +268,72 @@ describe('asset 스캔 배선', () => {
     close(core)
   })
 })
+
+describe('글로벌 asset', () => {
+  function writeGlobalSkill(home: string, name: string): void {
+    const d = join(home, '.claude', 'skills', name)
+    mkdirSync(d, { recursive: true })
+    writeFileSync(join(d, 'SKILL.md'), `---\nname: ${name}\ndescription: 설명\n---\n`)
+  }
+
+  it('부팅하면 글로벌 경로를 훑는다', async () => {
+    // repo를 하나도 등록하지 않았는데도 보여야 한다.
+    const dataDir = makeDataDir()
+    const home = join(dataDir, 'home')
+    writeGlobalSkill(home, '글로벌 알파')
+
+    const core = open(dataDir, home)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+
+    // workspace가 부팅 뒤에 생겼으므로 한 번 훑어준다.
+    await core.assets.rescan(workspaceId)
+    expect(core.assets.list({ workspaceId }).map((a) => a.name)).toEqual(['글로벌 알파'])
+    close(core)
+  })
+
+  it('설정에서 경로를 바꾸면 그 경로를 훑는다', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir, join(dataDir, 'home'))
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+
+    const other = join(dataDir, 'other-home')
+    writeGlobalSkill(other, '다른 곳 것')
+    await core.settings.setGlobalRoots({
+      claude: [join(other, '.claude', 'skills')], opencode: []
+    })
+
+    // setGlobalRoots가 스스로 다시 훑으므로 새로고침 없이 보인다.
+    expect(core.assets.list({ workspaceId }).map((a) => a.name)).toEqual(['다른 곳 것'])
+    close(core)
+  })
+
+  it('run이 끝나면 그 workspace를 다시 훑는다', async () => {
+    // agent가 실행 중에 만든 skill 파일이 새로고침 없이 뜬다.
+    const dataDir = makeDataDir()
+    const core = open(dataDir, join(dataDir, 'home'))
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    const repoPath = join(dataDir, 'repo')
+    mkdirSync(repoPath, { recursive: true })
+    await core.repos.create({ workspaceId, name: 'api', path: repoPath })
+    expect(core.assets.list({ workspaceId })).toEqual([])
+
+    const prev = process.env['ONE_DESK_AGENT_PATH']
+    process.env['ONE_DESK_AGENT_PATH'] = FAKE_AGENT
+    try {
+      const run = await core.execution.start({
+        workspaceId, agentKind: 'claude-code', model: null, cwd: repoPath,
+        permission: 'edit', userPrompt: 'x', context: []
+      })
+      // 실행이 도는 동안 파일이 생긴 것을 흉내낸다.
+      writeGlobalSkill(repoPath, '실행 중 생김')
+      await vi.waitFor(() => expect(core.runs.get(run.id).status).toBe('succeeded'))
+      await vi.waitFor(() => {
+        expect(core.assets.list({ workspaceId }).map((a) => a.name)).toEqual(['실행 중 생김'])
+      })
+    } finally {
+      if (prev === undefined) delete process.env['ONE_DESK_AGENT_PATH']
+      else process.env['ONE_DESK_AGENT_PATH'] = prev
+      close(core)
+    }
+  })
+})
