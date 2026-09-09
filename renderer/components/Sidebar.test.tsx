@@ -43,8 +43,9 @@ function renderSidebar(over: {
   refresh?: () => Promise<void>
   selectedId?: string | null
   onSelect?: (id: string) => void
-  view?: 'workspace' | 'inbox'
+  view?: 'workspace' | 'inbox' | 'settings'
   onSelectInbox?: () => void
+  onSelectSettings?: () => void
   counts?: InboxCounts
   countsError?: string | null
   mcpStatus?: McpStatus
@@ -62,6 +63,7 @@ function renderSidebar(over: {
         onSelect={over.onSelect ?? vi.fn()}
         view={over.view ?? 'workspace'}
         onSelectInbox={over.onSelectInbox ?? vi.fn()}
+        onSelectSettings={over.onSelectSettings ?? vi.fn()}
         counts={over.counts ?? { total: 0, byWorkspace: {} }}
         countsError={over.countsError ?? null}
         mcpStatus={over.mcpStatus ?? { state: 'listening', port: 12345 }}
@@ -140,6 +142,7 @@ function renderSidebarRaw(mcpStatus: McpStatus) {
           onSelect={vi.fn()}
           view="workspace"
           onSelectInbox={vi.fn()}
+      onSelectSettings={vi.fn()}
           onDeleted={vi.fn()}
           counts={{ total: 0, byWorkspace: {} }}
           countsError={null}
@@ -239,5 +242,19 @@ describe('Sidebar workspace 관리', () => {
     await userEvent.click(screen.getByRole('button', { name: 'ws 삭제 확인' }))
 
     await waitFor(() => expect(onDeleted).toHaveBeenCalledWith('w1'))
+  })
+})
+
+describe('Sidebar — 설정 링크', () => {
+  it('설정을 누르면 onSelectSettings를 부른다', async () => {
+    const onSelectSettings = vi.fn()
+    renderSidebar({ onSelectSettings })
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+    expect(onSelectSettings).toHaveBeenCalled()
+  })
+
+  it('설정 화면일 때 링크가 선택 표시된다', () => {
+    renderSidebar({ view: 'settings' })
+    expect(screen.getByRole('button', { name: '설정' }).className).toContain('selected')
   })
 })

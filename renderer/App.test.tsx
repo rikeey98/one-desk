@@ -206,6 +206,10 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
       }),
       remove: vi.fn(async (id: string) => { memos = memos.filter((m) => m.id !== id) })
     },
+    settings: {
+      globalRoots: vi.fn(async () => ({ claude: ['/home/.claude/skills'], opencode: [] })),
+      setGlobalRoots: vi.fn(async (r: unknown) => r)
+    },
     assets: {
       list: vi.fn(async () => assets),
       createAuthored: vi.fn(),
@@ -1222,5 +1226,26 @@ describe('App — AssetPanel 배선', () => {
     await userEvent.click(screen.getByRole('button', { name: '알파 스킬 맥락에 담기' }))
 
     expect(await screen.findByRole('button', { name: '알파 스킬 ✕' })).toBeInTheDocument()
+  })
+})
+
+describe('App — 설정 화면', () => {
+  it('사이드바에서 설정을 누르면 본문이 설정으로 바뀐다', async () => {
+    // 모달이 아니라 영역 전환이다 — 인박스와 같은 방식이다.
+    renderApp(makeClient())
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+
+    expect(await screen.findByRole('heading', { name: '설정' })).toBeInTheDocument()
+    expect(await screen.findByLabelText('Claude Code 글로벌 경로')).toBeInTheDocument()
+  })
+
+  it('workspace를 다시 고르면 설정에서 빠져나온다', async () => {
+    renderApp(makeClient())
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+    await screen.findByRole('heading', { name: '설정' })
+
+    await selectWorkspace()
+
+    expect(screen.queryByRole('heading', { name: '설정' })).not.toBeInTheDocument()
   })
 })

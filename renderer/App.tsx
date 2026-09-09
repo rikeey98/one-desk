@@ -4,6 +4,7 @@ import { RepoStrip } from './components/RepoStrip'
 import { IssuePanel } from './components/IssuePanel'
 import { MemoPanel } from './components/MemoPanel'
 import { AssetPanel } from './components/AssetPanel'
+import { SettingsPanel } from './components/SettingsPanel'
 import { Dock } from './components/Dock'
 import { InboxPanel } from './components/InboxPanel'
 import { useRuns } from './hooks/useRuns'
@@ -21,7 +22,7 @@ export default function App() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const [repoId, setRepoId] = useState<string | null>(null)
   const [chips, setChips] = useState<ContextChip[]>([])
-  const [view, setView] = useState<'workspace' | 'inbox'>('workspace')
+  const [view, setView] = useState<'workspace' | 'inbox' | 'settings'>('workspace')
   // 인박스의 "대화 열기"·"다시 실행"이 세운다. Dock은 화면 전환 때 다시 마운트돼
   // 내부 상태가 초기화되므로, 어느 대화를 열지 여기서 지정해야 한다.
   // Dock에는 run이 아니라 그 run이 속한 대화 id로 직접 내려간다 — 변환이 필요 없다.
@@ -220,12 +221,14 @@ export default function App() {
         onSelect={selectWorkspace}
         view={view}
         onSelectInbox={() => setView('inbox')}
+        onSelectSettings={() => setView('settings')}
         counts={inboxCounts}
         countsError={inboxError}
         mcpStatus={mcpStatus}
         onDeleted={forgetWorkspace}
       />
       <main className="main">
+        {view === 'settings' && <SettingsPanel />}
         {view === 'inbox' && (
           <InboxPanel
             items={inboxItems}
