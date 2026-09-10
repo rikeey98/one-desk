@@ -6,6 +6,7 @@ import { createWorkspaceRepository } from './db/repositories/workspace'
 import { createRepoRepository } from './db/repositories/repo'
 import { createAssetRepository } from './db/repositories/asset'
 import { createAssetService } from './assets/service'
+import type { GlobalRoots } from './db/repositories/setting'
 import { createIssueRepository } from './db/repositories/issue'
 import { createMemoRepository } from './db/repositories/memo'
 import { createRunRepository } from './db/repositories/run'
@@ -48,6 +49,15 @@ export interface CoreOptions {
   bridgePath?: string
   /** 브리지를 띄울 실행 파일. 기본은 현재 프로세스(패키징 앱에서는 Electron 바이너리). */
   execPath?: string
+  /**
+   * 사용자 홈 디렉토리. 글로벌 asset 경로의 기본값이 여기서 나온다.
+   *
+   * **`core/`가 스스로 알지 않는다.** `os.homedir()`를 여기서 부르면 테스트가 개발자의
+   * 실제 홈을 훑게 되어 사람마다 결과가 달라진다. main이 `app.getPath('home')`을 넘기고,
+   * 테스트는 임시 디렉토리를 넘긴다. 선택 인자로 두지 않는다 — 빠뜨리면 글로벌 경로가
+   * 조용히 비고, 그것이 이번에 고치려던 증상 그 자체다.
+   */
+  homeDir: string
   /** core가 삼킨 오류를 흘려보낼 곳. 기본은 stderr */
   onError?: ErrorSink
 }
@@ -72,7 +82,19 @@ export function createCore(opts: CoreOptions) {
   const repos = createRepoRepository(db)
   const runs = createRunRepository(db)
   const assetRows = createAssetRepository(db)
-  const assetService = createAssetService({ assets: assetRows, repos })
+  const settings = createSettingRepository(db, opts.homeDir)
+
+  const assetService = createAssetService({
+    assets: assetRows,
+    repos,
+    // 설정에서 바뀌므로 매번 읽는다.
+    globalRoots: () => {
+      const roots = settings.globalRoots()
+      return [...roots.claude, ...roots.opencode]
+    },
+    // repo가 없는 workspace에도 글로벌은 보여야 하므로 workspace 저장소에서 받는다.
+    workspaceIds: () => workspaces.list().map((w) => w.id)
+  })
 
   // 부팅 스캔 (설계 §3-2). await하지 않는다 — 앱이 뜨는 것을 막지 않는다.
   // 실패해도 앱은 정상이고 목록만 낡으므로 onError로 흘려보낸다.
@@ -95,7 +117,6 @@ export function createCore(opts: CoreOptions) {
 
   const emitter = new EventEmitter()
 
-  const settings = createSettingRepository(db)
   const queue = createRunQueue({
     limit: settings.concurrencyLimit(),
     onChange: (snapshot) => emitter.emit(QUEUE_UPDATE, snapshot)
@@ -127,6 +148,12 @@ export function createCore(opts: CoreOptions) {
       emitter.emit(RUN_UPDATE, run)
       // 종료·취소·확인 표시가 전부 이 경로를 지난다.
       emitInbox()
+      // 끝난 run이면 그 workspace를 다시 훑는다. agent가 실행 중에 만든 skill 파일이
+      // 새로고침 없이 목록에 뜬다. 확인함/보관 같은 후속 갱신으로는 돌지 않는다.
+      if (run.endedAt !== null) {
+        void assetService.scanWorkspace(run.workspaceId)
+          .catch((err: unknown) => onError('run 후 asset 재스캔 실패', err))
+      }
     }
   })
 
@@ -179,6 +206,23 @@ export function createCore(opts: CoreOptions) {
       async rescan(workspaceId: string) {
         await assetService.scanWorkspace(workspaceId)
         return assetRows.list({ workspaceId })
+      }
+    },
+
+    settings: {
+      globalRoots: () => settings.globalRoots(),
+
+      /**
+       * 경로를 저장하고 **곧바로 전부 다시 훑는다.**
+       *
+       * 설정 화면은 본문을 차지하므로 저장 직후 사용자는 asset 목록을 보고 있지 않다.
+       * 저장만 하고 끝내면 workspace로 돌아가 새로고침을 눌러야 반영되는데, 그 한
+       * 단계를 사람이 기억할 이유가 없다.
+       */
+      async setGlobalRoots(roots: GlobalRoots) {
+        const saved = settings.setGlobalRoots(roots)
+        await assetService.scanAll()
+        return saved
       }
     },
 

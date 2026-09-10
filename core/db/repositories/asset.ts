@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, isNull, or } from 'drizzle-orm'
 import type { Database } from '../open'
 import { asset } from '../schema'
 import type {
@@ -9,7 +9,8 @@ import type { FoundAsset } from '../../assets/scan'
 
 export interface UpsertDiscoveredInput {
   workspaceId: string
-  repoId: string
+  /** 발견된 repo. **글로벌 경로에서 발견했으면 null이다** */
+  repoId: string | null
   /** 이번 스캔의 시각. 발견한 것에만 찍는다 */
   seenAt: number
   found: FoundAsset[]
@@ -25,10 +26,21 @@ export function createAssetRepository(db: Database) {
   return {
     get: getById,
 
+    /**
+     * repo를 지정하면 **글로벌 + 그 repo + 앱에서 작성한 것**만 준다.
+     *
+     * 이슈·메모의 필터 규칙과 같은 모양이다(전체 설계 §150) — 그 repo 것과 "공통"이
+     * 함께 보인다. asset에서 `repo_id`가 NULL인 것이 곧 공통이고, 글로벌과 authored가
+     * 둘 다 거기 해당한다.
+     */
     list(query: ListAssetQuery): Asset[] {
-      return db.select().from(asset)
-        .where(eq(asset.workspaceId, query.workspaceId))
-        .all() as Asset[]
+      const where = query.repoId
+        ? and(
+            eq(asset.workspaceId, query.workspaceId),
+            or(isNull(asset.repoId), eq(asset.repoId, query.repoId))
+          )
+        : eq(asset.workspaceId, query.workspaceId)
+      return db.select().from(asset).where(where).all() as Asset[]
     },
 
     createAuthored(input: CreateAuthoredAssetInput): Asset {
@@ -63,15 +75,19 @@ export function createAssetRepository(db: Database) {
     upsertDiscovered(input: UpsertDiscoveredInput): void {
       db.transaction((tx) => {
         for (const item of input.found) {
+          // **조회 키는 (workspace_id, file_path)다 — repo_id를 넣지 않는다.**
+          // 글로벌 asset은 repo_id가 NULL인데 SQL의 `repo_id = NULL`은 절대 참이 되지
+          // 않아, 넣어두면 매번 INSERT를 시도하다 유니크 인덱스에 걸려 스캔이 죽는다.
+          // 유니크 인덱스와 같은 키를 봐야 한다.
           const existing = tx.select().from(asset).where(and(
             eq(asset.workspaceId, input.workspaceId),
-            eq(asset.repoId, input.repoId),
             eq(asset.filePath, item.filePath)
           )).get()
 
           if (existing) {
             tx.update(asset).set({
               kind: item.kind,
+              repoId: input.repoId,
               name: item.name,
               description: item.description,
               lastSeenAt: input.seenAt,

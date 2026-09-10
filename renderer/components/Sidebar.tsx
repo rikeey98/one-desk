@@ -9,7 +9,7 @@ import type { InboxCounts, McpStatus, Workspace } from '@shared/models'
  * 자기 인스턴스를 따로 가지면 다른 인스턴스(App→InboxPanel 등)가 새 workspace를
  * 모르게 된다(App.tsx의 주석 참고). */
 export function Sidebar({
-  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectInbox, counts, countsError, mcpStatus, onDeleted
+  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectInbox, onSelectSettings, counts, countsError, mcpStatus, onDeleted
 }: {
   workspaces: Workspace[]
   loading: boolean
@@ -17,8 +17,9 @@ export function Sidebar({
   refresh: () => Promise<void>
   selectedId: string | null
   onSelect: (id: string) => void
-  view: 'workspace' | 'inbox'
+  view: 'workspace' | 'inbox' | 'settings'
   onSelectInbox: () => void
+  onSelectSettings: () => void
   /** 삭제한 workspace를 App이 알아야 고른 상태를 풀 수 있다. */
   onDeleted: (id: string) => void
   counts: InboxCounts
@@ -132,6 +133,13 @@ export function Sidebar({
         ))}
       </ul>
 
+      <button
+        type="button"
+        className={view === 'settings' ? 'settings-link settings-link-selected' : 'settings-link'}
+        onClick={onSelectSettings}
+      >
+        설정
+      </button>
       <McpStatusRow status={mcpStatus} />
     </nav>
   )

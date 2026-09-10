@@ -268,6 +268,24 @@ describe('IssueRepository', () => {
       }
     })
   })
+
+  describe('여러 repo에 걸친 항목', () => {
+    it('두 repo에 태그하면 어느 쪽으로 걸러도 나온다', () => {
+      // 전체 설계 §150 — 하나가 여러 repo에 걸치는 일이 자주 있다. 한쪽에서만 보이면
+      // 다른 repo를 보던 사람이 그 일을 놓친다. 저장·조회 왕복은 이미 검증돼 있었지만
+      // **필터를 통과하는지는 비어 있었다**(docs/sdlc/asset-scope/spec.md FR-10).
+      issues.create({ workspaceId, title: '양쪽', repoIds: [apiRepoId, webRepoId] })
+      issues.create({ workspaceId, title: 'api만', repoIds: [apiRepoId] })
+
+      const fromApi = issues.list({ workspaceId, repoId: apiRepoId }).map((r) => r.title)
+      const fromWeb = issues.list({ workspaceId, repoId: webRepoId }).map((r) => r.title)
+
+      expect(fromApi).toContain('양쪽')
+      expect(fromWeb).toContain('양쪽')
+      // 한쪽에만 태그된 것은 반대편에서 보이지 않는다 — 필터가 실제로 거른다는 증거다.
+      expect(fromWeb).not.toContain('api만')
+    })
+  })
 })
 
 describe('updateIfUnchanged', () => {

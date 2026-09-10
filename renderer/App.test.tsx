@@ -63,6 +63,8 @@ interface Seed {
   issues?: Issue[]
   memos?: Memo[]
   assets?: Asset[]
+  /** assets.list가 받은 repoId를 기록한다 */
+  assetQueries?: (string | null)[]
   mcpStatus?: McpStatus
 }
 
@@ -88,6 +90,7 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
   let issues: Issue[] = seed.issues ?? []
   let memos: Memo[] = seed.memos ?? []
   const assets: Asset[] = seed.assets ?? []
+  const assetQueries: (string | null)[] = seed.assetQueries ?? []
   // updatedAt은 단조 증가한다 (설계 §6). 저장소의 Math.max(Date.now(), 이전+1)에서
   // 잠금이 기대는 성질만 남긴 것이다.
   let clock = 1_000
@@ -206,8 +209,15 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
       }),
       remove: vi.fn(async (id: string) => { memos = memos.filter((m) => m.id !== id) })
     },
+    settings: {
+      globalRoots: vi.fn(async () => ({ claude: ['/home/.claude/skills'], opencode: [] })),
+      setGlobalRoots: vi.fn(async (r: unknown) => r)
+    },
     assets: {
-      list: vi.fn(async () => assets),
+      list: vi.fn(async (q: { repoId?: string | null }) => {
+        assetQueries.push(q.repoId ?? null)
+        return assets
+      }),
       createAuthored: vi.fn(),
       updateIfUnchanged: vi.fn(),
       remove: vi.fn(),
@@ -1222,5 +1232,46 @@ describe('App — AssetPanel 배선', () => {
     await userEvent.click(screen.getByRole('button', { name: '알파 스킬 맥락에 담기' }))
 
     expect(await screen.findByRole('button', { name: '알파 스킬 ✕' })).toBeInTheDocument()
+  })
+})
+
+describe('App — 설정 화면', () => {
+  it('사이드바에서 설정을 누르면 본문이 설정으로 바뀐다', async () => {
+    // 모달이 아니라 영역 전환이다 — 인박스와 같은 방식이다.
+    renderApp(makeClient())
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+
+    expect(await screen.findByRole('heading', { name: '설정' })).toBeInTheDocument()
+    expect(await screen.findByLabelText('Claude Code 글로벌 경로')).toBeInTheDocument()
+  })
+
+  it('workspace를 다시 고르면 설정에서 빠져나온다', async () => {
+    renderApp(makeClient())
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+    await screen.findByRole('heading', { name: '설정' })
+
+    await selectWorkspace()
+
+    expect(screen.queryByRole('heading', { name: '설정' })).not.toBeInTheDocument()
+  })
+})
+
+describe('App — asset repo 필터 배선', () => {
+  it('고른 repo를 asset 조회에 실어 보낸다', async () => {
+    // App이 repoId를 안 내려보내면 패널이 workspace 전체를 묻게 되어
+    // 다른 repo의 skill이 섞여 보인다.
+    const queries: (string | null)[] = []
+    const repo: Repo = {
+      id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api',
+      description: null, sortOrder: 0, createdAt: 0
+    }
+    renderApp(makeClient({}, { repos: [repo], assetQueries: queries }))
+    await selectWorkspace()
+
+    // repo 카드다 — 이름과 경로가 함께 접근성 이름이 된다.
+    // "api 맥락에 담기" 버튼과 구별해야 한다.
+    await userEvent.click(await screen.findByRole('button', { name: 'api /tmp/api' }))
+
+    await waitFor(() => expect(queries).toContain('r1'))
   })
 })

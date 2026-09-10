@@ -11,12 +11,18 @@ import { createAssetService } from './service'
 let dir: string
 let ctx: ReturnType<typeof setup>
 
+let globalRoots: string[] = []
+
 function setup() {
   const db = makeTestDb()
   const assets = createAssetRepository(db)
   const repos = createRepoRepository(db)
   const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
-  const service = createAssetService({ assets, repos })
+  const service = createAssetService({
+    assets, repos,
+    globalRoots: () => globalRoots,
+    workspaceIds: () => [workspaceId]
+  })
   return { db, assets, repos, workspaceId, service }
 }
 
@@ -28,6 +34,7 @@ function writeSkill(root: string, name: string): void {
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'one-desk-svc-'))
+  globalRoots = []
   ctx = setup()
 })
 afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
@@ -87,5 +94,73 @@ describe('createAssetService', () => {
 
     await expect(ctx.service.scanRepo(ctx.workspaceId, repoId)).resolves.toBeUndefined()
     expect(ctx.assets.list({ workspaceId: ctx.workspaceId })).toHaveLength(1)
+  })
+})
+
+describe('글로벌 스캔', () => {
+  it('글로벌 루트의 skill을 repoId 없이 저장한다', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'one-desk-home-'))
+    try {
+      writeSkill(home, '글로벌 알파')
+      globalRoots = [join(home, '.claude', 'skills')]
+
+      await ctx.service.scanWorkspace(ctx.workspaceId)
+
+      const list = ctx.assets.list({ workspaceId: ctx.workspaceId })
+      expect(list.map((a) => a.name)).toEqual(['글로벌 알파'])
+      expect(list[0]!.repoId).toBeNull()
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it('두 번 훑어도 행이 늘지 않는다', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'one-desk-home-'))
+    try {
+      writeSkill(home, '글로벌 알파')
+      globalRoots = [join(home, '.claude', 'skills')]
+
+      await ctx.service.scanWorkspace(ctx.workspaceId)
+      await ctx.service.scanWorkspace(ctx.workspaceId)
+
+      expect(ctx.assets.list({ workspaceId: ctx.workspaceId })).toHaveLength(1)
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it('repo가 하나도 없어도 글로벌은 훑는다', async () => {
+    // scanWorkspace가 repo 목록만 돌면 repo를 등록하기 전에는 글로벌이 안 보인다.
+    const home = mkdtempSync(join(tmpdir(), 'one-desk-home-'))
+    try {
+      writeSkill(home, '글로벌 알파')
+      globalRoots = [join(home, '.claude', 'skills')]
+
+      await ctx.service.scanWorkspace(ctx.workspaceId)
+
+      expect(ctx.assets.list({ workspaceId: ctx.workspaceId })).toHaveLength(1)
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it('없는 글로벌 경로는 건너뛴다', async () => {
+    globalRoots = [join(dir, '없는곳')]
+    await expect(ctx.service.scanWorkspace(ctx.workspaceId)).resolves.toBeUndefined()
+    expect(ctx.assets.list({ workspaceId: ctx.workspaceId })).toEqual([])
+  })
+
+  it('scanAll은 repo가 없는 workspace도 훑는다', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'one-desk-home-'))
+    try {
+      writeSkill(home, '글로벌 알파')
+      globalRoots = [join(home, '.claude', 'skills')]
+
+      await ctx.service.scanAll()
+
+      expect(ctx.assets.list({ workspaceId: ctx.workspaceId })).toHaveLength(1)
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
   })
 })

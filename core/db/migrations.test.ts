@@ -129,3 +129,96 @@ describe('0004 마이그레이션', () => {
     }
   })
 })
+
+describe('0005 마이그레이션', () => {
+  it('동일성 키가 (workspace_id, file_path)로 바뀐다', () => {
+    // 글로벌 asset은 repo_id가 NULL이다. 키에 repo_id가 남아 있으면 SQLite가 NULL을
+    // 서로 다르게 취급해 스캔마다 새 행이 쌓인다.
+    const work = mkdtempSync(join(tmpdir(), 'one-desk-mig-'))
+    try {
+      const db = openDb({ file: join(work, 'test.db'), migrationsDir: 'drizzle' })
+      db.$client.exec(`
+        INSERT INTO workspace (id, name, created_at, updated_at) VALUES ('ws', 'ws', 1, 1);
+        INSERT INTO repo (id, workspace_id, name, path, created_at)
+        VALUES ('r1', 'ws', 'api', '/tmp/api', 1), ('r2', 'ws', 'web', '/tmp/web', 1);
+      `)
+      const insert = (id: string, repoId: string | null): void => {
+        db.$client.prepare(
+          `INSERT INTO asset (id, workspace_id, kind, source, name, repo_id, file_path,
+           created_at, updated_at)
+           VALUES (?, 'ws', 'skill', 'discovered', 'x', ?, '/a/SKILL.md', 1, 1)`
+        ).run(id, repoId)
+      }
+
+      insert('a1', 'r1')
+      // repo가 달라도 같은 파일이면 거부된다 — 파일 경로가 곧 동일성이다.
+      expect(() => insert('a2', 'r2')).toThrow(/UNIQUE/)
+      // 글로벌(repo_id NULL)도 두 번은 안 된다. 이것이 이 마이그레이션의 요점이다.
+      db.$client.prepare(
+        `INSERT INTO asset (id, workspace_id, kind, source, name, file_path, created_at, updated_at)
+         VALUES ('g1', 'ws', 'skill', 'discovered', 'g', '/home/.claude/skills/g/SKILL.md', 1, 1)`
+      ).run()
+      expect(() => db.$client.prepare(
+        `INSERT INTO asset (id, workspace_id, kind, source, name, file_path, created_at, updated_at)
+         VALUES ('g2', 'ws', 'skill', 'discovered', 'g', '/home/.claude/skills/g/SKILL.md', 1, 1)`
+      ).run()).toThrow(/UNIQUE/)
+
+      db.$client.close()
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  })
+
+  it('authored는 여전히 여러 개 만들 수 있다', () => {
+    const work = mkdtempSync(join(tmpdir(), 'one-desk-mig-'))
+    try {
+      const db = openDb({ file: join(work, 'test.db'), migrationsDir: 'drizzle' })
+      db.$client.exec(
+        `INSERT INTO workspace (id, name, created_at, updated_at) VALUES ('ws', 'ws', 1, 1);`
+      )
+      const insert = (id: string): void => {
+        db.$client.prepare(
+          `INSERT INTO asset (id, workspace_id, kind, source, name, created_at, updated_at)
+           VALUES (?, 'ws', 'skill', 'authored', 'x', 1, 1)`
+        ).run(id)
+      }
+      insert('a1')
+      expect(() => insert('a2')).not.toThrow()
+      db.$client.close()
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  })
+
+  it('0004 시점의 중복 행을 정리한 뒤 인덱스를 만든다', () => {
+    // 한 repo가 다른 repo 안에 있으면 같은 파일이 두 repo로 등록됐을 수 있다.
+    // 정리하지 않으면 인덱스 생성이 실패해 **앱이 뜨지 않는다** — 부팅 경로다.
+    const work = mkdtempSync(join(tmpdir(), 'one-desk-mig-'))
+    try {
+      const file = join(work, 'test.db')
+      const old = migrationsUpTo(4, join(work, 'old-migrations'))
+
+      const before = openDb({ file, migrationsDir: old })
+      before.$client.exec(`
+        INSERT INTO workspace (id, name, created_at, updated_at) VALUES ('ws', 'ws', 1, 1);
+        INSERT INTO repo (id, workspace_id, name, path, created_at)
+        VALUES ('outer', 'ws', 'outer', '/tmp/o', 1), ('inner', 'ws', 'inner', '/tmp/o/in', 1);
+        INSERT INTO asset (id, workspace_id, kind, source, name, repo_id, file_path, created_at, updated_at)
+        VALUES ('먼저', 'ws', 'skill', 'discovered', 'x', 'outer', '/tmp/o/in/a/SKILL.md', 100, 100),
+               ('나중', 'ws', 'skill', 'discovered', 'x', 'inner', '/tmp/o/in/a/SKILL.md', 200, 200);
+      `)
+      before.$client.close()
+
+      // 0005가 여기서 돈다. 던지지 않아야 한다.
+      const after = openDb({ file, migrationsDir: 'drizzle' })
+      const rows = after.$client
+        .prepare('SELECT id FROM asset').all() as { id: string }[]
+      // created_at이 이른 쪽만 남는다.
+      expect(rows.map((r) => r.id)).toEqual(['먼저'])
+
+      after.$client.close()
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  })
+})

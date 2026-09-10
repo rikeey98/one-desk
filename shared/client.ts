@@ -8,7 +8,8 @@ import type {
   ListQuery, StartRunInput, QueueSnapshot,
   InboxCounts,
   McpStatus, ResumeRunInput,
-  Asset, CreateAuthoredAssetInput, GuardedUpdateAssetInput, AssetUpdateResult, ListAssetQuery
+  Asset, CreateAuthoredAssetInput, GuardedUpdateAssetInput, AssetUpdateResult, ListAssetQuery,
+  GlobalRoots
 } from './models'
 import type { RunEvent } from './events'
 
@@ -70,6 +71,11 @@ export interface OneDeskClient {
     remove(id: string): Promise<void>
     /** 다시 훑고, 갱신된 목록을 돌려준다 */
     rescan(workspaceId: string): Promise<Asset[]>
+  }
+  settings: {
+    globalRoots(): Promise<GlobalRoots>
+    /** 저장하고 곧바로 다시 훑는다. 저장된 값을 돌려준다 */
+    setGlobalRoots(roots: GlobalRoots): Promise<GlobalRoots>
   }
   runs: {
     list(workspaceId: string): Promise<Run[]>

@@ -65,6 +65,10 @@
 
 전체 설계 §224의 표 그대로. 각 repo 루트 기준이다.
 
+> **2026-09-09 개정됨.** 이 결정은 `docs/sdlc/asset-scope/spec.md`가 대체한다.
+> repo 루트에 더해 **글로벌 경로**도 훑고, 그 경로는 설정에서 바꿀 수 있다
+> (claude용·opencode용을 따로 둔다). 스캔 시점에 "앱을 열 때"가 더해졌다.
+
 | kind | 경로 |
 |---|---|
 | skill | `.claude/skills/*/SKILL.md` |
@@ -87,7 +91,13 @@
 
 ### 3-3. 동일성
 
-**동일성 키는 `(workspace_id, repo_id, file_path)`이고 UNIQUE를 건다.**
+**동일성 키는 `(workspace_id, file_path)`이고 UNIQUE를 건다.**
+
+> **2026-09-09 개정됨.** 원래 `(workspace_id, repo_id, file_path)`였다. 글로벌 asset은
+> `repo_id`가 NULL인데 SQLite가 유니크 인덱스에서 NULL을 서로 다르게 취급해, 키에
+> `repo_id`가 남아 있으면 **스캔할 때마다 같은 파일이 새 행으로 쌓인다.** 파일 경로 자체가
+> 유일하므로 `repo_id`는 애초에 필요 없었다. 마이그레이션 `0005`가 인덱스를 갈아끼운다.
+> 자세한 내용은 `docs/sdlc/asset-scope/spec.md`.
 없으면 스캔할 때마다 같은 파일이 새 행으로 쌓인다. 발견하면 그 키로 upsert하고
 `name`·`description`·`last_seen_at`을 갱신한다.
 

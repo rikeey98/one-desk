@@ -34,6 +34,7 @@ function renderPanel(client: OneDeskClient, props: Record<string, unknown> = {})
       <AssetPanel
         workspaceId="w1"
         repos={[]}
+        repoId={null}
         chipKeys={new Set<string>()}
         onToggleContext={vi.fn()}
         {...props}
@@ -129,5 +130,44 @@ describe('AssetPanel — authored 만들기', () => {
     renderPanel(makeClient([asset({ name: '알파' })]), { onOpen })
     await userEvent.click(await screen.findByRole('button', { name: '알파' }))
     expect(onOpen).toHaveBeenCalledWith('a1')
+  })
+})
+
+describe('AssetPanel — 출처와 필터', () => {
+  const repos = [
+    { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, createdAt: 0 }
+  ]
+
+  it('출처를 세 가지로 구분해 보여준다', () => {
+    // 이름에 라벨 단어를 넣지 않는다 — 넣으면 이름에 걸려 통과하는 자기충족 테스트가 된다.
+    renderPanel(makeClient([
+      asset({ id: 'a1', name: '하나', repoId: null, filePath: '/home/g/SKILL.md' }),
+      asset({ id: 'a2', name: '둘', repoId: 'r1', filePath: '/tmp/api/a/SKILL.md' }),
+      asset({
+        id: 'a3', name: '셋', source: 'authored',
+        repoId: null, filePath: null, lastSeenAt: null
+      })
+    ]), { repos })
+
+    return waitFor(() => {
+      expect(screen.getByRole('listitem', { name: '하나' })).toHaveTextContent('글로벌')
+      expect(screen.getByRole('listitem', { name: '둘' })).toHaveTextContent('api')
+      expect(screen.getByRole('listitem', { name: '셋' })).toHaveTextContent('앱에서 작성')
+    })
+  })
+
+  it('repoId를 조회에 실어 보낸다', async () => {
+    // 거르는 것은 저장소가 한다. 패널은 무엇을 물어볼지만 정한다.
+    const client = makeClient([])
+    renderPanel(client, { repoId: 'r1', repos })
+    await waitFor(() => expect(client.assets.list)
+      .toHaveBeenCalledWith({ workspaceId: 'w1', repoId: 'r1' }))
+  })
+
+  it('repo를 고르지 않으면 repoId 없이 묻는다', async () => {
+    const client = makeClient([])
+    renderPanel(client, { repoId: null })
+    await waitFor(() => expect(client.assets.list)
+      .toHaveBeenCalledWith({ workspaceId: 'w1', repoId: null }))
   })
 })
