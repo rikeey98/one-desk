@@ -3,12 +3,13 @@ import { useClient } from '../client/ClientProvider'
 import { useDebouncedSave } from '../hooks/useDebouncedSave'
 import { ConflictBanner } from './ConflictBanner'
 import { ConfirmButton } from './ConfirmButton'
+import { RepoTags } from './RepoTags'
 import {
   PRIORITY_ORDER, SOURCE_ORDER, KIND_ORDER,
   PRIORITY_LABELS, SOURCE_LABELS, KIND_LABELS
 } from '../issueAxes'
 import type {
-  Issue, IssueStatus, IssueSource, IssueKind, IssuePriority
+  Issue, IssueStatus, IssueSource, IssueKind, IssuePriority, Repo
 } from '@shared/models'
 
 /**
@@ -49,8 +50,10 @@ function AxisSelect<T extends string>({ label, value, order, labels, onPick }: {
   )
 }
 
-export function IssueDetail({ issue, onChanged, onDeleted, onRequestClose }: {
+export function IssueDetail({ issue, repos, onChanged, onDeleted, onRequestClose }: {
   issue: Issue
+  /** 이 workspace의 repo 전부. 붙일 후보다. */
+  repos: Repo[]
   /** 목록을 다시 읽게 한다 */
   onChanged: () => void
   onDeleted: () => void
@@ -64,6 +67,7 @@ export function IssueDetail({ issue, onChanged, onDeleted, onRequestClose }: {
   const [source, setSource] = useState(issue.source)
   const [kind, setKind] = useState(issue.kind)
   const [priority, setPriority] = useState(issue.priority)
+  const [repoIds, setRepoIds] = useState(issue.repoIds)
   const [error, setError] = useState<string | null>(null)
   const [conflict, setConflict] = useState<Issue | null>(null)
   // 배너 상태를 ref로도 들고 있는다. Esc 경로는 flush를 await한 뒤에 충돌 여부를 봐야
@@ -100,6 +104,7 @@ export function IssueDetail({ issue, onChanged, onDeleted, onRequestClose }: {
   async function persist(patch: {
     title?: string; body?: string; status?: IssueStatus
     source?: IssueSource; kind?: IssueKind; priority?: IssuePriority
+    repoIds?: string[]
   }) {
     setError(null)
     const result = await client.issues.updateIfUnchanged({
@@ -134,6 +139,19 @@ export function IssueDetail({ issue, onChanged, onDeleted, onRequestClose }: {
   function changeAxis(patch: { source?: IssueSource; kind?: IssueKind; priority?: IssuePriority }) {
     void (async () => {
       try { await persist(patch) }
+      catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    })()
+  }
+
+  /**
+   * repo 토글도 같은 잠긴 경로를 탄다. **축이 아니므로 함수를 따로 둔다** —
+   * `repoIds`는 이슈 전용인 축과 달리 메모와 대칭인 공통 필드다(설계 §9).
+   * MemoDetail의 changeRepos와 짝이며, 한쪽만 고치면 그것이 진짜 결함이다.
+   */
+  function changeRepos(next: string[]) {
+    setRepoIds(next)
+    void (async () => {
+      try { await persist({ repoIds: next }) }
       catch (err) { setError(err instanceof Error ? err.message : String(err)) }
     })()
   }
@@ -202,6 +220,7 @@ export function IssueDetail({ issue, onChanged, onDeleted, onRequestClose }: {
             setSource(conflict.source)
             setKind(conflict.kind)
             setPriority(conflict.priority)
+            setRepoIds(conflict.repoIds)
             expected.current = conflict.updatedAt
             showConflict(null)
             onChanged()
@@ -213,7 +232,7 @@ export function IssueDetail({ issue, onChanged, onDeleted, onRequestClose }: {
                   // 축 셋도 같이 보낸다 — 빠뜨리면 방금 고른 축이 덮어쓰기에서
                   // 조용히 사라진다. 로컬 state는 null일 수 있어(미분류) update의
                   // 옵셔널 필드(undefined만 허용) 타입에 맞춰 변환한다.
-                  id: issue.id, title, body, status,
+                  id: issue.id, title, body, status, repoIds,
                   source: source ?? undefined, kind: kind ?? undefined, priority: priority ?? undefined
                 })
                 expected.current = saved.updatedAt
@@ -258,6 +277,11 @@ export function IssueDetail({ issue, onChanged, onDeleted, onRequestClose }: {
       <AxisSelect
         label="급함" value={priority} order={PRIORITY_ORDER} labels={PRIORITY_LABELS}
         onPick={(next) => { setPriority(next); changeAxis({ priority: next }) }}
+      />
+      <RepoTags
+        repos={repos}
+        picked={repoIds}
+        onChange={changeRepos}
       />
       <textarea
         aria-label="본문"

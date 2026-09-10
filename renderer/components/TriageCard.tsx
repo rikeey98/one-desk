@@ -3,12 +3,15 @@ import {
   SOURCE_ORDER, KIND_ORDER, PRIORITY_ORDER,
   SOURCE_LABELS, KIND_LABELS, PRIORITY_LABELS
 } from '../issueAxes'
-import type { Issue, IssueSource, IssueKind, IssuePriority } from '@shared/models'
+import { RepoTags } from './RepoTags'
+import type { Issue, IssueSource, IssueKind, IssuePriority, Repo } from '@shared/models'
 
 export interface TriagePick {
   source: IssueSource
   kind: IssueKind
   priority: IssuePriority
+  /** 설계 §4: repo 태그는 **선택이다.** 비어 있으면 workspace 공통이다. */
+  repoIds: string[]
 }
 
 /**
@@ -18,8 +21,9 @@ export interface TriagePick {
  * 이슈는 분류는 됐지만 손대지는 않은 상태이고, 방치 시계는 계속 가야 한다.
  * 축을 찍었다는 이유로 시계가 리셋되면 훑기가 방치를 감추는 도구가 된다.
  */
-export function TriageCard({ issue, position, total, onDone, onSkip }: {
+export function TriageCard({ issue, repos, position, total, onDone, onSkip }: {
   issue: Issue
+  repos: Repo[]
   /** 1부터 센다 */
   position: number
   total: number
@@ -29,7 +33,10 @@ export function TriageCard({ issue, position, total, onDone, onSkip }: {
   const [source, setSource] = useState<IssueSource | null>(issue.source)
   const [kind, setKind] = useState<IssueKind | null>(issue.kind)
   const [priority, setPriority] = useState<IssuePriority | null>(issue.priority)
+  const [repoIds, setRepoIds] = useState<string[]>(issue.repoIds)
 
+  // **repoIds는 이 조건에 넣지 않는다.** 설계 §4가 repo 태그를 선택으로 둔 것은
+  // 태그 없음이 곧 "workspace 공통"이기 때문이다 — 요구하면 공통 이슈를 훑을 수 없다.
   // 셋이 다 찍혀야 넘어간다. 부분만 찍고 넘어가면 triagedAt이 안 찍혀
   // 그 이슈가 대기열에 그대로 남는다 (설계 §3의 파생 규칙과 짝을 이룬다).
   const complete = source !== null && kind !== null && priority !== null
@@ -45,13 +52,14 @@ export function TriageCard({ issue, position, total, onDone, onSkip }: {
         picked={kind} onPick={setKind} />
       <AxisRow label="급함" values={PRIORITY_ORDER} labels={PRIORITY_LABELS}
         picked={priority} onPick={setPriority} />
+      <RepoTags repos={repos} picked={repoIds} onChange={setRepoIds} />
 
       <div className="triage-actions">
         <button type="button" onClick={onSkip}>건너뛰기</button>
         <button
           type="button"
           disabled={!complete}
-          onClick={() => { if (complete) onDone({ source, kind, priority }) }}
+          onClick={() => { if (complete) onDone({ source, kind, priority, repoIds }) }}
         >
           다음
         </button>

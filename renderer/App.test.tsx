@@ -1275,3 +1275,43 @@ describe('App — asset repo 필터 배선', () => {
     await waitFor(() => expect(queries).toContain('r1'))
   })
 })
+
+describe('App — 메모 repo 배선', () => {
+  const REPO: Repo = {
+    id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api',
+    description: null, sortOrder: 0, createdAt: 0
+  }
+
+  it('메모 상세에서 repo를 고를 수 있다', async () => {
+    // **새 prop 사슬이다** — App → MemoPanel → MemoDetail. 어느 한 마디를 지워도
+    // 이 단언이 빨개져야 한다. CLAUDE.md가 두 단계 연속으로 기록한 새는 자리가
+    // 예외 없이 이 모양(App이 자식에게 내려보내는 prop 한 줄)이었다.
+    //
+    // 이슈 쪽은 App이 이미 repos를 내려보내고 있어 IssuePanel 테스트가 잡는다.
+    renderApp(makeClient({}, {
+      repos: [REPO], memos: [makeMemo({ id: 'm1', title: '배포 메모' })]
+    }))
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
+
+    // repo 카드("api /tmp/api")·담기 버튼("api 맥락에 담기")과 구별되는,
+    // 이름만 가진 토글이다. getByRole의 name은 문자열이면 완전 일치라
+    // 저 둘에는 걸리지 않는다.
+    expect(await screen.findByRole('button', { name: 'api' }))
+      .toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('메모의 repo 칩을 누르면 잠긴 경로로 저장한다', async () => {
+    const client = makeClient({}, {
+      repos: [REPO], memos: [makeMemo({ id: 'm1', title: '배포 메모' })]
+    })
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'api' }))
+
+    await waitFor(() => expect(client.memos.updateIfUnchanged).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'm1', repoIds: ['r1'] })
+    ))
+  })
+})
