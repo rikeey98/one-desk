@@ -326,7 +326,11 @@ describe('글로벌 asset', () => {
       })
       // 실행이 도는 동안 파일이 생긴 것을 흉내낸다.
       writeGlobalSkill(repoPath, '실행 중 생김')
-      await vi.waitFor(() => expect(core.runs.get(run.id).status).toBe('succeeded'))
+      // status가 아니라 endedAt으로 기다린다 — 재스캔은 endedAt !== null로만 걸리고,
+      // Windows는 .mjs 픽스처를 직접 실행하지 못해 가짜 CLI의 run이 늘 failed로 끝난다.
+      // succeeded를 기다리면 CI의 Windows 잡에서만 터진다(이 파일의 다른 run 테스트가
+      // 전부 endedAt만 보는 이유다).
+      await vi.waitFor(() => expect(core.runs.get(run.id).endedAt).toBeTypeOf('number'))
       await vi.waitFor(() => {
         expect(core.assets.list({ workspaceId }).map((a) => a.name)).toEqual(['실행 중 생김'])
       })
