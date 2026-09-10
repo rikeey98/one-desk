@@ -317,6 +317,15 @@ describe('글로벌 asset', () => {
     await core.repos.create({ workspaceId, name: 'api', path: repoPath })
     expect(core.assets.list({ workspaceId })).toEqual([])
 
+    // agent가 실행 중에 만든 skill 파일을 흉내낸다. **run을 띄우기 전에 써 둔다** —
+    // 시작한 뒤에 쓰면 Windows에서만 터진다. 거기서는 .mjs 픽스처를 직접 실행하지
+    // 못해 spawn이 곧바로 실패하고, run이 start()가 resolve되기도 전에 끝나 버린다.
+    // 유일한 재스캔이 그때 이미 지나가므로 뒤늦게 쓴 파일은 영영 안 보인다.
+    writeGlobalSkill(repoPath, '실행 중 생김')
+    // 파일이 생겼다고 목록이 차지는 않는다 — 아무도 아직 훑지 않았다.
+    // 아래 단언이 통과한다면 그것은 run이 끝나며 돈 재스캔 때문이다.
+    expect(core.assets.list({ workspaceId })).toEqual([])
+
     const prev = process.env['ONE_DESK_AGENT_PATH']
     process.env['ONE_DESK_AGENT_PATH'] = FAKE_AGENT
     try {
@@ -324,12 +333,9 @@ describe('글로벌 asset', () => {
         workspaceId, agentKind: 'claude-code', model: null, cwd: repoPath,
         permission: 'edit', userPrompt: 'x', context: []
       })
-      // 실행이 도는 동안 파일이 생긴 것을 흉내낸다.
-      writeGlobalSkill(repoPath, '실행 중 생김')
       // status가 아니라 endedAt으로 기다린다 — 재스캔은 endedAt !== null로만 걸리고,
-      // Windows는 .mjs 픽스처를 직접 실행하지 못해 가짜 CLI의 run이 늘 failed로 끝난다.
-      // succeeded를 기다리면 CI의 Windows 잡에서만 터진다(이 파일의 다른 run 테스트가
-      // 전부 endedAt만 보는 이유다).
+      // Windows에서는 가짜 CLI의 run이 늘 failed로 끝난다(이 파일의 다른 run
+      // 테스트가 전부 endedAt만 보는 이유다).
       await vi.waitFor(() => expect(core.runs.get(run.id).endedAt).toBeTypeOf('number'))
       await vi.waitFor(() => {
         expect(core.assets.list({ workspaceId }).map((a) => a.name)).toEqual(['실행 중 생김'])
