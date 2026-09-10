@@ -120,6 +120,8 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **`createWriteStream`의 open은 비동기다 — `error` 리스너가 없으면 앱이 죽는다.** `mkdirSync`가 방금 만든 디렉토리라도 그 사이에 사라질 수 있고, 디스크가 차거나 권한이 막혀도 실패한다. 리스너가 없으면 처리되지 않은 예외가 되어 Electron 메인 프로세스가 통째로 내려간다. `core/runner/logWriter.ts`가 이를 `ErrorSink`로 흘려보내고, 실패한 뒤 `close()`가 매달리지 않게 한다(매달리면 run이 안 끝나 동시 실행 슬롯이 영영 점유된다).
 
+**Windows에서 가짜 CLI는 spawn조차 되지 않는다 — run은 `start()`가 resolve되기도 전에 끝난다.** 픽스처가 `.mjs`라 Windows가 직접 실행하지 못해 spawn이 즉시 실패하고, `markFinished`와 그에 딸린 `onRunUpdate`(인박스 push, asset 재스캔)가 **`await core.execution.start(...)` 안에서 이미 다 지나간다.** 그래서 두 가지가 따라온다. 첫째, run 상태는 항상 `failed`다 — `core/index.test.ts`의 run 테스트들이 `succeeded`가 아니라 `endedAt`만 보는 이유다. 둘째, **`start()` 뒤에 만든 파일은 그 run의 재스캔이 영영 못 본다** — "실행 중에 생긴 파일"을 흉내내려면 run을 띄우기 **전에** 써 둬야 한다. macOS에서는 가짜 CLI가 실제로 100ms쯤 돌아 순서가 늘 맞아떨어지므로 **로컬은 초록인데 릴리스 CI만 깨진다**(v0.7.0·v0.7.1 릴리스 빌드가 이것으로 연속해서 깨졌다). 로컬에서 재현하려면 `ONE_DESK_AGENT_PATH`를 없는 경로로 주면 된다.
+
 **Windows는 열린 핸들이 있는 파일을 지우지 못한다 — 테스트가 연 DB는 반드시 닫아야 한다.** POSIX는 열려 있는 파일도 unlink되므로 macOS·Linux에서는 핸들을 흘려도 `rmSync`가 조용히 성공한다. Windows에서만 `EBUSY: resource busy or locked`로 죽고, **그래서 로컬은 전부 초록인데 릴리스 CI의 Windows 잡에서만 터진다**(v0.2.0 릴리스가 실제로 이렇게 한 번 깨졌다). `openDb`는 핸들을 돌려주지 않는 것처럼 보이지만 반환한 drizzle 인스턴스의 `$client`가 그것이다 — `core/db/open.test.ts`의 기존 테스트들이 이미 `db.$client.close()`를 쓰고 있으니 그 패턴을 따를 것.
 
 **`productName`이 사용자 데이터 위치를 정한다 — `appId`가 아니다.** Electron은 `userData`를 `appData` + 앱 이름으로 만들고 앱 이름은 `productName`을 우선한다. `electron-builder.yml`의 `productName: one-desk`를 보기 좋게 바꾸면 기존 사용자의 DB 디렉토리를 앱이 더 이상 보지 않는다.
