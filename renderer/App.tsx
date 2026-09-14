@@ -271,6 +271,7 @@ export default function App() {
               <MemoPanel
                 workspaceId={workspaceId}
                 repoId={repoId}
+                repos={repos}
                 chipKeys={chipKeys}
                 onToggleContext={toggleChip}
                 expanded={openItem?.panel === 'memo'}

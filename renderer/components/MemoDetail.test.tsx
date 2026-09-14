@@ -3,7 +3,7 @@ import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { MemoDetail } from './MemoDetail'
-import type { Memo } from '@shared/models'
+import type { Memo, Repo } from '@shared/models'
 import type { OneDeskClient } from '@shared/client'
 
 function makeMemo(over: Partial<Memo> = {}): Memo {
@@ -12,6 +12,15 @@ function makeMemo(over: Partial<Memo> = {}): Memo {
     repoIds: [], createdAt: 0, updatedAt: 100, ...over
   }
 }
+
+function makeRepo(id: string, name: string): Repo {
+  return {
+    id, workspaceId: 'w1', name, path: `/tmp/${id}`,
+    description: null, sortOrder: 0, createdAt: 0
+  }
+}
+
+const REPOS = [makeRepo('r1', 'api'), makeRepo('r2', 'web')]
 
 /** updateIfUnchanged와 update만 가진 최소 클라이언트. 나머지는 부르지 않는다. */
 function makeClient(over: Partial<OneDeskClient['memos']> = {}): OneDeskClient {
@@ -30,7 +39,8 @@ function makeClient(over: Partial<OneDeskClient['memos']> = {}): OneDeskClient {
 
 function renderDetail(client: OneDeskClient, memo = makeMemo(), over = {}) {
   const props = {
-    memo, onChanged: vi.fn(), onDeleted: vi.fn(), onRequestClose: vi.fn(), ...over
+    memo, repos: [] as Repo[],
+    onChanged: vi.fn(), onDeleted: vi.fn(), onRequestClose: vi.fn(), ...over
   }
   render(
     <ClientProvider client={client}>
@@ -269,5 +279,70 @@ describe('MemoDetail', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(600) })
 
     expect(client.memos.updateIfUnchanged).not.toHaveBeenCalled()
+  })
+})
+
+describe('MemoDetail repo 태그', () => {
+  // 이슈 쪽과 대칭이다. `repoIds`는 설계 §9가 **공통 필드로 대칭 유지**라고
+  // 명시한 쪽이라, 한쪽만 고치면 그것이 진짜 결함이다.
+  it('workspace의 repo를 칩으로 보여주고 붙어 있는 것을 켠다', () => {
+    renderDetail(makeClient(), makeMemo({ repoIds: ['r2'] }), { repos: REPOS })
+    expect(screen.getByRole('button', { name: 'api' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'web' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('칩을 누르면 잠긴 경로로 즉시 저장한다', async () => {
+    const client = makeClient()
+    renderDetail(client, makeMemo(), { repos: REPOS })
+    await userEvent.click(screen.getByRole('button', { name: 'api' }))
+
+    await waitFor(() => expect(client.memos.updateIfUnchanged).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'm1', repoIds: ['r1'], expectedUpdatedAt: 100 })
+    ))
+    expect(client.memos.update).not.toHaveBeenCalled()
+  })
+
+  it('두 번째 저장은 첫 저장이 준 새 기대값을 쓴다', async () => {
+    const client = makeClient()
+    renderDetail(client, makeMemo(), { repos: REPOS })
+    await userEvent.click(screen.getByRole('button', { name: 'api' }))
+    await waitFor(() => expect(client.memos.updateIfUnchanged).toHaveBeenCalledTimes(1))
+
+    await userEvent.click(screen.getByRole('button', { name: 'web' }))
+    await waitFor(() => expect(client.memos.updateIfUnchanged).toHaveBeenLastCalledWith(
+      expect.objectContaining({ repoIds: ['r1', 'r2'], expectedUpdatedAt: 200 })
+    ))
+  })
+
+  it('다시 불러오기가 repo 태그도 되돌린다', async () => {
+    const client = makeClient({
+      updateIfUnchanged: vi.fn(async () => ({
+        ok: false as const, current: makeMemo({ repoIds: ['r2'], updatedAt: 300 })
+      }))
+    })
+    renderDetail(client, makeMemo(), { repos: REPOS })
+    await userEvent.click(screen.getByRole('button', { name: 'api' }))
+    await waitFor(() => expect(conflictAlert()).toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: '다시 불러오기' }))
+    expect(screen.getByRole('button', { name: 'api' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'web' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('덮어쓰기가 repo 태그도 함께 쓴다', async () => {
+    // 빠뜨리면 방금 고른 repo가 덮어쓰기에서 조용히 사라진다.
+    const client = makeClient({
+      updateIfUnchanged: vi.fn(async () => ({
+        ok: false as const, current: makeMemo({ updatedAt: 300 })
+      }))
+    })
+    renderDetail(client, makeMemo(), { repos: REPOS })
+    await userEvent.click(screen.getByRole('button', { name: 'api' }))
+    await waitFor(() => expect(conflictAlert()).toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: '덮어쓰기' }))
+    expect(client.memos.update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'm1', repoIds: ['r1'] })
+    )
   })
 })

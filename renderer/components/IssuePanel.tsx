@@ -220,6 +220,7 @@ export function IssuePanel({
               <TriageCard
                 key={open.id}
                 issue={open}
+                repos={repos}
                 // 열려 있는 이슈가 큐에 없을 수 있다 — 카드가 떠 있는 동안 agent가
                 // MCP로 같은 이슈를 분류해 refresh 후 큐에서 빠지는 경우다. findIndex는
                 // 그때 -1을 주므로 1로 바닥을 깔아 "0번째"를 보여주지 않는다.
@@ -257,6 +258,7 @@ export function IssuePanel({
                 // 올바른 이슈에 흘려보낸다 (IssueDetail 내부 설명 참고).
                 key={open.id}
                 issue={open}
+                repos={repos}
                 onChanged={() => { void refresh() }}
                 onDeleted={() => { onOpen(open.id); void refresh() }}
                 // 같은 id로 onOpen을 부르면 App의 토글이 접는다. 상세가 대기 중인

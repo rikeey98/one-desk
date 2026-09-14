@@ -3,7 +3,7 @@ import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { IssueDetail } from './IssueDetail'
-import type { Issue } from '@shared/models'
+import type { Issue, Repo } from '@shared/models'
 import type { OneDeskClient } from '@shared/client'
 
 function makeIssue(over: Partial<Issue> = {}): Issue {
@@ -13,6 +13,15 @@ function makeIssue(over: Partial<Issue> = {}): Issue {
     source: null, kind: null, priority: null, triagedAt: null, seenAt: null, ...over
   }
 }
+
+function makeRepo(id: string, name: string): Repo {
+  return {
+    id, workspaceId: 'w1', name, path: `/tmp/${id}`,
+    description: null, sortOrder: 0, createdAt: 0
+  }
+}
+
+const REPOS = [makeRepo('r1', 'api'), makeRepo('r2', 'web')]
 
 /** updateIfUnchanged와 update만 가진 최소 클라이언트. 나머지는 부르지 않는다. */
 function makeClient(over: Partial<OneDeskClient['issues']> = {}): OneDeskClient {
@@ -32,7 +41,8 @@ function makeClient(over: Partial<OneDeskClient['issues']> = {}): OneDeskClient 
 
 function renderDetail(client: OneDeskClient, issue = makeIssue(), over = {}) {
   const props = {
-    issue, onChanged: vi.fn(), onDeleted: vi.fn(), onRequestClose: vi.fn(), ...over
+    issue, repos: [] as Repo[],
+    onChanged: vi.fn(), onDeleted: vi.fn(), onRequestClose: vi.fn(), ...over
   }
   render(
     <ClientProvider client={client}>
@@ -436,5 +446,86 @@ describe('IssueDetail 축 편집', () => {
 
     expect(select).toHaveValue('urgent')
     expect(client.issues.updateIfUnchanged).not.toHaveBeenCalled()
+  })
+})
+
+describe('IssueDetail repo 태그', () => {
+  it('workspace의 repo를 칩으로 보여주고 붙어 있는 것을 켠다', () => {
+    renderDetail(makeClient(), makeIssue({ repoIds: ['r2'] }), { repos: REPOS })
+    expect(screen.getByRole('button', { name: 'api' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'web' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('칩을 누르면 잠긴 경로로 즉시 저장한다', async () => {
+    // 잠기지 않은 update로 쓰면 그 쓰기가 updatedAt을 올려 이 화면의 기대값만 낡게
+    // 만들고, 다음 자동 저장이 사용자 자신의 클릭을 agent의 편집으로 착각해 유령
+    // 충돌 배너를 띄운다 — 축·상태와 같은 이유로 여기도 잠긴 경로여야 한다.
+    const client = makeClient()
+    renderDetail(client, makeIssue(), { repos: REPOS })
+    await userEvent.click(screen.getByRole('button', { name: 'api' }))
+
+    await waitFor(() => expect(client.issues.updateIfUnchanged).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'i1', repoIds: ['r1'], expectedUpdatedAt: 100 })
+    ))
+    expect(client.issues.update).not.toHaveBeenCalled()
+  })
+
+  it('두 번째 저장은 첫 저장이 준 새 기대값을 쓴다', async () => {
+    // 성공한 쓰기가 expected를 갱신하지 않으면 두 번째 칩 클릭이 자기 자신과
+    // 충돌한다 (설계 §6).
+    const client = makeClient()
+    renderDetail(client, makeIssue(), { repos: REPOS })
+    await userEvent.click(screen.getByRole('button', { name: 'api' }))
+    await waitFor(() => expect(client.issues.updateIfUnchanged).toHaveBeenCalledTimes(1))
+
+    await userEvent.click(screen.getByRole('button', { name: 'web' }))
+    await waitFor(() => expect(client.issues.updateIfUnchanged).toHaveBeenLastCalledWith(
+      expect.objectContaining({ repoIds: ['r1', 'r2'], expectedUpdatedAt: 200 })
+    ))
+  })
+
+  it('켜진 칩을 다시 누르면 뺀 채로 저장한다', async () => {
+    const client = makeClient()
+    renderDetail(client, makeIssue({ repoIds: ['r1', 'r2'] }), { repos: REPOS })
+    await userEvent.click(screen.getByRole('button', { name: 'api' }))
+
+    await waitFor(() => expect(client.issues.updateIfUnchanged).toHaveBeenCalledWith(
+      expect.objectContaining({ repoIds: ['r2'] })
+    ))
+  })
+
+  it('다시 불러오기가 repo 태그도 되돌린다', async () => {
+    // 되돌리지 않으면 화면은 사람이 고른 repo를 보여주는데 DB에는 agent가 붙인
+    // 것이 들어 있다 — 축 셋이 같은 이유로 여기서 되돌아간다.
+    const client = makeClient({
+      updateIfUnchanged: vi.fn(async () => ({
+        ok: false as const, current: makeIssue({ repoIds: ['r2'], updatedAt: 300 })
+      }))
+    })
+    renderDetail(client, makeIssue(), { repos: REPOS })
+    await userEvent.click(screen.getByRole('button', { name: 'api' }))
+    await waitFor(() => expect(conflictAlert()).toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: '다시 불러오기' }))
+    expect(screen.getByRole('button', { name: 'api' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'web' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('덮어쓰기가 repo 태그도 함께 쓴다', async () => {
+    // 빠뜨리면 방금 고른 repo가 덮어쓰기에서 조용히 사라진다 — 축 셋에 대해
+    // 기존 주석이 경고하는 바로 그 함정이다.
+    const client = makeClient({
+      updateIfUnchanged: vi.fn(async () => ({
+        ok: false as const, current: makeIssue({ updatedAt: 300 })
+      }))
+    })
+    renderDetail(client, makeIssue(), { repos: REPOS })
+    await userEvent.click(screen.getByRole('button', { name: 'api' }))
+    await waitFor(() => expect(conflictAlert()).toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: '덮어쓰기' }))
+    expect(client.issues.update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'i1', repoIds: ['r1'] })
+    )
   })
 })

@@ -3,10 +3,13 @@ import { useClient } from '../client/ClientProvider'
 import { useDebouncedSave } from '../hooks/useDebouncedSave'
 import { ConflictBanner } from './ConflictBanner'
 import { ConfirmButton } from './ConfirmButton'
-import type { Memo } from '@shared/models'
+import { RepoTags } from './RepoTags'
+import type { Memo, Repo } from '@shared/models'
 
-export function MemoDetail({ memo, onChanged, onDeleted, onRequestClose }: {
+export function MemoDetail({ memo, repos, onChanged, onDeleted, onRequestClose }: {
   memo: Memo
+  /** 이 workspace의 repo 전부. 붙일 후보다. */
+  repos: Repo[]
   /** 목록을 다시 읽게 한다 */
   onChanged: () => void
   onDeleted: () => void
@@ -16,6 +19,7 @@ export function MemoDetail({ memo, onChanged, onDeleted, onRequestClose }: {
   const client = useClient()
   const [title, setTitle] = useState(memo.title)
   const [body, setBody] = useState(memo.body)
+  const [repoIds, setRepoIds] = useState(memo.repoIds)
   const [error, setError] = useState<string | null>(null)
   const [conflict, setConflict] = useState<Memo | null>(null)
   // 배너 상태를 ref로도 들고 있는다. Esc 경로는 flush를 await한 뒤에 충돌 여부를 봐야
@@ -34,7 +38,7 @@ export function MemoDetail({ memo, onChanged, onDeleted, onRequestClose }: {
     setConflict(next)
   }
 
-  async function persist(patch: { title?: string; body?: string }) {
+  async function persist(patch: { title?: string; body?: string; repoIds?: string[] }) {
     setError(null)
     const result = await client.memos.updateIfUnchanged({
       id: memo.id, ...patch, expectedUpdatedAt: expected.current
@@ -42,6 +46,21 @@ export function MemoDetail({ memo, onChanged, onDeleted, onRequestClose }: {
     if (!result.ok) { showConflict(result.current); return }
     expected.current = result.memo.updatedAt
     onChanged()
+  }
+
+  /**
+   * repo 토글은 디바운스 없이 곧바로 잠긴 경로를 탄다.
+   *
+   * 잠기지 않은 update로 쓰면 그 쓰기가 updatedAt을 올려 이 화면의 기대값만 낡게
+   * 만들고, 다음 자동 저장이 사용자 자신의 클릭을 agent의 편집으로 착각해 유령 충돌
+   * 배너를 띄운다 (이슈 상세의 changeAxis와 같은 이유·같은 방법).
+   */
+  function changeRepos(next: string[]) {
+    setRepoIds(next)
+    void (async () => {
+      try { await persist({ repoIds: next }) }
+      catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    })()
   }
 
   const bodySave = useDebouncedSave(async (value) => {
@@ -101,6 +120,7 @@ export function MemoDetail({ memo, onChanged, onDeleted, onRequestClose }: {
             titleSave.cancel()
             setTitle(conflict.title)
             setBody(conflict.body)
+            setRepoIds(conflict.repoIds)
             expected.current = conflict.updatedAt
             showConflict(null)
             onChanged()
@@ -108,7 +128,11 @@ export function MemoDetail({ memo, onChanged, onDeleted, onRequestClose }: {
           onOverwrite={() => {
             void (async () => {
               try {
-                const saved = await client.memos.update({ id: memo.id, title, body })
+                const saved = await client.memos.update({
+                  // repoIds도 같이 보낸다 — 빠뜨리면 방금 고른 repo가
+                  // 덮어쓰기에서 조용히 사라진다.
+                  id: memo.id, title, body, repoIds
+                })
                 expected.current = saved.updatedAt
                 showConflict(null)
                 onChanged()
@@ -130,6 +154,7 @@ export function MemoDetail({ memo, onChanged, onDeleted, onRequestClose }: {
         onChange={(e) => { setTitle(e.target.value); titleSave.schedule(e.target.value) }}
         onBlur={() => { void titleSave.flush() }}
       />
+      <RepoTags repos={repos} picked={repoIds} onChange={changeRepos} />
       <textarea
         aria-label="본문"
         className="detail-body"

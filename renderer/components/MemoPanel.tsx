@@ -5,12 +5,15 @@ import { MemoDetail } from './MemoDetail'
 import { useMemos } from '../hooks/useMemos'
 import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextChip } from '../context'
+import type { Repo } from '@shared/models'
 
 export function MemoPanel({
-  workspaceId, repoId, chipKeys, onToggleContext, expanded, openId, onOpen
+  workspaceId, repoId, repos, chipKeys, onToggleContext, expanded, openId, onOpen
 }: {
   workspaceId: string
   repoId: string | null
+  /** 이 workspace의 repo 전부. 상세에서 붙일 후보다 (IssuePanel과 대칭). */
+  repos: Repo[]
   chipKeys: Set<string>
   onToggleContext: (chip: ContextChip) => void
   expanded: boolean
@@ -87,6 +90,7 @@ export function MemoPanel({
                 // 올바른 메모에 흘려보낸다 (MemoDetail 내부 설명 참고).
                 key={open.id}
                 memo={open}
+                repos={repos}
                 onChanged={() => { void refresh() }}
                 onDeleted={() => { onOpen(open.id); void refresh() }}
                 // 같은 id로 onOpen을 부르면 App의 토글이 접는다. 상세가 대기 중인

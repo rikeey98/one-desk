@@ -189,8 +189,9 @@ describe('IssuePanel 훑기', () => {
     await userEvent.click(screen.getByRole('button', { name: '긴급' }))
     await userEvent.click(screen.getByRole('button', { name: '다음' }))
 
+    // repo를 안 찍었으므로 빈 배열이 함께 나간다 — "workspace 공통"을 뜻한다.
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith({
-      id: 'a', source: 'meeting', kind: 'bug', priority: 'urgent'
+      id: 'a', source: 'meeting', kind: 'bug', priority: 'urgent', repoIds: []
     }))
   })
 
@@ -228,8 +229,9 @@ describe('IssuePanel 훑기', () => {
     // id로 다시 여는 것이라 App과 같은 토글 규칙으로 openId가 null로 접혀
     // IssueDetail은 여기서도 마운트되지 않는다.
     await userEvent.click(screen.getByRole('button', { name: '다음' }))
+    // repo를 안 찍었으므로 빈 배열이 함께 나간다 — "workspace 공통"을 뜻한다.
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith({
-      id: 'a', source: 'meeting', kind: 'bug', priority: 'urgent'
+      id: 'a', source: 'meeting', kind: 'bug', priority: 'urgent', repoIds: []
     }))
 
     expect(mocks.markSeen).not.toHaveBeenCalled()
@@ -399,5 +401,47 @@ describe('IssuePanel 훑기', () => {
 
     // a로 되돌아간 적이 없어야 한다 — 첫 훑어보기 클릭 한 번만 a를 열었다.
     expect(opened.filter((id) => id === 'a')).toHaveLength(1)
+  })
+})
+
+describe('IssuePanel repo 배선', () => {
+  const REPOS: Repo[] = [{
+    id: 'r1', workspaceId: 'ws', name: 'api', path: '/tmp/r1',
+    description: null, sortOrder: 0, createdAt: 0
+  }]
+
+  it('훑기 카드에 workspace의 repo가 내려간다', async () => {
+    renderPanel(
+      [makeIssue({ id: 'a', title: 'A', triagedAt: null })],
+      { openId: 'a', expanded: true, repos: REPOS }
+    )
+    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    expect(screen.getByRole('button', { name: 'api' })).toBeInTheDocument()
+  })
+
+  it('훑기에서 찍은 repo가 저장에 실린다', async () => {
+    const mocks = renderPanel(
+      [makeIssue({ id: 'a', title: 'A', triagedAt: null })],
+      { openId: 'a', expanded: true, repos: REPOS }
+    )
+    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    await userEvent.click(screen.getByRole('button', { name: '회의' }))
+    await userEvent.click(screen.getByRole('button', { name: '버그' }))
+    await userEvent.click(screen.getByRole('button', { name: '긴급' }))
+    await userEvent.click(screen.getByRole('button', { name: 'api' }))
+    await userEvent.click(screen.getByRole('button', { name: '다음' }))
+
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith({
+      id: 'a', source: 'meeting', kind: 'bug', priority: 'urgent', repoIds: ['r1']
+    }))
+  })
+
+  it('이슈 상세에도 workspace의 repo가 내려간다', async () => {
+    // 훑기는 "정리 안 됨"만 돈다 — 이미 훑은 이슈는 상세에서만 repo를 바꿀 수 있다.
+    renderPanel(
+      [makeIssue({ id: 'a', title: 'A' })],
+      { openId: 'a', expanded: true, repos: REPOS }
+    )
+    expect(await screen.findByRole('button', { name: 'api' })).toBeInTheDocument()
   })
 })
