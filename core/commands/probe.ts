@@ -1,11 +1,10 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createLineSplitter } from '../runner/stream'
+import { terminate } from '../runner/terminate'
 import type { CommandPlugin, ProbeResult } from './types'
 
 /** 정상 환경에서 init은 2~6초에 온다(NFR-1). 훅이 느린 날을 감안해 그 두 배 남짓을 준다. */
 const DEFAULT_TIMEOUT_MS = 10_000
-/** SIGTERM 뒤 이만큼 살아 있으면 SIGKILL. RunManager와 같은 값이다. */
-const KILL_GRACE_MS = 3000
 
 /**
  * 목록만 얻는 인자. `--tools ""`로 도구를 없애고 MCP 설정은 넘기지 않는다(NFR-3).
@@ -134,12 +133,4 @@ function plugins(raw: unknown): CommandPlugin[] {
     if (typeof name === 'string' && typeof path === 'string') out.push({ name, path })
   }
   return out
-}
-
-/** SIGTERM을 보내고, 유예 후에도 살아 있으면 SIGKILL. RunManager의 것과 같다. */
-function terminate(child: ChildProcess): void {
-  child.kill('SIGTERM')
-  setTimeout(() => {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
-  }, KILL_GRACE_MS).unref()
 }
