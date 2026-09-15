@@ -174,8 +174,20 @@ commands: {
 `electron/ipc/commands.ts`가 core 호출만 한다.
 
 **renderer** — `useCommands(cwd)` 훅이 `useAssets`의 모양을 따른다(목록·오류·refresh).
-`App.tsx`가 그 결과를 `Dock` → `ConversationPanel` → `RunPanel`로 내려보낸다.
-**이 prop 배선 한 줄도 테스트 대상이다.**
+**훅은 `RunPanel` 안에 둔다.**
+
+> **정정 (2026-09-15, 원작자 판단).** 처음에는 `App.tsx`가 목록을 내려보내도록 적었으나
+> plan 단계에서 성립하지 않는 것이 드러나 고쳤다. **작업 디렉토리는 `App`이 모른다** —
+> `RunPanel`의 지역 상태이고(`RunPanel.tsx:38`), 새 대화에서는 사용자가 그 안의 드롭다운에서
+> 고르는 값이다. 목록은 작업 디렉토리마다 다르므로(FR-2·FR-12) 그 값을 아는 곳에 있어야 한다.
+> 대안이었던 "cwd를 `App`으로 올리기"는 `RunPanel`의 cwd effect를 건드리는데, 그 자리는
+> 주석에 사고 이력이 남아 있는 곳이라(다른 저장소에서 agent가 도는 결함) 택하지 않았다.
+
+`Dock`은 대화 탭을 바꿀 때마다 `key`로 `RunPanel`을 재마운트한다. **캐시가 core에 있으므로**
+재마운트는 프로세스를 다시 띄우지 않는다 — FR-13의 "작업 디렉토리당 1회"가 이 사실에
+기대고 있다. **캐시를 렌더러로 옮기면 그 약속이 조용히 깨진다.**
+
+**검증 대상은 "`RunPanel`이 지금 작업 디렉토리로 목록을 얻어 피커에 쓰는가"다.**
 
 **화면 흐름**
 
@@ -271,5 +283,5 @@ commands: {
 2. `assemble.ts`의 `trimStart()`
 3. `probe.ts`의 init 수신 후 종료
 4. `describe.ts`의 인자 placeholder 탐지
-5. `App.tsx`가 커맨드 목록을 `RunPanel`까지 내려보내는 prop
+5. `RunPanel`이 작업 디렉토리가 바뀔 때 목록을 다시 얻는 배선
 6. `terminal_slash_commands` 제외
