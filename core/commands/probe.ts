@@ -7,10 +7,12 @@ import type { CommandPlugin, ProbeResult } from './types'
 const DEFAULT_TIMEOUT_MS = 10_000
 
 /**
- * 목록만 얻는 인자. `--tools ""`로 도구를 없애고 MCP 설정은 넘기지 않는다(NFR-3).
- * `--verbose` 없이는 stream-json이 거부된다(CLAUDE.md).
+ * 목록만 얻는 인자. `--tools ""`로 도구를 없애고 `--mcp-config`는 넘기지 않는다(NFR-3).
+ * `--strict-mcp-config`는 사용자의 개인 MCP 서버가 probe마다 뜨는 것을 막는다(실측: 없으면
+ * 서버 9개가 떠 init까지 5.82초, 있으면 0개·1.16초) — 실제 run도 이 플래그를 쓰므로 목록이
+ * run 환경과 일치한다. `--verbose` 없이는 stream-json이 거부된다(CLAUDE.md).
  */
-const PROBE_ARGS = ['-p', '--output-format', 'stream-json', '--verbose', '--tools', '']
+const PROBE_ARGS = ['-p', '--output-format', 'stream-json', '--verbose', '--tools', '', '--strict-mcp-config']
 
 /**
  * 작업 디렉토리에서 CLI를 띄워 `system/init`의 슬래시 커맨드 목록만 받고 **즉시 죽인다**.

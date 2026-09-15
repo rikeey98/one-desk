@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
@@ -30,7 +30,7 @@ function emitLine(obj: unknown): string {
 }
 
 /** 전역 env를 건드리는 테스트가 되돌릴 값. probe는 `{ ...process.env }`를 그대로 넘긴다. */
-const ENV_KEYS = ['ONE_DESK_FAKE_DELAY_MS', 'ONE_DESK_PROBE_MARKER'] as const
+const ENV_KEYS = ['ONE_DESK_FAKE_DELAY_MS', 'ONE_DESK_PROBE_MARKER', 'ONE_DESK_PROBE_ENV_MARK'] as const
 let savedEnv: Record<string, string | undefined>
 
 beforeEach(() => {
@@ -68,9 +68,10 @@ describe.skipIf(POSIX_ONLY)('probeCommands — init 수신 후 즉시 종료 (FR
     expect(existsSync(marker)).toBe(false)
   })
 
-  it('실행 파일과 인자를 그대로 쓴다 — -p, stream-json, --verbose, --tools ""', async () => {
+  it('실행 파일과 인자를 그대로 쓴다 — -p, stream-json, --verbose, --tools "", --strict-mcp-config', async () => {
     // 픽스처가 받은 argv를 init에 되비춘다. --verbose가 빠지면 진짜 CLI가 실행을 거부하고,
-    // --tools ""가 빠지면 도구가 살아난다(NFR-3).
+    // --tools ""가 빠지면 도구가 살아나며(NFR-3), --strict-mcp-config가 빠지면 사용자의 개인
+    // MCP 서버가 probe마다 뜬다(실측: init 5.82s→1.16s). --mcp-config는 넘기지 않는다.
     const cli = writeCli(`
       process.stdout.write(JSON.stringify({
         type: 'system', subtype: 'init', slash_commands: process.argv.slice(2)
@@ -81,8 +82,28 @@ describe.skipIf(POSIX_ONLY)('probeCommands — init 수신 후 즉시 종료 (FR
     const result = await probeCommands({ executable: cli, cwd: dir })
 
     expect(result.slashCommands).toEqual(
-      ['-p', '--output-format', 'stream-json', '--verbose', '--tools', '']
+      ['-p', '--output-format', 'stream-json', '--verbose', '--tools', '', '--strict-mcp-config']
     )
+  })
+
+  it('cwd와 env를 그대로 넘긴다 — 디렉토리별 목록(FR-12)은 이 배선 하나에 달려 있다', async () => {
+    // CLI가 자기 cwd와 표식 env를 init에 되비춘다. cwd를 안 넘기면 vitest 워커의 cwd(repo 루트)가
+    // 되고, env를 비우면 표식이 사라진다. macOS는 tmpdir이 /var → /private/var 심볼릭 링크라
+    // realpath로 비교해야 한다.
+    const work = join(dir, 'work')
+    mkdirSync(work)
+    process.env['ONE_DESK_PROBE_ENV_MARK'] = '표식-' + cliCount
+    const cli = writeCli(`
+      process.stdout.write(JSON.stringify({
+        type: 'system', subtype: 'init',
+        slash_commands: [process.cwd(), process.env.ONE_DESK_PROBE_ENV_MARK ?? '(없음)']
+      }) + '\\n')
+      setTimeout(() => {}, 5000)
+    `)
+
+    const result = await probeCommands({ executable: cli, cwd: work })
+
+    expect(result.slashCommands).toEqual([realpathSync(work), process.env['ONE_DESK_PROBE_ENV_MARK']])
   })
 
   it('stdin을 닫는다 — 안 닫으면 CLI가 3초를 기다린다', async () => {
@@ -172,6 +193,24 @@ describe.skipIf(POSIX_ONLY)('probeCommands — 실패 내성 (NFR-2)', () => {
 
     expect(result).toMatchObject(EMPTY)
     expect(result.error).toContain('시간이 초과')
+  })
+
+  it('타임아웃이 지나면 프로세스가 정말 죽는다 — 마커 파일이 생기지 않는다', async () => {
+    // init 직후 경로의 마커 테스트와 대칭이다. init을 절대 안 뱉고 300ms 뒤 마커를 쓰는 CLI를
+    // 100ms에 타임아웃시킨다. 타임아웃 경로에서 안 죽이면 자식이 살아남아 마커를 쓴다 —
+    // 반환값만 봐서는 그 차이가 안 보인다.
+    const marker = join(dir, 'timeout-marker')
+    const cli = writeCli(`
+      import { writeFileSync } from 'node:fs'
+      setTimeout(() => writeFileSync(${JSON.stringify(marker)}, ''), 300)
+    `)
+
+    const result = await probeCommands({ executable: cli, cwd: dir, timeoutMs: 100 })
+
+    expect(result.error).toContain('시간이 초과')
+    // 마커 타이머(300ms)가 node 부팅을 더해도 충분히 지난 뒤에 본다.
+    await new Promise((r) => setTimeout(r, 700))
+    expect(existsSync(marker)).toBe(false)
   })
 })
 
