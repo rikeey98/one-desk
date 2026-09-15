@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { statSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FAKE = resolve(HERE, 'fixtures/fake-claude.mjs')
@@ -44,6 +45,35 @@ describe.skipIf(POSIX_ONLY)('fake-claude.mjs', () => {
       env: { ...process.env, ONE_DESK_FAKE_DELAY_MS: '300' }
     })
     expect(Date.now() - started).toBeGreaterThanOrEqual(300)
+  })
+
+  it('init에 슬래시 커맨드 목록과 플러그인을 싣는다', () => {
+    // 시나리오를 가르지 않고 모든 init에 싣는다 — e2e 드라이버는 --scenario를 못 넘기고
+    // 기본 픽스처를 그대로 spawn하므로, 시나리오로 가르면 e2e에서 피커가 빈다.
+    const out = execFileSync(FAKE, [], { input: '', encoding: 'utf8' })
+    const init = JSON.parse(out.split('\n')[0]!) as Record<string, unknown>
+    expect(init['slash_commands']).toEqual(
+      ['code-review', 'compact', 'doctor', 'color', 'reload-plugins', 'pinetest']
+    )
+    expect(init['terminal_slash_commands']).toEqual(['doctor', 'color', 'reload-plugins'])
+    expect(init['plugins']).toEqual([])
+  })
+
+  it('ONE_DESK_PROBE_MARKER가 있으면 init 200ms 뒤 그 경로에 파일을 만든다', () => {
+    // probe 테스트의 "모델 호출이 나갔다" 신호다. probe가 init 직후 죽이면 이 파일은 없어야 한다.
+    const dir = mkdtempSync(join(tmpdir(), 'one-desk-marker-'))
+    try {
+      const marker = join(dir, 'marker')
+      const started = Date.now()
+      execFileSync(FAKE, [], {
+        input: '', encoding: 'utf8',
+        env: { ...process.env, ONE_DESK_PROBE_MARKER: marker }
+      })
+      expect(existsSync(marker)).toBe(true)
+      expect(Date.now() - started).toBeGreaterThanOrEqual(200)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 

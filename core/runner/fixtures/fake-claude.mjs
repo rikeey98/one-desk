@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // 인자로 받은 시나리오대로 stream-json을 흉내낸다.
 // --scenario success | fail | hang | slow
+import { writeFileSync } from 'node:fs'
+
 const scenario = process.argv[process.argv.indexOf('--scenario') + 1] ?? 'success'
 
 function emit(obj) {
@@ -20,7 +22,20 @@ function finish(code) {
   process.stdin.pause()
 }
 
-emit({ type: 'system', subtype: 'init', session_id: 'fake-session' })
+// 슬래시 커맨드 목록은 시나리오를 가르지 않고 모든 init에 싣는다 — e2e 드라이버는
+// --scenario를 못 넘기고 기본 픽스처를 그대로 spawn하므로, 가르면 e2e에서 피커가 빈다.
+// terminal_slash_commands는 slash_commands의 부분집합이다(진짜 CLI와 같다).
+emit({
+  type: 'system', subtype: 'init', session_id: 'fake-session',
+  slash_commands: ['code-review', 'compact', 'doctor', 'color', 'reload-plugins', 'pinetest'],
+  terminal_slash_commands: ['doctor', 'color', 'reload-plugins'],
+  plugins: []
+})
+
+// probe 테스트의 "모델 호출이 나갔다" 신호. init 200ms 뒤에도 살아 있으면 마커를 쓴다 —
+// probe가 init 직후 죽이면 이 파일은 생기지 않아야 한다. 환경변수가 없으면 아무것도 안 한다.
+const marker = process.env.ONE_DESK_PROBE_MARKER
+if (marker) setTimeout(() => writeFileSync(marker, ''), 200)
 
 if (scenario === 'hang') {
   setInterval(() => {}, 1000) // 종료하지 않는다

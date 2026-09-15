@@ -15,3 +15,16 @@ export interface CommandPlugin {
   /** 절대 경로 */
   path: string
 }
+
+/**
+ * probe가 `system/init`에서 뽑은 것. 못 얻었으면 목록은 전부 비고 `error`에 사유가 담긴다 —
+ * 어떤 경우에도 던지지 않는다(NFR-2). init에 없는 필드는 빈 배열로 본다.
+ */
+export interface ProbeResult {
+  slashCommands: string[]
+  /** 터미널이 있어야 도는 것(`doctor` 등). 헤드리스에선 무의미하므로 service가 목록에서 뺀다. */
+  terminalSlashCommands: string[]
+  plugins: CommandPlugin[]
+  /** 목록을 얻지 못한 사유. 성공이면 null. */
+  error: string | null
+}
