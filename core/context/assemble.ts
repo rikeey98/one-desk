@@ -28,7 +28,6 @@ const NEEDS_ANSWER_GUIDE = `
 `.trim()
 
 export function assemblePrompt(input: AssembleInput): string {
-  const parts: string[] = []
   const sections: string[] = []
 
   if (input.repos.length > 0) {
@@ -75,9 +74,22 @@ export function assemblePrompt(input: AssembleInput): string {
   assetBlock('skill', 'skills')
   assetBlock('agent', 'agents')
 
-  if (sections.length > 0) {
-    parts.push(`<context>\n${sections.join('\n')}\n</context>`)
+  const contextBlock =
+    sections.length > 0 ? `<context>\n${sections.join('\n')}\n</context>` : null
+
+  // 슬래시로 시작하면 조립 결과의 첫 글자도 '/'여야 CLI가 커맨드로 확장한다. 맥락과
+  // 안내문을 뒤로 밀고 <task> 래퍼는 쓰지 않는다(FR-7). 앞 공백을 남겨 보내면 우리는
+  // 슬래시로 보고 CLI는 아니라고 보므로, 판정한 것과 같은 trimStart된 문자열을 보낸다.
+  const trimmedPrompt = input.userPrompt.trimStart()
+  if (trimmedPrompt.startsWith('/')) {
+    const slashParts = [trimmedPrompt]
+    if (contextBlock) slashParts.push(contextBlock)
+    slashParts.push(NEEDS_ANSWER_GUIDE)
+    return slashParts.join('\n\n')
   }
+
+  const parts: string[] = []
+  if (contextBlock) parts.push(contextBlock)
 
   // userPrompt는 이스케이프하지 않는다. 사용자가 직접 쓴 지시이므로 그대로 전달한다.
   // 맥락 데이터만 이스케이프한다 — 4단계에서 agent가 create_memo로 쓴 내용도 거기 들어온다.
