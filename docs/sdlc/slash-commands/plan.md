@@ -149,4 +149,14 @@
 
 ## 계획 이탈 기록
 
-없음.
+- **3단계 픽스처 (사전 점검, 2026-09-15):** `--scenario commands`를 추가하지 않고, `fake-claude.mjs`의
+  init이 **모든 시나리오에서** `slash_commands`·`terminal_slash_commands`·`plugins`를 싣게 했다.
+  e2e 드라이버는 시나리오를 넘길 수 없고 기본 픽스처를 그대로 spawn하므로, 시나리오로 가르면
+  11단계에서 피커가 빈다. 마커 파일은 env `ONE_DESK_PROBE_MARKER`가 있을 때만 쓴다.
+- **`CommandInfo`의 소유 (사전 점검):** plan이 어느 단계가 `shared/models.ts`에 추가하는지 적지
+  않았다. 4단계가 추가한다.
+- **11단계 검증 방법 (사전 점검):** "가짜 CLI가 받은 프롬프트"는 e2e가 `dataDir`의 SQLite에서
+  `run.assembled_prompt`를 직접 읽어 확인한다(픽스처 변경 불필요).
+- **FR-1 정정 (1단계 리뷰, 2026-09-15):** 피커의 여는 조건을 "줄머리 또는 공백 바로 뒤"에서
+  "앞이 비었거나 슬래시 토큰뿐일 때"로 좁혔다. 7단계 `findSlashToken`이 이 규칙을 따른다. 상세는
+  spec FR-1의 정정 주석.
