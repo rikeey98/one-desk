@@ -15,14 +15,22 @@ function init(overrides: Partial<ProbeResult> = {}): ProbeResult {
   }
 }
 
-/** 부른 횟수를 세는 가짜 probe. 캐시 검증은 이 수를 본다. */
-function fakeProbe(results: ProbeResult[] | ProbeResult) {
+/**
+ * 부른 횟수를 세는 가짜 probe. 캐시 검증은 이 수를 본다.
+ * 배열에 `Error`를 넣으면 그 차례에 던진다 — probe는 던지지 않는 계약이지만 주입하는 쪽
+ * (Task 5의 실행 파일 해석)은 던질 수 있다.
+ */
+function fakeProbe(results: (ProbeResult | Error)[] | ProbeResult) {
   const calls: { workspaceId: string; cwd: string }[] = []
   const queue = Array.isArray(results) ? results : null
   return Object.assign(
     async (input: { workspaceId: string; cwd: string }): Promise<ProbeResult> => {
       calls.push(input)
-      return queue ? (queue[calls.length - 1] ?? queue[queue.length - 1]!) : (results as ProbeResult)
+      const next = queue
+        ? (queue[calls.length - 1] ?? queue[queue.length - 1]!)
+        : (results as ProbeResult)
+      if (next instanceof Error) throw next
+      return next
     },
     { calls }
   )
@@ -107,6 +115,17 @@ describe('캐시', () => {
     expect(probe.calls.map((c) => c.cwd)).toEqual(['/repo', '/다른-repo'])
   })
 
+  it('workspace가 달라도 cwd가 같으면 다시 얻지 않는다', async () => {
+    // 캐시 키는 cwd 하나다 — 커맨드는 작업 디렉토리에서 나온다(설계 › 데이터 모델).
+    const service = createCommandService({ probe, describe: describeFn })
+
+    await service.list({ workspaceId: 'ws-1', cwd: '/repo' })
+    const other = await service.list({ workspaceId: 'ws-2', cwd: '/repo' })
+
+    expect(probe.calls).toHaveLength(1)
+    expect(other.commands.map((c) => c.name)).toEqual(['code-review', 'compact', 'pinetest'])
+  })
+
   it('refresh는 캐시를 버리고 다시 얻는다', async () => {
     const service = createCommandService({ probe, describe: describeFn })
 
@@ -157,6 +176,19 @@ describe('캐시', () => {
 
     expect(probe.calls).toHaveLength(1)
     expect(a).toEqual(b)
+  })
+
+  it('probe가 던져도 다음 list가 다시 시도한다', async () => {
+    // 거부된 조회를 진행 중 표시에서 지우지 않으면 그 cwd는 앱을 다시 켤 때까지 같은 실패만 돌려준다.
+    probe = fakeProbe([new Error('실행 파일을 찾을 수 없습니다'), init()])
+    const service = createCommandService({ probe, describe: describeFn })
+
+    await expect(service.list({ workspaceId: WORKSPACE, cwd: '/repo' }))
+      .rejects.toThrow('실행 파일을 찾을 수 없습니다')
+    const retried = await service.list({ workspaceId: WORKSPACE, cwd: '/repo' })
+
+    expect(retried.commands.map((c) => c.name)).toEqual(['code-review', 'compact', 'pinetest'])
+    expect(probe.calls).toHaveLength(2)
   })
 
   it('refresh가 도는 중의 list는 낡은 목록이 아니라 새 결과를 받는다', async () => {
