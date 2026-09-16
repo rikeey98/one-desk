@@ -630,6 +630,35 @@ describe('App', () => {
 })
 
 describe('패널 확장', () => {
+  it.each([
+    ['Issues', '토큰 만료'],
+    ['Memos', '배포 메모'],
+    ['Skills / Agents', '알파 스킬']
+  ])('%s의 축소 버튼으로 상세를 닫고 다시 열 수 있다', async (panelName, title) => {
+    renderApp(makeClient({}, {
+      issues: [makeIssue({ title: '토큰 만료' })],
+      memos: [makeMemo({ title: '배포 메모' })],
+      assets: [{
+        id: 'a1', workspaceId: 'w1', kind: 'skill', source: 'authored',
+        name: '알파 스킬', description: null, repoId: null, filePath: null,
+        content: '스킬 본문', lastSeenAt: null, createdAt: 0, updatedAt: 0
+      }]
+    }))
+    await selectWorkspace()
+    const panel = screen.getByRole('region', { name: panelName })
+    expect(within(panel).queryByRole('button', { name: '축소' })).not.toBeInTheDocument()
+
+    await userEvent.click(await within(panel).findByRole('button', { name: title }))
+    expect(within(panel).getByRole('textbox', { name: '본문' })).toBeInTheDocument()
+    await userEvent.click(within(panel).getByRole('button', { name: '축소' }))
+
+    expect(panel).not.toHaveClass('panel-expanded')
+    expect(within(panel).queryByRole('textbox', { name: '본문' })).not.toBeInTheDocument()
+    expect(within(panel).queryByRole('button', { name: '축소' })).not.toBeInTheDocument()
+    await userEvent.click(within(panel).getByRole('button', { name: title }))
+    expect(within(panel).getByRole('textbox', { name: '본문' })).toBeInTheDocument()
+  })
+
   it('이슈를 클릭하면 그 패널이 확장되고 상세가 뜬다', async () => {
     renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
     await selectWorkspace()

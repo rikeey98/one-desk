@@ -202,7 +202,13 @@ export function IssuePanel({
   )
 
   return (
-    <Panel title="Issues" expanded={expanded}>
+    <Panel
+      title="Issues"
+      expanded={expanded}
+      action={expanded && openId && (
+        <button type="button" onClick={() => onOpen(openId)}>축소</button>
+      )}
+    >
       {listError && <div role="alert" className="form-error">{listError}</div>}
       {triageError && <div role="alert" className="form-error">{triageError}</div>}
       {/* 감싸는 div의 엘리먼트 타입을 확장 여부와 무관하게 항상 유지한다.

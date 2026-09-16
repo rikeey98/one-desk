@@ -127,7 +127,12 @@ export function AssetPanel({
   )
 
   return (
-    <Panel title="Skills / Agents">
+    <Panel
+      title="Skills / Agents"
+      action={expanded && openId && (
+        <button type="button" onClick={() => onOpen?.(openId)}>축소</button>
+      )}
+    >
       {expanded && open
         ? (
             <AssetDetail
