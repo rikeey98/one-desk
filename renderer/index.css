@@ -289,3 +289,11 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
   background: rgba(224, 108, 0, 0.15);
   opacity: 1;
 }
+
+.command-picker { border: 1px solid #d4d4d8; border-radius: 6px; background: #fff; padding: 8px; margin-bottom: 6px; }
+.command-picker-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; color: #52525b; margin-bottom: 5px; }
+.command-picker [role="listbox"] { max-height: 180px; overflow-y: auto; }
+.command-option { display: flex; width: 100%; gap: 12px; text-align: left; padding: 6px 8px; border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
+.command-option[aria-selected="true"] { background: #dbeafe; }
+.command-option span { color: #52525b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-warning { font-size: 12px; color: #92400e; margin: 6px 0; }

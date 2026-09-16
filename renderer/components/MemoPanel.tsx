@@ -75,7 +75,13 @@ export function MemoPanel({
   )
 
   return (
-    <Panel title="Memos" expanded={expanded}>
+    <Panel
+      title="Memos"
+      expanded={expanded}
+      action={expanded && openId && (
+        <button type="button" onClick={() => onOpen(openId)}>축소</button>
+      )}
+    >
       {listError && <div role="alert" className="form-error">{listError}</div>}
       {/* 감싸는 div의 엘리먼트 타입을 확장 여부와 무관하게 항상 유지한다.
           IssuePanel과 대칭 — 이유는 그쪽 주석 참고. */}

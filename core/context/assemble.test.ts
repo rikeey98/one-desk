@@ -97,3 +97,38 @@ describe('asset', () => {
     expect(out).not.toContain('<agents>')
   })
 })
+
+describe('슬래시 커맨드', () => {
+  it('슬래시로 시작하면 조립 결과의 첫 글자가 슬래시다', () => {
+    const out = assemblePrompt({
+      repos: [repo], issues: [], memos: [], assets: [], userPrompt: '/code-review 이 부분만'
+    })
+    expect(out.startsWith('/code-review 이 부분만')).toBe(true)
+    expect(out).not.toContain('<task>')
+  })
+
+  it('앞에 공백이 있어도 첫 글자가 슬래시다', () => {
+    // 판정과 전송이 어긋나면 맥락만 뒤로 밀리고 커맨드는 확장되지 않는다 (spec 예외 처리)
+    const out = assemblePrompt({
+      repos: [repo], issues: [], memos: [], assets: [], userPrompt: '  \n /code-review'
+    })
+    expect(out.startsWith('/code-review')).toBe(true)
+  })
+
+  it('맥락이 지시보다 뒤에 온다', () => {
+    const out = assemblePrompt({
+      repos: [repo], issues: [], memos: [], assets: [], userPrompt: '/code-review'
+    })
+    expect(out.indexOf('/code-review')).toBeLessThan(out.indexOf('<context>'))
+    expect(out).toContain('<repo name="api-server" path="/tmp/api">')
+  })
+
+  it('안내문이 지시와 맥락보다 뒤에 온다', () => {
+    const out = assemblePrompt({
+      repos: [repo], issues: [], memos: [], assets: [], userPrompt: '/code-review'
+    })
+    expect(out.indexOf('/code-review')).toBeLessThan(out.indexOf('[NEEDS_ANSWER]'))
+    expect(out.indexOf('<context>')).toBeLessThan(out.indexOf('[NEEDS_ANSWER]'))
+    expect(out.endsWith('작업을 마쳤다면 이 표식을 쓰지 말 것.')).toBe(true)
+  })
+})

@@ -5,10 +5,8 @@ import type { RunEvent, RunEventInit } from '@shared/events'
 import type { AgentAdapter, McpRunConfig } from './types'
 import { createLineSplitter } from './stream'
 import { createLogWriter } from './logWriter'
+import { terminate } from './terminate'
 import type { ErrorSink } from '../errors'
-
-/** SIGTERM 후 SIGKILL까지의 유예 */
-const KILL_GRACE_MS = 3000
 
 export interface RunManagerOptions {
   adapters: Record<AgentKind, AgentAdapter>
@@ -198,11 +196,3 @@ export function createRunManager(opts: RunManagerOptions) {
 }
 
 export type RunManager = ReturnType<typeof createRunManager>
-
-/** SIGTERM을 보내고, 유예 후에도 살아 있으면 SIGKILL. */
-function terminate(child: ChildProcess): void {
-  child.kill('SIGTERM')
-  setTimeout(() => {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
-  }, KILL_GRACE_MS).unref()
-}

@@ -6,6 +6,9 @@ import { createWorkspaceRepository } from './db/repositories/workspace'
 import { createRepoRepository } from './db/repositories/repo'
 import { createAssetRepository } from './db/repositories/asset'
 import { createAssetService } from './assets/service'
+import { createCommandService } from './commands/service'
+import { probeCommands } from './commands/probe'
+import { describeCommands } from './commands/describe'
 import type { GlobalRoots } from './db/repositories/setting'
 import { createIssueRepository } from './db/repositories/issue'
 import { createMemoRepository } from './db/repositories/memo'
@@ -83,6 +86,19 @@ export function createCore(opts: CoreOptions) {
   const runs = createRunRepository(db)
   const assetRows = createAssetRepository(db)
   const settings = createSettingRepository(db, opts.homeDir)
+
+  const commands = createCommandService({
+    probe: async ({ workspaceId, cwd }) => {
+      const workspace = workspaces.list().find((w) => w.id === workspaceId) ?? null
+      const resolved = await claudeCodeAdapter.preflight(resolveAgentPath('claude-code', workspace))
+      const result = resolved.ok && resolved.executable
+        ? await probeCommands({ executable: resolved.executable, cwd })
+        : { slashCommands: [], terminalSlashCommands: [], plugins: [], error: resolved.reason ?? 'claude 실행 파일을 찾을 수 없습니다' }
+      if (result.error) onError('커맨드 목록 조회 실패', new Error(result.error))
+      return result
+    },
+    describe: (input) => describeCommands({ ...input, homeDir: opts.homeDir })
+  })
 
   const assetService = createAssetService({
     assets: assetRows,
@@ -173,6 +189,7 @@ export function createCore(opts: CoreOptions) {
 
   return {
     workspaces,
+    commands,
 
     /**
      * repo 저장소에 "등록하면 곧바로 훑는다"만 얹는다 (설계 §3-2).

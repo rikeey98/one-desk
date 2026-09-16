@@ -18,6 +18,8 @@ export const CHANNELS = {
   memosUpdate: 'memos:update',
   memosUpdateIfUnchanged: 'memos:updateIfUnchanged',
   memosRemove: 'memos:remove',
+  commandsList: 'commands:list',
+  commandsRefresh: 'commands:refresh',
   assetsList: 'assets:list',
   assetsCreateAuthored: 'assets:createAuthored',
   assetsUpdateIfUnchanged: 'assets:updateIfUnchanged',

@@ -26,6 +26,14 @@ workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 
 
 **이슈 훑기**가 붙었다(설계 `2026-08-27-issue-triage-design.md`, 계획 `2026-08-27-issue-triage.md`). **첫 실행에 마이그레이션 `0003`이 돈다** — 컬럼 다섯 추가 + 기존 이슈의 `triaged_at` 백필. 이슈를 제목 한 줄로 던져 넣고 분류는 나중에 훑기로 몰아서 한다. 목록은 축(급함·출처·성격·repo)으로 묶고 접되 **접혀도 개수는 보이며**, 그룹 안은 `seenAt` 오래된 순이다. MCP `create_issue`가 축을 받으므로 agent가 회의 메모를 이슈로 쪼개며 분류까지 끝낼 수 있다.
 
+**슬래시 커맨드가 붙었다** (`docs/sdlc/slash-commands/`). Claude Code 실행 입력에서 `/`로
+커맨드를 검색하고 ↑↓·Enter/Tab으로 삽입한다. 목록은 cwd마다 한 번 얻어 core에 캐시하며,
+실패 결과도 수동 새로고침 전까지 유지한다. probe는 init 직후 SIGKILL로 종료한다 — 일반 실행의
+SIGTERM 유예를 쓰면 모델 호출까지 진행할 수 있다. OpenCode에서는 피커와 조회를 비활성화한다.
+슬래시 프롬프트는 커맨드를 맨 앞에 두고 맥락·답변 필요 안내를 뒤에 붙인다. 마이그레이션 없음.
+`e2e/slash.e2e.ts`가 IPC부터 실제 CLI stdin까지, 선택 실행하는 `e2e/slash-real.e2e.ts`가
+실제 Claude의 첫 턴·resume 커맨드 확장을 검증한다.
+
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
 한동안 "5단계 착수 전에 정할 것"으로 잡아두고 **평문 SQLite에 자격 증명을 넣을지**를 막힌 결정으로 남겼던 항목이다. 대상 환경을 실측해 보니 **배관 자체가 불필요했다.**

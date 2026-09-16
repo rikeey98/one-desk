@@ -284,3 +284,30 @@ export interface GlobalRoots {
   claude: string[]
   opencode: string[]
 }
+
+/**
+ * 피커에 뜨는 슬래시 커맨드 한 개. init이 준 이름에 디스크에서 찾은 설명을 붙인 것이다.
+ *
+ * 이름과 설명은 외부 파일에서 오는 **신뢰할 수 없는 입력**이다 — 화면은 평문으로 그리고
+ * 프롬프트에는 이스케이프해서 싣는다(NFR-7).
+ */
+export interface CommandInfo {
+  /** `/` 없이. 플러그인 것은 `<플러그인>:<이름>` */
+  name: string
+  description: string | null
+  /** 인자 placeholder를 쓰는가. 설명 파일을 못 찾으면 false — 모른다는 뜻이 아니라 경고하지 않는다는 뜻이다 */
+  usesArguments: boolean
+}
+
+/** 목록 조회 결과. 얻지 못해도 던지지 않는다 — 빈 목록과 사유가 함께 온다(NFR-2). */
+export interface CommandListResult {
+  commands: CommandInfo[]
+  /** 목록을 얻지 못한 사유. 성공이면 null */
+  error: string | null
+}
+
+/** workspace는 실행 파일 경로를 정하고, 캐시 키는 cwd 하나다. */
+export interface CommandTarget {
+  workspaceId: string
+  cwd: string
+}

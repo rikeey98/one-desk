@@ -36,6 +36,10 @@ function makeClient(opts: { resume?: ReturnType<typeof vi.fn> } = {}): OneDeskCl
   return {
     workspaces: { list: vi.fn(), create: vi.fn(), remove: vi.fn() },
     repos: { list: vi.fn(), create: vi.fn(), remove: vi.fn() },
+    commands: {
+      list: vi.fn().mockResolvedValue({ commands: [], error: null }),
+      refresh: vi.fn().mockResolvedValue({ commands: [], error: null })
+    },
     runs: {
       list: vi.fn().mockResolvedValue([]),
       start: vi.fn().mockResolvedValue({ id: 'run-1' } as Run),

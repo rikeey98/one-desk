@@ -28,3 +28,6 @@ e2e/artifacts/
 .idea/
 
 .DS_Store
+
+# superpowers worktrees
+.worktrees/
