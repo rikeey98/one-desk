@@ -20,11 +20,24 @@ export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, 
 }) {
   const client = useClient()
   const [editing, setEditing] = useState<string | null>(null)
+  // 열기 실패는 부모가 주는 `error`와 다른 출처다 — 목록을 읽다 난 오류가
+  // 이 버튼 때문에 지워지면 안 된다.
+  const [openError, setOpenError] = useState<string | null>(null)
 
   async function renameRepo(id: string, name: string) {
     setEditing(null)
     await client.repos.rename(id, name)
     await refresh()
+  }
+
+  async function openInEditor(id: string) {
+    setOpenError(null)
+    try {
+      await client.repos.openInEditor(id)
+    } catch (err) {
+      // 조용히 아무 일도 안 일어나면 VS Code가 없는 것인지 버튼이 죽은 것인지 모른다.
+      setOpenError(err instanceof Error ? err.message : String(err))
+    }
   }
 
   async function removeRepo(id: string) {
@@ -38,6 +51,7 @@ export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, 
   return (
     <div className="repo-strip">
       {error && <div role="alert" className="form-error">{error}</div>}
+      {openError && <div role="alert" className="form-error">{openError}</div>}
       {repos.map((r) => (
         // 카드 클릭은 필터, 별도 버튼이 맥락 담기다. 버튼 안에 버튼을 넣을 수 없어 감싼다.
         <div key={r.id} className="repo-slot">
@@ -72,6 +86,14 @@ export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, 
               {/* 평소엔 CSS로 감춰 두고 호버·포커스에서 드러낸다. DOM에는 항상
                   있어야 키보드로도 닿는다. */}
               <span className="repo-actions">
+                <button
+                  type="button"
+                  className="row-action"
+                  aria-label={`${r.name} VS Code로 열기`}
+                  onClick={() => void openInEditor(r.id)}
+                >
+                  ⧉
+                </button>
                 <button
                   type="button"
                   className="row-action"

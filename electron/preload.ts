@@ -32,7 +32,8 @@ const client: OneDeskClient = {
     list: (workspaceId) => call<Repo[]>(CHANNELS.reposList, workspaceId),
     create: (input) => call<Repo>(CHANNELS.reposCreate, input),
     rename: (id, name) => call<Repo>(CHANNELS.reposRename, id, name),
-    remove: (id) => call<void>(CHANNELS.reposRemove, id)
+    remove: (id) => call<void>(CHANNELS.reposRemove, id),
+    openInEditor: (id) => call<void>(CHANNELS.reposOpenInEditor, id)
   },
   issues: {
     list: (query) => call<Issue[]>(CHANNELS.issuesList, query),
