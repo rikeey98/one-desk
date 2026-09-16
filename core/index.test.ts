@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createAdapters, createCore, type Core } from './index'
 import { DEFAULT_CONCURRENCY_LIMIT } from './db/repositories/setting'
@@ -345,5 +345,163 @@ describe('글로벌 asset', () => {
       else process.env['ONE_DESK_AGENT_PATH'] = prev
       close(core)
     }
+  })
+})
+
+describe('슬래시 커맨드 배선', () => {
+  /** 가짜 CLI를 물리는 env를 걸었다가 반드시 되돌린다 — 남기면 뒤 테스트가 그것을 쓴다. */
+  async function withAgentPath<T>(path: string, fn: () => Promise<T>): Promise<T> {
+    const previous = process.env['ONE_DESK_AGENT_PATH']
+    process.env['ONE_DESK_AGENT_PATH'] = path
+    try {
+      return await fn()
+    } finally {
+      if (previous === undefined) delete process.env['ONE_DESK_AGENT_PATH']
+      else process.env['ONE_DESK_AGENT_PATH'] = previous
+    }
+  }
+
+  it('실행 파일을 찾지 못하면 던지지 않고 빈 목록과 사유를 준다', async () => {
+    // preflight 실패가 예외로 새면 IPC 핸들러가 거부되고 피커는 사유 없이 비어 보인다.
+    // 사유는 preflight의 것을 그대로 — 설정한 경로가 무엇이었는지 화면에서 보여야 한다.
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    const missing = join(dataDir, '없는-claude')
+
+    const result = await withAgentPath(missing, () => core.commands.list({ workspaceId, cwd: dataDir }))
+
+    expect(result).toEqual({ commands: [], error: expect.stringContaining(missing) })
+    // 앱은 멀쩡하다 — core가 계속 응답하고 아무 프로세스도 뜨지 않았다.
+    expect(core.queue.snapshot().running).toBe(0)
+    expect(existsSync(join(dataDir, 'logs'))).toBe(false)
+    close(core)
+  })
+
+  it('목록을 얻어도 슬롯·큐·run 테이블·이벤트에 흔적이 없다 (FR-11)', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    // run 테이블이 비어 있으면 "같다"가 자명하다 — 행을 하나 두고 본다.
+    const seeded = seedRun(core, dataDir, '기존 것')
+    const workspaceId = seeded.workspaceId
+    const leaked: unknown[] = []
+    core.onRunEvent((e) => leaked.push(e))
+    core.onRunUpdate((r) => leaked.push(r))
+    core.onQueueUpdate((s) => leaked.push(s))
+    const queueBefore = core.queue.snapshot()
+    const runsBefore = core.runs.list(workspaceId)
+
+    await withAgentPath(FAKE_AGENT, () => core.commands.list({ workspaceId, cwd: dataDir }))
+
+    expect(core.queue.snapshot()).toEqual(queueBefore)
+    expect(core.runs.list(workspaceId)).toEqual(runsBefore)
+    expect(leaked).toEqual([])
+    // manager는 프로세스를 띄우는 첫 동작으로 logs/를 만든다 — 없다는 것이
+    // 탐색이 RunManager를 타지 않았다는 관측 가능한 증거다.
+    expect(existsSync(join(dataDir, 'logs'))).toBe(false)
+    close(core)
+  })
+
+  /**
+   * 아래는 shebang 스크립트를 실행 파일로 직접 띄운다. Windows에는 shebang 실행이 없어
+   * 성립하지 않는다 — probe.test.ts와 같은 규칙으로 스킵한다.
+   */
+  describe.skipIf(process.platform === 'win32')('가짜 CLI를 실제로 띄운다', () => {
+    it('픽스처의 init에서 터미널 전용을 뺀 목록을 준다', async () => {
+      const dataDir = makeDataDir()
+      const core = open(dataDir)
+      const workspaceId = core.workspaces.create({ name: 'ws' }).id
+
+      const result = await withAgentPath(FAKE_AGENT, () => core.commands.list({ workspaceId, cwd: dataDir }))
+
+      expect(result).toEqual({
+        commands: [
+          { name: 'code-review', description: null, usesArguments: false },
+          { name: 'compact', description: null, usesArguments: false },
+          { name: 'pinetest', description: null, usesArguments: false }
+        ],
+        error: null
+      })
+      close(core)
+    })
+
+    it('설명은 넘긴 homeDir에서 읽는다', async () => {
+      // opts.homeDir가 describe까지 닿는 한 줄. 빈 문자열이나 cwd를 넘겨도 위 테스트는
+      // 통과하므로 따로 고정한다 — 배선 한 줄은 그 자체로 되돌릴 수 있는 변이다.
+      const dataDir = makeDataDir()
+      const home = join(dataDir, 'home')
+      const commandsDir = join(home, '.claude', 'commands')
+      mkdirSync(commandsDir, { recursive: true })
+      writeFileSync(join(commandsDir, 'pinetest.md'), '---\ndescription: 솔잎 검사\n---\n$ARGUMENTS를 검사한다\n')
+      const core = open(dataDir, home)
+      const workspaceId = core.workspaces.create({ name: 'ws' }).id
+
+      const { commands } = await withAgentPath(FAKE_AGENT, () => core.commands.list({ workspaceId, cwd: dataDir }))
+
+      expect(commands.find((c) => c.name === 'pinetest'))
+        .toEqual({ name: 'pinetest', description: '솔잎 검사', usesArguments: true })
+      close(core)
+    })
+
+    it('실패한 조회는 수동 새로고침으로 다시 얻는다', async () => {
+      // 경로를 고친 뒤 새로고침하면 실패한 캐시를 버리고 다시 탐색한다.
+      const dataDir = makeDataDir()
+      const core = open(dataDir)
+      const workspaceId = core.workspaces.create({ name: 'ws' }).id
+      const target = { workspaceId, cwd: dataDir }
+
+      const failed = await withAgentPath(join(dataDir, '없는-claude'), () => core.commands.list(target))
+      const retried = await withAgentPath(FAKE_AGENT, () => core.commands.refresh(target))
+
+      expect(failed.commands).toEqual([])
+      expect(retried.error).toBeNull()
+      expect(retried.commands.map((c) => c.name)).toEqual(['code-review', 'compact', 'pinetest'])
+      close(core)
+    })
+
+    it('run이 끝나도 다시 탐색하지 않는다 (FR-13)', async () => {
+      // createCore에는 probe를 주입할 이음매가 없다 — 그래서 spawn 자체를 센다. 가짜 CLI 앞에
+      // argv를 기록해 도구를 비운 probe만 센다. read_only run도 --tools를 쓰지만 값이 비어 있지 않다.
+      const dataDir = makeDataDir()
+      const spawnLog = join(dataDir, 'spawns.jsonl')
+      const counting = join(dataDir, 'counting-claude.mjs')
+      writeFileSync(counting, [
+        '#!/usr/bin/env node',
+        "import { appendFileSync } from 'node:fs'",
+        `appendFileSync(${JSON.stringify(spawnLog)}, JSON.stringify(process.argv.slice(2)) + '\\n')`,
+        `await import(${JSON.stringify(pathToFileURL(FAKE_AGENT).href)})`,
+        ''
+      ].join('\n'), { mode: 0o755 })
+      const probeSpawns = (): number => existsSync(spawnLog)
+        ? readFileSync(spawnLog, 'utf8').trim().split('\n').filter((line) => {
+            const args = JSON.parse(line) as string[]
+            return args[args.indexOf('--tools') + 1] === ''
+          }).length
+        : 0
+
+      const core = open(dataDir)
+      const workspaceId = core.workspaces.create({ name: 'ws' }).id
+      const target = { workspaceId, cwd: dataDir }
+
+      await withAgentPath(counting, async () => {
+        const first = await core.commands.list(target)
+        expect(first.error).toBeNull()
+        expect(probeSpawns()).toBe(1)
+
+        const run = await core.execution.start({
+          workspaceId, agentKind: 'claude-code', cwd: dataDir,
+          permission: 'edit', userPrompt: 'x', context: []
+        })
+        await vi.waitFor(() => expect(core.runs.get(run.id).endedAt).toBeTypeOf('number'))
+
+        // 끝난 뒤의 list가 캐시를 맞으면 CLI가 다시 뜨지 않는다. onRunUpdate가 refresh를
+        // 불렀다면 캐시가 비워져 여기서(또는 이미) 한 번 더 떴다 — 진행 중인 조회를 나눠
+        // 쓰는 규칙 때문에 그 spawn이 아직 안 찍혔어도 이 await가 그것을 기다린다.
+        const after = await core.commands.list(target)
+        expect(after).toEqual(first)
+        expect(probeSpawns()).toBe(1)
+      })
+      close(core)
+    })
   })
 })

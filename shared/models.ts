@@ -305,3 +305,9 @@ export interface CommandListResult {
   /** 목록을 얻지 못한 사유. 성공이면 null */
   error: string | null
 }
+
+/** workspace는 실행 파일 경로를 정하고, 캐시 키는 cwd 하나다. */
+export interface CommandTarget {
+  workspaceId: string
+  cwd: string
+}

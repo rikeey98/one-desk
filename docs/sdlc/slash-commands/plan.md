@@ -123,25 +123,25 @@
 
 ## 완료 증명
 
-- [ ] `pnpm test` — 전부 초록. 기존 `assemble.test.ts` 5개가 **수정 없이** 통과
-- [ ] `pnpm typecheck` — 오류 없음
-- [ ] `pnpm lint` — 오류 없음
-- [ ] `pnpm test:e2e` — `slash.e2e.ts` 포함 전부 통과
-- [ ] `grep -rn "from 'electron'" core/` — 출력 없음
-- [ ] `grep -rn "window.oneDesk" renderer/ | grep -v main.tsx` — 출력 없음
-- [ ] `ls drizzle/*.sql | wc -l` — 작업 전과 같은 수 (마이그레이션 없음)
-- [ ] `git diff --stat` 에 `core/runner/adapters/`·`core/execution.ts`·`core/runner/types.ts`가
-      **없다** (어댑터 무변경)
-- [ ] **변이 검증** — 아래 6개를 하나씩 망가뜨려 각각 실패하는 테스트가 있는지 확인한다.
+- [x] `pnpm test` — 전부 초록. 기존 `assemble.test.ts` 5개가 **수정 없이** 통과
+- [x] `pnpm typecheck` — 오류 없음
+- [x] `pnpm lint` — 오류 없음
+- [x] `pnpm test:e2e` — `slash.e2e.ts` 포함 전부 통과
+- [x] `grep -rn "from 'electron'" core/` — 출력 없음
+- [x] `grep -rn "window.oneDesk" renderer/ | grep -v main.tsx` — 출력 없음
+- [x] `ls drizzle/*.sql | wc -l` — 작업 전과 같은 수 (마이그레이션 없음)
+- [x] `core/runner/adapters/`의 구현·`core/execution.ts`·`core/runner/types.ts`가
+      **무변경** (preflight 테스트만 환경 의존성 제거, 아래 기록)
+- [x] **변이 검증** — 아래 7개를 하나씩 망가뜨려 각각 실패하는 테스트가 있는지 확인한다.
       살아남는 것이 있으면 그 자리의 테스트를 먼저 보강한다
-  - [ ] `assemble.ts`의 슬래시 판정 분기
-  - [ ] `assemble.ts`의 `trimStart()`
-  - [ ] `probe.ts`의 init 수신 후 종료
-  - [ ] `describe.ts`의 인자 placeholder 탐지
-  - [ ] `RunPanel`이 작업 디렉토리가 바뀔 때 목록을 다시 얻는 배선
-  - [ ] `terminal_slash_commands` 제외
-  - [ ] `RunPanel`의 opencode 차단 (지우면 OpenCode에서도 피커가 열려야 실패)
-- [ ] **수동 확인** — `pnpm dev`로 띄워 실제 claude로 한 번 돌린다. `/`를 쳐서 목록이 뜨고,
+  - [x] `assemble.ts`의 슬래시 판정 분기
+  - [x] `assemble.ts`의 `trimStart()`
+  - [x] `probe.ts`의 init 수신 후 종료
+  - [x] `describe.ts`의 인자 placeholder 탐지
+  - [x] `RunPanel`이 작업 디렉토리가 바뀔 때 목록을 다시 얻는 배선
+  - [x] `terminal_slash_commands` 제외
+  - [x] `RunPanel`의 opencode 차단 (지우면 OpenCode에서도 피커가 열려야 실패)
+- [x] **실제 CLI 확인** — 빌드된 Electron 앱을 실제 claude로 띄워 확인한다 (`e2e/slash-real.e2e.ts`). `/`를 쳐서 목록이 뜨고,
       `/code-review` 같은 실제 커맨드를 골라 실행했을 때 로그에 **커맨드가 확장된 결과**가
       나온다(`/code-review`라는 글자가 그대로 모델에게 가지 않는다). 이 확인만은 가짜 CLI로
       대신할 수 없다 — 실측 두 건(`--resume`의 시스템 프롬프트, `[NEEDS_ANSWER]` 유지)이
@@ -155,11 +155,36 @@
   11단계에서 피커가 빈다. 마커 파일은 env `ONE_DESK_PROBE_MARKER`가 있을 때만 쓴다.
 - **`CommandInfo`의 소유 (사전 점검):** plan이 어느 단계가 `shared/models.ts`에 추가하는지 적지
   않았다. 4단계가 추가한다.
-- **11단계 검증 방법 (사전 점검):** "가짜 CLI가 받은 프롬프트"는 e2e가 `dataDir`의 SQLite에서
-  `run.assembled_prompt`를 직접 읽어 확인한다(픽스처 변경 불필요).
+- **11단계 검증 방법 (사전 점검):** "가짜 CLI가 받은 프롬프트"는 픽스처가 stdin을 테스트용 임시 파일에 기록하고
+  e2e가 직접 읽어 확인한다. DB의 조립 결과뿐 아니라 실제 CLI 전달까지 검증한다.
 - **FR-1 정정 (1단계 리뷰, 2026-09-15):** 피커의 여는 조건을 "줄머리 또는 공백 바로 뒤"에서
   "앞이 비었거나 슬래시 토큰뿐일 때"로 좁혔다. 7단계 `findSlashToken`이 이 규칙을 따른다. 상세는
   spec FR-1의 정정 주석.
 - **3단계 probe 플래그 (3단계 구현자 우려 → 실측, 2026-09-15):** probe 명령에 `--strict-mcp-config`를
   더한다(`--mcp-config`는 여전히 없음). 없으면 사용자의 개인 MCP 서버가 probe마다 뜬다(실측 9개,
   5.82초 → 0개, 1.16초). 상세는 spec NFR-3의 정정 주석.
+
+
+## 구현·검증 완료 (2026-09-16)
+
+- 재개 시점: 1~4단계 커밋, 5단계 core 배선 테스트 작성 중. 5~11단계 구현 완료.
+- core/IPC 목록 조회·수동 갱신, 커서 기준 슬래시 판정, 피커 필터·키보드 조작,
+  인자 경고, 대화 cwd와 OpenCode 차단을 연결했다.
+- 리뷰 수정: probe는 SIGTERM의 3초 유예를 쓰지 않고 SIGKILL로 즉시 종료한다.
+  SIGTERM 무시 CLI의 후속 마커가 생성되지 않는 테스트로 검증했다.
+- 리뷰 수정: 실패 결과도 cwd별로 캐시한다. 탭 재마운트가 SessionStart 훅을 반복하지 않으며,
+  실패 후 재시도는 새로고침으로 한다(FR-13). 예상 밖 예외로 거부된 Promise는 진행 중 지도에서 지운다.
+- 키보드 삽입 직후 커서 복원은 layout effect로 완료해 다음 입력과 경합하지 않는다.
+  새로고침 버튼은 입력창에 포커스를 돌려준다.
+- 기존 preflight의 실행 파일 없음 테스트는 개발 장비의 Homebrew CLI를 발견해 실패했다.
+  탐색 실패 결과를 테스트에서 주입해 사유 반환을 검증한다. 실행 어댑터의 구현은 변경하지 않았다.
+- 단위·렌더러: 847개 통과, 실제 CLI 단위 테스트 1개 기본 제외.
+- Electron E2E: 14개 통과. 별도 실제 CLI E2E 1개에서 첫 턴과 resume 턴의 커맨드 확장 확인.
+- 실제 CLI 검증은 임시 repo의 합성 커맨드만 썼다. 커맨드 파일에만 존재하는
+  `SLASH_EXPANDED_73BD29`가 두 턴 모두 출력됐다. Claude Code 2.1.273.
+- 변이 7개 전부 검출: 슬래시 분기·trimStart·init 뒤 종료·인자 탐지·cwd 배선·터미널 제외·OpenCode 차단.
+- lint, typecheck, 빌드 통과. 경계 위반 없음, 기존 assemble 테스트 삭제/수정 없음, 마이그레이션 무변경.
+- 이 환경의 pnpm 래퍼는 모듈 재설치를 시도하므로 기존 node_modules의 Vitest·ESLint·tsc·electron-vite를
+  직접 실행했다. Node 26 테스트에는 `NODE_OPTIONS=--no-experimental-webstorage`를 지정했다.
+- 실제 CLI E2E 재실행: `ONE_DESK_REAL_CLI=1 ONE_DESK_REAL_AGENT_PATH=<claude 절대 경로>`를 지정하고
+  `vitest run --config vitest.e2e.config.ts e2e/slash-real.e2e.ts` 실행.

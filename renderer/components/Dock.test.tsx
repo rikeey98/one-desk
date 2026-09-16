@@ -45,6 +45,10 @@ function makeClient(over: Partial<OneDeskClient['runs']> = {}): OneDeskClient {
   return {
     workspaces: { list: vi.fn().mockResolvedValue([]), create: vi.fn(), remove: vi.fn() },
     repos: { list: vi.fn().mockResolvedValue([]), create: vi.fn(), remove: vi.fn() },
+    commands: {
+      list: vi.fn().mockResolvedValue({ commands: [], error: null }),
+      refresh: vi.fn().mockResolvedValue({ commands: [], error: null })
+    },
     runs: {
       list: vi.fn().mockResolvedValue([]),
       start: vi.fn(),

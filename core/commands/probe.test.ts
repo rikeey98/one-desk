@@ -68,6 +68,21 @@ describe.skipIf(POSIX_ONLY)('probeCommands — init 수신 후 즉시 종료 (FR
     expect(existsSync(marker)).toBe(false)
   })
 
+  it('SIGTERM을 무시하는 CLI도 init 직후 강제로 종료한다', async () => {
+    const marker = join(dir, 'ignored-sigterm')
+    const cli = writeCli(`
+      import { writeFileSync } from 'node:fs'
+      process.on('SIGTERM', () => {})
+      ${emitLine({ type: 'system', subtype: 'init', slash_commands: ['review'] })}
+      setTimeout(() => writeFileSync(${JSON.stringify(marker)}, ''), 100)
+      setTimeout(() => {}, 1000)
+    `)
+    const result = await probeCommands({ executable: cli, cwd: dir })
+    expect(result.error).toBeNull()
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(existsSync(marker)).toBe(false)
+  })
+
   it('실행 파일과 인자를 그대로 쓴다 — -p, stream-json, --verbose, --tools "", --strict-mcp-config', async () => {
     // 픽스처가 받은 argv를 init에 되비춘다. --verbose가 빠지면 진짜 CLI가 실행을 거부하고,
     // --tools ""가 빠지면 도구가 살아나며(NFR-3), --strict-mcp-config가 빠지면 사용자의 개인

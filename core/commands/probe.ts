@@ -1,6 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createLineSplitter } from '../runner/stream'
-import { terminate } from '../runner/terminate'
 import type { CommandPlugin, ProbeResult } from './types'
 
 /** 정상 환경에서 init은 2~6초에 온다(NFR-1). 훅이 느린 날을 감안해 그 두 배 남짓을 준다. */
@@ -57,7 +56,7 @@ export function probeCommands(input: {
     }
 
     const timer = setTimeout(() => {
-      terminate(child)
+      child.kill('SIGKILL')
       settle(failure(`시간이 초과됐습니다 (${timeoutMs}ms 안에 init이 오지 않았습니다)`))
     }, timeoutMs)
 
@@ -76,7 +75,7 @@ export function probeCommands(input: {
       const init = parseInit(line)
       if (!init) return
       // init을 받는 즉시 죽인다 — 다음에 오는 것이 모델 호출이다(FR-10).
-      terminate(child)
+      child.kill('SIGKILL')
       settle({ ...init, error: null })
     })
     child.stdout?.on('data', (chunk: Buffer) => splitter(chunk))

@@ -5,6 +5,7 @@ import { registerRepoHandlers } from './repos'
 import { registerIssueHandlers } from './issues'
 import { registerMemoHandlers } from './memos'
 import { registerAssetHandlers } from './assets'
+import { registerCommandHandlers } from './commands'
 import { registerSettingHandlers } from './settings'
 import { registerRunHandlers } from './runs'
 
@@ -21,6 +22,7 @@ export function registerIpc(core: Core, getWindow: GetWindow) {
   registerIssueHandlers(core)
   registerMemoHandlers(core)
   registerAssetHandlers(core)
+  registerCommandHandlers(core)
   registerSettingHandlers(core)
   registerRunHandlers(core, getWindow)
 }

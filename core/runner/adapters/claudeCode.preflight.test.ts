@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { claudeCodeAdapter } from './claudeCode'
+import * as executable from '../executable'
 
 /**
  * 이 파일의 테스트는 진짜 파일을 만들어 탐색시킨다. 그래서 platform을 넘기지
@@ -42,6 +43,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await rm(dir, { recursive: true, force: true })
 })
 
@@ -94,6 +96,8 @@ describe('preflight — 탐색', () => {
   })
 
   it('못 찾으면 workspace 설정을 가리키는 사유를 준다', async () => {
+    // 개발 장비의 /opt/homebrew/bin에 설치된 CLI가 이 실패 경로를 가리지 않게 한다.
+    vi.spyOn(executable, 'findExecutable').mockResolvedValueOnce(null)
     const out = await claudeCodeAdapter.preflight(null, {
       env: { PATH: dir, [HOME_VAR]: dir }
     })

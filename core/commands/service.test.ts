@@ -162,7 +162,7 @@ describe('캐시', () => {
     await service.list({ workspaceId: WORKSPACE, cwd: '/repo' })
 
     expect(failed).toEqual({ commands: [], error: '시간이 초과됐습니다' })
-    expect(probe.calls).toHaveLength(3)
+    expect(probe.calls).toHaveLength(2)
   })
 
   it('같은 cwd로 동시에 불러도 probe는 한 번만 돈다', async () => {
@@ -206,8 +206,8 @@ describe('캐시', () => {
     expect(probe.calls).toHaveLength(2)
   })
 
-  it('probe가 실패하면 캐시하지 않고 다음 list가 다시 시도한다', async () => {
-    // 실패를 캐시하면 새로고침을 누르기 전까지 영영 빈 목록이다.
+  it('실패한 탐색도 캐시하고 수동 새로고침에서만 다시 시도한다', async () => {
+    // 탭을 바꿀 때마다 실패한 탐색과 SessionStart 훅이 반복되지 않아야 한다.
     probe = fakeProbe([
       { slashCommands: [], terminalSlashCommands: [], plugins: [], error: '시간이 초과됐습니다' },
       init()
@@ -215,7 +215,9 @@ describe('캐시', () => {
     const service = createCommandService({ probe, describe: describeFn })
 
     const failed = await service.list({ workspaceId: WORKSPACE, cwd: '/repo' })
-    const retried = await service.list({ workspaceId: WORKSPACE, cwd: '/repo' })
+    expect(await service.list({ workspaceId: WORKSPACE, cwd: '/repo' })).toEqual(failed)
+    expect(probe.calls).toHaveLength(1)
+    const retried = await service.refresh({ workspaceId: WORKSPACE, cwd: '/repo' })
 
     expect(failed).toEqual({ commands: [], error: '시간이 초과됐습니다' })
     expect(probe.calls).toHaveLength(2)

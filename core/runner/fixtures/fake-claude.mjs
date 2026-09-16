@@ -11,7 +11,11 @@ function emit(obj) {
 
 // 프롬프트를 stdin으로 받는다. 끝까지 읽어야 부모의 write가 막히지 않는다.
 process.stdin.resume()
-process.stdin.on('data', () => {})
+let receivedPrompt = ''
+process.stdin.on('data', (chunk) => { receivedPrompt += chunk.toString() })
+process.stdin.on('end', () => {
+  if (process.env.ONE_DESK_PROMPT_CAPTURE) writeFileSync(process.env.ONE_DESK_PROMPT_CAPTURE, receivedPrompt)
+})
 
 /**
  * stdout이 파이프일 때 process.exit()은 아직 flush되지 않은 버퍼를 버린다.

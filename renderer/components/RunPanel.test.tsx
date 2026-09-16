@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { RunPanel } from './RunPanel'
@@ -27,6 +27,7 @@ function makeWorkspace(
 function makeClient(opts: {
   start?: ReturnType<typeof vi.fn>
   resume?: ReturnType<typeof vi.fn>
+  commands?: OneDeskClient['commands']
 } = {}): OneDeskClient {
   return {
     // workspaces도 repos와 같은 이유로 이제 App이 useWorkspaces()로 조회해 prop으로
@@ -37,6 +38,10 @@ function makeClient(opts: {
     // repos는 이제 App이 useRepos로 조회해 prop으로 내려준다 (RepoStrip과 상태를
     // 공유하기 위해서다). RunPanel은 더 이상 client.repos를 직접 부르지 않는다.
     repos: { list: vi.fn(), create: vi.fn(), remove: vi.fn() },
+    commands: opts.commands ?? {
+      list: vi.fn().mockResolvedValue({ commands: [], error: null }),
+      refresh: vi.fn().mockResolvedValue({ commands: [], error: null })
+    },
     runs: {
       list: vi.fn().mockResolvedValue([]),
       start: opts.start ?? vi.fn().mockResolvedValue({ id: 'run-1' } as Run),
@@ -253,6 +258,19 @@ describe('RunPanel', () => {
   }
   const otherConversation = groupConversations([otherParent])[0]!
 
+  it('대화의 cwd로 커맨드를 얻으며 첫 repo의 목록으로 대체하지 않는다', async () => {
+    const commandsApi = {
+      list: vi.fn().mockImplementation(async ({ cwd }) => ({
+        commands: [{ name: cwd === '/tmp/web' ? 'conversation-only' : 'wrong-repo', description: null, usesArguments: false }], error: null
+      })),
+      refresh: vi.fn()
+    }
+    renderPanel(makeClient({ commands: commandsApi }), repos, [], vi.fn(), { conversation: otherConversation })
+    await userEvent.type(screen.getByRole('textbox', { name: '지시' }), '/')
+    expect(await screen.findByRole('option', { name: '/conversation-only' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: '/wrong-repo' })).not.toBeInTheDocument()
+  })
+
   it('대화를 이어갈 때는 작업 디렉토리를 바꿀 수 없다', () => {
     // 세션은 특정 CLI가 특정 디렉토리에서 만든 것이라 다른 조합으로 이어받을 수 없다.
     renderPanel(makeClient(), repos, [], vi.fn(), { conversation })
@@ -392,4 +410,104 @@ describe('RunPanel — agent 선택', () => {
     await waitFor(() => expect(screen.getByLabelText('agent')).toHaveValue('opencode'))
     expect(screen.getByLabelText('agent')).toBeDisabled()
   })
+})
+
+
+describe('RunPanel 슬래시 커맨드', () => {
+  const commands = [
+    { name: 'review', description: '코드 검사', usesArguments: false },
+    { name: 'args', description: '인자 전달', usesArguments: true }
+  ]
+  const api = () => ({
+    list: vi.fn().mockResolvedValue({ commands, error: null }),
+    refresh: vi.fn().mockResolvedValue({ commands, error: null })
+  })
+
+  it('이름·설명 필터, 키 이동, Enter/Tab 삽입, Esc 닫기를 제공한다', async () => {
+    const start = vi.fn()
+    renderPanel(makeClient({ start, commands: api() }))
+    const box = screen.getByRole('textbox', { name: '지시' })
+    await userEvent.type(box, '/검사')
+    expect(await screen.findByRole('option', { name: '/review 코드 검사' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /args/ })).not.toBeInTheDocument()
+    await userEvent.keyboard('{Enter}')
+    expect(box).toHaveValue('/review ')
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    expect(start).not.toHaveBeenCalled()
+    await userEvent.type(box, '/')
+    await userEvent.keyboard('{ArrowDown}{Tab}')
+    expect(box).toHaveValue('/review /args ')
+    expect(screen.getByText(/담은 맥락이 인자로 전달됩니다/)).toBeInTheDocument()
+    await userEvent.type(box, '/')
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    expect(start).not.toHaveBeenCalled()
+  })
+
+  it('cwd가 바뀌면 피커도 새 디렉토리의 목록으로 바뀐다', async () => {
+    const commandsApi = api()
+    commandsApi.list.mockImplementation(async ({ cwd }) => ({
+      commands: [{ name: cwd === '/tmp/api' ? 'api-only' : 'web-only', description: null, usesArguments: false }],
+      error: null
+    }))
+    renderPanel(makeClient({ commands: commandsApi }), [
+      ...repos, { ...repos[0]!, id: 'r2', name: 'web', path: '/tmp/web' }
+    ])
+    await userEvent.type(screen.getByRole('textbox', { name: '지시' }), '/')
+    expect(await screen.findByRole('option', { name: '/api-only' })).toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByLabelText('작업 디렉토리'), '/tmp/web')
+    expect(await screen.findByRole('option', { name: '/web-only' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: '/api-only' })).not.toBeInTheDocument()
+  })
+
+  it('OpenCode에서는 조회와 피커를 비활성화한다', async () => {
+    const commandsApi = api()
+    renderPanel(makeClient({ commands: commandsApi }), repos, [], vi.fn(), {}, [makeWorkspace('edit', 'opencode')])
+    await userEvent.type(screen.getByRole('textbox', { name: '지시' }), '/')
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    expect(commandsApi.list).not.toHaveBeenCalled()
+  })
+
+  it('로딩 중이거나 결과가 없어도 피커의 Enter는 실행하지 않는다', async () => {
+    const start = vi.fn()
+    const commandsApi = api()
+    commandsApi.list.mockReturnValue(new Promise(() => {}))
+    renderPanel(makeClient({ start, commands: commandsApi }))
+    await userEvent.type(screen.getByRole('textbox', { name: '지시' }), '/')
+    expect(screen.getByRole('status')).toHaveTextContent('불러오는 중')
+    await userEvent.keyboard('{Meta>}{Enter}{/Meta}')
+    expect(start).not.toHaveBeenCalled()
+  })
+  it('조회 도중 OpenCode로 전환하면 늦은 응답도 피커를 열지 않는다', async () => {
+    let reply!: (value: { commands: typeof commands; error: null }) => void
+    const commandsApi = api()
+    commandsApi.list.mockReturnValue(new Promise((resolve) => { reply = resolve }))
+    renderPanel(makeClient({ commands: commandsApi }))
+    await userEvent.type(screen.getByRole('textbox', { name: '지시' }), '/')
+    await userEvent.selectOptions(screen.getByLabelText('agent'), 'opencode')
+    await act(async () => { reply({ commands, error: null }) })
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    expect(commandsApi.list).toHaveBeenCalledTimes(1)
+  })
+
+  it('빈 검색 결과의 Enter/Tab은 실행하지 않는다', async () => {
+    const start = vi.fn()
+    renderPanel(makeClient({ start, commands: api() }))
+    await userEvent.type(screen.getByRole('textbox', { name: '지시' }), '/no-match')
+    expect(await screen.findByText('일치하는 커맨드가 없습니다')).toBeInTheDocument()
+    await userEvent.keyboard('{Enter}{Tab}')
+    expect(start).not.toHaveBeenCalled()
+    expect(screen.getByRole('textbox', { name: '지시' })).toHaveValue('/no-match')
+  })
+
+  it('새로고침 버튼을 누른 뒤에도 입력창에서 키보드로 고를 수 있다', async () => {
+    renderPanel(makeClient({ commands: api() }))
+    const box = screen.getByRole('textbox', { name: '지시' })
+    await userEvent.type(box, '/')
+    await userEvent.click(screen.getByRole('button', { name: '커맨드 새로고침' }))
+    expect(box).toHaveFocus()
+    await userEvent.keyboard('{Enter}')
+    expect(box).toHaveValue('/review ')
+  })
+
 })

@@ -1,14 +1,7 @@
 import type { CommandDescription, CommandPlugin, ProbeResult } from './types'
-import type { CommandInfo, CommandListResult } from '@shared/models'
+import type { CommandInfo, CommandListResult, CommandTarget } from '@shared/models'
 
-/**
- * 목록 하나를 가리키는 것. **캐시 키는 `cwd` 하나다** — 커맨드는 작업 디렉토리에서 나온다.
- * `workspaceId`는 실행 파일 경로(workspace의 `claudePath`)를 푸는 데만 쓰이고 키가 아니다.
- */
-export interface CommandTarget {
-  workspaceId: string
-  cwd: string
-}
+export type { CommandTarget } from '@shared/models'
 
 export interface CommandServiceDeps {
   /**
@@ -53,8 +46,8 @@ export function createCommandService(deps: CommandServiceDeps) {
 
     const started = load(target)
       .then((result) => {
-        // 실패는 캐시하지 않는다 — 캐시하면 새로고침을 누르기 전까지 영영 빈 목록이다.
-        if (result.error === null) cache.set(target.cwd, result)
+        // 실패도 유지한다 — 탭 재마운트로 SessionStart 훅을 반복하지 않는다.
+        cache.set(target.cwd, result)
         return result
       })
       .finally(() => { loading.delete(target.cwd) })
@@ -64,7 +57,7 @@ export function createCommandService(deps: CommandServiceDeps) {
   }
 
   return {
-    /** 캐시에 있으면 CLI를 띄우지 않는다. 없으면 얻어서 성공한 것만 담는다. */
+    /** 캐시에 있으면 CLI를 띄우지 않는다. 없으면 얻어서 담는다. 실패의 재시도도 refresh가 맡는다. */
     list(target: CommandTarget): Promise<CommandListResult> {
       const cached = cache.get(target.cwd)
       if (cached) return Promise.resolve(cached)

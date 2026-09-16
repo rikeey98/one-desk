@@ -223,6 +223,10 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
       remove: vi.fn(),
       rescan: vi.fn(async () => [])
     },
+    commands: {
+      list: vi.fn().mockResolvedValue({ commands: [], error: null }),
+      refresh: vi.fn().mockResolvedValue({ commands: [], error: null })
+    },
     runs: {
       list: vi.fn(async (workspaceId: string) => started.filter((r) => r.workspaceId === workspaceId)),
       start: vi.fn(async () => makeRun({ id: 'started' })),

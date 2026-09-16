@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { CommandPicker } from './CommandPicker'
+import { useCommands } from '../hooks/useCommands'
+import { findSlashToken, insertCommand } from '../slash'
 import { useClient } from '../client/ClientProvider'
-import type { AgentKind, Permission, Repo, Run, Workspace } from '@shared/models'
+import type { AgentKind, CommandInfo, Permission, Repo, Run, Workspace } from '@shared/models'
 import type { Conversation } from '../conversation'
 import type { ContextChip } from '../context'
 
@@ -39,11 +42,42 @@ export function RunPanel({
   // "다시 실행"이 요구한 경로가 지금 repo 목록에 없을 때 그 경로를 담는다.
   const [missingCwd, setMissingCwd] = useState<string | null>(null)
   const [permission, setPermission] = useState<Permission>('edit')
-  const [agentKind, setAgentKind] = useState<AgentKind>('claude-code')
+  const [agentKind, setAgentKind] = useState<AgentKind>(conversation?.last.agentKind ?? workspace?.defaultAgentKind ?? 'claude-code')
   const [model, setModel] = useState('')
   const [prompt, setPrompt] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const promptRef = useRef<HTMLTextAreaElement>(null)
+  const pendingCursor = useRef<number | null>(null)
+  const [cursor, setCursor] = useState(0)
+  const [dismissed, setDismissed] = useState(false)
+  const [selectedIndex, setSelectedIndex] = useState(0)
+  const effectiveCwd = conversation?.last.cwd ?? (missingCwd === null ? cwd : '')
+  const commandState = useCommands(workspaceId, agentKind === 'claude-code' ? effectiveCwd : '')
+  const token = agentKind === 'claude-code' && !dismissed ? findSlashToken(prompt, cursor) : null
+  const query = token?.query.toLocaleLowerCase() ?? ''
+  const filtered = commandState.commands.filter((command) =>
+    command.name.toLocaleLowerCase().includes(query)
+    || command.description?.toLocaleLowerCase().includes(query))
+  const pickedIndex = Math.min(selectedIndex, Math.max(0, filtered.length - 1))
+  const argumentWarning = agentKind === 'claude-code' && commandState.commands.some((command) =>
+    command.usesArguments && prompt.trimStart().split(/\s+/).includes(`/${command.name}`))
+
+  function pickCommand(command: CommandInfo) {
+    if (!token) return
+    const inserted = insertCommand(prompt, token, command.name)
+    setPrompt(inserted.text)
+    setCursor(inserted.cursor)
+    setDismissed(true)
+    pendingCursor.current = inserted.cursor
+  }
+
+  useLayoutEffect(() => {
+    if (pendingCursor.current === null) return
+    promptRef.current?.focus()
+    promptRef.current?.setSelectionRange(pendingCursor.current, pendingCursor.current)
+    pendingCursor.current = null
+  }, [prompt])
 
   // agent 기본값도 workspace에서 오고 선택은 그 run에만 적용된다. 권한과 달리
   // 대화를 이어갈 때는 **잠긴다** — 세션은 특정 CLI가 특정 디렉토리에서 만든
@@ -154,6 +188,19 @@ export function RunPanel({
   }
 
   function onPromptKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.nativeEvent.isComposing) return
+    if (token) {
+      if (['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.key === 'Escape') setDismissed(true)
+        else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          const direction = e.key === 'ArrowDown' ? 1 : -1
+          setSelectedIndex(filtered.length ? (pickedIndex + direction + filtered.length) % filtered.length : 0)
+        } else if (filtered[pickedIndex]) pickCommand(filtered[pickedIndex])
+        return
+      }
+    }
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault()
       void start()
@@ -245,12 +292,37 @@ export function RunPanel({
         ))}
       </div>
 
+      {token && (
+        <CommandPicker
+          commands={filtered}
+          selectedIndex={pickedIndex}
+          loading={commandState.loading}
+          error={commandState.error}
+          onPick={pickCommand}
+          onRefresh={() => {
+            void commandState.refresh()
+            promptRef.current?.focus()
+          }}
+        />
+      )}
+      {argumentWarning && (
+        <div className="command-warning" role="note">
+          이 커맨드는 뒤에 오는 글을 인자로 씁니다 — 담은 맥락이 인자로 전달됩니다
+        </div>
+      )}
       <textarea
+        ref={promptRef}
         className="run-prompt"
         aria-label="지시"
         value={prompt}
         placeholder="무엇을 시킬지 적으세요. ⌘↵ 로 실행합니다."
-        onChange={(e) => setPrompt(e.target.value)}
+        onChange={(e) => {
+          setPrompt(e.target.value)
+          setCursor(e.target.selectionStart)
+          setDismissed(false)
+          setSelectedIndex(0)
+        }}
+        onSelect={(e) => setCursor(e.currentTarget.selectionStart)}
         onKeyDown={onPromptKeyDown}
       />
 
