@@ -1,5 +1,6 @@
-import { ipcMain } from 'electron'
+import { ipcMain, shell } from 'electron'
 import { CHANNELS } from '@shared/channels'
+import { vscodeFolderUrl } from '@core/editor/vscodeUrl'
 import type { Core } from '@core/index'
 import type { CreateRepoInput } from '@shared/models'
 
@@ -13,4 +14,8 @@ export function registerRepoHandlers(core: Core) {
   )
   ipcMain.handle(CHANNELS.reposRemove, (_e, id: string) =>
     core.repos.remove(id))
+  // `shell`은 electron 전용이라 core가 부를 수 없다. URL 조립만 순수 함수로
+  // 떼어내 core에서 테스트하고, 여기는 경로를 찾아 넘기는 일만 한다.
+  ipcMain.handle(CHANNELS.reposOpenInEditor, (_e, id: string) =>
+    shell.openExternal(vscodeFolderUrl(core.repos.get(id).path)))
 }

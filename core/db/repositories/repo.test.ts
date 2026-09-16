@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { makeTestDb } from './testing'
 import { createWorkspaceRepository } from './workspace'
 import { createRepoRepository } from './repo'
+import { NotFoundError } from '../../errors'
 import type { Database } from '../open'
 
 describe('RepoRepository', () => {
@@ -81,5 +82,23 @@ describe('RepoRepository.rename', () => {
     const created = repos.create({ workspaceId, name: '이름', path: '/tmp/a' })
 
     expect(repos.rename(created.id, '새 이름').path).toBe(created.path)
+  })
+})
+
+describe('RepoRepository.get', () => {
+  it('id로 repo를 찾아 돌려준다', () => {
+    const db = makeTestDb()
+    const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
+    const repos = createRepoRepository(db)
+    const made = repos.create({ workspaceId, name: 'api-server', path: '/tmp/api' })
+
+    expect(repos.get(made.id).path).toBe('/tmp/api')
+  })
+
+  it('없는 id는 NotFoundError를 던진다', () => {
+    const db = makeTestDb()
+    const repos = createRepoRepository(db)
+
+    expect(() => repos.get('없음')).toThrow(NotFoundError)
   })
 })

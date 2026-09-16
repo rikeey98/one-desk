@@ -7,6 +7,7 @@ export const CHANNELS = {
   reposCreate: 'repos:create',
   reposRename: 'repos:rename',
   reposRemove: 'repos:remove',
+  reposOpenInEditor: 'repos:openInEditor',
   issuesList: 'issues:list',
   issuesCreate: 'issues:create',
   issuesUpdate: 'issues:update',

@@ -158,3 +158,42 @@ describe('RepoStrip repo 관리', () => {
     await waitFor(() => expect(onDeleted).toHaveBeenCalledWith('r1'))
   })
 })
+
+describe('RepoStrip VS Code로 열기', () => {
+  function renderStrip(c: OneDeskClient) {
+    return render(
+      <ClientProvider client={c}>
+        <RepoStrip
+          workspaceId="w1"
+          repos={repos}
+          error={null}
+          refresh={vi.fn()}
+          selectedRepoId={null}
+          onSelect={vi.fn()}
+          chipKeys={new Set()}
+          onToggleContext={vi.fn()}
+          onDeleted={vi.fn()}
+        />
+      </ClientProvider>
+    )
+  }
+
+  it('버튼을 누르면 그 repo의 id로 연다', async () => {
+    const openInEditor = vi.fn().mockResolvedValue(undefined)
+    renderStrip({ repos: { ...client.repos, openInEditor } } as unknown as OneDeskClient)
+
+    await userEvent.click(await screen.findByLabelText('web-client VS Code로 열기'))
+
+    await waitFor(() => expect(openInEditor).toHaveBeenCalledWith('r2'))
+  })
+
+  it('열기에 실패하면 이유를 보여준다', async () => {
+    // 조용히 아무 일도 안 일어나면 VS Code가 없는 것인지 버튼이 죽은 것인지 모른다.
+    const openInEditor = vi.fn().mockRejectedValue(new Error('VS Code가 설치돼 있지 않습니다'))
+    renderStrip({ repos: { ...client.repos, openInEditor } } as unknown as OneDeskClient)
+
+    await userEvent.click(await screen.findByLabelText('api-server VS Code로 열기'))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('VS Code가 설치돼 있지 않습니다')
+  })
+})

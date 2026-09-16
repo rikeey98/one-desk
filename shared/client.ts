@@ -29,6 +29,13 @@ export interface OneDeskClient {
     /** 이름만 바꾼다. path는 실행이 도는 실제 디렉토리라 건드리지 않는다. */
     rename(id: string, name: string): Promise<Repo>
     remove(id: string): Promise<void>
+    /**
+     * repo 디렉토리를 VS Code에서 연다. 경로가 아니라 id를 넘긴다 — 렌더러가
+     * 등록되지 않은 아무 경로나 열어달라고 할 수 없어야 한다.
+     *
+     * VS Code가 없거나 `vscode://` 스킴이 등록되지 않았으면 던진다.
+     */
+    openInEditor(id: string): Promise<void>
   }
   issues: {
     list(query: ListQuery): Promise<Issue[]>

@@ -14,6 +14,13 @@ export function createRepoRepository(db: Database) {
         .all()
     },
 
+    /** 메인 프로세스가 id만 들고 경로를 찾을 때 쓴다 (VS Code로 열기). */
+    get(id: string): Repo {
+      const row = db.select().from(repo).where(eq(repo.id, id)).get()
+      if (!row) throw new NotFoundError(`repo를 찾을 수 없습니다: ${id}`)
+      return row
+    },
+
     create(input: CreateRepoInput): Repo {
       const [row] = db.insert(repo).values({
         id: randomUUID(),
