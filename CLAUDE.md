@@ -63,6 +63,10 @@ pnpm run pack     # 패키징 (pnpm pack은 내장 명령이라 다름 — run�
 gh workflow run release.yml   # 3플랫폼 산출물을 손으로 빌드 (태그 없이)
 ```
 
+**Node는 22다.** 루트의 `.nvmrc`가 고정한다 — Node 26은 renderer 테스트 78개를 깬다(회귀가 아니다). CI도 22로 돈다.
+
+**Windows 장비에서 처음 셋업한다면 `docs/windows-setup.md`를 먼저 읽을 것.** 빌드 도구는 Visual Studio Build Tools **2022**여야 하고(최신 VS 18은 node-gyp가 못 읽는다), 앱 데이터를 옮겨 왔다면 repo 경로를 SQL로 직접 고쳐야 한다 — 앱에 path 편집 UI가 없다.
+
 ## 절대 지켜야 할 경계 세 가지
 
 깨지면 이후 단계가 무너진다. tsconfig와 ESLint가 강제하고 있으니 **우회하지 말고 설계를 다시 볼 것.**
@@ -232,5 +236,8 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 | `docs/superpowers/specs/2026-09-07-asset-scan-design.md` | asset 스캔 설계 — 데이터 모델과 `updated_at`(§2), 스캔 시점과 동일성(§3), frontmatter 파서(§4), 맥락 조립(§5), UI와 평문 렌더(§6) |
 | `docs/superpowers/plans/2026-09-07-asset-scan.md` | asset 스캔 구현 계획 (10개 태스크) |
 | `docs/sdlc/asset-scope/` | asset 범위 확장 — intent(문제)·spec(FR/NFR과 정책 검토)·plan(12단계). 글로벌 경로, 설정 화면, repo 필터 |
+| `docs/sdlc/slash-commands/` | 슬래시 커맨드 — intent·spec·plan. 커맨드 조회와 캐시, 피커, 프롬프트 조립 |
+| `docs/sdlc/conversation-context/` | 대화에 담긴 맥락 표시 — intent·spec 승인됨, plan은 draft (진행 중) |
+| `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |
 
 **설계 문서의 결정을 코드에서 임의로 바꾸지 않는다.** 설계에 구멍이 보이면 고치지 말고 지적할 것 — 그게 더 값지다.
