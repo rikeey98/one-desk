@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { RunPanel } from './RunPanel'
@@ -488,6 +488,48 @@ describe('RunPanel 슬래시 커맨드', () => {
     await act(async () => { reply({ commands, error: null }) })
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
     expect(commandsApi.list).toHaveBeenCalledTimes(1)
+  })
+
+  it('앞글자 일치를 중간 일치보다 위에 세운다', async () => {
+    // 배선 검증이다 — 순위 규칙 자체는 slash.test.ts가 맡는다. 여기서는 피커가
+    // 단순 includes 필터로 되돌아가면 잡혀야 한다.
+    const ranked = [
+      { name: 'prepare', description: '준비', usesArguments: false },
+      { name: 'review', description: '코드 검사', usesArguments: false }
+    ]
+    renderPanel(makeClient({ commands: {
+      list: vi.fn().mockResolvedValue({ commands: ranked, error: null }), refresh: vi.fn()
+    } }))
+    await userEvent.type(screen.getByRole('textbox', { name: '지시' }), '/re')
+    // agent·권한 <select>의 <option>도 같은 role이라 피커 안으로 좁힌다.
+    const options = within(await screen.findByRole('listbox')).getAllByRole('option')
+    expect(options.map((o) => o.textContent)).toEqual(['/review코드 검사', '/prepare준비'])
+  })
+
+  it('오타가 한 글자 있어도 찾는다', async () => {
+    renderPanel(makeClient({ commands: api() }))
+    await userEvent.type(screen.getByRole('textbox', { name: '지시' }), '/reveiw')
+    expect(await screen.findByRole('option', { name: '/review 코드 검사' })).toBeInTheDocument()
+  })
+
+  it('Tab은 후보들의 공통 앞부분까지 채우고, 더 채울 게 없으면 고른 것을 넣는다', async () => {
+    const shared = [
+      { name: 'review-pr', description: null, usesArguments: false },
+      { name: 'review-all', description: null, usesArguments: false }
+    ]
+    renderPanel(makeClient({ commands: {
+      list: vi.fn().mockResolvedValue({ commands: shared, error: null }), refresh: vi.fn()
+    } }))
+    const box = screen.getByRole('textbox', { name: '지시' })
+    await userEvent.type(box, '/rev')
+    await screen.findAllByRole('option')
+    await userEvent.keyboard('{Tab}')
+    // 셸처럼 — 공백 없이 공통 부분까지만 늘어나고 피커는 열린 채다.
+    expect(box).toHaveValue('/review-')
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    await userEvent.keyboard('{Tab}')
+    expect(box).toHaveValue('/review-pr ')
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
   })
 
   it('빈 검색 결과의 Enter/Tab은 실행하지 않는다', async () => {

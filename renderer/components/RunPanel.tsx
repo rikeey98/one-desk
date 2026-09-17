@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { CommandPicker } from './CommandPicker'
 import { useCommands } from '../hooks/useCommands'
-import { findSlashToken, insertCommand } from '../slash'
+import { findSlashToken, insertCommand, extendCommand, matchCommands, commonPrefix } from '../slash'
 import { useClient } from '../client/ClientProvider'
 import type { AgentKind, CommandInfo, Permission, Repo, Run, Workspace } from '@shared/models'
 import type { Conversation } from '../conversation'
@@ -55,10 +55,9 @@ export function RunPanel({
   const effectiveCwd = conversation?.last.cwd ?? (missingCwd === null ? cwd : '')
   const commandState = useCommands(workspaceId, agentKind === 'claude-code' ? effectiveCwd : '')
   const token = agentKind === 'claude-code' && !dismissed ? findSlashToken(prompt, cursor) : null
-  const query = token?.query.toLocaleLowerCase() ?? ''
-  const filtered = commandState.commands.filter((command) =>
-    command.name.toLocaleLowerCase().includes(query)
-    || command.description?.toLocaleLowerCase().includes(query))
+  const query = token?.query ?? ''
+  // 앞글자 일치 > 중간 일치 > 설명 > 건너뛰기 > 오타 순. 규칙은 slash.ts에.
+  const filtered = matchCommands(commandState.commands, query)
   const pickedIndex = Math.min(selectedIndex, Math.max(0, filtered.length - 1))
   const argumentWarning = agentKind === 'claude-code' && commandState.commands.some((command) =>
     command.usesArguments && prompt.trimStart().split(/\s+/).includes(`/${command.name}`))
@@ -70,6 +69,22 @@ export function RunPanel({
     setCursor(inserted.cursor)
     setDismissed(true)
     pendingCursor.current = inserted.cursor
+  }
+
+  /**
+   * 셸의 Tab. 후보가 여럿이고 공유하는 앞부분이 지금 친 것보다 길면 거기까지만 채우고
+   * 피커를 열어 둔다. 더 채울 게 없으면 고른 것을 넣는다 — Enter와 같아진다.
+   */
+  function completeCommand() {
+    if (!token) return
+    const prefix = commonPrefix(filtered.map((command) => command.name))
+    if (filtered.length > 1 && prefix.length > token.query.length) {
+      const extended = extendCommand(prompt, token, prefix)
+      setPrompt(extended.text)
+      setCursor(extended.cursor)
+      setSelectedIndex(0)
+      pendingCursor.current = extended.cursor
+    } else if (filtered[pickedIndex]) pickCommand(filtered[pickedIndex])
   }
 
   useLayoutEffect(() => {
@@ -197,7 +212,8 @@ export function RunPanel({
         else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
           const direction = e.key === 'ArrowDown' ? 1 : -1
           setSelectedIndex(filtered.length ? (pickedIndex + direction + filtered.length) % filtered.length : 0)
-        } else if (filtered[pickedIndex]) pickCommand(filtered[pickedIndex])
+        } else if (e.key === 'Tab') completeCommand()
+        else if (filtered[pickedIndex]) pickCommand(filtered[pickedIndex])
         return
       }
     }
