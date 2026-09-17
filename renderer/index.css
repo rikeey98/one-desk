@@ -14,11 +14,19 @@ body { margin: 0; background: #ffffff; color: #18181b; }
 /* 건수가 아니라 "못 읽었다"는 표식이다. 색을 나눠야 숫자와 헷갈리지 않는다. */
 .badge-error { background: #b45309; cursor: help; }
 .main { flex: 1; display: flex; flex-direction: column; padding: 12px; gap: 10px; min-width: 0; }
-.repo-strip { display: flex; gap: 8px; }
-.repo-card { flex: 1; text-align: left; padding: 8px 11px; border: 1px solid #e4e4e7; border-radius: 7px; background: #fafafa; cursor: pointer; }
-.repo-card-selected { border-color: #60a5fa; background: #eff6ff; }
-.repo-name { display: block; font-weight: 600; font-size: 13px; }
-.repo-path { display: block; font-family: ui-monospace, monospace; font-size: 10px; opacity: .55; }
+/* repo는 세로로 쌓는다. 가로로 늘어놓으면 넷만 넘어가도 카드가 짜부라져 이름이
+   잘리고, 줄 폭이 repo 개수에 따라 계속 흔들린다. 세로는 몇 개가 되든 같은 모양이다. */
+.repo-strip { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; min-width: 0; }
+/* 목록만 스크롤한다 — 추가 줄은 이 밖에 있다. 상한을 두는 것은 repo가 열 개여도
+   아래 패널이 밀려나면 안 되기 때문이다. */
+.repo-list { display: flex; flex-direction: column; gap: 4px; max-height: 31vh; overflow-y: auto; }
+.repo-card { display: flex; align-items: baseline; gap: 10px; width: 100%; text-align: left; padding: 7px 11px; border: 1px solid #e4e4e7; border-radius: 7px; background: #fafafa; font: inherit; cursor: pointer; transition: border-color .12s, background .12s; }
+.repo-card:hover { border-color: #d4d4d8; background: #f4f4f5; }
+.repo-card-selected, .repo-card-selected:hover { border-color: #60a5fa; background: #eff6ff; }
+.repo-name { flex: 0 1 auto; min-width: 0; font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 경로는 같은 줄 오른쪽 끝으로 민다 — 이름이 왼쪽에 세로로 줄을 맞춰야 목록으로
+   읽힌다. 길면 잘리고 전체는 title에 있다. */
+.repo-path { flex: 1; min-width: 0; text-align: right; font-family: ui-monospace, monospace; font-size: 10px; opacity: .5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .columns { flex: 1; display: flex; gap: 8px; min-height: 0; }
 .panel { flex: 1; display: flex; flex-direction: column; border: 1px solid #e4e4e7; border-radius: 7px; background: #fafafa; min-width: 0; }
 .panel-header { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; border-bottom: 1px solid #e4e4e7; }
@@ -54,6 +62,21 @@ body { margin: 0; background: #ffffff; color: #18181b; }
 .add-form input { width: 100%; padding: 6px 9px; border: 1px solid #e4e4e7; border-radius: 5px; font-size: 12px; font-family: inherit; }
 .add-form input:disabled { opacity: .5; }
 .form-error { margin-top: 5px; padding: 5px 8px; border-radius: 4px; font-size: 11px; background: #fee2e2; color: #991b1b; }
+/* repo 추가 줄. 목록과 같은 폭·같은 모서리로 두되 테두리를 점선으로 해서 "아직
+   채워지지 않은 자리"로 읽히게 한다. 실선이면 등록된 repo와 구분이 안 된다. */
+.add-repo-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 7px; border: 1px dashed #d4d4d8; border-radius: 7px; background: #fff; transition: border-color .12s; }
+.add-repo-form:focus-within { border-color: #93c5fd; }
+.add-repo-form input { min-width: 0; padding: 6px 9px; border: 1px solid #e4e4e7; border-radius: 5px; font: inherit; font-size: 12px; background: #fafafa; }
+/* 이름은 짧고 경로는 길다. 폭을 똑같이 주면 경로가 늘 잘린다. */
+.add-repo-form input:first-of-type { flex: 0 1 170px; }
+.add-repo-form input:nth-of-type(2) { flex: 1; font-family: ui-monospace, monospace; font-size: 11px; }
+.add-repo-form input:focus { outline: none; border-color: #60a5fa; background: #fff; }
+.add-repo-form input:disabled { opacity: .5; }
+.add-repo-form button { flex: 0 0 auto; padding: 6px 15px; border: 1px solid #e4e4e7; border-radius: 5px; background: #fafafa; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: border-color .12s, background .12s, color .12s; }
+.add-repo-form button:hover:not(:disabled) { border-color: #60a5fa; background: #eff6ff; color: #1d4ed8; }
+.add-repo-form button:disabled { opacity: .5; cursor: not-allowed; }
+/* 오류는 줄 아래로 온전히 떨어뜨린다. 입력칸 사이에 끼면 칸 폭이 밀린다. */
+.add-repo-form .form-error { flex: 1 0 100%; margin-top: 0; }
 
 .dock { flex: 0 0 auto; display: flex; flex-direction: column; border: 1px solid #e4e4e7; border-radius: 7px; background: #fafafa; overflow: hidden; }
 /* 높이는 인라인 style이 정한다 (renderer/dockHeight.ts). flex-basis를 남겨두면
@@ -108,7 +131,9 @@ body { margin: 0; background: #ffffff; color: #18181b; }
 
 /* stretch였을 때 원형 토글이 카드 높이만큼 늘어나 위쪽에 붙어 보였다.
    원은 세로 가운데에 놓여야 카드 제목과 나란히 읽힌다. */
-.repo-slot { flex: 1; display: flex; gap: 6px; align-items: center; min-width: 0; }
+/* 세로 목록에서 `flex: 1`이면 줄들이 남은 높이를 나눠 가져 카드가 늘어난다.
+   줄 높이는 내용이 정해야 한다. */
+.repo-slot { flex: 0 0 auto; display: flex; gap: 6px; align-items: center; min-width: 0; }
 .repo-slot .repo-card { flex: 1; min-width: 0; }
 
 button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer; font: inherit; text-align: left; padding: 0; min-width: 0; }

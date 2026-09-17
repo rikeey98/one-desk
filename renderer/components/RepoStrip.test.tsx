@@ -97,6 +97,48 @@ describe('RepoStrip 맥락 담기 토글', () => {
   })
 })
 
+describe('RepoStrip 세로 목록', () => {
+  function renderStrip() {
+    return render(
+      <ClientProvider client={client}>
+        <RepoStrip
+          workspaceId="w1"
+          repos={repos}
+          error={null}
+          refresh={vi.fn()}
+          selectedRepoId={null}
+          onSelect={vi.fn()}
+          chipKeys={new Set()}
+          onToggleContext={vi.fn()}
+          onDeleted={vi.fn()}
+        />
+      </ClientProvider>
+    )
+  }
+
+  it('repo 슬롯은 전부 목록 안에 들어간다', () => {
+    const { container } = renderStrip()
+    const list = container.querySelector('.repo-list')!
+    expect(list).toBeTruthy()
+    expect(list.querySelectorAll('.repo-slot')).toHaveLength(repos.length)
+  })
+
+  it('추가 폼은 목록 밖에 있다 — 목록만 스크롤하고 추가 줄은 늘 보여야 한다', () => {
+    // 폼이 목록 안으로 들어가면 repo가 늘어났을 때 스크롤을 끝까지 내려야만 새 repo를
+    // 등록할 수 있다. 추가는 목록 길이와 무관하게 닿을 수 있어야 한다.
+    const { container } = renderStrip()
+    const form = container.querySelector('form.add-repo-form')!
+    expect(form).toBeTruthy()
+    expect(container.querySelector('.repo-list')!.contains(form)).toBe(false)
+    expect(container.querySelector('.repo-strip')!.contains(form)).toBe(true)
+  })
+
+  it('경로 전체는 title로 닿는다 — 좁은 줄에서는 말줄임으로 잘린다', () => {
+    renderStrip()
+    expect(screen.getByTitle('/tmp/api')).toHaveTextContent('/tmp/api')
+  })
+})
+
 describe('RepoStrip repo 관리', () => {
   function renderWith(over: { rename?: unknown; remove?: unknown; refresh?: () => Promise<void>; onDeleted?: (id: string) => void } = {}) {
     const c = {
