@@ -233,9 +233,20 @@ Error: spawn EFTYPE   (errno -4028)
 ```
 
 그래서 run이 시작되자마자 죽고, 화면에는 `running`도 `succeeded`도 끝내 나타나지
-않는다. 실패하는 것은 run이 얽힌 시나리오들이다 — `mcp.e2e.ts`, `queue.e2e.ts`,
-`slash.e2e.ts`, `asset.e2e.ts` 등. 반대로 run을 거치지 않는 시나리오(본문 편집,
-훑기, 패널 접기 등)는 Windows에서도 초록이다.
+않는다. **실패하는 일곱 개는 전부 run을 거치는 시나리오다:**
+
+| 파일 | 시나리오 |
+| --- | --- |
+| `mcp.e2e.ts` | agent가 MCP로 이슈를 만들고 앱에 뜬다 |
+| `asset.e2e.ts` | repo를 등록하면 발견되고, 담아서 실행하면 한 바퀴가 돈다 |
+| `slash.e2e.ts` | 피커에서 삽입한 커맨드가 맥락보다 앞서 실제 CLI stdin으로 전달된다 |
+| `inbox.e2e.ts` | 끝난 run이 인박스에 뜨고 확인함을 누르면 사라진다 |
+| `queue.e2e.ts` | 상한이 1이면 두 번째 실행이 대기했다가 앞이 끝나면 시작한다 |
+| `conversation.e2e.ts` | 한 세션에서 세 턴을 주고받고 인박스에는 한 줄만 남는다 |
+| `core-loop.e2e.ts` | 맥락을 담아 실행하면 도크에 탭이 즉시 생기고 로그가 흐른다 |
+
+반대로 run을 거치지 않는 시나리오(본문 편집, 훑기, 패널 접기·크기 조절, smoke)는
+Windows에서도 초록이다. 두 번 돌려 실패 목록이 같았으므로 경합이 아니다.
 
 고칠 방향은 원래 적어둔 대로다 — 픽스처를 `node <파일>` 형태로 띄우는 것. 어댑터의
 실행 파일 탐색(`core/runner/executable.ts`)은 이미 Windows를 제대로 다루고 있으므로
