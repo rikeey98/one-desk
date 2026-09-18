@@ -84,8 +84,8 @@ pnpm dev              # 앱이 뜨는지
 DB가 생기며 마이그레이션 0000~0005가 돈다. 이 장비의 도구 버전은 Node 22.23.2 /
 pnpm 10.18.1 / Visual Studio Build Tools 2022 / Python 3.12다.
 
-**`pnpm test:e2e`는 Windows에서 7개 실패한다 — §5를 읽을 것.** 가짜 CLI 픽스처가
-spawn되지 않는 하네스 문제이고, 이 장비에서 처음 손볼 일로 유력하다.
+**`pnpm test:e2e`도 Windows에서 통과한다.** 한동안 7개가 실패했는데 실행 런처로
+고쳤다 — §5에 경위가 있다.
 
 ## 3. agent CLI 설치
 
@@ -221,9 +221,10 @@ SQLite 문자열 안에서 백슬래시는 특별한 뜻이 없으므로 Windows
 
 ## 5. Windows에서 다르게 도는 것들
 
-### e2e는 이대로는 안 돈다 (2026-09-18 확인)
+### e2e — 한 번 깨졌다가 고쳤다 (2026-09-18)
 
-**`pnpm test:e2e`는 7개 실패 / 8개 통과로 끝난다.** 예상이 맞았다.
+**지금은 `pnpm test:e2e`가 Windows에서 전부 통과한다.** 아래는 무엇이 문제였고 어떻게
+풀었는지의 기록이다. 되돌리지 말 것.
 
 가짜 CLI 픽스처(`core/runner/fixtures/fake-claude.mjs` 등)는 `#!/usr/bin/env node`
 셔뱅을 단 `.mjs` 파일이고 **Windows는 셔뱅을 모른다.** 직접 spawn하면 이렇게 된다:
@@ -232,8 +233,8 @@ SQLite 문자열 안에서 백슬래시는 특별한 뜻이 없으므로 Windows
 Error: spawn EFTYPE   (errno -4028)
 ```
 
-그래서 run이 시작되자마자 죽고, 화면에는 `running`도 `succeeded`도 끝내 나타나지
-않는다. **실패하는 일곱 개는 전부 run을 거치는 시나리오다:**
+그래서 run이 시작되자마자 죽었고, 화면에는 `running`도 `succeeded`도 끝내 나타나지
+않았다. **처음 돌렸을 때 실패한 일곱 개는 전부 run을 거치는 시나리오였다:**
 
 | 파일 | 시나리오 |
 | --- | --- |
@@ -246,12 +247,29 @@ Error: spawn EFTYPE   (errno -4028)
 | `core-loop.e2e.ts` | 맥락을 담아 실행하면 도크에 탭이 즉시 생기고 로그가 흐른다 |
 
 반대로 run을 거치지 않는 시나리오(본문 편집, 훑기, 패널 접기·크기 조절, smoke)는
-Windows에서도 초록이다. 두 번 돌려 실패 목록이 같았으므로 경합이 아니다.
+Windows에서도 초록이었다. 두 번 돌려 실패 목록이 같았으므로 경합이 아니었다.
 
-고칠 방향은 원래 적어둔 대로다 — 픽스처를 `node <파일>` 형태로 띄우는 것. 어댑터의
-실행 파일 탐색(`core/runner/executable.ts`)은 이미 Windows를 제대로 다루고 있으므로
-**제품이 아니라 테스트 하네스의 문제다.** 실제 CLI로 도는 e2e는 Windows에서 통과한다
-(`e2e/opencode-real.e2e.ts`, §3).
+#### 어떻게 고쳤나 — 실행 런처
+
+픽스처를 `node <파일>` 형태로 띄운다. 그러려면 "실행 파일 하나를 인자와 함께 spawn한다"는
+자리에 앞단을 하나 끼울 곳이 필요한데, 그것이 `core/runner/executable.ts`의
+`agentCommand()`다. `ONE_DESK_AGENT_LAUNCHER`가 있으면 런처를 cmd로 세우고 실행 파일을
+첫 인자로 민다. 없으면 아무 일도 하지 않는다 — **제품 동작은 그대로다.**
+
+`ONE_DESK_AGENT_PATH`와 짝을 이루는 테스트 이음매이고, 그쪽이 이미 실행 파일을 임의로
+가리킬 수 있으므로 새로 생기는 능력은 없다. e2e 드라이버는 **픽스처가 `.mjs`일 때만**
+런처를 얹는다 — 실제 CLI를 쓰는 `slash-real`·`opencode-real`에는 붙지 않는다.
+
+**agent 실행 파일을 spawn하는 세 자리가 전부 이 함수를 거쳐야 한다** — run
+(`runner/manager.ts`), 슬래시 커맨드 조회(`commands/probe.ts`), opencode 설정 확인
+(`adapters/opencode.ts`). 하나라도 빠지면 그 경로만 조용히 셔뱅에 걸린다. 그래서 세 자리
+각각에 **배선 잠금 테스트**가 있다: 실행 권한도 셔뱅도 없는 `.mjs`를 띄우게 해서,
+`agentCommand`를 거치지 않으면 POSIX는 EACCES, Windows는 EFTYPE으로 죽게 만들었다.
+세 테스트 모두 해당 배선을 지워 실제로 실패하는 것을 확인했다.
+
+덤으로 이 이음매는 **Windows에서 스킵되던 probe 테스트들에 통로를 낸다** —
+`core/commands/probe.test.ts`의 `POSIX_ONLY` 무리가 그것이다. 지금은 잠금 테스트 하나만
+그 길로 도는데, 나머지도 같은 방식으로 살릴 수 있다.
 
 같은 이유로 단위 테스트 쪽에서는 이미 알려진 현상이 있다. Windows에서 run은 항상
 `failed`로 끝나고(그래서 `core/index.test.ts`의 run 테스트들이 `succeeded`가 아니라
@@ -311,7 +329,7 @@ clone만으로는 따라오지 않는다. 맥에서 손으로 복사해야 하�
 - **남은 5단계 과제:** diff 뷰어, 마크다운 렌더링, 검색/필터/정렬.
 - **이 장비에서 나온 것:** OpenCode 어댑터가 `{"type":"error"}` 줄을 버려 실패 원인이
   화면에 남지 않는다(§3). 원인 없는 `failed`는 디버깅을 통째로 막으므로 diff 뷰어보다
-  먼저 다룰 값어치가 있다.
+  먼저 다룰 값어치가 있다. e2e를 막던 픽스처 문제는 해결됐다(§5).
 - 착수 전에 `CLAUDE.md`를 읽을 것. 특히 "절대 지켜야 할 경계 세 가지"와 "밟으면
   조용히 깨지는 것들".
 
@@ -333,5 +351,5 @@ Windows에서 하나씩 지워 나가고, 막힌 곳은 이 문서에 적어 둔
 - [ ] repo 경로 SQL 수정, 글로벌 asset 경로 재지정 — 위가 끝나야 할 일이 생긴다
 - [x] 실제 run 한 번 성공 — OpenCode + 무료 모델 + 전체 허용으로 한 턴 왕복
       (`e2e/opencode-real.e2e.ts`). 맥락 담기는 포함하지 않았고, Claude Code로는 아직이다
-- [x] `pnpm test:e2e` — **돌려봤고 7개 실패한다.** 가짜 CLI 픽스처가 Windows에서
-      spawn되지 않는 것이 원인이다(§5). 제품이 아니라 하네스의 문제다
+- [x] `pnpm test:e2e` — 처음엔 7개가 실패했고(가짜 CLI 픽스처가 Windows에서 spawn되지
+      않았다) 실행 런처로 고쳤다. **지금은 전부 통과한다**(§5)
