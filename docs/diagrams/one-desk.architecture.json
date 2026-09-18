@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "one-desk 아키텍처",
+    "output": "one-desk-architecture.html",
+    "quality_profile": "showcase",
+    "viewBox": [1340, 600],
+    "views": [
+      { "id": "main-path", "label": "실행 주 경로", "focus": ["renderer", "preload", "ipc", "runmanager", "adapters", "cli"], "note": "화면에서 누른 실행이 CLI agent 프로세스까지 내려가는 한 줄기." },
+      { "id": "mcp-path", "label": "MCP 되돌이", "focus": ["cli", "bridge", "mcphost", "db"], "note": "agent가 실행 중에 앱 데이터를 직접 읽고 쓰는 경로." },
+      { "id": "storage", "label": "저장과 스캔", "focus": ["ipc", "db", "logs", "repofs"], "note": "SQLite, run 로그 파일, asset 스캔이 각각 어디서 갈라지는지." }
+    ]
+  },
+  "components": [
+    { "id": "renderer", "type": "frontend", "label": "렌더러", "sublabel": "React · renderer/", "tag": "useClient()", "pos": [45, 260], "size": [160, 76] },
+    { "id": "preload", "type": "security", "label": "preload 브리지", "sublabel": "electron/preload.ts", "tag": "index.mjs", "pos": [317, 260], "size": [160, 76] },
+    { "id": "ipc", "type": "backend", "label": "IPC 핸들러", "sublabel": "electron/ipc/*", "tag": "얇게 유지", "pos": [589, 260], "size": [160, 76] },
+    { "id": "runmanager", "type": "backend", "label": "RunManager", "sublabel": "core/runner · RunQueue", "tag": "대화 직렬화", "pos": [861, 260], "size": [160, 76] },
+    { "id": "adapters", "type": "backend", "label": "Agent 어댑터", "sublabel": "claudeCode · opencode", "tag": "권한 allow/deny", "pos": [1133, 260], "size": [160, 76] },
+    { "id": "logs", "type": "database", "label": "run 로그", "sublabel": "logWriter · userData", "pos": [861, 55], "size": [160, 76] },
+    { "id": "repofs", "type": "external", "label": "repo · 글로벌 경로", "sublabel": ".claude/skills · agents", "pos": [45, 465], "size": [160, 76] },
+    { "id": "db", "type": "database", "label": "SQLite", "sublabel": "better-sqlite3 · Drizzle", "tag": "foreign_keys=ON", "pos": [317, 465], "size": [160, 76] },
+    { "id": "mcphost", "type": "backend", "label": "MCP 호스트", "sublabel": "core/mcp/host.ts", "tag": "도구 9개", "pos": [589, 465], "size": [160, 76] },
+    { "id": "bridge", "type": "external", "label": "stdio 브리지", "sublabel": "core/mcp/bridge.mjs", "tag": "extraResources", "pos": [861, 465], "size": [160, 76] },
+    { "id": "cli", "type": "external", "label": "CLI agent", "sublabel": "Claude Code · OpenCode", "tag": "헤드리스 프로세스", "pos": [1133, 465], "size": [160, 76] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "core/ — electron을 import하지 않는다", "wraps": ["runmanager", "adapters"], "pad": 28 },
+    { "kind": "security-group", "label": "core/mcp — 127.0.0.1 · run 단위 토큰", "wraps": ["mcphost"], "pad": 20 }
+  ],
+  "connections": [
+    { "id": "renderer-to-preload", "from": "renderer", "to": "preload", "label": "window.oneDesk", "variant": "emphasis" },
+    { "id": "preload-to-ipc", "from": "preload", "to": "ipc", "label": "invoke ↔ push", "variant": "emphasis" },
+    { "id": "ipc-to-core", "from": "ipc", "to": "runmanager", "label": "core 호출", "variant": "emphasis" },
+    { "id": "core-to-adapters", "from": "runmanager", "to": "adapters", "label": "명령 조립", "variant": "emphasis" },
+    { "id": "adapters-to-cli", "from": "adapters", "to": "cli", "label": "spawn · stream-json", "variant": "emphasis", "labelDy": 80 },
+    { "id": "run-logs", "from": "runmanager", "to": "logs", "label": "로그 스트림", "labelDy": -75 },
+    { "id": "ipc-to-db", "from": "ipc", "to": "db", "label": "저장소 읽기·쓰기", "fromSide": "bottom", "toSide": "top" },
+    { "id": "cli-to-bridge", "from": "cli", "to": "bridge", "label": "자식 프로세스 · stdio" },
+    { "id": "bridge-to-host", "from": "bridge", "to": "mcphost", "label": "loopback HTTP", "variant": "security" },
+    { "id": "host-to-db", "from": "mcphost", "to": "db", "label": "이슈·메모 쓰기" },
+    { "id": "scan-to-db", "from": "repofs", "to": "db", "label": "asset 스캔", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "경계 세 가지", "items": ["core/는 electron을 import하지 않는다 — 경로는 인자로 받는다", "renderer/의 window.oneDesk 참조는 main.tsx 한 곳뿐이다", "IPC 핸들러는 core 메서드 호출만 하고 로직을 넣지 않는다"] },
+    { "dot": "emerald", "title": "실행", "items": ["RunQueue가 동시 실행 상한과 대화별 직렬화를 맡는다", "어댑터가 agent별 명령·권한·환경을 조립한다 — allow 아니면 deny", "agent는 repo를 cwd로 잡고, run 이벤트는 IPC push로 화면에 돌아온다"] },
+    { "dot": "violet", "title": "MCP와 기록", "items": ["claude가 bridge.mjs를 자식으로 띄우고 stdio로 JSON-RPC를 주고받는다", "브리지는 루프백 HTTP로 중계하고 응답은 SSE다 — 토큰은 run 단위", "SQLite · run 로그 · asset 스캔 결과가 앱에 남는 기록이다"] }
+  ]
+}
