@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { executableCandidates, isBatchShim } from './executable'
+import { agentCommand, executableCandidates, isBatchShim } from './executable'
 
 const WIN = { platform: 'win32' as const }
 const POSIX = { platform: 'linux' as const }
@@ -118,5 +118,33 @@ describe('isBatchShim', () => {
 
   it('확장자 없는 POSIX 경로는 아니다', () => {
     expect(isBatchShim('/usr/local/bin/claude')).toBe(false)
+  })
+})
+
+describe('agentCommand', () => {
+  it('런처가 없으면 실행 파일을 그대로 띄운다', () => {
+    const out = agentCommand('C:\bin\claude.exe', ['--print'], {})
+    expect(out).toEqual({ cmd: 'C:\bin\claude.exe', args: ['--print'] })
+  })
+
+  it('런처가 있으면 그것을 앞에 세우고 실행 파일을 첫 인자로 넘긴다', () => {
+    const out = agentCommand('/tmp/fake-claude.mjs', ['--print', '--verbose'], {
+      ONE_DESK_AGENT_LAUNCHER: '/usr/bin/node'
+    })
+    expect(out).toEqual({
+      cmd: '/usr/bin/node',
+      args: ['/tmp/fake-claude.mjs', '--print', '--verbose']
+    })
+  })
+
+  it('빈 문자열은 런처로 치지 않는다', () => {
+    const out = agentCommand('/usr/local/bin/claude', [], { ONE_DESK_AGENT_LAUNCHER: '' })
+    expect(out.cmd).toBe('/usr/local/bin/claude')
+  })
+
+  it('원본 인자 배열을 건드리지 않는다', () => {
+    const args = ['debug', 'config']
+    agentCommand('/tmp/fake.mjs', args, { ONE_DESK_AGENT_LAUNCHER: '/usr/bin/node' })
+    expect(args).toEqual(['debug', 'config'])
   })
 })

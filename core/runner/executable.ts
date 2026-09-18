@@ -88,3 +88,28 @@ export function isBatchShim(file: string): boolean {
   const lower = file.toLowerCase()
   return lower.endsWith('.cmd') || lower.endsWith('.bat')
 }
+
+/**
+ * 실행 파일과 인자를 실제로 spawn할 명령으로 바꾼다.
+ *
+ * 기본은 실행 파일을 그대로 띄우는 것이다. `ONE_DESK_AGENT_LAUNCHER`가 있으면 그것을
+ * 앞에 세우고 실행 파일을 첫 인자로 밀어 넣는다 — `node <파일>` 형태가 된다.
+ *
+ * **왜 있나.** e2e의 가짜 CLI 픽스처는 셔뱅을 단 `.mjs`인데 Windows는 셔뱅을 모른다.
+ * 직접 spawn하면 `EFTYPE`으로 즉시 죽어 run이 얽힌 시나리오가 통째로 실패한다.
+ * `ONE_DESK_AGENT_PATH`와 짝을 이루는 테스트 이음매이고, 실행 파일을 임의로 가리킬 수
+ * 있다는 점에서 그쪽이 이미 주는 것 이상의 능력을 더하지 않는다. 권한 플래그는 그대로다.
+ *
+ * agent 실행 파일을 spawn하는 자리는 전부 이 함수를 거쳐야 한다 — run(`manager.ts`),
+ * 슬래시 커맨드 조회(`commands/probe.ts`), opencode 설정 확인(`adapters/opencode.ts`).
+ * 하나라도 빠지면 그 경로만 조용히 셔뱅에 걸린다.
+ */
+export function agentCommand(
+  executable: string,
+  args: string[],
+  env: NodeJS.ProcessEnv = process.env
+): { cmd: string; args: string[] } {
+  const launcher = env['ONE_DESK_AGENT_LAUNCHER']
+  if (!launcher) return { cmd: executable, args }
+  return { cmd: launcher, args: [executable, ...args] }
+}

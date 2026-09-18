@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createLineSplitter } from '../runner/stream'
+import { agentCommand } from '../runner/executable'
 import type { CommandPlugin, ProbeResult } from './types'
 
 /** 정상 환경에서 init은 2~6초에 온다(NFR-1). 훅이 느린 날을 감안해 그 두 배 남짓을 준다. */
@@ -33,7 +34,8 @@ export function probeCommands(input: {
   return new Promise((resolve) => {
     let child: ChildProcess
     try {
-      child = spawn(input.executable, PROBE_ARGS, {
+      const launch = agentCommand(input.executable, PROBE_ARGS)
+      child = spawn(launch.cmd, launch.args, {
         cwd: input.cwd,
         env: { ...process.env },
         stdio: ['pipe', 'pipe', 'pipe']

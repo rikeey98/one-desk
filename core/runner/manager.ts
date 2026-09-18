@@ -6,6 +6,7 @@ import type { AgentAdapter, McpRunConfig } from './types'
 import { createLineSplitter } from './stream'
 import { createLogWriter } from './logWriter'
 import { terminate } from './terminate'
+import { agentCommand } from './executable'
 import type { ErrorSink } from '../errors'
 
 export interface RunManagerOptions {
@@ -123,7 +124,9 @@ export function createRunManager(opts: RunManagerOptions) {
     // 프로세스보다 먼저 흘린다. seq가 0부터라 로그의 맨 앞에 온다.
     for (const raw of spec.preEvents ?? []) emit(raw)
 
-    const child = spawn(built.cmd, args, {
+    // Windows는 셔뱅을 모른다 — 가짜 CLI(.mjs)는 런처를 거쳐야 뜬다.
+    const launch = agentCommand(built.cmd, args)
+    const child = spawn(launch.cmd, launch.args, {
       cwd: built.cwd,
       env: built.env,
       stdio: ['pipe', 'pipe', 'pipe']

@@ -246,3 +246,30 @@ describe('probeCommands — 실행 파일 없음 (모든 플랫폼)', () => {
     expect(result.error).toBeTypeOf('string')
   })
 })
+
+describe('probeCommands — 실행 런처', () => {
+  /**
+   * **배선 잠금이자 Windows 통로.** 실행 권한도 shebang도 없는 `.mjs`라 직접 spawn하면
+   * POSIX는 EACCES, Windows는 EFTYPE이다. probe가 `agentCommand`를 거쳐야만 뜬다.
+   * 위 시나리오들이 Windows에서 통째로 스킵되는 것과 달리 이 테스트는 어디서나 돈다.
+   */
+  it('ONE_DESK_AGENT_LAUNCHER가 있으면 그것으로 실행 파일을 띄운다', async () => {
+    const file = join(dir, 'no-exec.mjs')
+    writeFileSync(file, `${emitLine({ type: 'system', subtype: 'init', slash_commands: ['런처'] })}\n`, {
+      mode: 0o644
+    })
+
+    const previous = process.env['ONE_DESK_AGENT_LAUNCHER']
+    process.env['ONE_DESK_AGENT_LAUNCHER'] = process.execPath
+    try {
+      // cwd를 dir로 주면 자식이 그 디렉토리를 잡아 Windows에서 afterEach의 rmSync가
+      // EBUSY로 죽는다. 이 테스트는 cwd를 보지 않으므로 지우지 않는 곳을 준다.
+      const result = await probeCommands({ executable: file, cwd: tmpdir() })
+      expect(result.error).toBe(null)
+      expect(result.slashCommands).toEqual(['런처'])
+    } finally {
+      if (previous === undefined) delete process.env['ONE_DESK_AGENT_LAUNCHER']
+      else process.env['ONE_DESK_AGENT_LAUNCHER'] = previous
+    }
+  })
+})

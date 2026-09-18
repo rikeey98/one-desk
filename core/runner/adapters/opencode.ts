@@ -5,7 +5,7 @@ import type {
   AgentAdapter, PreflightResult, ResolvedRunSpec, SpawnSpec, VerifyRunnableInput
 } from '../types'
 import { opencodePermissionConfig } from '../permission'
-import { findExecutable, isBatchShim, type LookupOptions } from '../executable'
+import { agentCommand, findExecutable, isBatchShim, type LookupOptions } from '../executable'
 import { stripNeedsAnswer, summarize, withLoopbackBypass } from './common'
 import type { RunEventInit, ToolEffect } from '@shared/events'
 
@@ -48,7 +48,8 @@ export type ConfigProbe = (input: {
 }) => Promise<string>
 
 const defaultProbe: ConfigProbe = async ({ executable, cwd, env }) => {
-  const { stdout } = await execFileAsync(executable, ['debug', 'config'], { cwd, env })
+  const launch = agentCommand(executable, ['debug', 'config'])
+  const { stdout } = await execFileAsync(launch.cmd, launch.args, { cwd, env })
   return stdout
 }
 

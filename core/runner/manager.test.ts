@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
-import { mkdirSync, mkdtempSync, rmSync, readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createRunManager } from './manager'
 import { claudeCodeAdapter } from './adapters/claudeCode'
@@ -167,5 +167,36 @@ describe('RunManager', () => {
     expect(outcome.status).toBe('succeeded')
     expect(errors.some((m) => m.includes('run 로그를 쓸 수 없습니다'))).toBe(true)
     rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('RunManager — 실행 런처', () => {
+  /**
+   * **배선 잠금.** manager가 `agentCommand`를 거치지 않으면 이 run은 어느 OS에서도
+   * 뜨지 않는다 — 실행 권한 없는 `.mjs`라 직접 spawn하면 POSIX는 EACCES,
+   * Windows는 EFTYPE이다. 셔뱅도 일부러 달지 않았다.
+   */
+  it('ONE_DESK_AGENT_LAUNCHER가 있으면 그것으로 실행 파일을 띄운다', async () => {
+    const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-launcher-'))
+    const script = resolve(dir, 'not-executable.mjs')
+    const line = JSON.stringify({
+      type: 'result', subtype: 'success', is_error: false,
+      result: '런처로 떴다', session_id: 'launcher-session'
+    })
+    writeFileSync(script, `process.stdout.write(${JSON.stringify(line + '\n')})\n`, { mode: 0o644 })
+
+    const previous = process.env['ONE_DESK_AGENT_LAUNCHER']
+    process.env['ONE_DESK_AGENT_LAUNCHER'] = process.execPath
+    const { manager, cleanup } = makeManager()
+    try {
+      const outcome = await manager.start({ ...spec('launcher'), executable: script, extraArgs: [] })
+      expect(outcome.status).toBe('succeeded')
+      expect(outcome.resultText).toBe('런처로 떴다')
+    } finally {
+      if (previous === undefined) delete process.env['ONE_DESK_AGENT_LAUNCHER']
+      else process.env['ONE_DESK_AGENT_LAUNCHER'] = previous
+      cleanup()
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

@@ -1,4 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { opencodeAdapter, type ConfigProbe } from './opencode'
 
 const input = { executable: '/bin/opencode', cwd: '/tmp/work', permission: 'edit' as const }
@@ -56,5 +59,38 @@ describe('opencodeAdapter.verifyRunnable', () => {
     // 아무도 권한을 정하지 않았다는 뜻이고, 우리 환경변수가 이미 전부 정했다.
     const probe = vi.fn(async () => JSON.stringify({ permission: null }))
     await expect(opencodeAdapter.verifyRunnable(input, probe)).resolves.toEqual({ ok: true })
+  })
+})
+
+describe('opencodeAdapter.verifyRunnable — 기본 probe', () => {
+  /**
+   * **배선 잠금.** 위 시나리오들은 probe를 주입해 확인하므로 기본 probe가 실제로
+   * 무엇을 띄우는지는 보지 않는다. 여기서는 진짜로 띄운다 — 실행 권한도 shebang도 없는
+   * `.mjs`라 `agentCommand`를 거치지 않으면 POSIX는 EACCES, Windows는 EFTYPE으로 죽고
+   * "설정을 확인하지 못했습니다"가 돌아온다. ask 키를 읽어냈다는 것이 떴다는 증거다.
+   */
+  it('ONE_DESK_AGENT_LAUNCHER가 있으면 그것으로 실행 파일을 띄운다', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'one-desk-oc-verify-'))
+    const file = join(dir, 'no-exec.mjs')
+    writeFileSync(
+      file,
+      `process.stdout.write(${JSON.stringify(JSON.stringify({ permission: { webfetch: 'ask' } }))})\n`,
+      { mode: 0o644 }
+    )
+
+    const previous = process.env['ONE_DESK_AGENT_LAUNCHER']
+    process.env['ONE_DESK_AGENT_LAUNCHER'] = process.execPath
+    try {
+      // cwd는 지우지 않는 곳을 준다 — 자식이 잡으면 Windows에서 rmSync가 EBUSY로 죽는다.
+      const result = await opencodeAdapter.verifyRunnable({
+        executable: file, cwd: tmpdir(), permission: 'edit'
+      })
+      expect(result.ok).toBe(false)
+      expect(result.reason).toContain('webfetch')
+    } finally {
+      if (previous === undefined) delete process.env['ONE_DESK_AGENT_LAUNCHER']
+      else process.env['ONE_DESK_AGENT_LAUNCHER'] = previous
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

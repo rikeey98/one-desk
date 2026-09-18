@@ -96,7 +96,11 @@ async function launchElectron(
         ONE_DESK_FAKE_DELAY_MS: FAKE_DELAY_MS,
         ...extraEnv,
         ONE_DESK_USER_DATA: dataDir,
-        ONE_DESK_AGENT_PATH: agentPath
+        ONE_DESK_AGENT_PATH: agentPath,
+        // 가짜 CLI 픽스처는 셔뱅을 단 .mjs다. Windows는 셔뱅을 모르므로 직접 spawn하면
+        // EFTYPE으로 즉시 죽어 run이 얽힌 시나리오가 통째로 실패한다 — node로 띄운다.
+        // 실제 CLI를 넘기는 테스트(slash-real, opencode-real)에는 붙지 않는다.
+        ...(agentPath.endsWith('.mjs') ? { ONE_DESK_AGENT_LAUNCHER: process.execPath } : {})
       } as Record<string, string>
     })
     return { app, page: await app.firstWindow() }
