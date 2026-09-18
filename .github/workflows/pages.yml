@@ -1,0 +1,52 @@
+name: pages
+
+# docs/diagrams/ 하나만 GitHub Pages로 올린다. docs/ 전체를 올리지 않는 이유는
+# sdlc·superpowers 설계 문서까지 렌더링된 사이트로 색인되게 하고 싶지 않아서다
+# (저장소가 공개라 파일 자체는 이미 공개지만, 사이트로 내보내는 것은 다른 일이다).
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/diagrams/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 배포는 겹치면 안 되지만, 진행 중인 것을 죽이지도 않는다.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage docs/diagrams as the site
+        run: |
+          mkdir -p _site
+          cp -r docs/diagrams/. _site/
+          # 사이트 루트로 들어와도 다이어그램이 바로 열리게 한다.
+          cp docs/diagrams/one-desk-architecture.html _site/index.html
+          # Jekyll이 파일을 건드리지 못하게 막는다 — 산출물은 그대로 나가야 한다.
+          touch _site/.nojekyll
+
+      # enablement: true — 저장소 설정을 손으로 켜지 않아도 Pages가 켜진다.
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
