@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useClient } from '../client/ClientProvider'
 import { ConfirmButton } from './ConfirmButton'
 import { PERMISSION_LABELS } from '../permission'
-import type { AgentKind, AgentStatuses, GlobalRoots, Permission, QueueSnapshot, Workspace } from '@shared/models'
+import { RepoTab, type RepoDraft } from './settings/RepoTab'
+import type { AgentKind, AgentStatuses, GlobalRoots, Permission, QueueSnapshot, Repo, Workspace } from '@shared/models'
 
 /** CLI 상태 줄의 순서와 이름. 실행 패널의 agent 드롭다운과 같은 순서다. */
 const AGENT_LABELS: ReadonlyArray<readonly [AgentKind, string]> = [
@@ -43,7 +44,13 @@ function toList(text: string): string[] {
  * 전체 설계 §403이 "workspace 기본값은 설정 화면에서 바꾼다"고 정했고, 그 화면이
  * 여기다. workspace를 고르지 않았으면 실행 탭은 안내만 남긴다.
  */
-export function SettingsPanel({ workspaces, workspaceId, onWorkspaceSaved, queue, onChangeLimit }: {
+function draftOf(r: Repo): RepoDraft {
+  return { name: r.name, path: r.path, description: r.description ?? '' }
+}
+
+export function SettingsPanel({
+  workspaces, workspaceId, onWorkspaceSaved, queue, onChangeLimit, repos, refreshRepos
+}: {
   /** App이 useWorkspaces()로 한 번만 조회해 내려준다 — 여기서 따로 조회하면
    *  사이드바에서 만든 workspace를 이 화면이 모르는 상태가 생긴다(App.tsx의 주석). */
   workspaces: Workspace[]
@@ -59,6 +66,10 @@ export function SettingsPanel({ workspaces, workspaceId, onWorkspaceSaved, queue
   queue: QueueSnapshot | null
   /** 상한을 바꾼다. 실패는 던진다 — 이 화면은 그 이유를 칸 옆에 보여준다(FR-12). */
   onChangeLimit: (n: number) => Promise<void>
+  /** 지금 고른 workspace의 repo. App이 useRepos()로 한 번만 받아 RepoStrip과 여기에 내려준다. */
+  repos: Repo[]
+  /** 저장 뒤 부른다 — RepoStrip과 실행 패널의 cwd 목록이 새 경로를 봐야 한다. */
+  refreshRepos: () => Promise<void>
 }) {
   const client = useClient()
   const [tab, setTab] = useState<SettingsTab>('run')
@@ -81,6 +92,52 @@ export function SettingsPanel({ workspaces, workspaceId, onWorkspaceSaved, queue
   const [pathsError, setPathsError] = useState<string | null>(null)
   const [pathsBusy, setPathsBusy] = useState(false)
   const [agents, setAgents] = useState<AgentStatuses | null>(null)
+
+  // repo 탭의 초안. 탭 컴포넌트가 아니라 여기 있어야 탭을 옮겨도 남는다(FR-11).
+  const [repoDrafts, setRepoDrafts] = useState<Record<string, RepoDraft>>({})
+  const [repoErrors, setRepoErrors] = useState<Record<string, string>>({})
+  const [repoBusyId, setRepoBusyId] = useState<string | null>(null)
+  // 마지막으로 초안을 만들 때 본 행. 행이 바뀐 repo만 초안을 다시 세운다 — 목록을
+  // 다시 읽을 때마다 전부 세우면 다른 줄에서 고치던 값이 지워진다.
+  const seededRef = useRef<Record<string, Repo>>({})
+  useEffect(() => {
+    setRepoDrafts((prev) => {
+      const next: Record<string, RepoDraft> = {}
+      for (const r of repos) {
+        const seen = seededRef.current[r.id]
+        const changed = !seen || seen.name !== r.name || seen.path !== r.path || seen.description !== r.description
+        next[r.id] = changed || !prev[r.id] ? draftOf(r) : prev[r.id]!
+        seededRef.current[r.id] = r
+      }
+      for (const id of Object.keys(seededRef.current)) {
+        if (!repos.some((r) => r.id === id)) delete seededRef.current[id]
+      }
+      return next
+    })
+  }, [repos])
+
+  function changeRepoDraft(id: string, patch: Partial<RepoDraft>) {
+    setRepoDrafts((prev) => ({ ...prev, [id]: { ...prev[id]!, ...patch } }))
+  }
+
+  async function saveRepo(id: string): Promise<void> {
+    const draft = repoDrafts[id]
+    if (!draft) return
+    setRepoBusyId(id)
+    setRepoErrors((prev) => { const next = { ...prev }; delete next[id]; return next })
+    try {
+      // 셋을 전부 보낸다 — 바뀐 것만 고르면 "무엇이 덮이는지"가 흐려진다(updateDefaults와 같은 규칙).
+      await client.repos.update({
+        id, name: draft.name, path: draft.path, description: draft.description.trim() || null
+      })
+      await refreshRepos()
+    } catch (err) {
+      // 입력은 지우지 않는다(FR-12). 없는 경로를 넣었다면 그 문장이 그대로 보인다.
+      setRepoErrors((prev) => ({ ...prev, [id]: err instanceof Error ? err.message : String(err) }))
+    } finally {
+      setRepoBusyId(null)
+    }
+  }
 
   const [limitDraft, setLimitDraft] = useState('')
   const [limitError, setLimitError] = useState<string | null>(null)
@@ -471,9 +528,23 @@ export function SettingsPanel({ workspaces, workspaceId, onWorkspaceSaved, queue
         )}
 
         {tab === 'repo' && (
-          <p className="settings-scope">
-            {workspace ? <><strong>{workspace.name}</strong> — 이 workspace에만 적용됩니다.</> : '왼쪽에서 workspace를 고르면 그 workspace의 repo를 관리할 수 있습니다.'}
-          </p>
+          !workspace ? (
+            <p className="settings-hint">왼쪽에서 workspace를 고르면 그 workspace의 repo를 관리할 수 있습니다.</p>
+          ) : (
+            <>
+              <p className="settings-scope">
+                <strong>{workspace.name}</strong> — 이 workspace에만 적용됩니다.
+              </p>
+              <RepoTab
+                repos={repos}
+                drafts={repoDrafts}
+                errors={repoErrors}
+                busyId={repoBusyId}
+                onChange={changeRepoDraft}
+                onSave={(id) => void saveRepo(id)}
+              />
+            </>
+          )
         )}
 
         {tab === 'info' && (

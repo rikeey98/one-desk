@@ -335,3 +335,6 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
 .settings-tab-selected { border-color: #60a5fa; background: #eff6ff; font-weight: 600; }
 /* 탭마다 맨 위에 오는 한 문장 — 이 값이 어디까지 걸리는지(spec FR-2). 힌트보다 진하다. */
 .settings-scope { margin: 0 0 8px; font-size: 12px; }
+/* repo 탭의 repo 한 줄. 이름·경로·설명 세 칸과 저장 버튼이 한 덩어리다. */
+.settings-repo { margin-top: 10px; padding-top: 8px; border-top: 1px solid #f0f0f2; }
+.settings-repo h3 { margin-top: 0; }

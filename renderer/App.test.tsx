@@ -11,7 +11,7 @@ import type {
   CreateIssueInput, CreateMemoInput, CreateRepoInput, CreateWorkspaceInput,
   GuardedUpdateIssueInput, GuardedUpdateMemoInput, InboxCounts, Issue, IssueUpdateResult,
   McpStatus, Memo, MemoUpdateResult, Repo, Run, UpdateIssueInput, UpdateMemoInput, Workspace,
-  UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses, Asset
+  UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses, Asset, UpdateRepoInput
 } from '@shared/models'
 
 const workspace: Workspace = {
@@ -202,7 +202,14 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
         repos = [...repos, created]
         return created
       }),
-      remove: vi.fn()
+      remove: vi.fn(),
+      // 설정 화면의 repo 탭. 실제 core처럼 갱신된 행을 돌려주고 목록에도 반영한다.
+      update: vi.fn(async (input: UpdateRepoInput) => {
+        repos = repos.map((r) => r.id === input.id
+          ? { ...r, name: input.name ?? r.name, path: input.path ?? r.path, description: input.description ?? r.description }
+          : r)
+        return repos.find((r) => r.id === input.id)!
+      })
     },
     issues: {
       list: vi.fn(async () => issues),
@@ -1367,6 +1374,38 @@ describe('App — 설정 화면', () => {
     await userEvent.click(screen.getByRole('button', { name: '상한 저장' }))
 
     expect(setConcurrencyLimit).toHaveBeenCalledWith(6)
+  })
+
+  it('고른 workspace의 repo를 설정 화면의 repo 탭에 내려보낸다', async () => {
+    // App이 repos를 안 내려보내면 repo 탭은 "등록된 repo가 없습니다"만 남는다. 설정
+    // 화면이 useRepos()를 따로 부르면 RepoStrip과 다른 인스턴스가 된다(App.tsx 주석).
+    renderApp(makeClient({}, { repos: [makeRepo('r1', 'api', '/tmp/api')] }))
+    await selectWorkspace()
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+    await userEvent.click(await screen.findByRole('tab', { name: 'repo' }))
+
+    expect(await screen.findByLabelText('api 경로')).toHaveValue('/tmp/api')
+  })
+
+  it('repo 탭에서 저장하면 목록을 다시 읽어 실행 패널의 작업 디렉토리가 새 경로를 본다', async () => {
+    // refreshRepos가 안 내려가면 저장은 됐는데 RunPanel의 cwd select는 옛 경로를 든다.
+    const client = makeClient({}, { repos: [makeRepo('r1', 'api', '/tmp/api')] })
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+    await userEvent.click(await screen.findByRole('tab', { name: 'repo' }))
+    const path = await screen.findByLabelText('api 경로')
+    await userEvent.clear(path)
+    await userEvent.type(path, '/srv/api')
+    await userEvent.click(screen.getByRole('button', { name: 'api 저장' }))
+    await waitFor(() => expect(client.repos.update).toHaveBeenCalledWith(
+      { id: 'r1', name: 'api', path: '/srv/api', description: null }))
+
+    // 설정을 나가 실행 패널로 돌아오면 작업 디렉토리 목록이 새 경로다.
+    await selectWorkspace()
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'api — /srv/api' })).toBeInTheDocument()
+    })
   })
 
   it('workspace를 고르지 않았으면 실행 기본값 칸을 열지 않는다', async () => {

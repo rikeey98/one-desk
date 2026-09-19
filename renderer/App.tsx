@@ -247,6 +247,10 @@ export default function App() {
             // 설정에서 바꾼 상한이 도크에 안 보이는 상태가 생긴다(FR-7).
             queue={queue}
             onChangeLimit={changeLimitAsync}
+            // RepoStrip·RunPanel과 같은 useRepos 인스턴스다 — 저장 뒤 refreshRepos가
+            // 목록을 다시 읽어야 실행 패널의 작업 디렉토리가 새 경로를 본다.
+            repos={repos}
+            refreshRepos={refreshRepos}
           />
         )}
         {view === 'inbox' && (

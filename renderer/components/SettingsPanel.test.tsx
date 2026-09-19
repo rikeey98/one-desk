@@ -5,7 +5,7 @@ import { ClientProvider } from '../client/ClientProvider'
 import { SettingsPanel } from './SettingsPanel'
 import type { OneDeskClient } from '@shared/client'
 import type {
-  AgentStatuses, GlobalRoots, QueueSnapshot,
+  AgentStatuses, GlobalRoots, QueueSnapshot, Repo, UpdateRepoInput,
   UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, Workspace
 } from '@shared/models'
 
@@ -27,11 +27,29 @@ function makeWorkspace(over: Partial<Workspace> = {}): Workspace {
   }
 }
 
+function makeRepo(over: Partial<Repo> = {}): Repo {
+  return {
+    id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null,
+    sortOrder: 0, createdAt: 0, ...over
+  }
+}
+
 function makeClient(
   over: Record<string, unknown> = {},
-  workspacesOver: Record<string, unknown> = {}
+  workspacesOver: Record<string, unknown> = {},
+  reposOver: Record<string, unknown> = {}
 ): OneDeskClient {
   return {
+    repos: {
+      // 실제 core처럼 넘어온 값으로 갱신된 행을 돌려준다.
+      update: vi.fn(async (input: UpdateRepoInput) => makeRepo({
+        id: input.id,
+        name: input.name ?? 'api',
+        path: input.path ?? '/tmp/api',
+        description: input.description ?? null
+      })),
+      ...reposOver
+    },
     settings: {
       globalRoots: vi.fn().mockResolvedValue(DEFAULTS),
       setGlobalRoots: vi.fn().mockResolvedValue(DEFAULTS),
@@ -62,6 +80,7 @@ function renderPanel(
   opts: {
     workspaces?: Workspace[]; workspaceId?: string | null; onWorkspaceSaved?: () => void
     queue?: QueueSnapshot | null; onChangeLimit?: (n: number) => Promise<void>
+    repos?: Repo[]; refreshRepos?: () => Promise<void>
   } = {}
 ) {
   render(
@@ -72,6 +91,8 @@ function renderPanel(
         onWorkspaceSaved={opts.onWorkspaceSaved ?? vi.fn()}
         queue={opts.queue === undefined ? { running: 1, limit: 3, waiting: 0 } : opts.queue}
         onChangeLimit={opts.onChangeLimit ?? vi.fn(async () => {})}
+        repos={opts.repos ?? [makeRepo()]}
+        refreshRepos={opts.refreshRepos ?? vi.fn(async () => {})}
       />
     </ClientProvider>
   )
@@ -249,14 +270,14 @@ describe('SettingsPanel — 실행 기본값', () => {
     ]
     const { rerender } = render(
       <ClientProvider client={client}>
-        <SettingsPanel workspaces={workspaces} workspaceId="w1" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} />
+        <SettingsPanel workspaces={workspaces} workspaceId="w1" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} />
       </ClientProvider>
     )
     await waitFor(() => expect(screen.getByLabelText('Claude Code 기본 모델')).toHaveValue('sonnet'))
 
     rerender(
       <ClientProvider client={client}>
-        <SettingsPanel workspaces={workspaces} workspaceId="w2" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} />
+        <SettingsPanel workspaces={workspaces} workspaceId="w2" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} />
       </ClientProvider>
     )
 
@@ -450,14 +471,14 @@ describe('SettingsPanel — CLI 경로', () => {
     ]
     const { rerender } = render(
       <ClientProvider client={client}>
-        <SettingsPanel workspaces={workspaces} workspaceId="w1" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} />
+        <SettingsPanel workspaces={workspaces} workspaceId="w1" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} />
       </ClientProvider>
     )
     await waitFor(() => expect(screen.getByLabelText('Claude Code 실행 파일')).toHaveValue('/a/claude'))
 
     rerender(
       <ClientProvider client={client}>
-        <SettingsPanel workspaces={workspaces} workspaceId="w2" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} />
+        <SettingsPanel workspaces={workspaces} workspaceId="w2" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} />
       </ClientProvider>
     )
 
@@ -581,7 +602,7 @@ describe('SettingsPanel — 동시 실행 상한', () => {
     const { rerender } = render(
       <ClientProvider client={client}>
         <SettingsPanel workspaces={[makeWorkspace()]} workspaceId="w1" onWorkspaceSaved={vi.fn()}
-          queue={{ running: 0, limit: 3, waiting: 0 }} onChangeLimit={vi.fn(async () => {})} />
+          queue={{ running: 0, limit: 3, waiting: 0 }} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} />
       </ClientProvider>
     )
     await userEvent.click(screen.getByRole('tab', { name: '앱' }))
@@ -589,9 +610,90 @@ describe('SettingsPanel — 동시 실행 상한', () => {
     rerender(
       <ClientProvider client={client}>
         <SettingsPanel workspaces={[makeWorkspace()]} workspaceId="w1" onWorkspaceSaved={vi.fn()}
-          queue={{ running: 0, limit: 7, waiting: 0 }} onChangeLimit={vi.fn(async () => {})} />
+          queue={{ running: 0, limit: 7, waiting: 0 }} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} />
       </ClientProvider>
     )
     await waitFor(() => expect(screen.getByLabelText('동시 실행 상한')).toHaveValue(7))
+  })
+})
+
+describe('SettingsPanel — repo 탭', () => {
+  async function openRepoTab() {
+    await userEvent.click(screen.getByRole('tab', { name: 'repo' }))
+  }
+
+  it('등록된 repo의 이름·경로·설명을 칸에 보여준다', async () => {
+    renderPanel(makeClient(), { repos: [makeRepo({ description: '백엔드' })] })
+    await openRepoTab()
+    expect(await screen.findByLabelText('api 이름')).toHaveValue('api')
+    expect(screen.getByLabelText('api 경로')).toHaveValue('/tmp/api')
+    expect(screen.getByLabelText('api 설명')).toHaveValue('백엔드')
+  })
+
+  it('고쳐서 저장하면 셋을 보내고 목록을 다시 읽는다', async () => {
+    // spec FR-8. 저장 뒤 refreshRepos가 불려야 RepoStrip·실행 패널의 cwd 목록이 새 경로를 본다.
+    const update = vi.fn(async (input: UpdateRepoInput) => makeRepo({ ...input } as Partial<Repo>))
+    const refreshRepos = vi.fn(async () => {})
+    renderPanel(makeClient({}, {}, { update }), { refreshRepos })
+    await openRepoTab()
+    const path = await screen.findByLabelText('api 경로')
+    await userEvent.clear(path)
+    await userEvent.type(path, '/srv/api')
+    await userEvent.click(screen.getByRole('button', { name: 'api 저장' }))
+
+    expect(update).toHaveBeenCalledWith({ id: 'r1', name: 'api', path: '/srv/api', description: null })
+    await waitFor(() => expect(refreshRepos).toHaveBeenCalled())
+  })
+
+  it('경로를 바꾸는 중이면 옛 대화 경고를 보여준다', async () => {
+    // spec 확인 필요 항목: 경로가 바뀌면 그 repo로 이어가던 옛 대화의 --resume이 다른
+    // 디렉토리를 가리킨다. 저장 전에 알려야 한다.
+    renderPanel(makeClient())
+    await openRepoTab()
+    const path = await screen.findByLabelText('api 경로')
+    expect(screen.queryByText(/이어가던 대화/)).toBeNull()
+    await userEvent.clear(path)
+    await userEvent.type(path, '/srv/api')
+    expect(screen.getByText(/이어가던 대화/)).toBeInTheDocument()
+  })
+
+  it('저장에 실패하면 이유를 보여주고 입력을 지우지 않는다', async () => {
+    // FR-12. 존재하지 않는 경로는 core가 거부한다 — 그 문장이 그대로 칸 옆에 보인다.
+    const update = vi.fn(async () => { throw new Error('존재하지 않는 경로입니다: /없음') })
+    const refreshRepos = vi.fn(async () => {})
+    renderPanel(makeClient({}, {}, { update }), { refreshRepos })
+    await openRepoTab()
+    const path = await screen.findByLabelText('api 경로')
+    await userEvent.clear(path)
+    await userEvent.type(path, '/없음')
+    await userEvent.click(screen.getByRole('button', { name: 'api 저장' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('존재하지 않는 경로입니다: /없음')
+    expect(path).toHaveValue('/없음')
+    expect(refreshRepos).not.toHaveBeenCalled()
+  })
+
+  it('탭을 옮겼다 돌아와도 고치던 경로가 그대로다', async () => {
+    renderPanel(makeClient())
+    await openRepoTab()
+    const path = await screen.findByLabelText('api 경로')
+    await userEvent.clear(path)
+    await userEvent.type(path, '/srv/api')
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    await openRepoTab()
+    expect(await screen.findByLabelText('api 경로')).toHaveValue('/srv/api')
+  })
+
+  it('workspace를 고르지 않았으면 안내만 남긴다', async () => {
+    renderPanel(makeClient(), { workspaceId: null, repos: [] })
+    await openRepoTab()
+    expect(await screen.findByText(/왼쪽에서 workspace를 고르면/)).toBeInTheDocument()
+    expect(screen.queryByLabelText('api 경로')).toBeNull()
+  })
+
+  it('repo가 없으면 그렇다고 말한다', async () => {
+    renderPanel(makeClient(), { repos: [] })
+    await openRepoTab()
+    expect(await screen.findByText(/등록된 repo가 없습니다/)).toBeInTheDocument()
   })
 })
