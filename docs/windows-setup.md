@@ -103,12 +103,11 @@ cmd.exe의 인용 규칙을 타고, 실행 취소가 죽이는 대상이 cmd.exe
 폴백으로 `%USERPROFILE%\.local\bin`, `%USERPROFILE%\.claude\local`이다
 (`core/runner/executable.ts`). 네이티브 설치본은 보통 첫 폴백에 들어간다.
 
-⚠️ **자동 탐색이 실패했을 때의 탈출구가 지금은 막혀 있다.** 코드 주석과 릴리스
-노트는 "workspace 설정의 claude 경로에 넣으라"고 안내하지만, `workspace.claudePath`는
-스키마(`core/db/schema.ts`)에만 있고 **IPC 핸들러도 편집 UI도 없다** —
-`electron/ipc/workspaces.ts`는 list/create/rename/remove만 등록한다. 자동 탐색이
-실패하면 `PATH`에 넣거나 위 폴백 디렉토리에 두는 수밖에 없다. (설계의 구멍이므로
-여기서 고치지 않고 적어만 둔다.)
+**자동 탐색이 실패하면 설정 화면에서 경로를 넣는다** (2026-09-19부터). 사이드바
+하단 설정 → `실행` 탭 → "CLI 경로"에 절대 경로를 넣고 저장하면, 바로 아래 "CLI 상태"
+줄이 실행을 막는 것과 **같은 판정**으로 지금 무엇이 잡히는지 보여준다. 비워 두면
+자동 탐색으로 돌아간다. (한동안 이 자리에 편집 UI가 없어 `PATH`에 넣는 수밖에
+없었다 — 그 구멍은 메워졌다.)
 
 ### AWS Bedrock을 쓴다면
 
@@ -187,37 +186,24 @@ DB가 WAL 모드로 열리므로(`core/db/open.ts`) 체크포인트되지 않은
 
 ### 옮긴 뒤 반드시 다시 지정할 것
 
-DB에 든 경로는 전부 macOS 것이다. 셋 다 손봐야 한다.
+DB에 든 경로는 전부 macOS 것이다. 셋 다 손봐야 하고, **셋 다 설정 화면에서 한다**
+(2026-09-19부터 — 그전에는 SQLite를 직접 열어야 했다). 사이드바 하단의 설정은 탭
+넷이고, 각 탭 맨 위 문장이 그 값이 어디까지 걸리는지(장비 전체 / 이 workspace)를
+말해 준다.
 
-**글로벌 asset 경로 — 앱에서 바꾼다.** 사이드바 하단의 설정 화면에 "Claude Code
-글로벌 경로"와 "OpenCode 글로벌 경로" 입력이 있다.
-`~/.claude/skills` → `%USERPROFILE%\.claude\skills` 식으로 고친다.
+**글로벌 asset 경로 — `앱` 탭.** "Claude Code 글로벌 경로"와 "OpenCode 글로벌 경로"를
+`~/.claude/skills` → `%USERPROFILE%\.claude\skills` 식으로 고친다. 장비 전체에 걸린다.
 
-**repo 경로 — 앱에서 바꿀 수 없다.** `electron/ipc/repos.ts`는 create·rename·remove만
-등록하고 path 편집은 없다. 두 가지 길이 있다:
+**repo 경로 — `repo` 탭.** 등록된 repo마다 이름·경로·설명 칸이 있다. 경로를 고쳐
+저장하면 그 repo의 asset 행이 **새 경로로 따라가고** 곧바로 다시 훑는다 — 행을 새로
+만들지 않으므로 과거 run이 그 asset을 담았던 기록이 그대로 이어진다. 존재하지 않는
+경로는 거부된다. 저장 전에 뜨는 경고를 읽을 것: 그 repo에서 **이어가던 대화**는 다른
+디렉토리를 가리키게 된다(세션은 특정 디렉토리에서 만든 것이다). "지우고 다시
+등록"도 여전히 가능하지만 asset 행과 이슈·메모의 repo 태그가 cascade로 사라진다.
 
-- **repo를 지우고 다시 등록한다.** 간단하지만 그 repo에 달린 asset 행과 이슈·메모의
-  repo 태그가 cascade로 함께 사라진다. 과거 run이 그 repo를 맥락으로 담았던 기록도
-  끊긴다.
-- **앱을 끄고 SQLite로 직접 고친다.** 기록이 전부 살아남는다. 이쪽을 권한다.
-
-```sql
--- 앱을 완전히 끈 상태에서 %APPDATA%\one-desk\one-desk.db 를 연다
-UPDATE repo
-   SET path = 'C:\Users\<사용자>\WorkSpace\one-desk'
- WHERE path = '/Users/yonghyun-kwon/WorkSpace/one-desk';
-
--- 남아 있다면 macOS 경로이므로 비운다. 비우면 자동 탐색으로 돌아간다
-UPDATE workspace SET claude_path = NULL, opencode_path = NULL;
-
-SELECT name, path FROM repo;   -- 확인
-```
-
-SQLite 문자열 안에서 백슬래시는 특별한 뜻이 없으므로 Windows 경로를 그대로 넣으면
-된다.
-
-**claude / opencode 경로** — §3에서 적었듯 편집 UI가 없다. 위 SQL로 비워 두고 자동
-탐색에 맡긴다.
+**claude / opencode 경로 — `실행` 탭의 "CLI 경로".** macOS 경로가 남아 있으면 비우고
+저장한다. 비우면 자동 탐색으로 돌아가고, 그 아래 "CLI 상태" 줄이 지금 무엇이
+잡히는지 보여준다(§3).
 
 ## 5. Windows에서 다르게 도는 것들
 
@@ -348,7 +334,7 @@ Windows에서 하나씩 지워 나가고, 막힌 곳은 이 문서에 적어 둔
       `findExecutable('claude')`가 그것을 집는 것까지 확인했다(실제 run은 아직)
 - [x] `opencode.exe` 설치, 앱이 자동으로 찾는다 — winget(§3)
 - [ ] `one-desk.db` + `-wal` + `-shm` 복사, 첫 실행 마이그레이션 통과 — **아직. DB가 비어 있다**
-- [ ] repo 경로 SQL 수정, 글로벌 asset 경로 재지정 — 위가 끝나야 할 일이 생긴다
+- [ ] 설정 화면에서 repo 경로·글로벌 asset 경로·CLI 경로 재지정(§4) — 위가 끝나야 할 일이 생긴다
 - [x] 실제 run 한 번 성공 — OpenCode + 무료 모델 + 전체 허용으로 한 턴 왕복
       (`e2e/opencode-real.e2e.ts`). 맥락 담기는 포함하지 않았고, Claude Code로는 아직이다
 - [x] `pnpm test:e2e` — 처음엔 7개가 실패했고(가짜 CLI 픽스처가 Windows에서 spawn되지

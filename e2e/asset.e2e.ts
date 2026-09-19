@@ -76,6 +76,8 @@ describe('글로벌 asset', () => {
 
     // repo를 하나도 등록하지 않았다 — 글로벌은 repo와 무관하게 보여야 한다.
     await page.getByRole('button', { name: '설정' }).click()
+    // 글로벌 경로는 앱 탭에 있다 — 설정은 실행 탭으로 열린다.
+    await page.getByRole('tab', { name: '앱' }).click()
     const claudeBox = page.getByLabel('Claude Code 글로벌 경로')
     await claudeBox.waitFor({ state: 'visible', timeout: 10_000 })
     await claudeBox.fill(globalRoot)

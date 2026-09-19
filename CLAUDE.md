@@ -191,6 +191,8 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **asset의 동일성 키는 `(workspace_id, file_path)`다 — `repo_id`를 넣지 말 것.** 글로벌 asset은 `repo_id`가 NULL인데 SQLite가 유니크 인덱스에서 NULL을 서로 다르게 취급한다. 키에 `repo_id`가 남아 있으면 스캔마다 같은 글로벌 skill이 새 행으로 쌓이는데, 목록이 조금씩 길어질 뿐 오류가 없어 한참 모른다. **저장소의 조회도 같은 키를 봐야 한다** — `eq(asset.repoId, null)`은 SQL에서 `repo_id = NULL`이 되어 절대 참이 되지 않으므로, 글로벌이 매번 INSERT를 시도하다 유니크 인덱스에 걸려 스캔이 통째로 죽는다. authored는 `file_path`가 NULL이라 여전히 여러 개 만들 수 있다.
 
+**repo 경로를 바꾸면 그 아래 asset의 `file_path`가 전부 달라진다** — 동일성 키가 그것이라, 아무것도 안 하면 옛 행이 "없음"으로 남고 재스캔이 새 행을 쌓아 **목록이 조용히 두 벌이 된다.** 그래서 `repo.update`는 `asset.moveAssetPathPrefix`로 그 repo의 `file_path`를 **같은 트랜잭션에서** 새 접두사로 옮기고(행은 그대로 — 과거 run이 첨부한 기록이 id로 이어진다), core가 그 뒤에 재스캔한다. 치환은 경로 경계에서만 맞는다(`/tmp/api`가 `/tmp/api2`를 끌고 가지 않는다). 글로벌 행은 `repo_id`가 NULL이라 `eq(asset.repoId, repoId)`에 걸리지 않는 것이 **의도다** — `isNull`이나 `or`로 넓히면 글로벌이 딸려 온다. 설계 `docs/sdlc/settings-screen/spec.md` FR-9.
+
 **`createSettingRepository`와 `CoreOptions`는 `homeDir`를 필수로 받는다.** 글로벌 경로의 기본값이 홈 기준인데 `core/`에서 `os.homedir()`를 부르면 **테스트가 개발자의 실제 홈을 훑어** 사람마다 결과가 달라진다. 선택 인자로 바꾸지 말 것 — 빠뜨리면 글로벌 경로가 조용히 비고, 그게 이 기능이 고치려던 증상 그 자체다.
 
 **`core/index.ts`에서 `settings`는 `assetService`보다 먼저 선언해야 한다.** asset 서비스의 `globalRoots`가 `settings`를 닫아 잡는데, repo가 하나도 없는 workspace에서는 부팅 스캔이 같은 틱에 그 함수를 불러 **TDZ 오류**가 난다.
