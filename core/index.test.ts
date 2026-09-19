@@ -605,3 +605,87 @@ describe('core.workspaces.checkAgents', () => {
     }
   })
 })
+
+describe('repos.update — 설정 화면의 repo 탭', () => {
+  function seedRepoWithSkill(dataDir: string, name: string): string {
+    const repoPath = join(dataDir, name)
+    const skillDir = join(repoPath, '.claude', 'skills', '알파')
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: 알파\ndescription: 스킬\n---\n')
+    return repoPath
+  }
+
+  it('경로를 바꾸면 그 repo의 asset이 새 경로로 한 벌만 남는다', async () => {
+    // spec FR-9. 치환 없이 재스캔만 하면 옛 행은 "없음"으로 남고 새 행이 쌓여 목록이
+    // 두 벌이 된다 — 그것을 잡는 테스트다. 치환만 하고 재스캔을 빼면 lastSeenAt이 낡는다.
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    const oldPath = seedRepoWithSkill(dataDir, 'repo-old')
+    const made = await core.repos.create({ workspaceId, name: 'api', path: oldPath })
+    const before = core.assets.list({ workspaceId })
+    expect(before).toHaveLength(1)
+
+    // 디렉토리를 실제로 옮긴다 — 설정에서 경로를 고치는 상황이 이것이다.
+    const newPath = join(dataDir, 'repo-new')
+    const { renameSync } = await import('node:fs')
+    renameSync(oldPath, newPath)
+
+    const seenBefore = before[0]!.lastSeenAt
+    await new Promise((r) => setTimeout(r, 2))
+    const updated = await core.repos.update({ id: made.id, path: newPath })
+    expect(updated.path).toBe(newPath)
+
+    const after = core.assets.list({ workspaceId })
+    expect(after).toHaveLength(1)
+    expect(after[0]).toMatchObject({ id: before[0]!.id, name: '알파' })
+    expect(after[0]!.filePath!.startsWith(newPath)).toBe(true)
+    // 재스캔까지 갔다는 증거 — 옮긴 자리에서 다시 봤으므로 lastSeenAt이 올라간다.
+    expect(after[0]!.lastSeenAt!).toBeGreaterThan(seenBefore!)
+    close(core)
+  })
+
+  it('존재하지 않는 경로는 거부하고 아무것도 바꾸지 않는다', async () => {
+    // 실행의 cwd가 되는 값이다 — 없는 경로를 받아 두면 다음 실행이 조용히 실패한다.
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    const repoPath = seedRepoWithSkill(dataDir, 'repo')
+    const made = await core.repos.create({ workspaceId, name: 'api', path: repoPath })
+
+    await expect(core.repos.update({ id: made.id, path: join(dataDir, '없는-디렉토리') }))
+      .rejects.toThrow('존재하지 않는 경로')
+    expect(core.repos.get(made.id).path).toBe(repoPath)
+    expect(core.assets.list({ workspaceId })[0]!.filePath!.startsWith(repoPath)).toBe(true)
+    close(core)
+  })
+
+  it('이름만 바꾸면 다시 훑지 않는다', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    const repoPath = seedRepoWithSkill(dataDir, 'repo')
+    const made = await core.repos.create({ workspaceId, name: 'api', path: repoPath })
+    const seen = core.assets.list({ workspaceId })[0]!.lastSeenAt
+
+    await new Promise((r) => setTimeout(r, 2))
+    const updated = await core.repos.update({ id: made.id, name: 'api-renamed', description: '설명' })
+    expect(updated).toMatchObject({ name: 'api-renamed', description: '설명', path: repoPath })
+    expect(core.assets.list({ workspaceId })[0]!.lastSeenAt).toBe(seen)
+    close(core)
+  })
+})
+
+describe('paths — 정보 탭', () => {
+  it('DB 파일과 로그 디렉토리의 실제 위치를 준다', () => {
+    // 정보 탭이 보여주는 값이다. 여기가 실제 경로와 어긋나면 사용자가 엉뚱한 파일을
+    // 백업한다 — 그래서 문자열 조립이 아니라 core가 실제로 여는 경로를 그대로 준다.
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const paths = core.paths()
+    expect(paths.dbFile).toBe(join(dataDir, 'one-desk.db'))
+    expect(paths.logDir).toBe(join(dataDir, 'logs'))
+    expect(existsSync(paths.dbFile)).toBe(true)
+    close(core)
+  })
+})

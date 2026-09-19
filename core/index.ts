@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events'
+import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { openDb } from './db/open'
@@ -10,6 +11,7 @@ import { createCommandService } from './commands/service'
 import { probeCommands } from './commands/probe'
 import { describeCommands } from './commands/describe'
 import type { GlobalRoots } from './db/repositories/setting'
+import type { UpdateRepoInput } from '@shared/models'
 import { createIssueRepository } from './db/repositories/issue'
 import { createMemoRepository } from './db/repositories/memo'
 import { createRunRepository } from './db/repositories/run'
@@ -75,8 +77,13 @@ const MCP_STATUS = 'mcp-status'
 export function createCore(opts: CoreOptions) {
   const onError = opts.onError ?? consoleErrorSink
 
+  // 정보 탭이 보여주는 경로는 여기서 실제로 여는 것과 같은 값이어야 한다 — 따로
+  // 조립하면 어긋난 자리를 아무도 못 본다.
+  const dbFile = join(opts.dataDir, 'one-desk.db')
+  const logDir = join(opts.dataDir, 'logs')
+
   const db = openDb({
-    file: join(opts.dataDir, 'one-desk.db'),
+    file: dbFile,
     migrationsDir: opts.migrationsDir
   })
 
@@ -141,7 +148,7 @@ export function createCore(opts: CoreOptions) {
 
   const manager = createRunManager({
     adapters,
-    logDir: join(opts.dataDir, 'logs'),
+    logDir,
     onEvent: (event) => emitter.emit(RUN_EVENT, event),
     onError
   })
@@ -236,6 +243,35 @@ export function createCore(opts: CoreOptions) {
           onError('repo 등록 후 asset 스캔 실패', err)
         }
         return made
+      },
+
+      /**
+       * 이름·설명·경로를 고친다 (settings-screen spec FR-8). 경로가 바뀌면 저장소가
+       * asset의 file_path를 같은 트랜잭션에서 옮기고(FR-9), 여기서 그 repo를 다시
+       * 훑어 lastSeenAt을 새 자리에서 찍는다.
+       *
+       * 경로의 존재는 여기서 본다 — 저장소는 파일시스템을 모른다. 실행의 cwd가 되는
+       * 값이라 없는 경로를 받아 두면 다음 실행이 조용히 실패한다.
+       */
+      async update(input: UpdateRepoInput) {
+        if (input.path !== undefined) {
+          const trimmed = input.path.trim()
+          let isDir = false
+          try { isDir = statSync(trimmed).isDirectory() } catch { isDir = false }
+          if (!isDir) throw new Error(`존재하지 않는 경로입니다: ${trimmed}`)
+        }
+        const before = repos.get(input.id)
+        const { id, ...patch } = input
+        const updated = repos.update(id, patch)
+        if (updated.path !== before.path) {
+          // 등록 때와 같은 이유로 기다린다. 실패가 갱신을 무르지는 않는다.
+          try {
+            await assetService.scanRepo(updated.workspaceId, updated.id)
+          } catch (err) {
+            onError('repo 경로 변경 후 asset 스캔 실패', err)
+          }
+        }
+        return updated
       }
     },
 
@@ -276,6 +312,12 @@ export function createCore(opts: CoreOptions) {
 
     /** 테스트용. MCP 서버가 아직 안 떴으면 null. */
     mcpPort: (): number | null => mcp.port(),
+
+    /**
+     * 정보 탭이 보여주는 실제 위치. 앱 버전은 electron의 것이라 여기 없다 — main이
+     * 이 값에 버전을 더해 돌려준다(경계 규칙 1).
+     */
+    paths: () => ({ dbFile, logDir }),
 
     /** 전역 실행 슬롯. workspace와 무관하다 (설계 §6 — 제약의 근거가 머신 자원이다). */
     queue: {
