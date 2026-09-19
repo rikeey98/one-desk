@@ -76,6 +76,8 @@ function renderPanel(
 describe('SettingsPanel', () => {
   it('저장된 경로를 줄바꿈으로 보여준다', async () => {
     renderPanel(makeClient())
+    // 글로벌 경로는 앱 탭에 있다 — 실행 탭이 기본으로 열린다.
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
     await waitFor(() => {
       expect(screen.getByLabelText('Claude Code 글로벌 경로'))
         .toHaveValue('/home/me/.claude/skills\n/home/me/.claude/agents')
@@ -87,6 +89,8 @@ describe('SettingsPanel', () => {
   it('고쳐서 저장하면 줄 단위로 나눠 보낸다', async () => {
     const setGlobalRoots = vi.fn().mockResolvedValue(DEFAULTS)
     renderPanel(makeClient({ setGlobalRoots }))
+    // 글로벌 경로는 앱 탭에 있다 — 실행 탭이 기본으로 열린다.
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
     const box = await screen.findByLabelText('Claude Code 글로벌 경로')
 
     await userEvent.clear(box)
@@ -103,6 +107,8 @@ describe('SettingsPanel', () => {
     // 자동 저장이 아니라 사용자가 결과를 보는 자리다. 조용히 넘기지 않는다.
     const setGlobalRoots = vi.fn().mockRejectedValue(new Error('디스크가 가득 찼습니다'))
     renderPanel(makeClient({ setGlobalRoots }))
+    // 글로벌 경로는 앱 탭에 있다 — 실행 탭이 기본으로 열린다.
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
     const box = await screen.findByLabelText('Claude Code 글로벌 경로')
 
     await userEvent.clear(box)
@@ -117,6 +123,8 @@ describe('SettingsPanel', () => {
     // core가 빈 목록을 기본값으로 되돌리므로, 화면이 그 결과를 반영해야 한다.
     const setGlobalRoots = vi.fn().mockResolvedValue({ claude: ['/정리됨'], opencode: [] })
     renderPanel(makeClient({ setGlobalRoots }))
+    // 글로벌 경로는 앱 탭에 있다 — 실행 탭이 기본으로 열린다.
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
     const box = await screen.findByLabelText('Claude Code 글로벌 경로')
 
     await userEvent.clear(box)
@@ -127,6 +135,8 @@ describe('SettingsPanel', () => {
 
   it('조회에 실패하면 알린다', async () => {
     renderPanel(makeClient({ globalRoots: vi.fn().mockRejectedValue(new Error('못 읽음')) }))
+    // 글로벌 경로는 앱 탭에 있다 — 실행 탭이 기본으로 열린다.
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('못 읽음')
   })
 })
@@ -456,5 +466,55 @@ describe('SettingsPanel — CLI 경로', () => {
     await screen.findByText(/왼쪽에서 workspace를 고르면/)
     expect(screen.queryByLabelText('Claude Code 실행 파일')).toBeNull()
     expect(screen.queryByRole('button', { name: 'CLI 경로 저장' })).toBeNull()
+  })
+})
+
+describe('SettingsPanel — 탭', () => {
+  it('탭 넷이 있고 실행 탭이 먼저 열린다', async () => {
+    renderPanel(makeClient())
+    const tabs = screen.getAllByRole('tab')
+    expect(tabs.map((t) => t.textContent)).toEqual(['실행', '앱', 'repo', '정보'])
+    expect(screen.getByRole('tab', { name: '실행' })).toHaveAttribute('aria-selected', 'true')
+    // 실행 탭의 내용은 보이고 앱 탭의 내용은 보이지 않는다.
+    expect(await screen.findByLabelText('기본 agent')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Claude Code 글로벌 경로')).toBeNull()
+  })
+
+  it('탭을 누르면 그 탭의 내용으로 바뀐다', async () => {
+    renderPanel(makeClient())
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    expect(screen.getByRole('tab', { name: '앱' })).toHaveAttribute('aria-selected', 'true')
+    expect(await screen.findByLabelText('Claude Code 글로벌 경로')).toBeInTheDocument()
+    expect(screen.queryByLabelText('기본 agent')).toBeNull()
+  })
+
+  it('각 탭이 자기 범위를 밝힌다', async () => {
+    // FR-2: 실행·repo는 workspace 하나, 앱은 장비 전체. 이 문장이 "어디서 바꾸는지
+    // 모르겠다"(intent)에 대한 답이다.
+    renderPanel(makeClient())
+    expect(await screen.findByText(/이 workspace에만/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    expect(await screen.findByText(/이 장비 전체에/)).toBeInTheDocument()
+  })
+
+  it('탭을 옮겼다 돌아와도 고치던 입력이 그대로다', async () => {
+    // FR-11이 지키는 약속은 "저장 버튼이 없다"가 아니라 이것이다 — 초안 state가
+    // 탭이 아니라 SettingsPanel에 있어야 성립한다. state를 탭 컴포넌트로 내리면
+    // 언마운트와 함께 사라져 이 테스트가 실패한다.
+    renderPanel(makeClient())
+    const model = await screen.findByLabelText('Claude Code 기본 모델')
+    await userEvent.type(model, 'opus')
+    expect(model).toHaveValue('opus')
+
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    const box = await screen.findByLabelText('Claude Code 글로벌 경로')
+    await userEvent.clear(box)
+    await userEvent.type(box, '/임시')
+
+    await userEvent.click(screen.getByRole('tab', { name: '실행' }))
+    expect(await screen.findByLabelText('Claude Code 기본 모델')).toHaveValue('opus')
+
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    expect(await screen.findByLabelText('Claude Code 글로벌 경로')).toHaveValue('/임시')
   })
 })
