@@ -9,6 +9,7 @@ export const CHANNELS = {
   reposList: 'repos:list',
   reposCreate: 'repos:create',
   reposRename: 'repos:rename',
+  reposUpdate: 'repos:update',
   reposRemove: 'repos:remove',
   reposOpenInEditor: 'repos:openInEditor',
   issuesList: 'issues:list',
@@ -41,6 +42,9 @@ export const CHANNELS = {
   runsInbox: 'runs:inbox',
   runsInboxCounts: 'runs:inboxCounts',
   mcpStatus: 'mcp:status',
+  appInfo: 'app:info',
+  /** 정해진 두 위치(data·logs)만 파일 탐색기로 연다 */
+  appReveal: 'app:reveal',
   runsMarkReviewed: 'runs:markReviewed',
   runsResume: 'runs:resume'
 } as const

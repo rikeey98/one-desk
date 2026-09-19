@@ -11,7 +11,7 @@ import { createCommandService } from './commands/service'
 import { probeCommands } from './commands/probe'
 import { describeCommands } from './commands/describe'
 import type { GlobalRoots } from './db/repositories/setting'
-import type { UpdateRepoInput } from '@shared/models'
+import type { UpdateRepoInput, AppPaths } from '@shared/models'
 import { createIssueRepository } from './db/repositories/issue'
 import { createMemoRepository } from './db/repositories/memo'
 import { createRunRepository } from './db/repositories/run'
@@ -317,7 +317,7 @@ export function createCore(opts: CoreOptions) {
      * 정보 탭이 보여주는 실제 위치. 앱 버전은 electron의 것이라 여기 없다 — main이
      * 이 값에 버전을 더해 돌려준다(경계 규칙 1).
      */
-    paths: () => ({ dbFile, logDir }),
+    paths: (): AppPaths => ({ dataDir: opts.dataDir, dbFile, logDir }),
 
     /** 전역 실행 슬롯. workspace와 무관하다 (설계 §6 — 제약의 근거가 머신 자원이다). */
     queue: {

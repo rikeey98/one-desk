@@ -145,6 +145,21 @@ export interface CreateRepoInput {
  * 등록된 repo의 값을 고친다. 넘어온 필드만 바뀐다. 경로를 바꾸면 그 아래 asset의
  * file_path가 함께 옮겨지고 다시 훑는다 (settings-screen spec FR-9).
  */
+/** core가 실제로 여는 위치. 정보 탭이 보여준다 */
+export interface AppPaths {
+  dataDir: string
+  dbFile: string
+  logDir: string
+}
+
+/** 정보 탭. 버전은 electron(main)이 더한다 — core는 모른다 */
+export interface AppInfo extends AppPaths {
+  version: string
+}
+
+/** 정보 탭의 "폴더 열기"가 열 수 있는 대상. 경로가 아니라 이름이다 (spec NFR-3) */
+export type RevealTarget = 'data' | 'logs'
+
 export interface UpdateRepoInput {
   id: string
   name?: string
