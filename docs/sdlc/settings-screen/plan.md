@@ -2,178 +2,166 @@
 
 - 출처: `intent.md`, `spec.md` (2026-09-19 승인)
 - 작성자: 권용현
-- 상태: 승인됨 (2026-09-19)
+- 상태: 승인됨 (2026-09-19) · **2026-09-19 개정**
 - 작성일: 2026-09-19
 
-## 전제
+## 개정 기록
 
-**task_926353a6(기본 모델 배선)이 먼저 병합돼 있어야 한다.** spec의 확인 필요 항목에서
-정한 순서다. 그 작업이 `RunPanel`이 `workspace.defaultModel*`을 초기값으로 읽게 만들고,
-이 계획은 그 값을 **고치는 화면**만 만든다. 병합 전에 시작하면 수용 기준 2의 절반(기본
-모델)을 검증할 수 없고, 두 작업이 같은 `RunPanel.tsx`에서 충돌한다.
+**2026-09-19 — 현실에 맞춰 다시 썼다.** 초판을 쓰던 중 다른 작업(task_926353a6)이 브리프를
+넘어 `SettingsPanel`까지 구현해 들어왔다(`claude/agitated-goldwasser-a33cea`, `e0ce778`,
+20개 파일 +1,645줄). 초판의 13단계 중 **다섯이 이미 끝났고**, 저장 방식은 spec의 FR-11과
+정반대로 구현됐다. 그 코드는 검증됐으므로(아래) 계획을 코드에 맞추고, spec의 FR-11을
+개정했다(spec의 변경 기록).
 
-## spec에서 다듬은 것
+검증 결과(워크트리에서 실측, 2026-09-19 17:30): `typecheck` 통과 · `lint` 통과 ·
+`vitest run` **921 통과 / 28 건너뜀** · e2e **18 통과 / 2 건너뜀**.
 
-코드를 읽으며 드러난 넷이다. spec의 결정을 뒤집지 않고 모양만 맞춘다.
+## 이미 끝난 것 (`e0ce778`)
 
-1. **`SettingsPanel`은 훅을 스스로 부르지 않는다.** spec은 "각 탭은 자기 데이터만 읽는다"로
-   적었으나, 이 앱은 `useWorkspaces`·`useRepos`·`useQueue`를 **`App.tsx`에서 한 번만 부르고
-   prop으로 내려보낸다.** 자식이 각자 부르다 실제 결함이 두 번 났다(`App.tsx:36`·`:51`,
-   커밋 fbcd0e6 — repo를 등록해도 한쪽만 갱신되고, 인박스가 방금 만든 workspace를
-   "(사라진 workspace)"로 그렸다). 설정 화면도 같은 규칙을 따른다.
-2. **상한은 `App`이 이미 들고 있는 것을 그대로 쓴다.** `useQueue`의 스냅샷과
-   `onChangeLimit`을 `앱` 탭에 내려보낸다. 설정 화면이 자기 인스턴스를 만들면 도크와
-   설정이 서로의 변경을 모른다 — FR-7이 요구하는 "한쪽을 바꾸면 다른 쪽이 따라온다"가
-   이 배선으로만 성립한다.
-3. **경로 치환은 asset *저장소*에 둔다.** `movePathPrefix`는 트랜잭션과 유니크 인덱스를
-   다루므로 서비스가 아니라 저장소의 관심사다. 서비스(`core/assets/service.ts`)는 그 뒤에
-   `scanRepo`를 부르는 역할만 한다.
-4. **`app.info()`는 core가 조립하지 않는다.** core는 `dataDir`를 알지만 앱 버전은 electron의
-   것이다(`app.getVersion()`). core에 `paths()`를 두고 **main이 버전을 더해** 돌려준다 —
-   경계 규칙 1이 이것을 강제한다.
+| 초판 단계 | 상태 | 실제 구현 |
+| --- | --- | --- |
+| 1. 전제(모델 배선) | **끝** | `RunPanel`의 `defaultModelOf(workspace, agentKind)`. agent를 바꾸면 모델 칸이 따라 바뀌고, 대화를 이어갈 때는 마지막 턴의 모델이 이긴다 |
+| 2. `workspace.updateDefaults` | **끝** | 단 **부분 갱신이 아니다** — agent·모델 둘·권한을 전부 받는다. CLI 경로는 `updatePaths`로 갈라져 있다 |
+| 5. IPC 왕복(workspace 쪽) | **끝** | `workspacesUpdateDefaults`·`updatePaths`·`checkAgents` |
+| 8. `실행` 탭 내용 | **끝** | 기본값 네 칸 + CLI 경로 둘. 권한을 전체 허용으로 **올릴 때만** `ConfirmButton`으로 확인(FR-6) |
+| 11. `App.tsx` 배선(일부) | **끝** | `workspaces`·`workspaceId`·`onWorkspaceSaved` |
+| — | **덤** | `checkAgents` — 지금 이 workspace로 실행하면 두 CLI가 각각 어디서 잡히는지 표시. 계획에 없던 것이다 |
+
+**남은 것은 껍데기와 나머지 두 탭이다.** 지금 화면은 탭이 아니라 `h3` 절 셋이 쌓인 한 장이다.
+
+## 그대로 유효한 판단
+
+초판의 넷 중 둘은 구현이 그대로 따랐고(`App.tsx`의 prop 하강, 부분 갱신 금지), 나머지 둘은
+아직 살아 있다. 여기에 이번에 하나를 더한다.
+
+1. **경로 치환은 asset *저장소*에 둔다.** `movePathPrefix`는 트랜잭션과 유니크 인덱스를
+   다루므로 서비스가 아니라 저장소의 관심사다.
+2. **`app.info()`는 core가 조립하지 않는다.** 앱 버전은 electron의 것이므로 core에
+   `paths()`를 두고 **main이 버전을 더한다** — 경계 규칙 1.
+3. **상한은 `App`이 든 `useQueue`를 그대로 내려받는다.** 설정이 자기 인스턴스를 만들면
+   도크와 서로의 변경을 모른다(FR-7).
+4. **초안 state는 `SettingsPanel`에 남긴다.** 지금 모든 입력(글로벌 경로 둘·기본값 넷·CLI
+   경로 둘)이 이 컴포넌트의 state다. 탭을 나누며 그 state를 자식으로 내리면 **탭을 옮길 때
+   언마운트되어 입력이 사라진다** — FR-11이 지키려는 바로 그 약속이 깨진다.
 
 ## 변경되는 파일
 
 | 파일 | 신규/수정 | 변경 내용 |
 | --- | --- | --- |
-| `core/db/repositories/workspace.ts` | 수정 | `updateDefaults(id, patch)`. `rename`은 건드리지 않는다 |
-| `core/db/repositories/workspace.test.ts` | 수정 | 부분 갱신, `updatedAt` 상승, 없는 id |
 | `core/db/repositories/repo.ts` | 수정 | `update(id, patch)` — 이름·설명·경로 |
 | `core/db/repositories/repo.test.ts` | 수정 | 경로 변경, 빈 경로 거부 |
 | `core/db/repositories/asset.ts` | 수정 | `movePathPrefix({ workspaceId, repoId, from, to })` 트랜잭션 |
 | `core/db/repositories/asset.test.ts` | 수정 | 접두사 치환, 글로벌(`repo_id IS NULL`) 제외, 충돌 롤백 |
-| `core/index.ts` | 수정 | `workspaces.updateDefaults`, `repos.update`, `paths()` 표면 |
-| `core/index.test.ts` | 수정 | 배선 + 경로 변경이 재스캔까지 가는지 |
-| `shared/models.ts` | 수정 | `UpdateWorkspaceDefaultsInput`, `UpdateRepoInput`, `AppInfo` |
-| `shared/channels.ts` | 수정 | `workspacesUpdateDefaults`, `reposUpdate`, `appInfo`, `appReveal` |
-| `shared/client.ts` | 수정 | 같은 모양의 메서드 넷 |
-| `electron/ipc/workspaces.ts` | 수정 | 핸들러 하나. core 호출만 |
+| `core/index.ts` | 수정 | `repos.update`(치환 → 재스캔), `paths()` |
+| `core/index.test.ts` | 수정 | 경로 변경이 재스캔까지 가는지 |
+| `shared/models.ts` | 수정 | `UpdateRepoInput`, `AppInfo`, `RevealTarget` |
+| `shared/channels.ts` | 수정 | `reposUpdate`, `appInfo`, `appReveal` |
+| `shared/client.ts` | 수정 | 같은 모양의 메서드 셋 |
 | `electron/ipc/repos.ts` | 수정 | 핸들러 하나 |
 | `electron/ipc/app.ts` | 신규 | `appInfo`(버전 합성), `appReveal`(`'data' \| 'logs'`만) |
 | `electron/ipc/index.ts` | 수정 | `registerAppHandlers` 한 줄 |
-| `electron/preload.ts` | 수정 | 브리지 넷 |
-| `renderer/components/SettingsPanel.tsx` | 수정 | 탭 넷의 껍데기로. 기존 내용은 `앱` 탭으로 |
-| `renderer/components/SettingsPanel.test.tsx` | 수정 | **'저장' 버튼이 사라진다** — 즉시 커밋으로 고쳐 쓴다 |
-| `renderer/components/settings/AppTab.tsx` | 신규 | 글로벌 경로 둘 + 동시 실행 상한 |
-| `renderer/components/settings/AppTab.test.tsx` | 신규 | 커밋·실패·상한 반영 |
-| `renderer/components/settings/RunDefaultsTab.tsx` | 신규 | 기본값 다섯 + 권한 확인 절차 |
-| `renderer/components/settings/RunDefaultsTab.test.tsx` | 신규 | FR-3·FR-4·FR-5·FR-6 |
+| `electron/preload.ts` | 수정 | 브리지 셋 |
+| `renderer/components/SettingsPanel.tsx` | 수정 | 탭 넷의 껍데기로. **초안 state는 여기 남는다** |
+| `renderer/components/SettingsPanel.test.tsx` | 수정 | 기존 테스트는 탭을 먼저 고르도록만 손본다. 탭 전환이 입력을 지우지 않는 테스트를 **추가**한다 |
 | `renderer/components/settings/RepoTab.tsx` | 신규 | repo 목록과 경로·이름·설명 편집 |
 | `renderer/components/settings/RepoTab.test.tsx` | 신규 | 경로 저장, 존재하지 않는 경로 |
 | `renderer/components/settings/InfoTab.tsx` | 신규 | MCP·경로·버전, 열기 버튼 둘 |
 | `renderer/components/settings/InfoTab.test.tsx` | 신규 | `failed` 메시지 표시 |
-| `renderer/components/settings/CommitField.tsx` | 신규 | Enter·blur 커밋, Esc 취소 (FR-11) |
-| `renderer/components/settings/CommitField.test.tsx` | 신규 | 이중 커밋 방지 포함 |
-| `renderer/App.tsx` | 수정 | `SettingsPanel`에 prop 내려보내기 |
-| `renderer/App.test.tsx` | 수정 | **배선 테스트** — prop 한 줄을 지우면 실패해야 한다 |
-| `e2e/settings.e2e.ts` | 신규 | 수용 기준 2·5·8 |
-| `e2e/asset.e2e.ts` | 수정 | '저장' 클릭(82행)이 사라진다 |
+| `renderer/App.tsx` | 수정 | `repos`·`refreshRepos`·`queue`·`onChangeLimit`·`mcpStatus` 추가 하강 |
+| `renderer/App.test.tsx` | 수정 | **배선 테스트** — 추가한 prop을 지우면 실패해야 한다 |
+| `e2e/settings.e2e.ts` | 신규 | 수용 기준 5·8과 탭 전환 |
 | `docs/windows-setup.md` | 수정 | §4의 SQL 안내를 설정 화면 안내로 |
 | `CLAUDE.md` | 수정 | repo 경로 변경과 asset 동일성 함정 한 줄 |
 
-**마이그레이션 없음** — 컬럼과 `app_setting` 키가 이미 전부 있다.
+**마이그레이션 없음.**
 
 ## 작업 순서
 
-1. **전제 확인** — `RunPanel`이 `workspace.defaultModelClaude`/`defaultModelOpencode`를
-   초기값으로 읽는지 본다. **완료 확인**: `grep -n "defaultModel" renderer/components/RunPanel.tsx`가
-   비어 있지 않다. 비어 있으면 **여기서 멈추고** task_926353a6을 먼저 병합한다.
+1. **브랜치 병합** — `claude/agitated-goldwasser-a33cea`(`e0ce778`)를 `main`에 합친다.
+   **완료 확인**: `main`에서 `pnpm test`·`pnpm test:e2e`가 초록이고
+   `grep -n "defaultModel" renderer/components/RunPanel.tsx`가 비어 있지 않다.
 
-2. **`workspace.updateDefaults`** — 넘어온 필드만 고치고 `updatedAt`을 올린다. 빈 문자열은
-   `null`로 정규화한다(경로·모델을 비우면 자동 탐색/CLI 기본값으로 돌아간다 — FR-5).
-   **완료 확인**: 모델만 넘기면 권한이 그대로고, 경로에 `''`를 넣으면 `null`이 저장되며,
-   `updatedAt`이 **이전 값보다 크다**. 없는 id는 던진다.
+2. **탭 껍데기** — `SettingsPanel`을 탭 넷(`실행`·`앱`·`repo`·`정보`)으로 나눈다. 기존 절
+   둘(실행 기본값·CLI 경로)은 `실행` 탭으로, 글로벌 asset 경로는 `앱` 탭으로 간다. 각 탭은
+   자기 범위를 한 문장으로 밝힌다(FR-2). **초안 state는 `SettingsPanel`에 그대로 둔다.**
+   **완료 확인**: 글로벌 경로를 고치다 다른 탭에 갔다 돌아오면 **고치던 값이 그대로다.**
+   기존 `SettingsPanel.test.tsx`는 탭을 먼저 고르는 것 외에 단언을 바꾸지 않는다.
 
-3. **`repo.update`와 `asset.movePathPrefix`** — 저장소 둘. `movePathPrefix`는 **그 repo의
+3. **`앱` 탭에 동시 실행 상한** — `useQueue` 스냅샷과 `onChangeLimit`을 prop으로 받아 그린다.
+   **완료 확인**: 상한을 바꾸면 `onChangeLimit`이 불리고, 실패하면 값이 되돌아가며 메시지가
+   뜬다. 도크의 슬롯 표시기와 **같은 숫자**를 보여준다.
+
+4. **`repo.update`와 `asset.movePathPrefix`** — 저장소 둘. `movePathPrefix`는 **그 repo의
    행만** 옮긴다. **글로벌 행은 `repo_id`가 NULL이라 `eq(asset.repoId, null)`로는 잡히지도
    제외되지도 않는다** — `isNull`/`eq`를 명시적으로 갈라 쓴다(CLAUDE.md의 실제 함정).
    **완료 확인**: repo A의 asset만 새 접두사를 갖고 **글로벌 asset의 `file_path`는 한 글자도
-   바뀌지 않는다.** 새 경로에 같은 `file_path`가 이미 있으면 **유니크 인덱스에 걸려
-   트랜잭션 전체가 되돌아간다** — 되돌아간 뒤 `repo.path`도 옛 값이다.
+   바뀌지 않는다.** 새 경로에 같은 `file_path`가 있으면 유니크 인덱스에 걸려 **트랜잭션
+   전체가 되돌아간다** — 되돌아간 뒤 `repo.path`도 옛 값이다.
 
-4. **core 표면** — `workspaces.updateDefaults`, `repos.update`(경로가 바뀌면 치환 →
-   `assetService.scanRepo` 순서로), `paths()`. **완료 확인**: 경로를 바꾸면 그 repo의
-   asset이 **새 경로로 한 벌만** 남는다(두 벌이 되면 실패). `repos.update`가 이름만 바꿀
+5. **core 표면** — `repos.update`(경로가 바뀌면 치환 → `assetService.scanRepo`), `paths()`.
+   **완료 확인**: 경로를 바꾸면 그 repo의 asset이 **새 경로로 한 벌만** 남는다. 이름만 바꿀
    때는 재스캔하지 않는다.
 
-5. **IPC 왕복** — 채널 넷, 클라이언트 타입, preload, `ipc/app.ts`. `appReveal`은
-   `'data' | 'logs'` 외의 값을 **거부한다.** **완료 확인**: `grep -rn "from 'electron'" core/`가
-   비어 있고, 핸들러 본문이 core 호출 한 줄이다. `appReveal('C:\\')` 같은 호출이 거부된다.
+6. **IPC 왕복** — `reposUpdate`·`appInfo`·`appReveal`. `appReveal`은 `'data' | 'logs'` 외의
+   값을 **거부한다.** **완료 확인**: `grep -rn "from 'electron'" core/`가 비어 있고, 핸들러
+   본문이 core 호출 한 줄이다. `appReveal('C:\\')` 같은 호출이 거부된다.
 
-6. **`CommitField`** — Enter·blur 커밋, Esc 취소. **`SlotIndicator`의 `suppressBlurRef`
-   패턴을 그대로 가져온다** — Esc로 언마운트될 때 따라오는 네이티브 blur가 취소한 값을
-   되살리는 실제 함정이다(`SlotIndicator.tsx:16-21` 주석). **완료 확인**: Esc 뒤에 커밋이
-   **불리지 않고**, Enter 뒤에도 **한 번만** 불린다. 값이 그대로면 아예 부르지 않는다.
+7. **`repo` 탭** — 목록과 편집. 저장 전에 경로 존재를 확인하고, **경로를 바꾸면 그 repo로
+   이어가던 옛 대화가 다른 디렉토리를 가리키게 된다는 경고**를 함께 보여준다(spec 확인 필요
+   항목). **완료 확인**: 없는 경로를 넣으면 저장이 거부되고 이유가 보이며 입력이 남는다.
+   성공하면 `refreshRepos`가 불린다.
 
-7. **`앱` 탭** — 기존 글로벌 경로 둘을 `CommitField`로 옮기고 상한 필드를 더한다.
-   **완료 확인**: `SettingsPanel.test.tsx`의 기존 다섯 테스트를 즉시 커밋 모양으로 고쳐
-   통과시킨다. 상한을 바꾸면 `onChangeLimit`이 불리고, 실패하면 값이 되돌아가며 메시지가 뜬다.
+8. **`정보` 탭** — MCP 상태·포트, DB 경로, 로그 경로, 앱 버전, 열기 버튼 둘. **완료 확인**:
+   `state: 'failed'`면 그 메시지가 그대로 보이고, 버튼 둘이 각각 `'data'`·`'logs'`로 부른다.
 
-8. **`실행` 탭** — 기본 agent·모델 둘·권한·실행 파일 경로 둘. 권한을 `full`로 올릴 때만
-   `ConfirmButton` 패턴으로 한 번 더 받는다. **완료 확인**: 확인하지 않으면
-   `updateDefaults`가 **불리지 않는다.** `full`에서 `edit`으로 내리는 것은 확인 없이 바로
-   저장된다. workspace가 없으면 안내만 보이고 필드가 없다(FR-13).
+9. **`App.tsx` 추가 배선** — `repos`·`refreshRepos`·`queue`·`onChangeLimit`·`mcpStatus`를
+   내려보낸다(`workspaces`·`workspaceId`·`onWorkspaceSaved`는 이미 있다). **완료 확인**:
+   추가한 prop을 하나씩 지웠을 때 `App.test.tsx`가 **각각 실패한다.**
 
-9. **`repo` 탭** — 목록과 편집. 저장 전에 경로 존재를 확인한다. **완료 확인**: 없는 경로를
-   넣으면 저장이 거부되고 이유가 보이며 입력이 남는다(FR-12). 경로를 바꾸면 성공 후
-   `refreshRepos`가 불린다.
+10. **`e2e/settings.e2e.ts`** — **완료 확인**: (수용 기준 5) repo 경로를 바꾼 뒤 asset 목록이
+    **두 벌로 늘지 않는다.** (8) `앱` 탭에서 상한을 바꾸면 도크의 슬롯 표시기가 같은 값을
+    보여준다. 탭을 옮겼다 돌아와도 입력이 남아 있다. 수용 기준 2는
+    `e2e/workspace-defaults.e2e.ts`가 이미 덮는다 — 다시 쓰지 않는다.
 
-10. **`정보` 탭** — MCP 상태·포트, DB 경로, 로그 경로, 버전, 열기 버튼 둘. **완료 확인**:
-    `state: 'failed'`면 그 메시지가 그대로 보이고, 버튼 둘이 각각 `'data'`·`'logs'`로
-    부른다.
-
-11. **`App.tsx` 배선** — `workspaces`·`workspaceId`·`repos`·`refreshRepos`·`queue`·
-    `onChangeLimit`·`mcpStatus`를 `SettingsPanel`에 내려보낸다. **완료 확인**: 각 prop을
-    하나씩 지웠을 때 `App.test.tsx`가 **각각 실패한다.** 이것이 3a·3b 리뷰가 두 번 놓친
-    자리다(CLAUDE.md).
-
-12. **`e2e/settings.e2e.ts`** — 화면을 실제로 클릭한다. **완료 확인**: (수용 기준 2) 기본
-    agent를 OpenCode로 바꾸고 실행 패널을 열면 드롭다운이 OpenCode다. (5) repo 경로를 바꾼
-    뒤 asset 목록이 **두 벌로 늘지 않는다.** (8) `앱` 탭에서 상한을 바꾸면 도크의 슬롯
-    표시기가 같은 값을 보여준다. 실행 버튼은 `{ name: '실행', exact: true }`로 잡는다.
-
-13. **문서** — `docs/windows-setup.md` §4에서 repo 경로·CLI 경로 SQL을 지우고 설정 화면
-    안내로 바꾼다. `CLAUDE.md`에 "repo 경로를 바꾸면 asset의 `file_path`가 전부 달라진다"
-    한 줄을 더한다. **완료 확인**: §4에 `UPDATE repo` 문자열이 남아 있지 않다.
+11. **문서** — `docs/windows-setup.md` §4에서 repo 경로 SQL을 지우고 설정 화면 안내로 바꾼다.
+    `CLAUDE.md`에 "repo 경로를 바꾸면 asset의 `file_path`가 전부 달라진다" 한 줄을 더한다.
+    **완료 확인**: §4에 `UPDATE repo` 문자열이 남아 있지 않다.
 
 ## 리스크
 
 | 리스크 | 영향 | 완화 방법 |
 | --- | --- | --- |
-| task_926353a6이 아직 안 들어왔는데 시작한다 | 기본 모델이 저장만 되고 아무 데도 안 쓰인다. 조용하다 | 1단계가 `grep`으로 먼저 막는다 |
-| `eq(asset.repoId, null)`로 글로벌을 다룬다 | SQL에서 `repo_id = NULL`은 절대 참이 아니다 — 치환이 조용히 아무것도 안 하거나 글로벌까지 옮긴다 | 3단계가 글로벌 `file_path` 불변을 단언한다. CLAUDE.md에 같은 사고 기록이 있다 |
-| 경로 치환과 `repo.path` 갱신이 따로 커밋된다 | 절반만 반영돼 목록이 두 벌이 된다 | 한 트랜잭션. 3단계의 롤백 테스트가 고정한다 |
-| blur 커밋이 두 번 실행된다 | Esc가 취소한 값이 되살아난다 | 6단계가 `SlotIndicator`의 검증된 패턴을 그대로 쓴다 |
-| `App.tsx`의 prop 한 줄이 무방비로 남는다 | 탭은 보이는데 값이 안 바뀐다. 테스트는 초록 | 11단계의 변이 검증. **3a·3b가 새어나간 자리가 예외 없이 여기였다** |
-| 저장 버튼 제거로 기존 테스트가 깨진다 | `SettingsPanel.test.tsx` 5개와 `e2e/asset.e2e.ts:82` | **의도된 비용이다**(spec 확인 필요 항목). 7단계에서 함께 고친다 |
-| workspace가 하나뿐이라 범위 구분이 안 잡힌다 | "workspace마다 다르다"가 무방비 | 테스트에서 둘을 만들어 번갈아 고른다 |
-| repo 경로를 바꾼 뒤 옛 대화를 이어간다 | `--resume` 세션이 다른 디렉토리를 가리킨다. 실측되지 않았다 | 9단계에 경고 문구를 넣는다. 실제 동작 확인은 별도 실측으로 남긴다 |
-| `appReveal`이 임의 경로를 연다 | 렌더러가 파일 탐색기로 아무 데나 열 수 있다 | 5단계가 `'data' \| 'logs'` 외를 거부하는 것을 테스트한다 |
-| 즉시 커밋이 매 글자마다 저장한다 | IPC 폭주 | 커밋은 Enter·blur에서만. `useDebouncedSave`를 쓰지 않는다 |
+| 탭을 쪼개며 초안 state를 자식으로 내린다 | 탭을 옮기면 입력이 사라진다 — FR-11이 지키려던 바로 그 약속 | 2단계가 "갔다 와도 그대로"를 단언한다. state는 `SettingsPanel`에 남긴다 |
+| `eq(asset.repoId, null)`로 글로벌을 다룬다 | SQL에서 `repo_id = NULL`은 절대 참이 아니다 — 치환이 글로벌을 끌고 가거나 아무것도 안 한다 | 4단계가 글로벌 `file_path` 불변을 단언한다 |
+| 경로 치환과 `repo.path` 갱신이 따로 커밋된다 | 절반만 반영돼 목록이 두 벌이 된다 | 한 트랜잭션. 4단계의 롤백 테스트 |
+| `App.tsx`의 prop 한 줄이 무방비로 남는다 | 탭은 보이는데 값이 안 바뀐다. 테스트는 초록 | 9단계의 변이 검증. **3a·3b가 새어나간 자리가 예외 없이 여기였다** |
+| 기존 `SettingsPanel.test.tsx`(383줄)를 탭 때문에 크게 고친다 | 방금 검증된 것이 흔들린다 | 2단계는 **탭 선택 한 줄만** 더한다. 단언을 고치기 시작하면 멈추고 껍데기 설계를 다시 본다 |
+| repo 경로를 바꾼 뒤 옛 대화를 이어간다 | `--resume` 세션이 다른 디렉토리를 가리킨다. 실측되지 않았다 | 7단계가 경고를 띄운다. 실제 동작은 마지막 수동 확인에서 처음 관측한다 |
+| `appReveal`이 임의 경로를 연다 | 렌더러가 파일 탐색기로 아무 데나 열 수 있다 | 6단계가 `'data' \| 'logs'` 외 거부를 테스트한다 |
+| workspace가 하나뿐이라 범위 구분이 안 잡힌다 | "workspace마다 다르다"가 무방비 | `workspace-defaults.e2e.ts`가 이미 다루는지 먼저 보고, 없으면 테스트에서 둘을 만든다 |
 
 ## 완료 증명
 
-- [ ] `pnpm test` — 전부 초록
+- [ ] `pnpm test` — 전부 초록 (기준선: 921 통과 / 28 건너뜀)
 - [ ] `pnpm typecheck` — 오류 없음
 - [ ] `pnpm lint` — 오류 없음
-- [ ] `pnpm test:e2e` — `settings.e2e.ts` 포함 전부 통과
+- [ ] `pnpm test:e2e` — `settings.e2e.ts` 포함 전부 통과 (기준선: 18 통과 / 2 건너뜀)
 - [ ] `grep -rn "from 'electron'" core/` — 출력 없음
 - [ ] `grep -rn "window.oneDesk" renderer/ | grep -v main.tsx` — 출력 없음
 - [ ] `ls drizzle/*.sql | wc -l` — 작업 전과 같은 수 (마이그레이션 없음)
 - [ ] `grep -n "UPDATE repo" docs/windows-setup.md` — 출력 없음
-- [ ] **변이 검증** — 아래 여덟을 하나씩 망가뜨려 각각 실패하는 테스트가 있는지 확인한다
-  - [ ] `updateDefaults`의 빈 문자열 → `null` 정규화
+- [ ] **변이 검증** — 아래 여섯을 하나씩 망가뜨려 각각 실패하는 테스트가 있는지 확인한다
+  - [ ] 탭 전환이 초안을 보존하는 구조 (state를 자식으로 내리면 실패해야 한다)
   - [ ] `movePathPrefix`의 `repo_id` 조건 (지우면 글로벌까지 옮겨져야 실패)
-  - [ ] 치환+경로 갱신의 트랜잭션 경계
+  - [ ] 치환 + 경로 갱신의 트랜잭션 경계
   - [ ] `repos.update`가 경로 변경 시 재스캔을 부르는 줄
-  - [ ] 권한 `full` 확인 절차 (지우면 바로 저장돼야 실패)
-  - [ ] `CommitField`의 Esc 취소
   - [ ] `appReveal`의 대상 검증
-  - [ ] `App.tsx`가 `SettingsPanel`에 내려보내는 prop **각각**
-- [ ] **수동 확인** — 빌드된 앱에서 repo 경로를 실제로 바꾸고, asset 목록이 한 벌인지와
-      그 repo로 실행이 도는지 본다. 경로 변경 후 **옛 대화 이어가기**가 어떻게 되는지도
-      여기서 처음 관측한다(리스크 표의 미실측 항목)
+  - [ ] `App.tsx`가 새로 내려보내는 prop **각각**
+- [ ] **수동 확인** — 빌드된 앱에서 repo 경로를 실제로 바꾸고, asset 목록이 한 벌인지와 그
+      repo로 실행이 도는지 본다. 경로 변경 후 **옛 대화 이어가기**가 어떻게 되는지도 여기서
+      처음 관측한다
 
 ## 계획 이탈 기록
 
-(구현하며 계획과 달라진 것을 여기 적는다)
+- **2026-09-19.** 초판의 1·2·5·8·11(일부) 단계가 다른 작업에서 먼저 구현돼 들어왔다.
+  계획을 그 상태에 맞춰 다시 썼고, spec의 FR-11(저장 방식)을 개정했다. 위 개정 기록 참고.
