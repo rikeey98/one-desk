@@ -102,3 +102,38 @@ describe('RepoRepository.get', () => {
     expect(() => repos.get('없음')).toThrow(NotFoundError)
   })
 })
+
+describe('RepoRepository.update', () => {
+  let db: Database
+  let repos: ReturnType<typeof createRepoRepository>
+  let workspaceId: string
+
+  beforeEach(() => {
+    db = makeTestDb()
+    workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
+    repos = createRepoRepository(db)
+  })
+
+  it('넘어온 필드만 고치고 바뀐 행을 돌려준다', () => {
+    const made = repos.create({ workspaceId, name: 'api', path: '/tmp/api', description: '설명' })
+    const row = repos.update(made.id, { description: '새 설명' })
+    expect(row).toMatchObject({ name: 'api', path: '/tmp/api', description: '새 설명' })
+  })
+
+  it('경로를 바꾼다', () => {
+    const made = repos.create({ workspaceId, name: 'api', path: '/tmp/api' })
+    expect(repos.update(made.id, { path: '/srv/api' }).path).toBe('/srv/api')
+    expect(repos.get(made.id).path).toBe('/srv/api')
+  })
+
+  it('빈 경로·빈 이름은 거부한다', () => {
+    const made = repos.create({ workspaceId, name: 'api', path: '/tmp/api' })
+    expect(() => repos.update(made.id, { path: '  ' })).toThrow('경로는 비울 수 없습니다')
+    expect(() => repos.update(made.id, { name: '' })).toThrow('이름은 비울 수 없습니다')
+    expect(repos.get(made.id)).toMatchObject({ name: 'api', path: '/tmp/api' })
+  })
+
+  it('없는 id는 NotFoundError다', () => {
+    expect(() => repos.update('없음', { name: 'x' })).toThrow(NotFoundError)
+  })
+})

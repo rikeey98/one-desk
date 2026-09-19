@@ -10,7 +10,8 @@ import type {
   InboxCounts,
   McpStatus, ResumeRunInput,
   Asset, CreateAuthoredAssetInput, GuardedUpdateAssetInput, AssetUpdateResult, ListAssetQuery,
-  GlobalRoots, CommandTarget, CommandListResult
+  GlobalRoots, CommandTarget, CommandListResult,
+  UpdateRepoInput, AppInfo, RevealTarget
 } from './models'
 import type { RunEvent } from './events'
 
@@ -44,6 +45,11 @@ export interface OneDeskClient {
     create(input: CreateRepoInput): Promise<Repo>
     /** 이름만 바꾼다. path는 실행이 도는 실제 디렉토리라 건드리지 않는다. */
     rename(id: string, name: string): Promise<Repo>
+    /**
+     * 이름·설명·경로를 고친다 (settings-screen spec FR-8). 경로를 바꾸면 그 아래
+     * asset의 file_path가 함께 옮겨지고 다시 훑는다(FR-9). 존재하지 않는 경로는 거부된다.
+     */
+    update(input: UpdateRepoInput): Promise<Repo>
     remove(id: string): Promise<void>
     /**
      * repo 디렉토리를 VS Code에서 연다. 경로가 아니라 id를 넘긴다 — 렌더러가
@@ -127,6 +133,12 @@ export interface OneDeskClient {
   mcp: {
     /** 지금 상태를 한 번 읽는다. 창이 기동보다 늦게 떴을 때 필요하다. */
     status(): Promise<McpStatus>
+  }
+  app: {
+    /** 정보 탭 — 앱 버전과 core가 실제로 여는 위치 */
+    info(): Promise<AppInfo>
+    /** 정해진 두 위치만 파일 탐색기로 연다. 경로가 아니라 이름을 받는다 (spec NFR-3) */
+    reveal(target: RevealTarget): Promise<void>
   }
   events: {
     onRunEvent(cb: (event: RunEvent) => void): Unsubscribe

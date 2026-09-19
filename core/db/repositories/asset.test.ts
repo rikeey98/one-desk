@@ -210,3 +210,79 @@ describe('list의 repo 필터', () => {
     expect(assets.list({ workspaceId })).toHaveLength(2)
   })
 })
+
+describe('movePathPrefix', () => {
+  // spec FR-9: repo 경로가 바뀌면 그 아래 asset의 file_path를 새 경로로 옮긴다.
+  // 행을 새로 만들지 않아야 과거 run이 첨부한 asset의 기록(id)이 이어진다(설계 §232).
+  const globalFound = {
+    kind: 'skill' as const, name: '글로벌', description: null, filePath: '/home/me/.claude/skills/g/SKILL.md'
+  }
+
+  it('그 repo의 asset만 새 접두사로 옮기고 id는 그대로다', () => {
+    assets.upsertDiscovered({ workspaceId, repoId, seenAt: 100, found: [found] })
+    const before = assets.list({ workspaceId })[0]!
+
+    assets.movePathPrefix({ workspaceId, repoId, from: '/tmp/api', to: '/srv/api' })
+
+    const after = assets.list({ workspaceId })
+    expect(after).toHaveLength(1)
+    expect(after[0]).toMatchObject({ id: before.id, filePath: '/srv/api/a/SKILL.md' })
+  })
+
+  it('글로벌 asset(repo_id NULL)은 한 글자도 바뀌지 않는다', () => {
+    // SQL에서 repo_id = NULL은 절대 참이 아니다 — 조건을 잘못 쓰면 글로벌이 조용히
+    // 딸려 오거나(접두사가 우연히 같을 때) 아무것도 옮겨지지 않는다.
+    assets.upsertDiscovered({ workspaceId, repoId, seenAt: 100, found: [found] })
+    // 글로벌 경로가 repo 디렉토리 **안**에 있는 경우다 — repo가 홈 디렉토리면 실제로
+    // 그렇다. 접두사는 같지만 repo_id가 NULL이라 옮기면 안 된다.
+    assets.upsertDiscovered({
+      workspaceId, repoId: null, seenAt: 100,
+      found: [{ ...globalFound, filePath: '/tmp/api/.claude/skills/g/SKILL.md' }]
+    })
+
+    assets.movePathPrefix({ workspaceId, repoId, from: '/tmp/api', to: '/srv/api' })
+
+    const paths = assets.list({ workspaceId }).map((a) => a.filePath).sort()
+    expect(paths).toEqual(['/srv/api/a/SKILL.md', '/tmp/api/.claude/skills/g/SKILL.md'])
+  })
+
+  it('접두사는 경로 경계에서만 맞는다 — /tmp/api가 /tmp/api2를 끌고 가지 않는다', () => {
+    const other = createRepoRepository(db).create({ workspaceId, name: 'api2', path: '/tmp/api2' })
+    assets.upsertDiscovered({ workspaceId, repoId, seenAt: 100, found: [found] })
+    assets.upsertDiscovered({
+      workspaceId, repoId: other.id, seenAt: 100,
+      found: [{ ...found, name: '베타', filePath: '/tmp/api2/b/SKILL.md' }]
+    })
+    // 같은 repo 안에서도 접두사만 우연히 겹치는 파일은 있을 수 있다 — repo 조건과
+    // 경계 조건이 둘 다 있어야 한다.
+    assets.movePathPrefix({ workspaceId, repoId: other.id, from: '/tmp/api', to: '/srv/api' })
+    expect(assets.list({ workspaceId }).map((a) => a.filePath).sort())
+      .toEqual(['/tmp/api/a/SKILL.md', '/tmp/api2/b/SKILL.md'])
+  })
+
+  it('다른 workspace의 asset은 건드리지 않는다', () => {
+    const otherWs = createWorkspaceRepository(db).create({ name: 'other' }).id
+    const otherRepo = createRepoRepository(db).create({ workspaceId: otherWs, name: 'api', path: '/tmp/api' }).id
+    assets.upsertDiscovered({ workspaceId: otherWs, repoId: otherRepo, seenAt: 100, found: [found] })
+
+    assets.movePathPrefix({ workspaceId, repoId, from: '/tmp/api', to: '/srv/api' })
+    expect(assets.list({ workspaceId: otherWs })[0]!.filePath).toBe('/tmp/api/a/SKILL.md')
+  })
+
+  it('새 경로에 같은 file_path가 이미 있으면 통째로 되돌린다', () => {
+    // 유니크 인덱스 (workspace_id, file_path)에 걸리는 경우 — 같은 repo를 두 번 등록한
+    // 상태다. 절반만 옮겨진 채 남으면 목록이 두 벌이 된다.
+    const dup = createRepoRepository(db).create({ workspaceId, name: 'dup', path: '/srv/api' })
+    assets.upsertDiscovered({ workspaceId, repoId, seenAt: 100, found: [
+      found, { ...found, name: '감마', filePath: '/tmp/api/c/SKILL.md' }
+    ] })
+    assets.upsertDiscovered({ workspaceId, repoId: dup.id, seenAt: 100, found: [
+      { ...found, name: '감마(복제)', filePath: '/srv/api/c/SKILL.md' }
+    ] })
+
+    expect(() => assets.movePathPrefix({ workspaceId, repoId, from: '/tmp/api', to: '/srv/api' }))
+      .toThrow()
+    const mine = assets.list({ workspaceId, repoId }).filter((a) => a.repoId === repoId)
+    expect(mine.map((a) => a.filePath).sort()).toEqual(['/tmp/api/a/SKILL.md', '/tmp/api/c/SKILL.md'])
+  })
+})

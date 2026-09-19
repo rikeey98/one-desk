@@ -2,12 +2,30 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useClient } from '../client/ClientProvider'
 import { ConfirmButton } from './ConfirmButton'
 import { PERMISSION_LABELS } from '../permission'
-import type { AgentKind, AgentStatuses, GlobalRoots, Permission, Workspace } from '@shared/models'
+import { RepoTab, type RepoDraft } from './settings/RepoTab'
+import { InfoTab } from './settings/InfoTab'
+import type {
+  AgentKind, AgentStatuses, AppInfo, GlobalRoots, McpStatus, Permission, QueueSnapshot, Repo,
+  RevealTarget, Workspace
+} from '@shared/models'
 
 /** CLI 상태 줄의 순서와 이름. 실행 패널의 agent 드롭다운과 같은 순서다. */
 const AGENT_LABELS: ReadonlyArray<readonly [AgentKind, string]> = [
   ['claude-code', 'Claude Code'],
   ['opencode', 'OpenCode']
+]
+
+/**
+ * 탭은 **값의 범위**로 가른다 (spec FR-2). 실행·repo는 지금 고른 workspace 하나에,
+ * 앱은 장비 전체에 걸린다. 정보는 읽기 전용이다. intent가 꼽은 "어디서 바꾸는지
+ * 모르겠다"에 대한 답이 탭 이름이 아니라 이 구분이다.
+ */
+type SettingsTab = 'run' | 'app' | 'repo' | 'info'
+const TABS: ReadonlyArray<readonly [SettingsTab, string]> = [
+  ['run', '실행'],
+  ['app', '앱'],
+  ['repo', 'repo'],
+  ['info', '정보']
 ]
 
 /** 줄바꿈 텍스트를 경로 목록으로. 빈 줄과 앞뒤 공백은 버린다 */
@@ -16,25 +34,52 @@ function toList(text: string): string[] {
 }
 
 /**
- * 앱 설정 화면. 글로벌 asset 경로(앱 전역)와 실행 기본값(고른 workspace)을 담는다.
+ * 앱 설정 화면. 탭 넷 — 실행(고른 workspace의 기본값과 CLI 경로), 앱(글로벌 asset
+ * 경로 등 장비 전체), repo, 정보.
  *
  * 모달이 아니라 **본문 영역을 대신 차지한다** — 전체 설계 §509가 모달을 피하는 근거는
  * "뒤의 목록을 계속 만질 수 있어야 한다"인데, 설정은 목록을 보며 고칠 화면이 아니다.
  *
- * **두 절의 범위가 다르다.** 위는 앱 전역이고 아래는 지금 고른 workspace 하나다.
+ * **모든 입력의 초안 state가 이 컴포넌트에 있다.** 탭은 보이는 것만 바꾸고 state는
+ * 건드리지 않는다 — 그래야 탭을 옮겼다 돌아와도 고치던 값이 남는다 (spec FR-11). 절을
+ * 자식 컴포넌트로 떼어내며 state를 함께 내리면 탭 전환이 곧 언마운트가 되어 입력이
+ * 사라진다. 테스트 "탭을 옮겼다 돌아와도 고치던 입력이 그대로다"가 이것을 고정한다.
+ *
  * 전체 설계 §403이 "workspace 기본값은 설정 화면에서 바꾼다"고 정했고, 그 화면이
- * 여기다. workspace를 고르지 않았으면 아래 절은 안내만 남긴다.
+ * 여기다. workspace를 고르지 않았으면 실행 탭은 안내만 남긴다.
  */
-export function SettingsPanel({ workspaces, workspaceId, onWorkspaceSaved }: {
+function draftOf(r: Repo): RepoDraft {
+  return { name: r.name, path: r.path, description: r.description ?? '' }
+}
+
+export function SettingsPanel({
+  workspaces, workspaceId, onWorkspaceSaved, queue, onChangeLimit, repos, refreshRepos, mcpStatus
+}: {
   /** App이 useWorkspaces()로 한 번만 조회해 내려준다 — 여기서 따로 조회하면
    *  사이드바에서 만든 workspace를 이 화면이 모르는 상태가 생긴다(App.tsx의 주석). */
   workspaces: Workspace[]
-  /** 지금 고른 workspace. null이면 실행 기본값 절을 열 수 없다. */
+  /** 지금 고른 workspace. null이면 실행 탭을 열 수 없다. */
   workspaceId: string | null
   /** 저장이 끝나면 부른다. App이 목록을 다시 읽어야 RunPanel이 새 기본값을 쓴다. */
   onWorkspaceSaved: () => void
+  /**
+   * 전역 실행 슬롯 스냅샷. App이 useQueue()로 한 번만 받아 도크와 여기에 같이
+   * 내려준다 — 상한은 도크의 슬롯 표시기에도 있고(spec FR-7), 둘이 같은 스냅샷을
+   * 봐야 한쪽에서 바꾼 값이 다른 쪽에 곧바로 보인다. 아직 못 받았으면 null.
+   */
+  queue: QueueSnapshot | null
+  /** 상한을 바꾼다. 실패는 던진다 — 이 화면은 그 이유를 칸 옆에 보여준다(FR-12). */
+  onChangeLimit: (n: number) => Promise<void>
+  /** 지금 고른 workspace의 repo. App이 useRepos()로 한 번만 받아 RepoStrip과 여기에 내려준다. */
+  repos: Repo[]
+  /** 저장 뒤 부른다 — RepoStrip과 실행 패널의 cwd 목록이 새 경로를 봐야 한다. */
+  refreshRepos: () => Promise<void>
+  /** MCP 서버 상태. 사이드바 하단 줄과 같은 인스턴스(App의 useMcpStatus)를 본다. */
+  mcpStatus: McpStatus
 }) {
   const client = useClient()
+  const [tab, setTab] = useState<SettingsTab>('run')
+
   const [claude, setClaude] = useState('')
   const [opencode, setOpencode] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -53,6 +98,86 @@ export function SettingsPanel({ workspaces, workspaceId, onWorkspaceSaved }: {
   const [pathsError, setPathsError] = useState<string | null>(null)
   const [pathsBusy, setPathsBusy] = useState(false)
   const [agents, setAgents] = useState<AgentStatuses | null>(null)
+
+  // repo 탭의 초안. 탭 컴포넌트가 아니라 여기 있어야 탭을 옮겨도 남는다(FR-11).
+  const [repoDrafts, setRepoDrafts] = useState<Record<string, RepoDraft>>({})
+  const [repoErrors, setRepoErrors] = useState<Record<string, string>>({})
+  const [repoBusyId, setRepoBusyId] = useState<string | null>(null)
+  // 마지막으로 초안을 만들 때 본 행. 행이 바뀐 repo만 초안을 다시 세운다 — 목록을
+  // 다시 읽을 때마다 전부 세우면 다른 줄에서 고치던 값이 지워진다.
+  const seededRef = useRef<Record<string, Repo>>({})
+  useEffect(() => {
+    setRepoDrafts((prev) => {
+      const next: Record<string, RepoDraft> = {}
+      for (const r of repos) {
+        const seen = seededRef.current[r.id]
+        const changed = !seen || seen.name !== r.name || seen.path !== r.path || seen.description !== r.description
+        next[r.id] = changed || !prev[r.id] ? draftOf(r) : prev[r.id]!
+        seededRef.current[r.id] = r
+      }
+      for (const id of Object.keys(seededRef.current)) {
+        if (!repos.some((r) => r.id === id)) delete seededRef.current[id]
+      }
+      return next
+    })
+  }, [repos])
+
+  function changeRepoDraft(id: string, patch: Partial<RepoDraft>) {
+    setRepoDrafts((prev) => ({ ...prev, [id]: { ...prev[id]!, ...patch } }))
+  }
+
+  async function saveRepo(id: string): Promise<void> {
+    const draft = repoDrafts[id]
+    if (!draft) return
+    setRepoBusyId(id)
+    setRepoErrors((prev) => { const next = { ...prev }; delete next[id]; return next })
+    try {
+      // 셋을 전부 보낸다 — 바뀐 것만 고르면 "무엇이 덮이는지"가 흐려진다(updateDefaults와 같은 규칙).
+      await client.repos.update({
+        id, name: draft.name, path: draft.path, description: draft.description.trim() || null
+      })
+      await refreshRepos()
+    } catch (err) {
+      // 입력은 지우지 않는다(FR-12). 없는 경로를 넣었다면 그 문장이 그대로 보인다.
+      setRepoErrors((prev) => ({ ...prev, [id]: err instanceof Error ? err.message : String(err) }))
+    } finally {
+      setRepoBusyId(null)
+    }
+  }
+
+  // 정보 탭. 마운트 때 한 번 읽는다 — 글로벌 경로와 같은 이유다.
+  const [info, setInfo] = useState<AppInfo | null>(null)
+  const [infoError, setInfoError] = useState<string | null>(null)
+  const [revealError, setRevealError] = useState<string | null>(null)
+  useEffect(() => {
+    let alive = true
+    client.app.info()
+      .then((next) => { if (alive) setInfo(next) })
+      .catch((err: unknown) => {
+        if (alive) setInfoError(err instanceof Error ? err.message : String(err))
+      })
+    return () => { alive = false }
+  }, [client])
+
+  async function reveal(target: RevealTarget): Promise<void> {
+    setRevealError(null)
+    try {
+      await client.app.reveal(target)
+    } catch (err) {
+      // 조용히 아무 일도 안 일어나면 탐색기가 없는 것인지 버튼이 죽은 것인지 모른다.
+      setRevealError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const [limitDraft, setLimitDraft] = useState('')
+  const [limitError, setLimitError] = useState<string | null>(null)
+  const [limitBusy, setLimitBusy] = useState(false)
+  // 성공한 저장은 event:queueUpdate로 돌아와 queue prop을 바꾼다 — 도크에서 바꾼
+  // 값도 같은 길로 온다. 그래서 칸은 자기 결과가 아니라 스냅샷을 따른다.
+  const limit = queue?.limit
+  useEffect(() => {
+    if (limit !== undefined) setLimitDraft(String(limit))
+  }, [limit])
 
   const applyWorkspace = useCallback((w: Workspace) => {
     setAgentKind(w.defaultAgentKind)
@@ -100,6 +225,8 @@ export function SettingsPanel({ workspaces, workspaceId, onWorkspaceSaved }: {
     setOpencode(roots.opencode.join('\n'))
   }, [])
 
+  // 어느 탭이 열려 있든 마운트 때 한 번 읽는다 — 앱 탭을 열었을 때 이미 채워져 있고,
+  // 탭을 오가도 다시 읽지 않는다(읽으면 고치던 값이 덮인다).
   useEffect(() => {
     let alive = true
     client.settings.globalRoots()
@@ -179,172 +306,290 @@ export function SettingsPanel({ workspaces, workspaceId, onWorkspaceSaved }: {
     }
   }
 
+  async function saveLimit(): Promise<void> {
+    const n = Number(limitDraft)
+    setLimitError(null)
+    // 저장소도 같은 검사를 하지만(setting.ts의 isValidLimit) IPC를 타기 전에 막는다 —
+    // 숫자 칸에 0을 넣고 저장을 눌렀는데 아무 일도 없는 것처럼 보이면 안 된다.
+    if (!Number.isInteger(n) || n < 1) {
+      setLimitError('상한은 1 이상의 정수여야 합니다')
+      return
+    }
+    setLimitBusy(true)
+    try {
+      await onChangeLimit(n)
+    } catch (err) {
+      // 입력은 지우지 않는다 — 글로벌 경로·기본값 저장과 같은 규칙이다.
+      setLimitError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLimitBusy(false)
+    }
+  }
+
   return (
     <div className="settings">
       <h2>설정</h2>
-      {error && <div role="alert" className="form-error">{error}</div>}
 
-      {/* 절이 둘이 되면서 제목이 필요해졌다 — 위는 앱 전역, 아래는 workspace 하나다. */}
-      <h3>글로벌 asset 경로</h3>
+      <div className="settings-tabs" role="tablist" aria-label="설정 탭">
+        {TABS.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            id={`settings-tab-${id}`}
+            aria-selected={tab === id}
+            aria-controls={`settings-panel-${id}`}
+            className={tab === id ? 'settings-tab settings-tab-selected' : 'settings-tab'}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-      <p className="settings-hint">
-        한 줄에 경로 하나. 여기에 있는 skill과 agent가 목록에 함께 보입니다.
-        비워두면 기본값으로 돌아갑니다.
-      </p>
+      {/* 열린 탭의 내용만 그린다. state는 위에 있으므로 그리지 않는 탭의 입력도 살아
+          있다 — 감추는 대신 언마운트하는 이유는 화면에 없는 입력이 getByLabelText
+          같은 조회에 잡혀 같은 라벨끼리 부딪히지 않게 하려는 것이다. */}
+      <div
+        role="tabpanel"
+        id={`settings-panel-${tab}`}
+        aria-labelledby={`settings-tab-${tab}`}
+        className="settings-tabpanel"
+      >
+        {tab === 'run' && (
+          <>
+            {defaultsError && <div role="alert" className="form-error">{defaultsError}</div>}
+            {!workspace ? (
+              <p className="settings-hint">왼쪽에서 workspace를 고르면 그 workspace의 실행 기본값을 정할 수 있습니다.</p>
+            ) : (
+              <>
+                <p className="settings-scope">
+                  <strong>{workspace.name}</strong> — 이 workspace에만 적용됩니다.
+                </p>
 
-      <label className="settings-field">
-        Claude Code 글로벌 경로
-        <textarea
-          aria-label="Claude Code 글로벌 경로"
-          value={claude}
-          rows={4}
-          onChange={(e) => setClaude(e.target.value)}
-        />
-      </label>
+                <h3>실행 기본값</h3>
+                <p className="settings-hint">
+                  새 실행이 이 값으로 시작합니다. 실행 패널에서 바꾼 것은 그 실행에만 적용됩니다.
+                  모델을 비우면 CLI 자신의 기본값을 씁니다.
+                </p>
 
-      <label className="settings-field">
-        OpenCode 글로벌 경로
-        <textarea
-          aria-label="OpenCode 글로벌 경로"
-          value={opencode}
-          rows={3}
-          onChange={(e) => setOpencode(e.target.value)}
-        />
-      </label>
+                <label className="settings-field">
+                  기본 agent
+                  <select
+                    aria-label="기본 agent"
+                    value={agentKind}
+                    onChange={(e) => setAgentKind(e.target.value as AgentKind)}
+                  >
+                    <option value="claude-code">Claude Code</option>
+                    <option value="opencode">OpenCode</option>
+                  </select>
+                </label>
 
-      <button type="button" disabled={busy} onClick={() => void save()}>저장</button>
+                {/* 모델 칸이 둘인 것은 두 CLI의 지정 형식이 다르기 때문이다 — 하나로 합치면
+                    agent를 바꾼 순간 상대가 모르는 이름이 넘어간다 (전체 설계 §199). */}
+                <label className="settings-field">
+                  Claude Code 기본 모델
+                  <input
+                    aria-label="Claude Code 기본 모델"
+                    value={modelClaude}
+                    placeholder="예: sonnet"
+                    onChange={(e) => setModelClaude(e.target.value)}
+                  />
+                </label>
 
-      <h3>실행 기본값</h3>
-      {defaultsError && <div role="alert" className="form-error">{defaultsError}</div>}
-      {!workspace ? (
-        <p className="settings-hint">왼쪽에서 workspace를 고르면 그 workspace의 실행 기본값을 정할 수 있습니다.</p>
-      ) : (
-        <>
-          <p className="settings-hint">
-            {workspace.name}의 새 실행이 이 값으로 시작합니다. 실행 패널에서 바꾼 것은 그 실행에만 적용됩니다.
-            모델을 비우면 CLI 자신의 기본값을 씁니다.
-          </p>
+                <label className="settings-field">
+                  OpenCode 기본 모델
+                  <input
+                    aria-label="OpenCode 기본 모델"
+                    value={modelOpencode}
+                    placeholder="예: anthropic/claude-sonnet-4-5"
+                    onChange={(e) => setModelOpencode(e.target.value)}
+                  />
+                </label>
 
-          <label className="settings-field">
-            기본 agent
-            <select
-              aria-label="기본 agent"
-              value={agentKind}
-              onChange={(e) => setAgentKind(e.target.value as AgentKind)}
-            >
-              <option value="claude-code">Claude Code</option>
-              <option value="opencode">OpenCode</option>
-            </select>
-          </label>
+                <label className="settings-field">
+                  기본 권한
+                  <select
+                    aria-label="기본 권한"
+                    value={permission}
+                    onChange={(e) => setPermission(e.target.value as Permission)}
+                  >
+                    {(Object.keys(PERMISSION_LABELS) as Permission[]).map((value) => (
+                      <option key={value} value={value}>{PERMISSION_LABELS[value]}</option>
+                    ))}
+                  </select>
+                </label>
 
-          {/* 모델 칸이 둘인 것은 두 CLI의 지정 형식이 다르기 때문이다 — 하나로 합치면
-              agent를 바꾼 순간 상대가 모르는 이름이 넘어간다 (전체 설계 §199). */}
-          <label className="settings-field">
-            Claude Code 기본 모델
-            <input
-              aria-label="Claude Code 기본 모델"
-              value={modelClaude}
-              placeholder="예: sonnet"
-              onChange={(e) => setModelClaude(e.target.value)}
-            />
-          </label>
+                {/* 전체 설계 §403: workspace 기본값을 전체 허용으로 바꾸는 것은 **별도
+                    확인 절차**를 거친다. run 하나를 전체 허용으로 돌리는 것(실행 패널의
+                    드롭다운)과 달리, 이 값은 앞으로의 모든 새 실행에 걸리기 때문이다.
 
-          <label className="settings-field">
-            OpenCode 기본 모델
-            <input
-              aria-label="OpenCode 기본 모델"
-              value={modelOpencode}
-              placeholder="예: anthropic/claude-sonnet-4-5"
-              onChange={(e) => setModelOpencode(e.target.value)}
-            />
-          </label>
+                    이미 전체 허용인 workspace에서 모델만 고칠 때는 묻지 않는다 — §403이
+                    말하는 것은 "바꾸는" 순간이고, 무관한 저장마다 확인을 요구하면
+                    사람이 확인 자체를 읽지 않게 된다. */}
+                {raisingToFull ? (
+                  <>
+                    <p className="settings-warning">
+                      전체 허용은 셸 명령까지 묻지 않고 승인합니다.
+                      이 workspace의 <strong>앞으로의 모든 새 실행</strong>이 그렇게 시작합니다.
+                    </p>
+                    <ConfirmButton
+                      label="기본값 저장"
+                      confirmLabel="전체 허용으로 저장합니다 — 한 번 더"
+                      onConfirm={() => void saveDefaults()}
+                    />
+                  </>
+                ) : (
+                  <button type="button" disabled={defaultsBusy} onClick={() => void saveDefaults()}>
+                    기본값 저장
+                  </button>
+                )}
 
-          <label className="settings-field">
-            기본 권한
-            <select
-              aria-label="기본 권한"
-              value={permission}
-              onChange={(e) => setPermission(e.target.value as Permission)}
-            >
-              {(Object.keys(PERMISSION_LABELS) as Permission[]).map((value) => (
-                <option key={value} value={value}>{PERMISSION_LABELS[value]}</option>
-              ))}
-            </select>
-          </label>
+                <h3>CLI 경로</h3>
+                {pathsError && <div role="alert" className="form-error">{pathsError}</div>}
+                <p className="settings-hint">
+                  비워두면 PATH에서 찾습니다. 실행이 &quot;찾을 수 없습니다&quot;로 막힐 때 여기에 절대 경로를 넣으세요.
+                </p>
 
-          {/* 전체 설계 §403: workspace 기본값을 전체 허용으로 바꾸는 것은 **별도
-              확인 절차**를 거친다. run 하나를 전체 허용으로 돌리는 것(실행 패널의
-              드롭다운)과 달리, 이 값은 앞으로의 모든 새 실행에 걸리기 때문이다.
+                <label className="settings-field">
+                  Claude Code 실행 파일
+                  <input
+                    aria-label="Claude Code 실행 파일"
+                    value={claudePath}
+                    placeholder="PATH에서 찾기"
+                    onChange={(e) => setClaudePath(e.target.value)}
+                  />
+                </label>
 
-              이미 전체 허용인 workspace에서 모델만 고칠 때는 묻지 않는다 — §403이
-              말하는 것은 "바꾸는" 순간이고, 무관한 저장마다 확인을 요구하면
-              사람이 확인 자체를 읽지 않게 된다. */}
-          {raisingToFull ? (
+                <label className="settings-field">
+                  OpenCode 실행 파일
+                  <input
+                    aria-label="OpenCode 실행 파일"
+                    value={opencodePath}
+                    placeholder="PATH에서 찾기"
+                    onChange={(e) => setOpencodePath(e.target.value)}
+                  />
+                </label>
+
+                <button type="button" disabled={pathsBusy} onClick={() => void savePaths()}>
+                  CLI 경로 저장
+                </button>
+
+                {/* 실행을 막는 것과 **같은 판정**을 보여준다 — 따로 구현하면 여기는
+                    초록인데 실행 버튼은 막히는 상태가 생긴다. */}
+                {agents && (
+                  <ul className="settings-status" aria-label="CLI 상태">
+                    {AGENT_LABELS.map(([kind, label]) => {
+                      const status = agents[kind]
+                      return (
+                        <li key={kind}>
+                          {label}: {status.ok
+                            ? `${status.executable ?? ''}`
+                            : (status.reason ?? '확인할 수 없습니다')}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </>
+            )}
+          </>
+        )}
+
+        {tab === 'app' && (
+          <>
+            {error && <div role="alert" className="form-error">{error}</div>}
+            <p className="settings-scope">이 장비 전체에 적용됩니다 — workspace와 무관합니다.</p>
+
+            <h3>글로벌 asset 경로</h3>
+            <p className="settings-hint">
+              한 줄에 경로 하나. 여기에 있는 skill과 agent가 목록에 함께 보입니다.
+              비워두면 기본값으로 돌아갑니다.
+            </p>
+
+            <label className="settings-field">
+              Claude Code 글로벌 경로
+              <textarea
+                aria-label="Claude Code 글로벌 경로"
+                value={claude}
+                rows={4}
+                onChange={(e) => setClaude(e.target.value)}
+              />
+            </label>
+
+            <label className="settings-field">
+              OpenCode 글로벌 경로
+              <textarea
+                aria-label="OpenCode 글로벌 경로"
+                value={opencode}
+                rows={3}
+                onChange={(e) => setOpencode(e.target.value)}
+              />
+            </label>
+
+            <button type="button" disabled={busy} onClick={() => void save()}>저장</button>
+
+            {/* 스냅샷이 아직 없으면 칸을 열지 않는다 — 빈 칸에 저장을 누르게 두면
+                무엇을 덮는지 모른 채 쓰게 된다. 도크의 슬롯 표시기도 같은 조건으로 숨는다. */}
+            {queue && (
+              <>
+                <h3>동시 실행 상한</h3>
+                {limitError && <div role="alert" className="form-error">{limitError}</div>}
+                <p className="settings-hint">
+                  한 번에 도는 실행의 수. 초과분은 슬롯이 나면 순서대로 시작합니다.
+                  도크의 슬롯 표시기에서도 같은 값을 바꿀 수 있습니다.
+                </p>
+                <label className="settings-field">
+                  동시 실행 상한
+                  <input
+                    aria-label="동시 실행 상한"
+                    type="number"
+                    min={1}
+                    value={limitDraft}
+                    onChange={(e) => setLimitDraft(e.target.value)}
+                  />
+                </label>
+                <button type="button" disabled={limitBusy} onClick={() => void saveLimit()}>
+                  상한 저장
+                </button>
+              </>
+            )}
+          </>
+        )}
+
+        {tab === 'repo' && (
+          !workspace ? (
+            <p className="settings-hint">왼쪽에서 workspace를 고르면 그 workspace의 repo를 관리할 수 있습니다.</p>
+          ) : (
             <>
-              <p className="settings-warning">
-                전체 허용은 셸 명령까지 묻지 않고 승인합니다.
-                이 workspace의 <strong>앞으로의 모든 새 실행</strong>이 그렇게 시작합니다.
+              <p className="settings-scope">
+                <strong>{workspace.name}</strong> — 이 workspace에만 적용됩니다.
               </p>
-              <ConfirmButton
-                label="기본값 저장"
-                confirmLabel="전체 허용으로 저장합니다 — 한 번 더"
-                onConfirm={() => void saveDefaults()}
+              <RepoTab
+                repos={repos}
+                drafts={repoDrafts}
+                errors={repoErrors}
+                busyId={repoBusyId}
+                onChange={changeRepoDraft}
+                onSave={(id) => void saveRepo(id)}
               />
             </>
-          ) : (
-            <button type="button" disabled={defaultsBusy} onClick={() => void saveDefaults()}>
-              기본값 저장
-            </button>
-          )}
+          )
+        )}
 
-          <h3>CLI 경로</h3>
-          {pathsError && <div role="alert" className="form-error">{pathsError}</div>}
-          <p className="settings-hint">
-            비워두면 PATH에서 찾습니다. 실행이 &quot;찾을 수 없습니다&quot;로 막힐 때 여기에 절대 경로를 넣으세요.
-          </p>
-
-          <label className="settings-field">
-            Claude Code 실행 파일
-            <input
-              aria-label="Claude Code 실행 파일"
-              value={claudePath}
-              placeholder="PATH에서 찾기"
-              onChange={(e) => setClaudePath(e.target.value)}
+        {tab === 'info' && (
+          <>
+            <p className="settings-scope">읽기 전용입니다.</p>
+            <InfoTab
+              info={info}
+              infoError={infoError}
+              revealError={revealError}
+              mcpStatus={mcpStatus}
+              onReveal={(target) => void reveal(target)}
             />
-          </label>
-
-          <label className="settings-field">
-            OpenCode 실행 파일
-            <input
-              aria-label="OpenCode 실행 파일"
-              value={opencodePath}
-              placeholder="PATH에서 찾기"
-              onChange={(e) => setOpencodePath(e.target.value)}
-            />
-          </label>
-
-          <button type="button" disabled={pathsBusy} onClick={() => void savePaths()}>
-            CLI 경로 저장
-          </button>
-
-          {/* 실행을 막는 것과 **같은 판정**을 보여준다 — 따로 구현하면 여기는
-              초록인데 실행 버튼은 막히는 상태가 생긴다. */}
-          {agents && (
-            <ul className="settings-status" aria-label="CLI 상태">
-              {AGENT_LABELS.map(([kind, label]) => {
-                const status = agents[kind]
-                return (
-                  <li key={kind}>
-                    {label}: {status.ok
-                      ? `${status.executable ?? ''}`
-                      : (status.reason ?? '확인할 수 없습니다')}
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </>
-      )}
+          </>
+        )}
+      </div>
     </div>
   )
 }

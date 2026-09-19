@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { OneDeskClient, Unsubscribe } from '@shared/client'
-import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, CommandListResult, AgentStatuses } from '@shared/models'
+import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, CommandListResult, AgentStatuses, AppInfo } from '@shared/models'
 import type { RunEvent } from '@shared/events'
 
 /**
@@ -35,6 +35,7 @@ const client: OneDeskClient = {
     list: (workspaceId) => call<Repo[]>(CHANNELS.reposList, workspaceId),
     create: (input) => call<Repo>(CHANNELS.reposCreate, input),
     rename: (id, name) => call<Repo>(CHANNELS.reposRename, id, name),
+    update: (input) => call<Repo>(CHANNELS.reposUpdate, input),
     remove: (id) => call<void>(CHANNELS.reposRemove, id),
     openInEditor: (id) => call<void>(CHANNELS.reposOpenInEditor, id)
   },
@@ -85,6 +86,10 @@ const client: OneDeskClient = {
   },
   mcp: {
     status: () => call<McpStatus>(CHANNELS.mcpStatus)
+  },
+  app: {
+    info: () => call<AppInfo>(CHANNELS.appInfo),
+    reveal: (target) => call<void>(CHANNELS.appReveal, target)
   },
   events: {
     // contextBridge는 함수를 프록시로 넘기므로 이 클로저가 렌더러에서 호출 가능하다.

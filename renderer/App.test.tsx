@@ -11,7 +11,7 @@ import type {
   CreateIssueInput, CreateMemoInput, CreateRepoInput, CreateWorkspaceInput,
   GuardedUpdateIssueInput, GuardedUpdateMemoInput, InboxCounts, Issue, IssueUpdateResult,
   McpStatus, Memo, MemoUpdateResult, Repo, Run, UpdateIssueInput, UpdateMemoInput, Workspace,
-  UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses, Asset
+  UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses, Asset, UpdateRepoInput
 } from '@shared/models'
 
 const workspace: Workspace = {
@@ -202,7 +202,14 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
         repos = [...repos, created]
         return created
       }),
-      remove: vi.fn()
+      remove: vi.fn(),
+      // 설정 화면의 repo 탭. 실제 core처럼 갱신된 행을 돌려주고 목록에도 반영한다.
+      update: vi.fn(async (input: UpdateRepoInput) => {
+        repos = repos.map((r) => r.id === input.id
+          ? { ...r, name: input.name ?? r.name, path: input.path ?? r.path, description: input.description ?? r.description }
+          : r)
+        return repos.find((r) => r.id === input.id)!
+      })
     },
     issues: {
       list: vi.fn(async () => issues),
@@ -287,6 +294,10 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
     },
     mcp: {
       status: vi.fn(async () => mcpStatus)
+    },
+    app: {
+      info: vi.fn(async () => ({ version: '0.0.0-test', dataDir: '/data', dbFile: '/data/one-desk.db', logDir: '/data/logs' })),
+      reveal: vi.fn(async () => {})
     },
     events: {
       onRunEvent: vi.fn(() => () => {}),
@@ -1314,6 +1325,8 @@ describe('App — 설정 화면', () => {
     await userEvent.click(screen.getByRole('button', { name: '설정' }))
 
     expect(await screen.findByRole('heading', { name: '설정' })).toBeInTheDocument()
+    // 글로벌 경로는 앱 탭에 있다 — 실행 탭이 기본으로 열린다.
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
     expect(await screen.findByLabelText('Claude Code 글로벌 경로')).toBeInTheDocument()
   })
 
@@ -1338,6 +1351,75 @@ describe('App — 설정 화면', () => {
 
     expect(await screen.findByLabelText('Claude Code 기본 모델')).toHaveValue('sonnet')
     expect(screen.getByLabelText('기본 agent')).toHaveValue('opencode')
+  })
+
+  it('전역 실행 슬롯 스냅샷을 설정 화면에 내려보낸다', async () => {
+    // App이 queue를 안 내려보내면 앱 탭의 상한 칸이 아예 열리지 않는다. 설정 화면이
+    // useQueue()를 따로 부르면 도크와 다른 인스턴스를 보게 되므로 prop이어야 한다(FR-7).
+    renderApp(makeClient({
+      queueSnapshot: vi.fn().mockResolvedValue({ running: 0, limit: 4, waiting: 0 })
+    }))
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+    await userEvent.click(await screen.findByRole('tab', { name: '앱' }))
+
+    expect(await screen.findByLabelText('동시 실행 상한')).toHaveValue(4)
+  })
+
+  it('설정에서 상한을 저장하면 같은 IPC로 보낸다', async () => {
+    // onChangeLimit이 안 내려가면 버튼이 아무것도 하지 않는다 — 도크와 같은
+    // client.runs.setConcurrencyLimit을 타야 저장 결과가 도크의 표시기에도 돌아온다.
+    const setConcurrencyLimit = vi.fn().mockResolvedValue({ running: 0, limit: 6, waiting: 0 })
+    renderApp(makeClient({ setConcurrencyLimit }))
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+    await userEvent.click(await screen.findByRole('tab', { name: '앱' }))
+    const input = await screen.findByLabelText('동시 실행 상한')
+    await userEvent.clear(input)
+    await userEvent.type(input, '6')
+    await userEvent.click(screen.getByRole('button', { name: '상한 저장' }))
+
+    expect(setConcurrencyLimit).toHaveBeenCalledWith(6)
+  })
+
+  it('고른 workspace의 repo를 설정 화면의 repo 탭에 내려보낸다', async () => {
+    // App이 repos를 안 내려보내면 repo 탭은 "등록된 repo가 없습니다"만 남는다. 설정
+    // 화면이 useRepos()를 따로 부르면 RepoStrip과 다른 인스턴스가 된다(App.tsx 주석).
+    renderApp(makeClient({}, { repos: [makeRepo('r1', 'api', '/tmp/api')] }))
+    await selectWorkspace()
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+    await userEvent.click(await screen.findByRole('tab', { name: 'repo' }))
+
+    expect(await screen.findByLabelText('api 경로')).toHaveValue('/tmp/api')
+  })
+
+  it('repo 탭에서 저장하면 목록을 다시 읽어 실행 패널의 작업 디렉토리가 새 경로를 본다', async () => {
+    // refreshRepos가 안 내려가면 저장은 됐는데 RunPanel의 cwd select는 옛 경로를 든다.
+    const client = makeClient({}, { repos: [makeRepo('r1', 'api', '/tmp/api')] })
+    renderApp(client)
+    await selectWorkspace()
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+    await userEvent.click(await screen.findByRole('tab', { name: 'repo' }))
+    const path = await screen.findByLabelText('api 경로')
+    await userEvent.clear(path)
+    await userEvent.type(path, '/srv/api')
+    await userEvent.click(screen.getByRole('button', { name: 'api 저장' }))
+    await waitFor(() => expect(client.repos.update).toHaveBeenCalledWith(
+      { id: 'r1', name: 'api', path: '/srv/api', description: null }))
+
+    // 설정을 나가 실행 패널로 돌아오면 작업 디렉토리 목록이 새 경로다.
+    await selectWorkspace()
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'api — /srv/api' })).toBeInTheDocument()
+    })
+  })
+
+  it('MCP 상태를 설정 화면의 정보 탭에 내려보낸다', async () => {
+    // App이 mcpStatus를 안 내려보내면 정보 탭이 사이드바와 다른 말을 한다. 설정 화면이
+    // useMcpStatus()를 따로 부르면 인스턴스가 둘이 된다.
+    renderApp(makeClient({}, { mcpStatus: { state: 'listening', port: 60123 } }))
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+    await userEvent.click(await screen.findByRole('tab', { name: '정보' }))
+
+    expect(await screen.findByRole('list', { name: '앱 정보' })).toHaveTextContent('MCP :60123')
   })
 
   it('workspace를 고르지 않았으면 실행 기본값 칸을 열지 않는다', async () => {

@@ -8,6 +8,7 @@ import { registerAssetHandlers } from './assets'
 import { registerCommandHandlers } from './commands'
 import { registerSettingHandlers } from './settings'
 import { registerRunHandlers } from './runs'
+import { registerAppHandlers } from './app'
 
 /**
  * 창 접근자. main.ts에서 import하면 main → ipc/index → ipc/runs → main 순환이 생기고,
@@ -25,4 +26,5 @@ export function registerIpc(core: Core, getWindow: GetWindow) {
   registerCommandHandlers(core)
   registerSettingHandlers(core)
   registerRunHandlers(core, getWindow)
+  registerAppHandlers(core)
 }

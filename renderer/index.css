@@ -328,3 +328,17 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
 .command-option[aria-selected="true"] { background: #dbeafe; }
 .command-option span { color: #52525b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .command-warning { font-size: 12px; color: #92400e; margin: 6px 0; }
+/* 설정 화면의 탭. 도크 탭(.dock-tab)과 같은 생김새 — 앱 안에서 "탭"이 두 가지로
+   보이면 안 된다. 값은 새로 만들지 않고 그쪽 것을 그대로 쓴다. */
+.settings-tabs { display: flex; gap: 5px; margin: 6px 0 10px; }
+.settings-tab { border: 1px solid #e4e4e7; border-radius: 5px; background: #fff; cursor: pointer; font: inherit; font-size: 11px; padding: 3px 8px; }
+.settings-tab-selected { border-color: #60a5fa; background: #eff6ff; font-weight: 600; }
+/* 탭마다 맨 위에 오는 한 문장 — 이 값이 어디까지 걸리는지(spec FR-2). 힌트보다 진하다. */
+.settings-scope { margin: 0 0 8px; font-size: 12px; }
+/* repo 탭의 repo 한 줄. 이름·경로·설명 세 칸과 저장 버튼이 한 덩어리다. */
+.settings-repo { margin-top: 10px; padding-top: 8px; border-top: 1px solid #f0f0f2; }
+.settings-repo h3 { margin-top: 0; }
+/* 정보 탭. 상태 목록은 CLI 상태 줄(.settings-status)과 같은 모양이되 흐리지 않다 —
+   읽으라고 보여주는 값이다. */
+.settings-info { opacity: 1; font-size: 12px; }
+.settings-actions { display: flex; gap: 6px; margin-top: 8px; }

@@ -142,21 +142,21 @@
 
 ## 완료 증명
 
-- [ ] `pnpm test` — 전부 초록 (기준선: 921 통과 / 28 건너뜀)
-- [ ] `pnpm typecheck` — 오류 없음
-- [ ] `pnpm lint` — 오류 없음
-- [ ] `pnpm test:e2e` — `settings.e2e.ts` 포함 전부 통과 (기준선: 18 통과 / 2 건너뜀)
-- [ ] `grep -rn "from 'electron'" core/` — 출력 없음
-- [ ] `grep -rn "window.oneDesk" renderer/ | grep -v main.tsx` — 출력 없음
-- [ ] `ls drizzle/*.sql | wc -l` — 작업 전과 같은 수 (마이그레이션 없음)
-- [ ] `grep -n "UPDATE repo" docs/windows-setup.md` — 출력 없음
-- [ ] **변이 검증** — 아래 여섯을 하나씩 망가뜨려 각각 실패하는 테스트가 있는지 확인한다
-  - [ ] 탭 전환이 초안을 보존하는 구조 (state를 자식으로 내리면 실패해야 한다)
-  - [ ] `movePathPrefix`의 `repo_id` 조건 (지우면 글로벌까지 옮겨져야 실패)
-  - [ ] 치환 + 경로 갱신의 트랜잭션 경계
-  - [ ] `repos.update`가 경로 변경 시 재스캔을 부르는 줄
-  - [ ] `appReveal`의 대상 검증
-  - [ ] `App.tsx`가 새로 내려보내는 prop **각각**
+- [x] `pnpm test` — **963 통과 / 28 건너뜀** (기준선 921에서 42개 늘었다)
+- [x] `pnpm typecheck` — 오류 없음
+- [x] `pnpm lint` — 오류 없음
+- [x] `pnpm test:e2e` — **21 통과 / 2 건너뜀**, `settings.e2e.ts` 3개 포함 (기준선 18)
+- [x] `grep -rn "from 'electron'" core/` — 출력 없음
+- [x] `grep -rn "window.oneDesk" renderer/ | grep -v main.tsx` — 출력 없음
+- [x] `ls drizzle/*.sql | wc -l` — 6, 작업 전과 같다 (마이그레이션 없음)
+- [x] `grep -n "UPDATE repo" docs/windows-setup.md` — 출력 없음
+- [x] **변이 검증** — 아래 여섯을 하나씩 망가뜨려 각각 실패하는 테스트가 있는지 확인했다
+  - [x] 탭 전환이 초안을 보존하는 구조 — 탭 클릭이 입력을 지우게 하자 2개 실패
+  - [x] `movePathPrefix`의 `repo_id` 조건 — 지우자 글로벌 불변·경계 테스트 2개 실패
+  - [x] 치환 + 경로 갱신의 트랜잭션 경계 — 트랜잭션을 빼자 롤백 테스트 실패
+  - [x] `repos.update`가 경로 변경 시 재스캔을 부르는 줄 — 지우자 lastSeenAt 단언 실패
+  - [x] `appReveal`의 대상 검증 — 기본 분기를 통과시키자 실패
+  - [x] `App.tsx`가 새로 내려보내는 prop **각각** — `queue`·`repos`(SettingsPanel 줄만)·`mcpStatus`는 끊어서, `onChangeLimit`·`refreshRepos`는 필수 prop이라 typecheck가 막는 것으로. 셋 다 배선 전에 red를 먼저 봤다
 - [ ] **수동 확인** — 빌드된 앱에서 repo 경로를 실제로 바꾸고, asset 목록이 한 벌인지와 그
       repo로 실행이 도는지 본다. 경로 변경 후 **옛 대화 이어가기**가 어떻게 되는지도 여기서
       처음 관측한다
@@ -165,3 +165,23 @@
 
 - **2026-09-19.** 초판의 1·2·5·8·11(일부) 단계가 다른 작업에서 먼저 구현돼 들어왔다.
   계획을 그 상태에 맞춰 다시 썼고, spec의 FR-11(저장 방식)을 개정했다. 위 개정 기록 참고.
+- **9단계(App 배선)를 따로 두지 않았다.** prop마다 그것을 쓰는 단계(3·7·8)에서 배선
+  테스트를 함께 썼고, 각 prop을 끊어 App.test가 실제로 실패하는 것을 그 자리에서
+  확인했다. 한 번에 몰아서 하면 어느 prop이 무방비인지 흐려진다.
+- **경로 치환은 `asset.ts`의 exported 함수 `moveAssetPathPrefix(runner, input)`이고,
+  트랜잭션은 `repo.update`가 쥔다.** 저장소 하나가 트랜잭션을 여는 것이 이 코드베이스의
+  패턴(`issue.ts`가 태그 테이블까지 한 트랜잭션에서 쓴다)이라 그 모양을 따랐다. 저장소
+  객체에는 자기 트랜잭션으로 감싼 `movePathPrefix`도 남겨 단독 테스트가 가능하다.
+- **`appReveal`의 대상 검증은 `core/app/reveal.ts`의 순수 함수로 뺐다.** electron IPC에는
+  테스트가 없어 검증을 main에 두면 아무것도 고정하지 못한다. `core/editor/vscodeUrl.ts`와
+  같은 구조다.
+- **`AppInfo`에 `dataDir`가 들어갔다.** spec은 DB 파일과 로그 디렉토리만 적었으나
+  "데이터 폴더 열기"가 dataDir를 열므로 core의 `paths()`가 셋을 준다.
+- **e2e는 repo 디렉토리를 `renameSync`로 옮기지 않는다.** Windows에서 `EBUSY`가 난다 —
+  앱이 그 디렉토리에 핸들을 쥔다(CLAUDE.md의 "열린 핸들이 있는 파일을 지우지 못한다"와
+  같은 함정). 대신 새 디렉토리에 같은 skill을 두고 경로를 그리로 바꾼다. FR-9가
+  검증하려는 것("행이 옮겨졌지 새로 생기지 않았다")은 그대로 잡힌다.
+- **`e2e/asset.e2e.ts`가 앱 탭을 먼저 연다.** 글로벌 경로가 앱 탭으로 갔으므로 클릭 한
+  줄이 더해졌다. 단언은 그대로다.
+- **`docs/windows-setup.md` §3도 고쳤다.** 계획은 §4만 적었으나 §3이 "CLI 경로에 편집
+  UI가 없다"고 적어 둔 문장이 이미 틀려 있었다(`e0ce778`).

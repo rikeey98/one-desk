@@ -5,7 +5,7 @@ import { ClientProvider } from '../client/ClientProvider'
 import { SettingsPanel } from './SettingsPanel'
 import type { OneDeskClient } from '@shared/client'
 import type {
-  AgentStatuses, GlobalRoots,
+  AgentStatuses, AppInfo, GlobalRoots, McpStatus, QueueSnapshot, Repo, UpdateRepoInput,
   UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, Workspace
 } from '@shared/models'
 
@@ -27,11 +27,39 @@ function makeWorkspace(over: Partial<Workspace> = {}): Workspace {
   }
 }
 
+function makeRepo(over: Partial<Repo> = {}): Repo {
+  return {
+    id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null,
+    sortOrder: 0, createdAt: 0, ...over
+  }
+}
+
+const INFO: AppInfo = {
+  version: '0.9.1', dataDir: 'C:\data', dbFile: 'C:\data\one-desk.db', logDir: 'C:\data\logs'
+}
+
 function makeClient(
   over: Record<string, unknown> = {},
-  workspacesOver: Record<string, unknown> = {}
+  workspacesOver: Record<string, unknown> = {},
+  reposOver: Record<string, unknown> = {},
+  appOver: Record<string, unknown> = {}
 ): OneDeskClient {
   return {
+    app: {
+      info: vi.fn(async () => INFO),
+      reveal: vi.fn(async () => {}),
+      ...appOver
+    },
+    repos: {
+      // 실제 core처럼 넘어온 값으로 갱신된 행을 돌려준다.
+      update: vi.fn(async (input: UpdateRepoInput) => makeRepo({
+        id: input.id,
+        name: input.name ?? 'api',
+        path: input.path ?? '/tmp/api',
+        description: input.description ?? null
+      })),
+      ...reposOver
+    },
     settings: {
       globalRoots: vi.fn().mockResolvedValue(DEFAULTS),
       setGlobalRoots: vi.fn().mockResolvedValue(DEFAULTS),
@@ -59,7 +87,12 @@ function makeClient(
 
 function renderPanel(
   client: OneDeskClient,
-  opts: { workspaces?: Workspace[]; workspaceId?: string | null; onWorkspaceSaved?: () => void } = {}
+  opts: {
+    workspaces?: Workspace[]; workspaceId?: string | null; onWorkspaceSaved?: () => void
+    queue?: QueueSnapshot | null; onChangeLimit?: (n: number) => Promise<void>
+    repos?: Repo[]; refreshRepos?: () => Promise<void>
+    mcpStatus?: McpStatus
+  } = {}
 ) {
   render(
     <ClientProvider client={client}>
@@ -67,6 +100,11 @@ function renderPanel(
         workspaces={opts.workspaces ?? [makeWorkspace()]}
         workspaceId={opts.workspaceId === undefined ? 'w1' : opts.workspaceId}
         onWorkspaceSaved={opts.onWorkspaceSaved ?? vi.fn()}
+        queue={opts.queue === undefined ? { running: 1, limit: 3, waiting: 0 } : opts.queue}
+        onChangeLimit={opts.onChangeLimit ?? vi.fn(async () => {})}
+        repos={opts.repos ?? [makeRepo()]}
+        refreshRepos={opts.refreshRepos ?? vi.fn(async () => {})}
+        mcpStatus={opts.mcpStatus ?? { state: 'listening', port: 53021 }}
       />
     </ClientProvider>
   )
@@ -76,6 +114,8 @@ function renderPanel(
 describe('SettingsPanel', () => {
   it('저장된 경로를 줄바꿈으로 보여준다', async () => {
     renderPanel(makeClient())
+    // 글로벌 경로는 앱 탭에 있다 — 실행 탭이 기본으로 열린다.
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
     await waitFor(() => {
       expect(screen.getByLabelText('Claude Code 글로벌 경로'))
         .toHaveValue('/home/me/.claude/skills\n/home/me/.claude/agents')
@@ -87,6 +127,8 @@ describe('SettingsPanel', () => {
   it('고쳐서 저장하면 줄 단위로 나눠 보낸다', async () => {
     const setGlobalRoots = vi.fn().mockResolvedValue(DEFAULTS)
     renderPanel(makeClient({ setGlobalRoots }))
+    // 글로벌 경로는 앱 탭에 있다 — 실행 탭이 기본으로 열린다.
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
     const box = await screen.findByLabelText('Claude Code 글로벌 경로')
 
     await userEvent.clear(box)
@@ -103,6 +145,8 @@ describe('SettingsPanel', () => {
     // 자동 저장이 아니라 사용자가 결과를 보는 자리다. 조용히 넘기지 않는다.
     const setGlobalRoots = vi.fn().mockRejectedValue(new Error('디스크가 가득 찼습니다'))
     renderPanel(makeClient({ setGlobalRoots }))
+    // 글로벌 경로는 앱 탭에 있다 — 실행 탭이 기본으로 열린다.
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
     const box = await screen.findByLabelText('Claude Code 글로벌 경로')
 
     await userEvent.clear(box)
@@ -117,6 +161,8 @@ describe('SettingsPanel', () => {
     // core가 빈 목록을 기본값으로 되돌리므로, 화면이 그 결과를 반영해야 한다.
     const setGlobalRoots = vi.fn().mockResolvedValue({ claude: ['/정리됨'], opencode: [] })
     renderPanel(makeClient({ setGlobalRoots }))
+    // 글로벌 경로는 앱 탭에 있다 — 실행 탭이 기본으로 열린다.
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
     const box = await screen.findByLabelText('Claude Code 글로벌 경로')
 
     await userEvent.clear(box)
@@ -127,6 +173,8 @@ describe('SettingsPanel', () => {
 
   it('조회에 실패하면 알린다', async () => {
     renderPanel(makeClient({ globalRoots: vi.fn().mockRejectedValue(new Error('못 읽음')) }))
+    // 글로벌 경로는 앱 탭에 있다 — 실행 탭이 기본으로 열린다.
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('못 읽음')
   })
 })
@@ -234,14 +282,14 @@ describe('SettingsPanel — 실행 기본값', () => {
     ]
     const { rerender } = render(
       <ClientProvider client={client}>
-        <SettingsPanel workspaces={workspaces} workspaceId="w1" onWorkspaceSaved={vi.fn()} />
+        <SettingsPanel workspaces={workspaces} workspaceId="w1" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} mcpStatus={{ state: 'starting' }} />
       </ClientProvider>
     )
     await waitFor(() => expect(screen.getByLabelText('Claude Code 기본 모델')).toHaveValue('sonnet'))
 
     rerender(
       <ClientProvider client={client}>
-        <SettingsPanel workspaces={workspaces} workspaceId="w2" onWorkspaceSaved={vi.fn()} />
+        <SettingsPanel workspaces={workspaces} workspaceId="w2" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} mcpStatus={{ state: 'starting' }} />
       </ClientProvider>
     )
 
@@ -435,14 +483,14 @@ describe('SettingsPanel — CLI 경로', () => {
     ]
     const { rerender } = render(
       <ClientProvider client={client}>
-        <SettingsPanel workspaces={workspaces} workspaceId="w1" onWorkspaceSaved={vi.fn()} />
+        <SettingsPanel workspaces={workspaces} workspaceId="w1" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} mcpStatus={{ state: 'starting' }} />
       </ClientProvider>
     )
     await waitFor(() => expect(screen.getByLabelText('Claude Code 실행 파일')).toHaveValue('/a/claude'))
 
     rerender(
       <ClientProvider client={client}>
-        <SettingsPanel workspaces={workspaces} workspaceId="w2" onWorkspaceSaved={vi.fn()} />
+        <SettingsPanel workspaces={workspaces} workspaceId="w2" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} mcpStatus={{ state: 'starting' }} />
       </ClientProvider>
     )
 
@@ -456,5 +504,256 @@ describe('SettingsPanel — CLI 경로', () => {
     await screen.findByText(/왼쪽에서 workspace를 고르면/)
     expect(screen.queryByLabelText('Claude Code 실행 파일')).toBeNull()
     expect(screen.queryByRole('button', { name: 'CLI 경로 저장' })).toBeNull()
+  })
+})
+
+describe('SettingsPanel — 탭', () => {
+  it('탭 넷이 있고 실행 탭이 먼저 열린다', async () => {
+    renderPanel(makeClient())
+    const tabs = screen.getAllByRole('tab')
+    expect(tabs.map((t) => t.textContent)).toEqual(['실행', '앱', 'repo', '정보'])
+    expect(screen.getByRole('tab', { name: '실행' })).toHaveAttribute('aria-selected', 'true')
+    // 실행 탭의 내용은 보이고 앱 탭의 내용은 보이지 않는다.
+    expect(await screen.findByLabelText('기본 agent')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Claude Code 글로벌 경로')).toBeNull()
+  })
+
+  it('탭을 누르면 그 탭의 내용으로 바뀐다', async () => {
+    renderPanel(makeClient())
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    expect(screen.getByRole('tab', { name: '앱' })).toHaveAttribute('aria-selected', 'true')
+    expect(await screen.findByLabelText('Claude Code 글로벌 경로')).toBeInTheDocument()
+    expect(screen.queryByLabelText('기본 agent')).toBeNull()
+  })
+
+  it('각 탭이 자기 범위를 밝힌다', async () => {
+    // FR-2: 실행·repo는 workspace 하나, 앱은 장비 전체. 이 문장이 "어디서 바꾸는지
+    // 모르겠다"(intent)에 대한 답이다.
+    renderPanel(makeClient())
+    expect(await screen.findByText(/이 workspace에만/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    expect(await screen.findByText(/이 장비 전체에/)).toBeInTheDocument()
+  })
+
+  it('탭을 옮겼다 돌아와도 고치던 입력이 그대로다', async () => {
+    // FR-11이 지키는 약속은 "저장 버튼이 없다"가 아니라 이것이다 — 초안 state가
+    // 탭이 아니라 SettingsPanel에 있어야 성립한다. state를 탭 컴포넌트로 내리면
+    // 언마운트와 함께 사라져 이 테스트가 실패한다.
+    renderPanel(makeClient())
+    const model = await screen.findByLabelText('Claude Code 기본 모델')
+    await userEvent.type(model, 'opus')
+    expect(model).toHaveValue('opus')
+
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    const box = await screen.findByLabelText('Claude Code 글로벌 경로')
+    await userEvent.clear(box)
+    await userEvent.type(box, '/임시')
+
+    await userEvent.click(screen.getByRole('tab', { name: '실행' }))
+    expect(await screen.findByLabelText('Claude Code 기본 모델')).toHaveValue('opus')
+
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    expect(await screen.findByLabelText('Claude Code 글로벌 경로')).toHaveValue('/임시')
+  })
+})
+
+describe('SettingsPanel — 동시 실행 상한', () => {
+  // spec FR-7: 상한은 앱 탭과 도크 양쪽에 있다. 둘은 같은 스냅샷을 보므로 여기서
+  // 바꾼 값이 곧 도크의 숫자다 — 이 컴포넌트가 자기 인스턴스를 만들면 그 약속이 깨진다.
+  it('지금 상한을 보여준다', async () => {
+    renderPanel(makeClient(), { queue: { running: 2, limit: 5, waiting: 1 } })
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    expect(await screen.findByLabelText('동시 실행 상한')).toHaveValue(5)
+  })
+
+  it('스냅샷이 아직 없으면 칸을 열지 않는다', async () => {
+    renderPanel(makeClient(), { queue: null })
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    await screen.findByLabelText('Claude Code 글로벌 경로')
+    expect(screen.queryByLabelText('동시 실행 상한')).toBeNull()
+  })
+
+  it('고쳐서 저장하면 새 상한을 보낸다', async () => {
+    const onChangeLimit = vi.fn(async () => {})
+    renderPanel(makeClient(), { onChangeLimit })
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    const box = await screen.findByLabelText('동시 실행 상한')
+    await userEvent.clear(box)
+    await userEvent.type(box, '4')
+    await userEvent.click(screen.getByRole('button', { name: '상한 저장' }))
+    expect(onChangeLimit).toHaveBeenCalledWith(4)
+  })
+
+  it('1 미만이나 정수가 아닌 값은 보내지 않고 알린다', async () => {
+    const onChangeLimit = vi.fn(async () => {})
+    renderPanel(makeClient(), { onChangeLimit })
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    const box = await screen.findByLabelText('동시 실행 상한')
+    await userEvent.clear(box)
+    await userEvent.type(box, '0')
+    await userEvent.click(screen.getByRole('button', { name: '상한 저장' }))
+    expect(onChangeLimit).not.toHaveBeenCalled()
+    expect(await screen.findByRole('alert')).toHaveTextContent(/1 이상/)
+  })
+
+  it('저장에 실패하면 알리고 입력을 지우지 않는다', async () => {
+    const onChangeLimit = vi.fn(async () => { throw new Error('상한은 1 이상이어야 합니다') })
+    renderPanel(makeClient(), { onChangeLimit })
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    const box = await screen.findByLabelText('동시 실행 상한')
+    await userEvent.clear(box)
+    await userEvent.type(box, '9')
+    await userEvent.click(screen.getByRole('button', { name: '상한 저장' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('상한은 1 이상이어야 합니다')
+    expect(box).toHaveValue(9)
+  })
+
+  it('스냅샷이 바뀌면 칸이 따라온다 — 도크에서 바꾼 값이다', async () => {
+    // 저장 성공은 event:queueUpdate로 돌아온다. 앱 탭은 그 push를 prop으로 받는다.
+    const client = makeClient()
+    const { rerender } = render(
+      <ClientProvider client={client}>
+        <SettingsPanel workspaces={[makeWorkspace()]} workspaceId="w1" onWorkspaceSaved={vi.fn()}
+          queue={{ running: 0, limit: 3, waiting: 0 }} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} mcpStatus={{ state: 'starting' }} />
+      </ClientProvider>
+    )
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    expect(await screen.findByLabelText('동시 실행 상한')).toHaveValue(3)
+    rerender(
+      <ClientProvider client={client}>
+        <SettingsPanel workspaces={[makeWorkspace()]} workspaceId="w1" onWorkspaceSaved={vi.fn()}
+          queue={{ running: 0, limit: 7, waiting: 0 }} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} mcpStatus={{ state: 'starting' }} />
+      </ClientProvider>
+    )
+    await waitFor(() => expect(screen.getByLabelText('동시 실행 상한')).toHaveValue(7))
+  })
+})
+
+describe('SettingsPanel — repo 탭', () => {
+  async function openRepoTab() {
+    await userEvent.click(screen.getByRole('tab', { name: 'repo' }))
+  }
+
+  it('등록된 repo의 이름·경로·설명을 칸에 보여준다', async () => {
+    renderPanel(makeClient(), { repos: [makeRepo({ description: '백엔드' })] })
+    await openRepoTab()
+    expect(await screen.findByLabelText('api 이름')).toHaveValue('api')
+    expect(screen.getByLabelText('api 경로')).toHaveValue('/tmp/api')
+    expect(screen.getByLabelText('api 설명')).toHaveValue('백엔드')
+  })
+
+  it('고쳐서 저장하면 셋을 보내고 목록을 다시 읽는다', async () => {
+    // spec FR-8. 저장 뒤 refreshRepos가 불려야 RepoStrip·실행 패널의 cwd 목록이 새 경로를 본다.
+    const update = vi.fn(async (input: UpdateRepoInput) => makeRepo({ ...input } as Partial<Repo>))
+    const refreshRepos = vi.fn(async () => {})
+    renderPanel(makeClient({}, {}, { update }), { refreshRepos })
+    await openRepoTab()
+    const path = await screen.findByLabelText('api 경로')
+    await userEvent.clear(path)
+    await userEvent.type(path, '/srv/api')
+    await userEvent.click(screen.getByRole('button', { name: 'api 저장' }))
+
+    expect(update).toHaveBeenCalledWith({ id: 'r1', name: 'api', path: '/srv/api', description: null })
+    await waitFor(() => expect(refreshRepos).toHaveBeenCalled())
+  })
+
+  it('경로를 바꾸는 중이면 옛 대화 경고를 보여준다', async () => {
+    // spec 확인 필요 항목: 경로가 바뀌면 그 repo로 이어가던 옛 대화의 --resume이 다른
+    // 디렉토리를 가리킨다. 저장 전에 알려야 한다.
+    renderPanel(makeClient())
+    await openRepoTab()
+    const path = await screen.findByLabelText('api 경로')
+    expect(screen.queryByText(/이어가던 대화/)).toBeNull()
+    await userEvent.clear(path)
+    await userEvent.type(path, '/srv/api')
+    expect(screen.getByText(/이어가던 대화/)).toBeInTheDocument()
+  })
+
+  it('저장에 실패하면 이유를 보여주고 입력을 지우지 않는다', async () => {
+    // FR-12. 존재하지 않는 경로는 core가 거부한다 — 그 문장이 그대로 칸 옆에 보인다.
+    const update = vi.fn(async () => { throw new Error('존재하지 않는 경로입니다: /없음') })
+    const refreshRepos = vi.fn(async () => {})
+    renderPanel(makeClient({}, {}, { update }), { refreshRepos })
+    await openRepoTab()
+    const path = await screen.findByLabelText('api 경로')
+    await userEvent.clear(path)
+    await userEvent.type(path, '/없음')
+    await userEvent.click(screen.getByRole('button', { name: 'api 저장' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('존재하지 않는 경로입니다: /없음')
+    expect(path).toHaveValue('/없음')
+    expect(refreshRepos).not.toHaveBeenCalled()
+  })
+
+  it('탭을 옮겼다 돌아와도 고치던 경로가 그대로다', async () => {
+    renderPanel(makeClient())
+    await openRepoTab()
+    const path = await screen.findByLabelText('api 경로')
+    await userEvent.clear(path)
+    await userEvent.type(path, '/srv/api')
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    await openRepoTab()
+    expect(await screen.findByLabelText('api 경로')).toHaveValue('/srv/api')
+  })
+
+  it('workspace를 고르지 않았으면 안내만 남긴다', async () => {
+    renderPanel(makeClient(), { workspaceId: null, repos: [] })
+    await openRepoTab()
+    expect(await screen.findByText(/왼쪽에서 workspace를 고르면/)).toBeInTheDocument()
+    expect(screen.queryByLabelText('api 경로')).toBeNull()
+  })
+
+  it('repo가 없으면 그렇다고 말한다', async () => {
+    renderPanel(makeClient(), { repos: [] })
+    await openRepoTab()
+    expect(await screen.findByText(/등록된 repo가 없습니다/)).toBeInTheDocument()
+  })
+})
+
+describe('SettingsPanel — 정보 탭', () => {
+  async function openInfoTab() {
+    await userEvent.click(screen.getByRole('tab', { name: '정보' }))
+  }
+
+  it('MCP 포트·DB 경로·로그 경로·버전을 보여준다', async () => {
+    // spec FR-10. 경로는 core가 실제로 여는 값 그대로다 — 문자열 조립이 아니다.
+    renderPanel(makeClient())
+    await openInfoTab()
+    const list = await screen.findByRole('list', { name: '앱 정보' })
+    expect(list).toHaveTextContent('MCP :53021')
+    expect(list).toHaveTextContent('C:\data\one-desk.db')
+    expect(list).toHaveTextContent('C:\data\logs')
+    expect(list).toHaveTextContent('0.9.1')
+  })
+
+  it('MCP가 죽어 있으면 그 이유를 그대로 보여준다', async () => {
+    renderPanel(makeClient(), { mcpStatus: { state: 'failed', message: 'EADDRINUSE: 포트 사용 중' } })
+    await openInfoTab()
+    expect(await screen.findByRole('list', { name: '앱 정보' })).toHaveTextContent('EADDRINUSE: 포트 사용 중')
+  })
+
+  it('열기 버튼 둘이 각각 data·logs로 부른다', async () => {
+    // NFR-3: 경로가 아니라 이름을 넘긴다. 렌더러가 임의의 경로를 열 수 없다.
+    const reveal = vi.fn(async () => {})
+    renderPanel(makeClient({}, {}, {}, { reveal }))
+    await openInfoTab()
+    await userEvent.click(await screen.findByRole('button', { name: '데이터 폴더 열기' }))
+    await userEvent.click(screen.getByRole('button', { name: '로그 폴더 열기' }))
+    expect(reveal.mock.calls).toEqual([['data'], ['logs']])
+  })
+
+  it('열기에 실패하면 알린다', async () => {
+    const reveal = vi.fn(async () => { throw new Error('탐색기를 열 수 없습니다') })
+    renderPanel(makeClient({}, {}, {}, { reveal }))
+    await openInfoTab()
+    await userEvent.click(await screen.findByRole('button', { name: '로그 폴더 열기' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('탐색기를 열 수 없습니다')
+  })
+
+  it('정보 조회에 실패하면 알린다', async () => {
+    const info = vi.fn(async () => { throw new Error('못 읽음') })
+    renderPanel(makeClient({}, {}, {}, { info }))
+    await openInfoTab()
+    expect(await screen.findByRole('alert')).toHaveTextContent('못 읽음')
   })
 })
