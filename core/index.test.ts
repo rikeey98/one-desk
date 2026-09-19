@@ -505,3 +505,103 @@ describe('슬래시 커맨드 배선', () => {
     })
   })
 })
+
+describe('core.workspaces.checkAgents', () => {
+  /**
+   * 설정 화면이 보여주는 판정은 실행을 막는 판정과 **같아야 한다** (설계 §595).
+   * 따로 구현하면 화면은 초록인데 실행 버튼은 막히는 상태가 생긴다.
+   *
+   * ONE_DESK_AGENT_PATH가 잡혀 있으면 workspace 설정보다 먼저다 — e2e가 가짜
+   * CLI를 물리는 통로이자 resolveAgentPath의 규칙 그대로다. 여기서는 그 변수가
+   * 결과를 오염시키지 않도록 지우고 돈다.
+   */
+  const withoutOverride = async (fn: () => Promise<void>): Promise<void> => {
+    const previous = process.env['ONE_DESK_AGENT_PATH']
+    delete process.env['ONE_DESK_AGENT_PATH']
+    try {
+      await fn()
+    } finally {
+      if (previous === undefined) delete process.env['ONE_DESK_AGENT_PATH']
+      else process.env['ONE_DESK_AGENT_PATH'] = previous
+    }
+  }
+
+  it('설정한 경로가 실행 가능하면 그 경로를 돌려준다', async () => {
+    await withoutOverride(async () => {
+      const core = open(makeDataDir())
+      const ws = core.workspaces.create({ name: 'ws' }).id
+      // 실제로 존재하고 실행 가능한 파일 — 지금 돌고 있는 node 바이너리다.
+      // 플랫폼별 실행 권한 규칙을 흉내내지 않고 진짜를 쓴다.
+      core.workspaces.updatePaths({ id: ws, claudePath: process.execPath, opencodePath: null })
+
+      const status = await core.workspaces.checkAgents(ws)
+
+      expect(status['claude-code'].ok).toBe(true)
+      expect(status['claude-code'].executable).toBe(process.execPath)
+    })
+  })
+
+  it('설정한 경로가 없으면 그 이유를 돌려준다', async () => {
+    await withoutOverride(async () => {
+      const core = open(makeDataDir())
+      const ws = core.workspaces.create({ name: 'ws' }).id
+      core.workspaces.updatePaths({
+        id: ws, claudePath: join(makeDataDir(), '없는-claude'), opencodePath: null
+      })
+
+      const status = await core.workspaces.checkAgents(ws)
+
+      expect(status['claude-code'].ok).toBe(false)
+      expect(status['claude-code'].reason).toContain('실행할 수 없습니다')
+    })
+  })
+
+  it('두 agent를 각자의 경로로 따로 본다', async () => {
+    // 한 칸을 둘 다에 쓰면 claude 경로를 고쳤을 때 opencode까지 초록이 된다.
+    await withoutOverride(async () => {
+      const core = open(makeDataDir())
+      const ws = core.workspaces.create({ name: 'ws' }).id
+      core.workspaces.updatePaths({
+        id: ws,
+        claudePath: process.execPath,
+        opencodePath: join(makeDataDir(), '없는-opencode')
+      })
+
+      const status = await core.workspaces.checkAgents(ws)
+
+      expect(status['claude-code'].ok).toBe(true)
+      expect(status.opencode.ok).toBe(false)
+    })
+  })
+
+  it('없는 workspace면 설정이 없는 것으로 보고 PATH 탐색으로 떨어진다', async () => {
+    // 던지지 않는다 — 이 조회는 화면을 그리는 길목이고, workspace가 막 지워진
+    // 찰나에 던지면 설정 화면 전체가 빨간 줄만 남는다.
+    await withoutOverride(async () => {
+      const core = open(makeDataDir())
+      const status = await core.workspaces.checkAgents('없는-id')
+      expect(status['claude-code']).toHaveProperty('ok')
+      expect(status.opencode).toHaveProperty('ok')
+    })
+  })
+
+  it('ONE_DESK_AGENT_PATH가 workspace 설정을 이긴다 — 실행과 같은 규칙이다', async () => {
+    const previous = process.env['ONE_DESK_AGENT_PATH']
+    process.env['ONE_DESK_AGENT_PATH'] = process.execPath
+    try {
+      const core = open(makeDataDir())
+      const ws = core.workspaces.create({ name: 'ws' }).id
+      core.workspaces.updatePaths({
+        id: ws, claudePath: join(makeDataDir(), '없는-claude'), opencodePath: null
+      })
+
+      const status = await core.workspaces.checkAgents(ws)
+
+      expect(status['claude-code'].ok).toBe(true)
+      expect(status['claude-code'].executable).toBe(process.execPath)
+    } finally {
+      if (previous === undefined) delete process.env['ONE_DESK_AGENT_PATH']
+      else process.env['ONE_DESK_AGENT_PATH'] = previous
+    }
+  })
+})

@@ -77,6 +77,63 @@ export interface CreateWorkspaceInput {
   description?: string | null
 }
 
+/**
+ * workspace의 실행 기본값을 한 번에 세운다 (전체 설계 §403).
+ *
+ * **부분 갱신이 아니다 — 세 값을 전부 받는다.** 저장소가 `update`가 아니라
+ * `rename`만 열어 두었던 이유가 "호출자마다 다른 부분 갱신을 보내면 무엇이
+ * 덮이는지 흐려진다"였다. 한 화면이 세 칸을 함께 저장하므로 전부 받으면 그
+ * 흐림이 생기지 않는다.
+ *
+ * 모델을 agent별로 나눈 것은 두 CLI의 지정 형식이 다르기 때문이다 — claude는
+ * `sonnet` 같은 별칭, opencode는 `provider/model`이다 (전체 설계 §199).
+ * **빈 문자열은 null로 저장한다.** null은 "CLI 자신의 기본값에 맡긴다"는 뜻이고,
+ * 빈 문자열을 그대로 두면 어댑터가 `-m ''`를 붙이게 된다.
+ */
+export interface UpdateWorkspaceDefaultsInput {
+  id: string
+  defaultAgentKind: AgentKind
+  defaultModelClaude: string | null
+  defaultModelOpencode: string | null
+  /**
+   * 새 실행이 시작할 권한. **전체 허용으로 올리는 것은 화면이 별도 확인을 받은
+   * 뒤에 보낸다**(전체 설계 §403). 저장소는 그 절차를 강제하지 않는다 — 확인은
+   * 사용자에게 묻는 일이라 UI의 몫이고, 여기서 막으면 MCP나 스크립트가 같은
+   * 값을 쓸 길이 아예 없어진다.
+   */
+  defaultPermission: Permission
+}
+
+/**
+ * CLI 실행 파일의 경로를 workspace 단위로 못박는다 (전체 설계 §595).
+ *
+ * **기본값과 따로 저장한다.** 기본값은 "새 실행을 어떻게 시작할까"이고 이것은
+ * "이 장비에서 CLI가 어디 있나"다 — 섞으면 PATH가 깨져 경로를 고치러 온 사람이
+ * 모델 기본값까지 함께 덮어쓰게 된다.
+ *
+ * null이면 어댑터가 PATH를 뒤진다. 빈 문자열은 null로 저장한다.
+ */
+export interface UpdateWorkspacePathsInput {
+  id: string
+  claudePath: string | null
+  opencodePath: string | null
+}
+
+/**
+ * 지금 이 workspace로 실행하면 어느 실행 파일이 쓰이는가. 어댑터 preflight의
+ * 결과를 그대로 나른다 — 실행을 막는 것과 같은 판정이라 화면이 보여주는 것과
+ * 실행 버튼이 걸리는 것이 어긋나지 않는다.
+ */
+export interface AgentStatus {
+  ok: boolean
+  /** 실제로 쓸 실행 파일의 절대 경로 (ok일 때) */
+  executable?: string
+  /** 실패 사유. 사용자에게 그대로 보여준다 */
+  reason?: string
+}
+
+export type AgentStatuses = Record<AgentKind, AgentStatus>
+
 export interface CreateRepoInput {
   workspaceId: string
   name: string

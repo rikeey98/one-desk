@@ -15,11 +15,14 @@ const repos: Repo[] = [
 
 function makeWorkspace(
   defaultPermission: Permission,
-  defaultAgentKind: AgentKind = 'claude-code'
+  defaultAgentKind: AgentKind = 'claude-code',
+  models: { claude?: string | null; opencode?: string | null } = {}
 ): Workspace {
   return {
     id: 'w1', name: 'ws', description: null, defaultAgentKind,
-    defaultModelClaude: null, defaultModelOpencode: null, defaultPermission,
+    defaultModelClaude: models.claude ?? null,
+    defaultModelOpencode: models.opencode ?? null,
+    defaultPermission,
     claudePath: null, opencodePath: null, createdAt: 0, updatedAt: 0
   }
 }
@@ -412,6 +415,135 @@ describe('RunPanel — agent 선택', () => {
   })
 })
 
+
+describe('RunPanel — 모델 기본값', () => {
+  it('workspace의 claude 기본 모델로 시작한다', async () => {
+    renderPanel(makeClient(), repos, [], vi.fn(), {},
+      [makeWorkspace('edit', 'claude-code', { claude: 'sonnet', opencode: 'openai/gpt-5' })])
+
+    await waitFor(() => expect(screen.getByLabelText('모델')).toHaveValue('sonnet'))
+  })
+
+  it('기본 agent가 opencode면 opencode 쪽 칸에서 가져온다', async () => {
+    // 컬럼이 나뉜 이유가 이것이다 — claude 별칭을 opencode에 넘기면 그 CLI가
+    // 모르는 이름이 된다 (전체 설계 §199).
+    renderPanel(makeClient(), repos, [], vi.fn(), {},
+      [makeWorkspace('edit', 'opencode', { claude: 'sonnet', opencode: 'openai/gpt-5' })])
+
+    await waitFor(() => expect(screen.getByLabelText('모델')).toHaveValue('openai/gpt-5'))
+  })
+
+  it('agent를 바꾸면 모델 칸도 그 agent의 기본값으로 바뀐다', async () => {
+    const start = vi.fn().mockResolvedValue({ id: 'run-1' })
+    renderPanel(makeClient({ start }), repos, [], vi.fn(), {},
+      [makeWorkspace('edit', 'claude-code', { claude: 'sonnet', opencode: 'openai/gpt-5' })])
+
+    await waitFor(() => expect(screen.getByLabelText('모델')).toHaveValue('sonnet'))
+    await userEvent.selectOptions(screen.getByLabelText('agent'), 'opencode')
+    await waitFor(() => expect(screen.getByLabelText('모델')).toHaveValue('openai/gpt-5'))
+
+    // 화면만이 아니라 실제로 넘어가는 인자로도 확인한다.
+    await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '뭐든')
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
+    await waitFor(() => expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({ agentKind: 'opencode', model: 'openai/gpt-5' })))
+  })
+
+  it('기본 모델을 담아 실행을 요청한다', async () => {
+    const start = vi.fn().mockResolvedValue({ id: 'run-1' })
+    renderPanel(makeClient({ start }), repos, [], vi.fn(), {},
+      [makeWorkspace('edit', 'claude-code', { claude: 'sonnet' })])
+
+    await waitFor(() => expect(screen.getByLabelText('모델')).toHaveValue('sonnet'))
+    await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '뭐든')
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
+
+    await waitFor(() => expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'sonnet' })))
+  })
+
+  it('기본 모델이 없으면 빈 칸이고 model은 null로 나간다', async () => {
+    // 빈 칸은 "CLI 자신의 기본값에 맡긴다"이다 — 어댑터가 -m을 붙이지 않는다.
+    const start = vi.fn().mockResolvedValue({ id: 'run-1' })
+    renderPanel(makeClient({ start }), repos, [], vi.fn(), {}, [makeWorkspace('edit')])
+
+    expect(await screen.findByLabelText('모델')).toHaveValue('')
+    await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '뭐든')
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
+
+    await waitFor(() => expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({ model: null })))
+  })
+
+  it('고쳐 쓴 모델은 그 run에만 적용된다', async () => {
+    const start = vi.fn().mockResolvedValue({ id: 'run-1' })
+    renderPanel(makeClient({ start }), repos, [], vi.fn(), {},
+      [makeWorkspace('edit', 'claude-code', { claude: 'sonnet' })])
+
+    const box = await screen.findByLabelText('모델')
+    await waitFor(() => expect(box).toHaveValue('sonnet'))
+    await userEvent.clear(box)
+    await userEvent.type(box, 'opus')
+    await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '뭐든')
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
+
+    await waitFor(() => expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'opus' })))
+  })
+
+  it('대화를 이어갈 때는 마지막 턴의 모델에서 출발한다', async () => {
+    // workspace 기본값으로 출발하면 1턴이 CLI 기본값으로 돌았는데 2턴만 조용히
+    // 다른 모델이 된다. 권한과 같은 규칙이다.
+    const modelParent: Run = {
+      id: 'p3', workspaceId: 'w1', agentKind: 'claude-code', model: 'haiku',
+      cwd: '/tmp/api', permission: 'edit', userPrompt: '원래 지시', assembledPrompt: 'x',
+      status: 'succeeded', externalSessionId: 'sess-3', parentRunId: null, rootRunId: 'p3',
+      resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
+      errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
+      startedAt: 1, endedAt: 2, createdAt: 0, contextItems: []
+    }
+    const resume = vi.fn().mockResolvedValue({ id: 'run-2' })
+
+    renderPanel(makeClient({ resume }), repos, [], vi.fn(),
+      { conversation: groupConversations([modelParent])[0]! },
+      [makeWorkspace('edit', 'claude-code', { claude: 'sonnet' })])
+
+    await waitFor(() => expect(screen.getByLabelText('모델')).toHaveValue('haiku'))
+    await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '이어서')
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
+
+    await waitFor(() => expect(resume).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'haiku' })))
+  })
+
+  it('같은 대화의 새 객체로 다시 렌더돼도 사용자가 고친 모델이 유지된다', async () => {
+    // 권한과 같은 함정이다 — Dock의 groupConversations는 runs가 바뀔 때마다 새
+    // Conversation 객체를 만든다. [conversation] 참조에 기대면 그때마다 마지막 턴
+    // 값으로 되감긴다.
+    const stableParent: Run = {
+      id: 'p4', workspaceId: 'w1', agentKind: 'claude-code', model: 'haiku',
+      cwd: '/tmp/api', permission: 'edit', userPrompt: '원래 지시', assembledPrompt: 'x',
+      status: 'succeeded', externalSessionId: 'sess-4', parentRunId: null, rootRunId: 'p4',
+      resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
+      errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
+      startedAt: 1, endedAt: 2, createdAt: 0, contextItems: []
+    }
+    const client = makeClient()
+    const { rerender } = render(panel(client, repos, [], vi.fn(), 'w1',
+      { conversation: groupConversations([stableParent])[0]! }))
+
+    const box = await screen.findByLabelText('모델')
+    await waitFor(() => expect(box).toHaveValue('haiku'))
+    await userEvent.clear(box)
+    await userEvent.type(box, 'opus')
+
+    // 같은 대화, 새 객체 — 실제로 useRuns가 onRunUpdate를 받을 때마다 일어난다.
+    rerender(panel(client, repos, [], vi.fn(), 'w1',
+      { conversation: groupConversations([stableParent])[0]! }))
+
+    await waitFor(() => expect(screen.getByLabelText('모델')).toHaveValue('opus'))
+  })
+})
 
 describe('RunPanel 슬래시 커맨드', () => {
   const commands = [

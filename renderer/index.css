@@ -161,6 +161,12 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
 .detail-axis select { padding: 3px 8px; border: 1px solid #e4e4e7; border-radius: 5px; font: inherit; cursor: pointer; }
 .detail-body { flex: 1; min-height: 120px; padding: 7px 9px; border: 1px solid #e4e4e7; border-radius: 5px; font: inherit; font-size: 13px; resize: none; }
 .detail-actions { display: flex; justify-content: flex-end; }
+/* 전체 허용으로 기본값을 올릴 때의 경고 (설계 §403). form-error보다 약하되
+   그냥 지나칠 수 없을 만큼은 눈에 띄어야 한다 — 확인 절차의 절반이 이 문장이다. */
+.settings-warning { margin-top: 6px; padding: 6px 9px; border-radius: 4px; font-size: 11px; background: #fef3c7; color: #92400e; }
+/* CLI 경로 preflight 결과. 경로가 길어 줄바꿈을 허용한다. */
+.settings-status { margin: 8px 0 0; padding: 0; list-style: none; font-size: 11px; opacity: .8; }
+.settings-status li { margin-top: 3px; word-break: break-all; }
 .confirm-button { border: 1px solid #e4e4e7; border-radius: 5px; background: #fff; cursor: pointer; font: inherit; font-size: 11px; padding: 3px 9px; }
 .confirm-button.confirm-armed { border-color: #fca5a5; color: #991b1b; }
 .conflict-banner { display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 5px; background: #fef3c7; font-size: 12px; }

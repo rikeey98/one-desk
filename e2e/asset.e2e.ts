@@ -79,7 +79,9 @@ describe('글로벌 asset', () => {
     const claudeBox = page.getByLabel('Claude Code 글로벌 경로')
     await claudeBox.waitFor({ state: 'visible', timeout: 10_000 })
     await claudeBox.fill(globalRoot)
-    await page.getByRole('button', { name: '저장' }).click()
+    // exact가 없으면 substring 매칭이라 같은 화면의 "기본값 저장"까지 걸려
+    // strict mode 위반이 된다 — 실행 버튼과 도크 토글이 부딪혔던 것과 같은 함정이다.
+    await page.getByRole('button', { name: '저장', exact: true }).click()
 
     // 저장이 스스로 다시 훑는다. workspace로 돌아가면 새로고침 없이 보인다.
     await ws.click()
