@@ -141,6 +141,17 @@ export interface CreateRepoInput {
   description?: string | null
 }
 
+/**
+ * 등록된 repo의 값을 고친다. 넘어온 필드만 바뀐다. 경로를 바꾸면 그 아래 asset의
+ * file_path가 함께 옮겨지고 다시 훑는다 (settings-screen spec FR-9).
+ */
+export interface UpdateRepoInput {
+  id: string
+  name?: string
+  path?: string
+  description?: string | null
+}
+
 export interface CreateIssueInput {
   workspaceId: string
   title: string

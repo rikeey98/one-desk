@@ -7,6 +7,49 @@ import type {
 } from '@shared/models'
 import type { FoundAsset } from '../../assets/scan'
 
+/** db.transaction()의 콜백이 받는 runner. db와 같은 쿼리 빌더 API를 갖는다. */
+type Runner = Parameters<Parameters<Database['transaction']>[0]>[0]
+
+export interface MovePathPrefixInput {
+  workspaceId: string
+  /** 옮길 repo. 글로벌(repo_id NULL)은 대상이 아니다 */
+  repoId: string
+  from: string
+  to: string
+}
+
+/** 경로 경계(구분자 앞)에서만 맞는 접두사. `/tmp/api`가 `/tmp/api2`를 끌고 가면 안 된다. */
+function underPrefix(filePath: string, prefix: string): boolean {
+  return filePath === prefix
+    || filePath.startsWith(prefix + '/')
+    || filePath.startsWith(prefix + '\\')
+}
+
+/**
+ * repo 경로가 바뀔 때 그 repo의 asset `file_path`를 새 접두사로 옮긴다 (spec FR-9).
+ *
+ * **행을 새로 만들지 않는다** — 과거 run이 첨부한 asset은 id로 이어져 있어, 옛 행을
+ * "없음"으로 두고 새 행을 만들면 기록이 끊기고 목록이 두 벌이 된다(설계 §232).
+ *
+ * 트랜잭션은 부르는 쪽(repo 저장소)이 쥔다 — repo 경로 갱신과 이 치환이 하나로
+ * 묶여야 절반만 반영된 상태가 남지 않는다. 유니크 인덱스에 걸리면 던지고 트랜잭션이
+ * 통째로 되돌아간다.
+ *
+ * **글로벌 행은 `repo_id`가 NULL이라 `eq(asset.repoId, repoId)`에 절대 걸리지
+ * 않는다** — 그것이 의도다. 이 조건을 `isNull`이나 `or`로 넓히면 글로벌이 딸려 온다.
+ */
+export function moveAssetPathPrefix(runner: Runner, input: MovePathPrefixInput): void {
+  const rows = runner.select({ id: asset.id, filePath: asset.filePath }).from(asset).where(and(
+    eq(asset.workspaceId, input.workspaceId),
+    eq(asset.repoId, input.repoId)
+  )).all()
+  for (const row of rows) {
+    if (row.filePath === null || !underPrefix(row.filePath, input.from)) continue
+    const moved = input.to + row.filePath.slice(input.from.length)
+    runner.update(asset).set({ filePath: moved }).where(eq(asset.id, row.id)).run()
+  }
+}
+
 export interface UpsertDiscoveredInput {
   workspaceId: string
   /** 발견된 repo. **글로벌 경로에서 발견했으면 null이다** */
@@ -145,6 +188,11 @@ export function createAssetRepository(db: Database) {
 
     remove(id: string): void {
       db.delete(asset).where(eq(asset.id, id)).run()
+    },
+
+    /** `moveAssetPathPrefix`를 자기 트랜잭션으로 감싼 것. repo 저장소 밖에서 쓸 때 */
+    movePathPrefix(input: MovePathPrefixInput): void {
+      db.transaction((tx) => { moveAssetPathPrefix(tx, input) })
     },
 
     /** 맥락 조립이 쓴다. workspace 밖 id는 걸러진다 */
