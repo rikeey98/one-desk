@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { OneDeskClient, Unsubscribe } from '@shared/client'
-import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, CommandListResult } from '@shared/models'
+import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, CommandListResult, AgentStatuses } from '@shared/models'
 import type { RunEvent } from '@shared/events'
 
 /**
@@ -26,6 +26,9 @@ const client: OneDeskClient = {
     list: () => call<Workspace[]>(CHANNELS.workspacesList),
     create: (input) => call<Workspace>(CHANNELS.workspacesCreate, input),
     rename: (id, name) => call<Workspace>(CHANNELS.workspacesRename, id, name),
+    updateDefaults: (input) => call<Workspace>(CHANNELS.workspacesUpdateDefaults, input),
+    updatePaths: (input) => call<Workspace>(CHANNELS.workspacesUpdatePaths, input),
+    checkAgents: (workspaceId) => call<AgentStatuses>(CHANNELS.workspacesCheckAgents, workspaceId),
     remove: (id) => call<void>(CHANNELS.workspacesRemove, id)
   },
   repos: {

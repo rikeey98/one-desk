@@ -18,6 +18,7 @@ import { createExecutionService } from './execution'
 import { claudeCodeAdapter } from './runner/adapters/claudeCode'
 import { opencodeAdapter } from './runner/adapters/opencode'
 import { resolveAgentPath } from './runner/agentPath'
+import type { AgentStatuses } from '@shared/models'
 import { createSettingRepository } from './db/repositories/setting'
 import { createRunQueue } from './runner/queue'
 import { createMcpHost } from './mcp/host'
@@ -188,7 +189,32 @@ export function createCore(opts: CoreOptions) {
   void mcp.start().then((status) => { emitter.emit(MCP_STATUS, status) })
 
   return {
-    workspaces,
+    /**
+     * repo와 같은 이유로 저장소에 한 가지를 얹는다 — IPC 핸들러를 얇게 두려면
+     * 조합이 여기 있어야 한다.
+     */
+    workspaces: {
+      ...workspaces,
+
+      /**
+       * 지금 이 workspace로 실행하면 두 CLI가 각각 어디서 잡히는가 (설계 §595).
+       *
+       * **실행 서비스의 `resolveExecutable`과 같은 판정을 쓴다.** 따로 구현하면
+       * 설정 화면은 초록인데 실행 버튼은 막히는(또는 그 반대의) 상태가 생긴다.
+       * 그래서 `resolveAgentPath` → 어댑터 `preflight`를 그대로 탄다 —
+       * `ONE_DESK_AGENT_PATH`가 잡혀 있으면 그것이 이기는 것까지 같다.
+       *
+       * 프로세스를 띄우지 않는다. 파일 접근 검사와 PATH 탐색뿐이라 값싸다.
+       */
+      async checkAgents(workspaceId: string): Promise<AgentStatuses> {
+        const ws = workspaces.list().find((w) => w.id === workspaceId) ?? null
+        const [claude, opencode] = await Promise.all([
+          adapters['claude-code'].preflight(resolveAgentPath('claude-code', ws)),
+          adapters['opencode'].preflight(resolveAgentPath('opencode', ws))
+        ])
+        return { 'claude-code': claude, opencode }
+      }
+    },
     commands,
 
     /**

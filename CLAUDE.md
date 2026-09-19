@@ -20,6 +20,39 @@ workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 
 
 **asset 범위가 글로벌까지 넓어졌다**(intent·spec·plan은 `docs/sdlc/asset-scope/`). **첫 실행에 마이그레이션 `0005`가 돈다** — 동일성 인덱스를 갈아끼우고 그 전에 중복 행을 정리한다. repo 루트뿐 아니라 `~/.claude/skills` 같은 **글로벌 경로**도 훑고, 그 경로는 **사이드바 하단의 설정 화면**에서 claude용·opencode용을 따로 정한다. 목록은 repo를 고르면 글로벌 + 그 repo만 보여주고, run이 끝나면 그 workspace를 다시 훑는다.
 
+**workspace 실행 기본값이 배선됐다** (2026-09-19). `default_model_claude`·
+`default_model_opencode`·`default_agent_kind` 세 컬럼은 스키마에만 있고 **읽는 코드가
+없거나(모델 둘) 바꿀 UI가 없어(agent)** 모델을 고정하려면 매 실행마다 손으로 쳐야 했다.
+전체 설계 §131·§199가 컬럼을, §403이 "workspace 기본값은 설정 화면에서 바꾼다"를 이미
+정해 두었으므로 **설계가 버린 것이 아니라 구현이 빠진 자리였다** — 지워야 할 컬럼이
+아니라 이어야 할 배선이었다. 마이그레이션은 없다. 설정 화면 아래에 절이 하나 붙어
+(글로벌 asset 경로는 앱 전역, 이 절은 **고른 workspace 하나**의 범위다) agent와 모델 둘을
+저장하고, 실행 패널의 모델 칸이 **지금 고른 agent에 따라** 해당 칸에서 기본값을 가져온다.
+저장소 메서드는 `update`가 아니라 `updateDefaults`이고 **부분 갱신을 받지 않는다** —
+세 값을 전부 받아 무엇이 덮이는지가 흐려지지 않게 한다(`rename`만 열어 두었던 이유와
+같다). 빈 모델은 null로 저장한다(null = "CLI 자신의 기본값"). `e2e/workspace-defaults.e2e.ts`가
+설정 저장 → 실행 패널 반영까지 IPC 왕복을 실제로 검증한다.
+
+**같은 모양의 구멍 둘도 이어서 메웠다.** 이제 workspace 설정은 세 절이고 **절마다 저장이
+따로다.** `default_permission`은 실행 기본값 절에 들어갔고, 전체 설계 §403이 요구한
+**별도 확인 절차**는 `ConfirmButton`(두 번 누르기)과 경고 문장으로 붙었다 — 다만
+**전체 허용으로 "올릴 때"만 묻는다.** 이미 전체 허용인 workspace에서 모델만 고칠 때까지
+확인을 요구하면 사람이 확인 자체를 읽지 않게 되기 때문이다. `claude_path`·`opencode_path`는
+"CLI 경로" 절이 따로 받고(`updatePaths`), 그 아래에 **지금 무엇이 잡히는지**를
+`core.workspaces.checkAgents`로 보여준다 — 전체 설계 §595가 그린 고리("실행이 막힘 →
+설정에서 경로 지정")의 마지막 칸이다.
+
+**경로 절과 기본값 절을 한 저장으로 합치지 말 것.** 고치는 때가 다르다 — 경로는 PATH가
+깨졌을 때 한 번 고치는 것이고 기본값은 계속 손보는 것이라, 합치면 경로를 고치러 온 사람이
+모델 기본값까지 함께 덮어쓴다. 저장소의 `updateDefaults`/`updatePaths`도 같은 이유로
+갈라져 있고, 각자 **부분 갱신을 받지 않는다**(자기 몫의 값을 전부 받는다).
+
+**`checkAgents`는 실행과 같은 판정을 써야 한다.** `resolveAgentPath` → 어댑터 `preflight`를
+그대로 탄다(`ONE_DESK_AGENT_PATH`가 workspace 설정을 이기는 것까지 같다). 따로 구현하면
+**설정 화면은 초록인데 실행 버튼은 막히는** 상태가 생긴다. 프로세스를 띄우지 않으므로 값싸다.
+e2e에서 진짜 경로를 넣어 검증하려면 `launchApp({ agentPath: '' })`로 그 변수를 비워야 한다 —
+비우지 않으면 무엇을 넣든 가짜 CLI가 이긴다.
+
 **문서 체계가 하나 늘었다.** 이 작업부터 `docs/sdlc/<기능>/`에 intent → spec → plan 세 artifact를 두고 각각 사람의 승인을 받는다. 기존 `docs/superpowers/{specs,plans}/`는 그대로 두고 새 작업만 이쪽을 쓴다.
 
 남은 5단계 과제는 diff 뷰어 하나다. **착수를 막던 환경변수 결정은 해소됐다**(아래 절). 본문 작업이 넷으로 쪼갠 것 중 첫째였으므로 나머지 셋(마크다운 렌더링 · 검색/필터/정렬 · run 완료 구독)도 후보로 남아 있다. 대화 기능은 이 목록과 별개로 진행돼 완료·병합됐다(위 절). 그중 **run 완료 구독은 이미 해소됐으므로** 남은 것은 마크다운 렌더링과 검색/필터/정렬 둘이다.
@@ -89,6 +122,12 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 이슈에는 앞으로 상태 전이, agent 실행(run) 연결, `needs_answer`가 붙지만 메모에는 붙지 않는다. 지금 공통 헬퍼로 추출하면 다음 단계에서 되돌려야 하고, 그 비용이 중복을 유지하는 비용보다 크다.
 
 **대신 두 쌍을 항상 대칭으로 유지한다.** 한쪽을 고치면 반드시 다른 쪽도 고친다. 어긋나면 그건 진짜 결함이다.
+
+**반대로, 하나의 enum을 옮겨 적은 표는 공유한다.** 권한 세 단계의 화면 이름은
+`renderer/permission.ts` 하나뿐이고 실행 패널과 설정 화면이 같이 쓴다 — 따로 두면 같은
+값을 두 화면이 다른 말로 부르게 되고, "편집 허용"으로 기본값을 정해 둔 사람이 실행 패널에서
+다른 이름을 본다. 위 규칙과 어긋나 보이지만 다루는 것이 다르다: issue/memo는 **앞으로 갈라질
+두 도메인**이고 이것은 **갈라질 일이 없는 표시 문자열**이다.
 
 **대칭은 공통 필드에서 끝난다 (2026-08-27).** `title`·`body`·`repoIds`·삭제·낙관적 잠금은 계속 대칭으로 유지한다. 그러나 **분류 축(`source`·`kind`·`priority`)·`triagedAt`·`seenAt`·훑기는 이슈 전용이고, 메모에 옮기지 않는다.** 이 절이 예고한 갈림길("이슈에는 앞으로 상태 전이, run 연결이 붙지만 메모에는 붙지 않는다")에 실제로 도착한 것이다 — 메모는 *적어두는 것*이고 이슈는 *처리해야 하는 것*이라, 분류·우선순위·방치 판정은 전부 처리에 딸린 개념이다. **어긋난 것을 "고치려" 하지 말 것.** 설계 `2026-08-27-issue-triage-design.md` §9.
 
@@ -180,6 +219,8 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 **`root_run_id`를 NOT NULL로 "고치지" 말 것** — SQLite에서 그러려면 테이블을 다시 만들어야 하고, 그 `DROP TABLE run`이 `run_context_item`의 cascade를 태워 모든 맥락 기록을 지운다. 마이그레이션의 `PRAGMA foreign_keys=OFF`는 트랜잭션 안이라 무시된다.
 
 **e2e에서 `getByRole('button', { name: '실행' })`은 exact 없이 쓰면 강제로 실패한다.** substring 매칭이 기본이라 도크 토글("▾ 실행"/"▴ 실행")과 슬롯 표시기(`aria-label="실행 슬롯"`)까지 같이 걸려 strict mode 위반이 된다 — run-start 버튼을 잡으려면 `{ name: '실행', exact: true }`가 필수다(태스크 8이 라벨을 "▶ 실행"에서 "실행"으로 줄이면서 처음 생긴 충돌).
+
+**이 함정은 "실행"만의 것이 아니다 — 짧은 라벨을 새로 붙일 때마다 기존 e2e가 깨진다.** 설정 화면에 "기본값 저장"을 더하자 글로벌 경로의 `{ name: '저장' }`이 둘을 잡아 `asset.e2e.ts`가 깨졌다. `getByLabel`도 같다 — "Skills / Agents" 패널이 `getByLabel('agent')`에 걸린다. **Vitest/RTL의 `getByLabelText`는 전체 일치라 단위 테스트는 전부 초록인 채로 넘어간다.** 새 라벨이 기존 라벨의 부분 문자열이면 e2e를 먼저 돌려볼 것. 그리고 `<label>`이 `<select>`를 감싸고 있으면 Playwright가 계산하는 접근성 이름에 `<option>` 텍스트까지 빨려 들어가므로(`"agentClaude CodeOpenCode"`), 그런 컨트롤에는 `aria-label`을 명시한다.
 
 **대화의 첫 턴을 시작한 직후 도크 탭 텍스트로 "떴다"고 판단하지 말 것.** Dock의 `view`/`pickedId` 전환(RunPanel의 `onStarted` 콜백, 동기)과 `runs` 목록 갱신(`useRuns`의 `onRunUpdate` IPC push, 비동기)이 서로 다른 경로로 온다. 도크 탭(`conversations.map(...)`)은 `runs`가 갱신되는 즉시 그려지지만, 그 순간 `ConversationPanel`은 아직 `key='new'`인 옛 인스턴스일 수 있다 — 탭 텍스트가 보인다고 바로 다음 입력을 채우면 곧 재마운트될 RunPanel에 채워 넣어 버려 전송이 빈 프롬프트로 막힌다(실행 버튼이 계속 disabled). 대화록 안의 `.turn-user` 텍스트로 기다려야 재마운트가 끝난 안정된 인스턴스를 보장한다(`e2e/conversation.e2e.ts`).
 

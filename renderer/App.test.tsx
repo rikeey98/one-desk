@@ -11,7 +11,7 @@ import type {
   CreateIssueInput, CreateMemoInput, CreateRepoInput, CreateWorkspaceInput,
   GuardedUpdateIssueInput, GuardedUpdateMemoInput, InboxCounts, Issue, IssueUpdateResult,
   McpStatus, Memo, MemoUpdateResult, Repo, Run, UpdateIssueInput, UpdateMemoInput, Workspace,
-  Asset
+  UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses, Asset
 } from '@shared/models'
 
 const workspace: Workspace = {
@@ -153,6 +153,45 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
         const created: Workspace = { ...workspace, id: `w${workspaces.length + 1}`, name: input.name }
         workspaces = [...workspaces, created]
         return created
+      }),
+      // 저장한 값이 이후 list()에 보여야, 화면이 목록을 다시 읽는지(=배선이 살아
+      // 있는지) 테스트가 가려낼 수 있다. 저장소처럼 빈 모델은 null로 돌린다.
+      updateDefaults: vi.fn(async (input: UpdateWorkspaceDefaultsInput) => {
+        const prev = workspaces.find((w) => w.id === input.id)
+        if (!prev) throw new Error(`workspace를 찾을 수 없습니다: ${input.id}`)
+        const next: Workspace = {
+          ...prev,
+          defaultAgentKind: input.defaultAgentKind,
+          defaultModelClaude: (input.defaultModelClaude ?? '').trim() || null,
+          defaultModelOpencode: (input.defaultModelOpencode ?? '').trim() || null,
+          defaultPermission: input.defaultPermission,
+          updatedAt: ++clock
+        }
+        workspaces = workspaces.map((w) => (w.id === next.id ? next : w))
+        return next
+      }),
+      updatePaths: vi.fn(async (input: UpdateWorkspacePathsInput) => {
+        const prev = workspaces.find((w) => w.id === input.id)
+        if (!prev) throw new Error(`workspace를 찾을 수 없습니다: ${input.id}`)
+        const next: Workspace = {
+          ...prev,
+          claudePath: (input.claudePath ?? '').trim() || null,
+          opencodePath: (input.opencodePath ?? '').trim() || null,
+          updatedAt: ++clock
+        }
+        workspaces = workspaces.map((w) => (w.id === next.id ? next : w))
+        return next
+      }),
+      // 설정한 경로를 그대로 되비춘다 — 실제 preflight는 파일시스템을 보지만,
+      // 여기서 볼 것은 "화면이 저장한 뒤 다시 물어보는가"다.
+      checkAgents: vi.fn(async (workspaceId: string): Promise<AgentStatuses> => {
+        const ws = workspaces.find((w) => w.id === workspaceId)
+        return {
+          'claude-code': ws?.claudePath
+            ? { ok: true, executable: ws.claudePath }
+            : { ok: false, reason: 'PATH에서 claude 실행 파일을 찾을 수 없습니다.' },
+          opencode: { ok: false, reason: 'PATH에서 opencode 실행 파일을 찾을 수 없습니다.' }
+        }
       }),
       remove: vi.fn()
     },
@@ -1286,6 +1325,78 @@ describe('App — 설정 화면', () => {
     await selectWorkspace()
 
     expect(screen.queryByRole('heading', { name: '설정' })).not.toBeInTheDocument()
+  })
+
+  it('고른 workspace의 실행 기본값을 설정 화면에 내려보낸다', async () => {
+    // App이 workspaces·workspaceId를 안 내려보내면 설정 화면은 어느 workspace의
+    // 기본값을 고치는지 알 수 없어 안내만 남는다.
+    renderApp(makeClient({}, {
+      workspaces: [{ ...workspace, defaultModelClaude: 'sonnet', defaultAgentKind: 'opencode' }]
+    }))
+    await selectWorkspace()
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+
+    expect(await screen.findByLabelText('Claude Code 기본 모델')).toHaveValue('sonnet')
+    expect(screen.getByLabelText('기본 agent')).toHaveValue('opencode')
+  })
+
+  it('workspace를 고르지 않았으면 실행 기본값 칸을 열지 않는다', async () => {
+    // workspaceId를 그대로 내려보내야 이 구분이 생긴다 — 첫 workspace로 슬쩍
+    // 떨어뜨리면 고르지도 않은 workspace의 기본값을 고치게 된다.
+    renderApp(makeClient())
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+
+    await screen.findByRole('heading', { name: '설정' })
+    expect(screen.queryByLabelText('기본 agent')).toBeNull()
+  })
+
+  it('설정에서 저장한 기본 권한을 실행 패널이 곧바로 쓴다', async () => {
+    // 권한 기본값은 RunPanel이 이미 읽고 있었지만 앱에서 **바꿀 자리가 없었다**.
+    // 저장 → 목록 재조회 → 실행 패널까지가 한 줄로 이어져야 기능이 성립한다.
+    renderApp(makeClient())
+    await selectWorkspace()
+    await waitFor(() => expect(screen.getByLabelText('권한')).toHaveValue('edit'))
+
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+    await userEvent.selectOptions(await screen.findByLabelText('기본 권한'), 'read_only')
+    await userEvent.click(screen.getByRole('button', { name: '기본값 저장' }))
+    await waitFor(() => expect(screen.getByLabelText('기본 권한')).toHaveValue('read_only'))
+
+    await selectWorkspace()
+
+    await waitFor(() => expect(screen.getByLabelText('권한')).toHaveValue('read_only'))
+  })
+
+  it('설정에서 CLI 경로를 저장하면 그 경로로 상태를 다시 읽는다', async () => {
+    // 실행이 "찾을 수 없습니다"로 막혀서 온 사람이 고친 결과를 그 자리에서 본다 (설계 §595).
+    renderApp(makeClient())
+    await selectWorkspace()
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+
+    const status = await screen.findByLabelText('CLI 상태')
+    await waitFor(() => expect(status).toHaveTextContent('찾을 수 없습니다'))
+
+    await userEvent.type(screen.getByLabelText('Claude Code 실행 파일'), '/opt/bin/claude')
+    await userEvent.click(screen.getByRole('button', { name: 'CLI 경로 저장' }))
+
+    await waitFor(() => expect(screen.getByLabelText('CLI 상태'))
+      .toHaveTextContent('/opt/bin/claude'))
+  })
+
+  it('설정에서 저장한 기본 모델을 실행 패널이 곧바로 쓴다', async () => {
+    // onWorkspaceSaved(=refreshWorkspaces)가 빠지면 저장은 됐는데 App의 workspaces가
+    // 낡은 채로 남아, 실행 패널은 앱을 다시 켤 때까지 옛 값을 쓴다.
+    renderApp(makeClient())
+    await selectWorkspace()
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+
+    await userEvent.type(await screen.findByLabelText('Claude Code 기본 모델'), 'opus')
+    await userEvent.click(screen.getByRole('button', { name: '기본값 저장' }))
+    await waitFor(() => expect(screen.getByLabelText('Claude Code 기본 모델')).toHaveValue('opus'))
+
+    await selectWorkspace()
+
+    await waitFor(() => expect(screen.getByLabelText('모델')).toHaveValue('opus'))
   })
 })
 

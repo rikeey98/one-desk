@@ -6,6 +6,7 @@ import type {
   CreateMemoInput, UpdateMemoInput,
   GuardedUpdateMemoInput, MemoUpdateResult,
   ListQuery, StartRunInput, QueueSnapshot,
+  UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses,
   InboxCounts,
   McpStatus, ResumeRunInput,
   Asset, CreateAuthoredAssetInput, GuardedUpdateAssetInput, AssetUpdateResult, ListAssetQuery,
@@ -21,6 +22,21 @@ export interface OneDeskClient {
     create(input: CreateWorkspaceInput): Promise<Workspace>
     /** 이름만 바꾼다. description 등은 건드리지 않는다. */
     rename(id: string, name: string): Promise<Workspace>
+    /**
+     * 실행 기본값(agent·모델 둘)을 한 번에 세운다 (설계 §403).
+     * 부분 갱신이 아니다 — 세 값을 전부 넘긴다. 모델의 빈 문자열은 null로 저장된다.
+     */
+    updateDefaults(input: UpdateWorkspaceDefaultsInput): Promise<Workspace>
+    /**
+     * CLI 실행 파일 경로를 세운다 (설계 §595). 기본값과 따로 저장하는 이유는
+     * 고치는 때가 다르기 때문이다 — 저장소 주석 참고.
+     */
+    updatePaths(input: UpdateWorkspacePathsInput): Promise<Workspace>
+    /**
+     * 지금 이 workspace로 실행하면 두 CLI가 각각 어디서 잡히는지 확인한다.
+     * 실행을 막는 것과 같은 판정이라, 화면의 표시와 실행 버튼이 어긋나지 않는다.
+     */
+    checkAgents(workspaceId: string): Promise<AgentStatuses>
     remove(id: string): Promise<void>
   }
   repos: {

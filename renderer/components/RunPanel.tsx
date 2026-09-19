@@ -3,14 +3,25 @@ import { CommandPicker } from './CommandPicker'
 import { useCommands } from '../hooks/useCommands'
 import { findSlashToken, insertCommand, extendCommand, matchCommands, commonPrefix } from '../slash'
 import { useClient } from '../client/ClientProvider'
+import { PERMISSION_LABELS } from '../permission'
 import type { AgentKind, CommandInfo, Permission, Repo, Run, Workspace } from '@shared/models'
 import type { Conversation } from '../conversation'
 import type { ContextChip } from '../context'
 
-const PERMISSION_LABELS: Record<Permission, string> = {
-  read_only: '읽기 전용',
-  edit: '편집 허용',
-  full: '전체 허용'
+/**
+ * 이 agent에 쓸 workspace 기본 모델. 빈 문자열은 "CLI 자신의 기본값"이다.
+ *
+ * **컬럼이 agent별로 나뉘어 있는 이유가 여기서 드러난다** — claude는 `sonnet`
+ * 같은 별칭을, opencode는 `provider/model`을 쓴다(전체 설계 §199). 한쪽 값을
+ * 다른 쪽에 넘기면 그 CLI가 모르는 이름이 되므로, 고르는 기준은 workspace가
+ * 아니라 **지금 고른 agent**다.
+ */
+function defaultModelOf(workspace: Workspace | null, agentKind: AgentKind): string {
+  if (!workspace) return ''
+  const value = agentKind === 'opencode'
+    ? workspace.defaultModelOpencode
+    : workspace.defaultModelClaude
+  return value ?? ''
 }
 
 export function RunPanel({
@@ -43,6 +54,9 @@ export function RunPanel({
   const [missingCwd, setMissingCwd] = useState<string | null>(null)
   const [permission, setPermission] = useState<Permission>('edit')
   const [agentKind, setAgentKind] = useState<AgentKind>(conversation?.last.agentKind ?? workspace?.defaultAgentKind ?? 'claude-code')
+  // 실제 값은 아래 두 effect가 세운다 — 권한과 같은 구조다. 여기서 한 번 더
+  // 계산하면 같은 규칙이 두 군데에 생기고, effect 쪽이 어떤 테스트로도 고정되지
+  // 않는다(변이를 돌려 실제로 확인했다).
   const [model, setModel] = useState('')
   const [prompt, setPrompt] = useState('')
   const [busy, setBusy] = useState(false)
@@ -103,6 +117,19 @@ export function RunPanel({
     else if (workspace) setAgentKind(workspace.defaultAgentKind)
   }, [workspace, conversation])
 
+  // 모델 기본값도 workspace에서 오지만 **agent에 따라 다른 칸에서 온다**(설계 §199).
+  // 그래서 deps에 agentKind가 있다 — agent를 바꾸면 모델 칸이 따라 바뀌어야
+  // claude 별칭이 opencode로 넘어가는 일이 없다. 선택은 agent·권한과 같은 규칙으로
+  // 그 run에만 적용된다(설계 §403).
+  //
+  // 대화를 이어갈 때는 손대지 않는다 — 아래 대화 effect가 마지막 턴의 모델을 세운다.
+  // 여기서도 세우면 workspace 조회가 늦게 도착할 때 그 값을 조용히 덮는다(바로 아래
+  // 권한 effect의 경고와 같은 사고다).
+  useEffect(() => {
+    if (conversation) return
+    setModel(defaultModelOf(workspace, agentKind))
+  }, [workspace, conversation, agentKind])
+
   // 권한 기본값은 workspace의 defaultPermission이고, 선택은 그 run에만 적용된다 (설계 §7).
   // 대화를 이어갈 때는 원본(마지막 턴)의 권한이 우선이다 — workspace 조회가 비동기라
   // 나중에 도착하면 이 effect가 다시 실행돼 conversation이 세운 값을 조용히 덮어쓸 수 있다.
@@ -126,7 +153,12 @@ export function RunPanel({
     const id = conversation?.id ?? null
     if (id === conversationIdRef.current) return
     conversationIdRef.current = id
-    if (conversation) setPermission(conversation.last.permission)
+    if (!conversation) return
+    setPermission(conversation.last.permission)
+    // 모델도 같은 이유로 여기 있다. 위 모델 effect와 달리 이쪽은 대화가 실제로
+    // 바뀐 순간에만 돈다 — [conversation]에 그냥 기대면 같은 대화의 아무 run이
+    // 상태를 바꿀 때마다 사용자가 방금 고친 모델이 되감긴다.
+    setModel(conversation.last.model ?? '')
   }, [conversation])
 
   // "다시 실행"이 세운 draft는 새 대화에서만 반영한다 — 대화를 이어가는 중이면
@@ -244,6 +276,9 @@ export function RunPanel({
           {/* 대화를 이어갈 때만 잠긴다 — 세션은 특정 CLI가 만든 것이라
               다른 CLI로 이어받을 수 없다 (전체 설계 §362). */}
           <select
+            /* label이 select를 감싸고 있어 접근성 이름이 option 텍스트까지 삼킨다 —
+               e2e의 getByLabel('agent')이 "Skills / Agents" 패널과 부딪힌다. */
+            aria-label="agent"
             value={agentKind}
             disabled={Boolean(conversation)}
             onChange={(e) => setAgentKind(e.target.value as AgentKind)}
@@ -254,7 +289,10 @@ export function RunPanel({
         </label>
         <label>
           모델
+          {/* 빈 칸이면 -m을 붙이지 않아 CLI 자신의 기본값으로 돈다. workspace
+              기본값은 설정 화면에서 agent별로 정한다 (설계 §403). */}
           <input
+            aria-label="모델"
             value={model}
             placeholder="기본값"
             onChange={(e) => setModel(e.target.value)}

@@ -228,7 +228,16 @@ export default function App() {
         onDeleted={forgetWorkspace}
       />
       <main className="main">
-        {view === 'settings' && <SettingsPanel />}
+        {view === 'settings' && (
+          <SettingsPanel
+            // Sidebar·RunPanel과 같은 인스턴스를 본다 — 여기서 useWorkspaces()를
+            // 따로 부르면 저장한 기본값이 실행 패널에 닿지 않는다.
+            workspaces={workspaces}
+            workspaceId={workspaceId}
+            // 저장 뒤 목록을 다시 읽어야 RunPanel이 새 기본값을 집는다.
+            onWorkspaceSaved={refreshWorkspaces}
+          />
+        )}
         {view === 'inbox' && (
           <InboxPanel
             items={inboxItems}

@@ -3,7 +3,16 @@ import { asc, eq } from 'drizzle-orm'
 import type { Database } from '../open'
 import { workspace } from '../schema'
 import { NotFoundError } from '../../errors'
-import type { Workspace, CreateWorkspaceInput } from '@shared/models'
+import type {
+  Workspace, CreateWorkspaceInput,
+  UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput
+} from '@shared/models'
+
+/** 앞뒤 공백을 떼고, 빈 문자열은 null로 — null이 "정하지 않았다"는 뜻이다. */
+function blankToNull(value: string | null): string | null {
+  const trimmed = (value ?? '').trim()
+  return trimmed === '' ? null : trimmed
+}
 
 export function createWorkspaceRepository(db: Database) {
   return {
@@ -46,6 +55,66 @@ export function createWorkspaceRepository(db: Database) {
         .all()
       // 조용히 넘어가면 화면이 왜 그대로인지 사용자도 우리도 알 수 없다.
       if (!row) throw new NotFoundError(`workspace를 찾을 수 없습니다: ${id}`)
+      return row
+    },
+
+    /**
+     * 실행 기본값 셋을 한 번에 세운다 (전체 설계 §403).
+     *
+     * `rename`과 나란히 두고 이름을 `update`로 넓히지 않은 것은 위 주석과 같은
+     * 이유다 — **부분 갱신을 받지 않는다.** 세 값을 전부 받으므로 어느 호출이든
+     * 덮는 범위가 같고, 화면 하나가 저장 버튼 하나로 보낸다.
+     *
+     * 모델은 앞뒤 공백을 떼고 **빈 문자열이면 null로 저장한다.** null이 "CLI
+     * 자신의 기본값에 맡긴다"는 뜻이라, 빈 칸과 같은 자리에 있어야 한다 —
+     * `''`를 그대로 두면 RunPanel이 그것을 기본값으로 채우고 어댑터가
+     * `-m ''`를 붙인다.
+     *
+     * **모델 문자열의 형식은 검증하지 않는다.** 어느 별칭이 유효한지는 CLI가 알고,
+     * 앱이 목록을 들고 있으면 CLI가 모델을 추가할 때마다 낡는다. 틀린 값은 실행이
+     * 실패하며 드러나고 그 메시지가 인박스에 남는다.
+     */
+    updateDefaults(input: UpdateWorkspaceDefaultsInput): Workspace {
+      const [row] = db.update(workspace)
+        .set({
+          defaultAgentKind: input.defaultAgentKind,
+          defaultModelClaude: blankToNull(input.defaultModelClaude),
+          defaultModelOpencode: blankToNull(input.defaultModelOpencode),
+          defaultPermission: input.defaultPermission,
+          updatedAt: Date.now()
+        })
+        .where(eq(workspace.id, input.id))
+        .returning()
+        .all()
+      // rename과 같은 이유다 — 조용히 넘어가면 화면이 왜 그대로인지 알 수 없다.
+      if (!row) throw new NotFoundError(`workspace를 찾을 수 없습니다: ${input.id}`)
+      return row
+    },
+
+    /**
+     * CLI 실행 파일 경로를 세운다 (전체 설계 §595).
+     *
+     * `updateDefaults`와 나란히 두되 **합치지 않는다** — 둘은 고치는 때가 다르다.
+     * 경로는 PATH가 깨졌을 때 한 번 고치는 것이고 기본값은 계속 손보는 것이라,
+     * 한 메서드로 묶으면 경로를 고치러 온 사람이 모델 기본값까지 함께 덮는다.
+     * 부분 갱신을 받지 않는 규칙은 같다 — 두 경로를 전부 받는다.
+     *
+     * **경로가 실제로 실행 가능한지는 보지 않는다.** 그 판정은 어댑터 preflight의
+     * 것이고(플랫폼마다 규칙이 다르다 — Windows의 `PATHEXT`, `.cmd` shim 거부),
+     * 여기서 흉내내면 두 벌이 생겨 조용히 어긋난다. 화면은 저장한 뒤 preflight를
+     * 다시 물어 결과를 보여준다.
+     */
+    updatePaths(input: UpdateWorkspacePathsInput): Workspace {
+      const [row] = db.update(workspace)
+        .set({
+          claudePath: blankToNull(input.claudePath),
+          opencodePath: blankToNull(input.opencodePath),
+          updatedAt: Date.now()
+        })
+        .where(eq(workspace.id, input.id))
+        .returning()
+        .all()
+      if (!row) throw new NotFoundError(`workspace를 찾을 수 없습니다: ${input.id}`)
       return row
     },
 
