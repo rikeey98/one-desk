@@ -142,21 +142,21 @@
 
 ## 완료 증명
 
-- [ ] `pnpm test` — 전부 초록 (기준선: 921 통과 / 28 건너뜀)
-- [ ] `pnpm typecheck` — 오류 없음
-- [ ] `pnpm lint` — 오류 없음
-- [ ] `pnpm test:e2e` — `settings.e2e.ts` 포함 전부 통과 (기준선: 18 통과 / 2 건너뜀)
-- [ ] `grep -rn "from 'electron'" core/` — 출력 없음
-- [ ] `grep -rn "window.oneDesk" renderer/ | grep -v main.tsx` — 출력 없음
-- [ ] `ls drizzle/*.sql | wc -l` — 작업 전과 같은 수 (마이그레이션 없음)
-- [ ] `grep -n "UPDATE repo" docs/windows-setup.md` — 출력 없음
-- [ ] **변이 검증** — 아래 여섯을 하나씩 망가뜨려 각각 실패하는 테스트가 있는지 확인한다
-  - [ ] 탭 전환이 초안을 보존하는 구조 (state를 자식으로 내리면 실패해야 한다)
-  - [ ] `movePathPrefix`의 `repo_id` 조건 (지우면 글로벌까지 옮겨져야 실패)
-  - [ ] 치환 + 경로 갱신의 트랜잭션 경계
-  - [ ] `repos.update`가 경로 변경 시 재스캔을 부르는 줄
-  - [ ] `appReveal`의 대상 검증
-  - [ ] `App.tsx`가 새로 내려보내는 prop **각각**
+- [x] `pnpm test` — **963 통과 / 28 건너뜀** (기준선 921에서 42개 늘었다)
+- [x] `pnpm typecheck` — 오류 없음
+- [x] `pnpm lint` — 오류 없음
+- [x] `pnpm test:e2e` — **21 통과 / 2 건너뜀**, `settings.e2e.ts` 3개 포함 (기준선 18)
+- [x] `grep -rn "from 'electron'" core/` — 출력 없음
+- [x] `grep -rn "window.oneDesk" renderer/ | grep -v main.tsx` — 출력 없음
+- [x] `ls drizzle/*.sql | wc -l` — 6, 작업 전과 같다 (마이그레이션 없음)
+- [x] `grep -n "UPDATE repo" docs/windows-setup.md` — 출력 없음
+- [x] **변이 검증** — 아래 여섯을 하나씩 망가뜨려 각각 실패하는 테스트가 있는지 확인했다
+  - [x] 탭 전환이 초안을 보존하는 구조 — 탭 클릭이 입력을 지우게 하자 2개 실패
+  - [x] `movePathPrefix`의 `repo_id` 조건 — 지우자 글로벌 불변·경계 테스트 2개 실패
+  - [x] 치환 + 경로 갱신의 트랜잭션 경계 — 트랜잭션을 빼자 롤백 테스트 실패
+  - [x] `repos.update`가 경로 변경 시 재스캔을 부르는 줄 — 지우자 lastSeenAt 단언 실패
+  - [x] `appReveal`의 대상 검증 — 기본 분기를 통과시키자 실패
+  - [x] `App.tsx`가 새로 내려보내는 prop **각각** — `queue`·`repos`(SettingsPanel 줄만)·`mcpStatus`는 끊어서, `onChangeLimit`·`refreshRepos`는 필수 prop이라 typecheck가 막는 것으로. 셋 다 배선 전에 red를 먼저 봤다
 - [ ] **수동 확인** — 빌드된 앱에서 repo 경로를 실제로 바꾸고, asset 목록이 한 벌인지와 그
       repo로 실행이 도는지 본다. 경로 변경 후 **옛 대화 이어가기**가 어떻게 되는지도 여기서
       처음 관측한다
