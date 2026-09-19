@@ -251,6 +251,8 @@ export default function App() {
             // 목록을 다시 읽어야 실행 패널의 작업 디렉토리가 새 경로를 본다.
             repos={repos}
             refreshRepos={refreshRepos}
+            // 사이드바 하단 줄과 같은 인스턴스다 — 정보 탭이 다른 말을 하면 안 된다.
+            mcpStatus={mcpStatus}
           />
         )}
         {view === 'inbox' && (

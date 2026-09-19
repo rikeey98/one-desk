@@ -5,7 +5,7 @@ import { ClientProvider } from '../client/ClientProvider'
 import { SettingsPanel } from './SettingsPanel'
 import type { OneDeskClient } from '@shared/client'
 import type {
-  AgentStatuses, GlobalRoots, QueueSnapshot, Repo, UpdateRepoInput,
+  AgentStatuses, AppInfo, GlobalRoots, McpStatus, QueueSnapshot, Repo, UpdateRepoInput,
   UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, Workspace
 } from '@shared/models'
 
@@ -34,12 +34,22 @@ function makeRepo(over: Partial<Repo> = {}): Repo {
   }
 }
 
+const INFO: AppInfo = {
+  version: '0.9.1', dataDir: 'C:\data', dbFile: 'C:\data\one-desk.db', logDir: 'C:\data\logs'
+}
+
 function makeClient(
   over: Record<string, unknown> = {},
   workspacesOver: Record<string, unknown> = {},
-  reposOver: Record<string, unknown> = {}
+  reposOver: Record<string, unknown> = {},
+  appOver: Record<string, unknown> = {}
 ): OneDeskClient {
   return {
+    app: {
+      info: vi.fn(async () => INFO),
+      reveal: vi.fn(async () => {}),
+      ...appOver
+    },
     repos: {
       // 실제 core처럼 넘어온 값으로 갱신된 행을 돌려준다.
       update: vi.fn(async (input: UpdateRepoInput) => makeRepo({
@@ -81,6 +91,7 @@ function renderPanel(
     workspaces?: Workspace[]; workspaceId?: string | null; onWorkspaceSaved?: () => void
     queue?: QueueSnapshot | null; onChangeLimit?: (n: number) => Promise<void>
     repos?: Repo[]; refreshRepos?: () => Promise<void>
+    mcpStatus?: McpStatus
   } = {}
 ) {
   render(
@@ -93,6 +104,7 @@ function renderPanel(
         onChangeLimit={opts.onChangeLimit ?? vi.fn(async () => {})}
         repos={opts.repos ?? [makeRepo()]}
         refreshRepos={opts.refreshRepos ?? vi.fn(async () => {})}
+        mcpStatus={opts.mcpStatus ?? { state: 'listening', port: 53021 }}
       />
     </ClientProvider>
   )
@@ -270,14 +282,14 @@ describe('SettingsPanel — 실행 기본값', () => {
     ]
     const { rerender } = render(
       <ClientProvider client={client}>
-        <SettingsPanel workspaces={workspaces} workspaceId="w1" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} />
+        <SettingsPanel workspaces={workspaces} workspaceId="w1" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} mcpStatus={{ state: 'starting' }} />
       </ClientProvider>
     )
     await waitFor(() => expect(screen.getByLabelText('Claude Code 기본 모델')).toHaveValue('sonnet'))
 
     rerender(
       <ClientProvider client={client}>
-        <SettingsPanel workspaces={workspaces} workspaceId="w2" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} />
+        <SettingsPanel workspaces={workspaces} workspaceId="w2" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} mcpStatus={{ state: 'starting' }} />
       </ClientProvider>
     )
 
@@ -471,14 +483,14 @@ describe('SettingsPanel — CLI 경로', () => {
     ]
     const { rerender } = render(
       <ClientProvider client={client}>
-        <SettingsPanel workspaces={workspaces} workspaceId="w1" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} />
+        <SettingsPanel workspaces={workspaces} workspaceId="w1" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} mcpStatus={{ state: 'starting' }} />
       </ClientProvider>
     )
     await waitFor(() => expect(screen.getByLabelText('Claude Code 실행 파일')).toHaveValue('/a/claude'))
 
     rerender(
       <ClientProvider client={client}>
-        <SettingsPanel workspaces={workspaces} workspaceId="w2" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} />
+        <SettingsPanel workspaces={workspaces} workspaceId="w2" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} mcpStatus={{ state: 'starting' }} />
       </ClientProvider>
     )
 
@@ -602,7 +614,7 @@ describe('SettingsPanel — 동시 실행 상한', () => {
     const { rerender } = render(
       <ClientProvider client={client}>
         <SettingsPanel workspaces={[makeWorkspace()]} workspaceId="w1" onWorkspaceSaved={vi.fn()}
-          queue={{ running: 0, limit: 3, waiting: 0 }} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} />
+          queue={{ running: 0, limit: 3, waiting: 0 }} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} mcpStatus={{ state: 'starting' }} />
       </ClientProvider>
     )
     await userEvent.click(screen.getByRole('tab', { name: '앱' }))
@@ -610,7 +622,7 @@ describe('SettingsPanel — 동시 실행 상한', () => {
     rerender(
       <ClientProvider client={client}>
         <SettingsPanel workspaces={[makeWorkspace()]} workspaceId="w1" onWorkspaceSaved={vi.fn()}
-          queue={{ running: 0, limit: 7, waiting: 0 }} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} />
+          queue={{ running: 0, limit: 7, waiting: 0 }} onChangeLimit={vi.fn(async () => {})} repos={[]} refreshRepos={vi.fn(async () => {})} mcpStatus={{ state: 'starting' }} />
       </ClientProvider>
     )
     await waitFor(() => expect(screen.getByLabelText('동시 실행 상한')).toHaveValue(7))
@@ -695,5 +707,53 @@ describe('SettingsPanel — repo 탭', () => {
     renderPanel(makeClient(), { repos: [] })
     await openRepoTab()
     expect(await screen.findByText(/등록된 repo가 없습니다/)).toBeInTheDocument()
+  })
+})
+
+describe('SettingsPanel — 정보 탭', () => {
+  async function openInfoTab() {
+    await userEvent.click(screen.getByRole('tab', { name: '정보' }))
+  }
+
+  it('MCP 포트·DB 경로·로그 경로·버전을 보여준다', async () => {
+    // spec FR-10. 경로는 core가 실제로 여는 값 그대로다 — 문자열 조립이 아니다.
+    renderPanel(makeClient())
+    await openInfoTab()
+    const list = await screen.findByRole('list', { name: '앱 정보' })
+    expect(list).toHaveTextContent('MCP :53021')
+    expect(list).toHaveTextContent('C:\data\one-desk.db')
+    expect(list).toHaveTextContent('C:\data\logs')
+    expect(list).toHaveTextContent('0.9.1')
+  })
+
+  it('MCP가 죽어 있으면 그 이유를 그대로 보여준다', async () => {
+    renderPanel(makeClient(), { mcpStatus: { state: 'failed', message: 'EADDRINUSE: 포트 사용 중' } })
+    await openInfoTab()
+    expect(await screen.findByRole('list', { name: '앱 정보' })).toHaveTextContent('EADDRINUSE: 포트 사용 중')
+  })
+
+  it('열기 버튼 둘이 각각 data·logs로 부른다', async () => {
+    // NFR-3: 경로가 아니라 이름을 넘긴다. 렌더러가 임의의 경로를 열 수 없다.
+    const reveal = vi.fn(async () => {})
+    renderPanel(makeClient({}, {}, {}, { reveal }))
+    await openInfoTab()
+    await userEvent.click(await screen.findByRole('button', { name: '데이터 폴더 열기' }))
+    await userEvent.click(screen.getByRole('button', { name: '로그 폴더 열기' }))
+    expect(reveal.mock.calls).toEqual([['data'], ['logs']])
+  })
+
+  it('열기에 실패하면 알린다', async () => {
+    const reveal = vi.fn(async () => { throw new Error('탐색기를 열 수 없습니다') })
+    renderPanel(makeClient({}, {}, {}, { reveal }))
+    await openInfoTab()
+    await userEvent.click(await screen.findByRole('button', { name: '로그 폴더 열기' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('탐색기를 열 수 없습니다')
+  })
+
+  it('정보 조회에 실패하면 알린다', async () => {
+    const info = vi.fn(async () => { throw new Error('못 읽음') })
+    renderPanel(makeClient({}, {}, {}, { info }))
+    await openInfoTab()
+    expect(await screen.findByRole('alert')).toHaveTextContent('못 읽음')
   })
 })

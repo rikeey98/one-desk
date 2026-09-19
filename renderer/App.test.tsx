@@ -295,6 +295,10 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
     mcp: {
       status: vi.fn(async () => mcpStatus)
     },
+    app: {
+      info: vi.fn(async () => ({ version: '0.0.0-test', dataDir: '/data', dbFile: '/data/one-desk.db', logDir: '/data/logs' })),
+      reveal: vi.fn(async () => {})
+    },
     events: {
       onRunEvent: vi.fn(() => () => {}),
       onRunUpdate: vi.fn((cb: (run: Run) => void) => {
@@ -1406,6 +1410,16 @@ describe('App — 설정 화면', () => {
     await waitFor(() => {
       expect(screen.getByRole('option', { name: 'api — /srv/api' })).toBeInTheDocument()
     })
+  })
+
+  it('MCP 상태를 설정 화면의 정보 탭에 내려보낸다', async () => {
+    // App이 mcpStatus를 안 내려보내면 정보 탭이 사이드바와 다른 말을 한다. 설정 화면이
+    // useMcpStatus()를 따로 부르면 인스턴스가 둘이 된다.
+    renderApp(makeClient({}, { mcpStatus: { state: 'listening', port: 60123 } }))
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+    await userEvent.click(await screen.findByRole('tab', { name: '정보' }))
+
+    expect(await screen.findByRole('list', { name: '앱 정보' })).toHaveTextContent('MCP :60123')
   })
 
   it('workspace를 고르지 않았으면 실행 기본값 칸을 열지 않는다', async () => {

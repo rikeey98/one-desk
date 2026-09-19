@@ -338,3 +338,7 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
 /* repo 탭의 repo 한 줄. 이름·경로·설명 세 칸과 저장 버튼이 한 덩어리다. */
 .settings-repo { margin-top: 10px; padding-top: 8px; border-top: 1px solid #f0f0f2; }
 .settings-repo h3 { margin-top: 0; }
+/* 정보 탭. 상태 목록은 CLI 상태 줄(.settings-status)과 같은 모양이되 흐리지 않다 —
+   읽으라고 보여주는 값이다. */
+.settings-info { opacity: 1; font-size: 12px; }
+.settings-actions { display: flex; gap: 6px; margin-top: 8px; }

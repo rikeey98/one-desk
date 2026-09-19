@@ -3,7 +3,11 @@ import { useClient } from '../client/ClientProvider'
 import { ConfirmButton } from './ConfirmButton'
 import { PERMISSION_LABELS } from '../permission'
 import { RepoTab, type RepoDraft } from './settings/RepoTab'
-import type { AgentKind, AgentStatuses, GlobalRoots, Permission, QueueSnapshot, Repo, Workspace } from '@shared/models'
+import { InfoTab } from './settings/InfoTab'
+import type {
+  AgentKind, AgentStatuses, AppInfo, GlobalRoots, McpStatus, Permission, QueueSnapshot, Repo,
+  RevealTarget, Workspace
+} from '@shared/models'
 
 /** CLI 상태 줄의 순서와 이름. 실행 패널의 agent 드롭다운과 같은 순서다. */
 const AGENT_LABELS: ReadonlyArray<readonly [AgentKind, string]> = [
@@ -49,7 +53,7 @@ function draftOf(r: Repo): RepoDraft {
 }
 
 export function SettingsPanel({
-  workspaces, workspaceId, onWorkspaceSaved, queue, onChangeLimit, repos, refreshRepos
+  workspaces, workspaceId, onWorkspaceSaved, queue, onChangeLimit, repos, refreshRepos, mcpStatus
 }: {
   /** App이 useWorkspaces()로 한 번만 조회해 내려준다 — 여기서 따로 조회하면
    *  사이드바에서 만든 workspace를 이 화면이 모르는 상태가 생긴다(App.tsx의 주석). */
@@ -70,6 +74,8 @@ export function SettingsPanel({
   repos: Repo[]
   /** 저장 뒤 부른다 — RepoStrip과 실행 패널의 cwd 목록이 새 경로를 봐야 한다. */
   refreshRepos: () => Promise<void>
+  /** MCP 서버 상태. 사이드바 하단 줄과 같은 인스턴스(App의 useMcpStatus)를 본다. */
+  mcpStatus: McpStatus
 }) {
   const client = useClient()
   const [tab, setTab] = useState<SettingsTab>('run')
@@ -136,6 +142,30 @@ export function SettingsPanel({
       setRepoErrors((prev) => ({ ...prev, [id]: err instanceof Error ? err.message : String(err) }))
     } finally {
       setRepoBusyId(null)
+    }
+  }
+
+  // 정보 탭. 마운트 때 한 번 읽는다 — 글로벌 경로와 같은 이유다.
+  const [info, setInfo] = useState<AppInfo | null>(null)
+  const [infoError, setInfoError] = useState<string | null>(null)
+  const [revealError, setRevealError] = useState<string | null>(null)
+  useEffect(() => {
+    let alive = true
+    client.app.info()
+      .then((next) => { if (alive) setInfo(next) })
+      .catch((err: unknown) => {
+        if (alive) setInfoError(err instanceof Error ? err.message : String(err))
+      })
+    return () => { alive = false }
+  }, [client])
+
+  async function reveal(target: RevealTarget): Promise<void> {
+    setRevealError(null)
+    try {
+      await client.app.reveal(target)
+    } catch (err) {
+      // 조용히 아무 일도 안 일어나면 탐색기가 없는 것인지 버튼이 죽은 것인지 모른다.
+      setRevealError(err instanceof Error ? err.message : String(err))
     }
   }
 
@@ -548,7 +578,16 @@ export function SettingsPanel({
         )}
 
         {tab === 'info' && (
-          <p className="settings-scope">읽기 전용입니다.</p>
+          <>
+            <p className="settings-scope">읽기 전용입니다.</p>
+            <InfoTab
+              info={info}
+              infoError={infoError}
+              revealError={revealError}
+              mcpStatus={mcpStatus}
+              onReveal={(target) => void reveal(target)}
+            />
+          </>
         )}
       </div>
     </div>
