@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useClient } from '../client/ClientProvider'
 import { ConfirmButton } from './ConfirmButton'
 import { PERMISSION_LABELS } from '../permission'
-import type { AgentKind, AgentStatuses, GlobalRoots, Permission, Workspace } from '@shared/models'
+import type { AgentKind, AgentStatuses, GlobalRoots, Permission, QueueSnapshot, Workspace } from '@shared/models'
 
 /** CLI 상태 줄의 순서와 이름. 실행 패널의 agent 드롭다운과 같은 순서다. */
 const AGENT_LABELS: ReadonlyArray<readonly [AgentKind, string]> = [
@@ -43,7 +43,7 @@ function toList(text: string): string[] {
  * 전체 설계 §403이 "workspace 기본값은 설정 화면에서 바꾼다"고 정했고, 그 화면이
  * 여기다. workspace를 고르지 않았으면 실행 탭은 안내만 남긴다.
  */
-export function SettingsPanel({ workspaces, workspaceId, onWorkspaceSaved }: {
+export function SettingsPanel({ workspaces, workspaceId, onWorkspaceSaved, queue, onChangeLimit }: {
   /** App이 useWorkspaces()로 한 번만 조회해 내려준다 — 여기서 따로 조회하면
    *  사이드바에서 만든 workspace를 이 화면이 모르는 상태가 생긴다(App.tsx의 주석). */
   workspaces: Workspace[]
@@ -51,6 +51,14 @@ export function SettingsPanel({ workspaces, workspaceId, onWorkspaceSaved }: {
   workspaceId: string | null
   /** 저장이 끝나면 부른다. App이 목록을 다시 읽어야 RunPanel이 새 기본값을 쓴다. */
   onWorkspaceSaved: () => void
+  /**
+   * 전역 실행 슬롯 스냅샷. App이 useQueue()로 한 번만 받아 도크와 여기에 같이
+   * 내려준다 — 상한은 도크의 슬롯 표시기에도 있고(spec FR-7), 둘이 같은 스냅샷을
+   * 봐야 한쪽에서 바꾼 값이 다른 쪽에 곧바로 보인다. 아직 못 받았으면 null.
+   */
+  queue: QueueSnapshot | null
+  /** 상한을 바꾼다. 실패는 던진다 — 이 화면은 그 이유를 칸 옆에 보여준다(FR-12). */
+  onChangeLimit: (n: number) => Promise<void>
 }) {
   const client = useClient()
   const [tab, setTab] = useState<SettingsTab>('run')
@@ -73,6 +81,16 @@ export function SettingsPanel({ workspaces, workspaceId, onWorkspaceSaved }: {
   const [pathsError, setPathsError] = useState<string | null>(null)
   const [pathsBusy, setPathsBusy] = useState(false)
   const [agents, setAgents] = useState<AgentStatuses | null>(null)
+
+  const [limitDraft, setLimitDraft] = useState('')
+  const [limitError, setLimitError] = useState<string | null>(null)
+  const [limitBusy, setLimitBusy] = useState(false)
+  // 성공한 저장은 event:queueUpdate로 돌아와 queue prop을 바꾼다 — 도크에서 바꾼
+  // 값도 같은 길로 온다. 그래서 칸은 자기 결과가 아니라 스냅샷을 따른다.
+  const limit = queue?.limit
+  useEffect(() => {
+    if (limit !== undefined) setLimitDraft(String(limit))
+  }, [limit])
 
   const applyWorkspace = useCallback((w: Workspace) => {
     setAgentKind(w.defaultAgentKind)
@@ -198,6 +216,26 @@ export function SettingsPanel({ workspaces, workspaceId, onWorkspaceSaved }: {
       setPathsError(err instanceof Error ? err.message : String(err))
     } finally {
       setPathsBusy(false)
+    }
+  }
+
+  async function saveLimit(): Promise<void> {
+    const n = Number(limitDraft)
+    setLimitError(null)
+    // 저장소도 같은 검사를 하지만(setting.ts의 isValidLimit) IPC를 타기 전에 막는다 —
+    // 숫자 칸에 0을 넣고 저장을 눌렀는데 아무 일도 없는 것처럼 보이면 안 된다.
+    if (!Number.isInteger(n) || n < 1) {
+      setLimitError('상한은 1 이상의 정수여야 합니다')
+      return
+    }
+    setLimitBusy(true)
+    try {
+      await onChangeLimit(n)
+    } catch (err) {
+      // 입력은 지우지 않는다 — 글로벌 경로·기본값 저장과 같은 규칙이다.
+      setLimitError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLimitBusy(false)
     }
   }
 
@@ -403,6 +441,32 @@ export function SettingsPanel({ workspaces, workspaceId, onWorkspaceSaved }: {
             </label>
 
             <button type="button" disabled={busy} onClick={() => void save()}>저장</button>
+
+            {/* 스냅샷이 아직 없으면 칸을 열지 않는다 — 빈 칸에 저장을 누르게 두면
+                무엇을 덮는지 모른 채 쓰게 된다. 도크의 슬롯 표시기도 같은 조건으로 숨는다. */}
+            {queue && (
+              <>
+                <h3>동시 실행 상한</h3>
+                {limitError && <div role="alert" className="form-error">{limitError}</div>}
+                <p className="settings-hint">
+                  한 번에 도는 실행의 수. 초과분은 슬롯이 나면 순서대로 시작합니다.
+                  도크의 슬롯 표시기에서도 같은 값을 바꿀 수 있습니다.
+                </p>
+                <label className="settings-field">
+                  동시 실행 상한
+                  <input
+                    aria-label="동시 실행 상한"
+                    type="number"
+                    min={1}
+                    value={limitDraft}
+                    onChange={(e) => setLimitDraft(e.target.value)}
+                  />
+                </label>
+                <button type="button" disabled={limitBusy} onClick={() => void saveLimit()}>
+                  상한 저장
+                </button>
+              </>
+            )}
           </>
         )}
 

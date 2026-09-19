@@ -113,12 +113,19 @@ export default function App() {
     return () => { document.removeEventListener('keydown', onKeyDown) }
   }, [openItem])
 
+  // 성공한 스냅샷은 event:queueUpdate로도 오므로 여기서 따로 쓰지 않는다.
+  // 설정 화면과 도크가 **같은 IPC**를 탄다 — 통로가 둘이면 한쪽의 저장이 다른
+  // 쪽에 안 돌아오는 상태가 생긴다(spec FR-7).
+  async function changeLimitAsync(n: number): Promise<void> {
+    await client.runs.setConcurrencyLimit(n)
+  }
+
   function changeLimit(n: number) {
-    // 성공한 스냅샷은 event:queueUpdate로도 오므로 여기서 따로 쓰지 않는다.
     // 실패는 삼키지 않는다 — 삼키면 표시기가 그냥 안 움직이고 사용자는 이유를
     // 알 길이 없다. Dock이 queueError를 그리는 기존 배너로 흘려 보낸다.
+    // (설정 화면은 같은 실패를 자기 칸 옆에 보여주므로 배너를 쓰지 않는다.)
     setLimitError(null)
-    client.runs.setConcurrencyLimit(n).catch((err: unknown) => {
+    changeLimitAsync(n).catch((err: unknown) => {
       setLimitError(err instanceof Error ? err.message : String(err))
     })
   }
@@ -236,6 +243,10 @@ export default function App() {
             workspaceId={workspaceId}
             // 저장 뒤 목록을 다시 읽어야 RunPanel이 새 기본값을 집는다.
             onWorkspaceSaved={refreshWorkspaces}
+            // 도크와 같은 스냅샷·같은 IPC를 본다. 여기서 useQueue()를 따로 부르면
+            // 설정에서 바꾼 상한이 도크에 안 보이는 상태가 생긴다(FR-7).
+            queue={queue}
+            onChangeLimit={changeLimitAsync}
           />
         )}
         {view === 'inbox' && (

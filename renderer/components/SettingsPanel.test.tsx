@@ -5,7 +5,7 @@ import { ClientProvider } from '../client/ClientProvider'
 import { SettingsPanel } from './SettingsPanel'
 import type { OneDeskClient } from '@shared/client'
 import type {
-  AgentStatuses, GlobalRoots,
+  AgentStatuses, GlobalRoots, QueueSnapshot,
   UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, Workspace
 } from '@shared/models'
 
@@ -59,7 +59,10 @@ function makeClient(
 
 function renderPanel(
   client: OneDeskClient,
-  opts: { workspaces?: Workspace[]; workspaceId?: string | null; onWorkspaceSaved?: () => void } = {}
+  opts: {
+    workspaces?: Workspace[]; workspaceId?: string | null; onWorkspaceSaved?: () => void
+    queue?: QueueSnapshot | null; onChangeLimit?: (n: number) => Promise<void>
+  } = {}
 ) {
   render(
     <ClientProvider client={client}>
@@ -67,6 +70,8 @@ function renderPanel(
         workspaces={opts.workspaces ?? [makeWorkspace()]}
         workspaceId={opts.workspaceId === undefined ? 'w1' : opts.workspaceId}
         onWorkspaceSaved={opts.onWorkspaceSaved ?? vi.fn()}
+        queue={opts.queue === undefined ? { running: 1, limit: 3, waiting: 0 } : opts.queue}
+        onChangeLimit={opts.onChangeLimit ?? vi.fn(async () => {})}
       />
     </ClientProvider>
   )
@@ -244,14 +249,14 @@ describe('SettingsPanel — 실행 기본값', () => {
     ]
     const { rerender } = render(
       <ClientProvider client={client}>
-        <SettingsPanel workspaces={workspaces} workspaceId="w1" onWorkspaceSaved={vi.fn()} />
+        <SettingsPanel workspaces={workspaces} workspaceId="w1" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} />
       </ClientProvider>
     )
     await waitFor(() => expect(screen.getByLabelText('Claude Code 기본 모델')).toHaveValue('sonnet'))
 
     rerender(
       <ClientProvider client={client}>
-        <SettingsPanel workspaces={workspaces} workspaceId="w2" onWorkspaceSaved={vi.fn()} />
+        <SettingsPanel workspaces={workspaces} workspaceId="w2" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} />
       </ClientProvider>
     )
 
@@ -445,14 +450,14 @@ describe('SettingsPanel — CLI 경로', () => {
     ]
     const { rerender } = render(
       <ClientProvider client={client}>
-        <SettingsPanel workspaces={workspaces} workspaceId="w1" onWorkspaceSaved={vi.fn()} />
+        <SettingsPanel workspaces={workspaces} workspaceId="w1" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} />
       </ClientProvider>
     )
     await waitFor(() => expect(screen.getByLabelText('Claude Code 실행 파일')).toHaveValue('/a/claude'))
 
     rerender(
       <ClientProvider client={client}>
-        <SettingsPanel workspaces={workspaces} workspaceId="w2" onWorkspaceSaved={vi.fn()} />
+        <SettingsPanel workspaces={workspaces} workspaceId="w2" onWorkspaceSaved={vi.fn()} queue={null} onChangeLimit={vi.fn(async () => {})} />
       </ClientProvider>
     )
 
@@ -516,5 +521,77 @@ describe('SettingsPanel — 탭', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: '앱' }))
     expect(await screen.findByLabelText('Claude Code 글로벌 경로')).toHaveValue('/임시')
+  })
+})
+
+describe('SettingsPanel — 동시 실행 상한', () => {
+  // spec FR-7: 상한은 앱 탭과 도크 양쪽에 있다. 둘은 같은 스냅샷을 보므로 여기서
+  // 바꾼 값이 곧 도크의 숫자다 — 이 컴포넌트가 자기 인스턴스를 만들면 그 약속이 깨진다.
+  it('지금 상한을 보여준다', async () => {
+    renderPanel(makeClient(), { queue: { running: 2, limit: 5, waiting: 1 } })
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    expect(await screen.findByLabelText('동시 실행 상한')).toHaveValue(5)
+  })
+
+  it('스냅샷이 아직 없으면 칸을 열지 않는다', async () => {
+    renderPanel(makeClient(), { queue: null })
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    await screen.findByLabelText('Claude Code 글로벌 경로')
+    expect(screen.queryByLabelText('동시 실행 상한')).toBeNull()
+  })
+
+  it('고쳐서 저장하면 새 상한을 보낸다', async () => {
+    const onChangeLimit = vi.fn(async () => {})
+    renderPanel(makeClient(), { onChangeLimit })
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    const box = await screen.findByLabelText('동시 실행 상한')
+    await userEvent.clear(box)
+    await userEvent.type(box, '4')
+    await userEvent.click(screen.getByRole('button', { name: '상한 저장' }))
+    expect(onChangeLimit).toHaveBeenCalledWith(4)
+  })
+
+  it('1 미만이나 정수가 아닌 값은 보내지 않고 알린다', async () => {
+    const onChangeLimit = vi.fn(async () => {})
+    renderPanel(makeClient(), { onChangeLimit })
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    const box = await screen.findByLabelText('동시 실행 상한')
+    await userEvent.clear(box)
+    await userEvent.type(box, '0')
+    await userEvent.click(screen.getByRole('button', { name: '상한 저장' }))
+    expect(onChangeLimit).not.toHaveBeenCalled()
+    expect(await screen.findByRole('alert')).toHaveTextContent(/1 이상/)
+  })
+
+  it('저장에 실패하면 알리고 입력을 지우지 않는다', async () => {
+    const onChangeLimit = vi.fn(async () => { throw new Error('상한은 1 이상이어야 합니다') })
+    renderPanel(makeClient(), { onChangeLimit })
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    const box = await screen.findByLabelText('동시 실행 상한')
+    await userEvent.clear(box)
+    await userEvent.type(box, '9')
+    await userEvent.click(screen.getByRole('button', { name: '상한 저장' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('상한은 1 이상이어야 합니다')
+    expect(box).toHaveValue(9)
+  })
+
+  it('스냅샷이 바뀌면 칸이 따라온다 — 도크에서 바꾼 값이다', async () => {
+    // 저장 성공은 event:queueUpdate로 돌아온다. 앱 탭은 그 push를 prop으로 받는다.
+    const client = makeClient()
+    const { rerender } = render(
+      <ClientProvider client={client}>
+        <SettingsPanel workspaces={[makeWorkspace()]} workspaceId="w1" onWorkspaceSaved={vi.fn()}
+          queue={{ running: 0, limit: 3, waiting: 0 }} onChangeLimit={vi.fn(async () => {})} />
+      </ClientProvider>
+    )
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    expect(await screen.findByLabelText('동시 실행 상한')).toHaveValue(3)
+    rerender(
+      <ClientProvider client={client}>
+        <SettingsPanel workspaces={[makeWorkspace()]} workspaceId="w1" onWorkspaceSaved={vi.fn()}
+          queue={{ running: 0, limit: 7, waiting: 0 }} onChangeLimit={vi.fn(async () => {})} />
+      </ClientProvider>
+    )
+    await waitFor(() => expect(screen.getByLabelText('동시 실행 상한')).toHaveValue(7))
   })
 })

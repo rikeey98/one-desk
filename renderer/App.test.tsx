@@ -1314,6 +1314,8 @@ describe('App — 설정 화면', () => {
     await userEvent.click(screen.getByRole('button', { name: '설정' }))
 
     expect(await screen.findByRole('heading', { name: '설정' })).toBeInTheDocument()
+    // 글로벌 경로는 앱 탭에 있다 — 실행 탭이 기본으로 열린다.
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
     expect(await screen.findByLabelText('Claude Code 글로벌 경로')).toBeInTheDocument()
   })
 
@@ -1338,6 +1340,33 @@ describe('App — 설정 화면', () => {
 
     expect(await screen.findByLabelText('Claude Code 기본 모델')).toHaveValue('sonnet')
     expect(screen.getByLabelText('기본 agent')).toHaveValue('opencode')
+  })
+
+  it('전역 실행 슬롯 스냅샷을 설정 화면에 내려보낸다', async () => {
+    // App이 queue를 안 내려보내면 앱 탭의 상한 칸이 아예 열리지 않는다. 설정 화면이
+    // useQueue()를 따로 부르면 도크와 다른 인스턴스를 보게 되므로 prop이어야 한다(FR-7).
+    renderApp(makeClient({
+      queueSnapshot: vi.fn().mockResolvedValue({ running: 0, limit: 4, waiting: 0 })
+    }))
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+    await userEvent.click(await screen.findByRole('tab', { name: '앱' }))
+
+    expect(await screen.findByLabelText('동시 실행 상한')).toHaveValue(4)
+  })
+
+  it('설정에서 상한을 저장하면 같은 IPC로 보낸다', async () => {
+    // onChangeLimit이 안 내려가면 버튼이 아무것도 하지 않는다 — 도크와 같은
+    // client.runs.setConcurrencyLimit을 타야 저장 결과가 도크의 표시기에도 돌아온다.
+    const setConcurrencyLimit = vi.fn().mockResolvedValue({ running: 0, limit: 6, waiting: 0 })
+    renderApp(makeClient({ setConcurrencyLimit }))
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+    await userEvent.click(await screen.findByRole('tab', { name: '앱' }))
+    const input = await screen.findByLabelText('동시 실행 상한')
+    await userEvent.clear(input)
+    await userEvent.type(input, '6')
+    await userEvent.click(screen.getByRole('button', { name: '상한 저장' }))
+
+    expect(setConcurrencyLimit).toHaveBeenCalledWith(6)
   })
 
   it('workspace를 고르지 않았으면 실행 기본값 칸을 열지 않는다', async () => {
