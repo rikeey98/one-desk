@@ -22,6 +22,7 @@ function makeClient(over: Record<string, unknown> = {}): OneDeskClient {
       updateIfUnchanged: vi.fn().mockResolvedValue({ ok: true, asset: asset({ updatedAt: 2 }) }),
       remove: vi.fn(),
       rescan: vi.fn(),
+      readBody: vi.fn().mockResolvedValue({ ok: true, content: '' }),
       ...over
     }
   } as unknown as OneDeskClient
@@ -92,4 +93,39 @@ describe('AssetDetail', () => {
     await userEvent.click(screen.getByRole('button', { name: '다시 불러오기' }))
     expect(screen.getByRole('textbox', { name: '본문' })).toHaveValue('남이 고침')
   })
+
+  /** discovered의 본문 보기 (docs/sdlc/repo-instructions/ FR-1·FR-2·FR-4) */
+  describe('discovered 본문', () => {
+    const discovered = asset({
+      id: 'd1', source: 'discovered', content: null, filePath: '/tmp/api/CLAUDE.md',
+      lastSeenAt: 1, kind: 'instructions', name: 'CLAUDE.md'
+    })
+
+    it('상세를 열면 readBody를 그 id로 부르고 본문을 보여준다', async () => {
+      const client = renderDetail(discovered, {
+        readBody: vi.fn().mockResolvedValue({ ok: true, content: '# 이 repo의 규칙\n' })
+      })
+      expect(client.assets.readBody).toHaveBeenCalledWith('d1')
+      await waitFor(() =>
+        expect(screen.getByLabelText('본문')).toHaveValue('# 이 repo의 규칙\n'))
+      expect(screen.getByLabelText('본문')).toHaveAttribute('readonly')
+    })
+
+    it('못 읽으면 빈 칸이 아니라 실패가 보인다', async () => {
+      renderDetail(discovered, {
+        readBody: vi.fn().mockResolvedValue({ ok: false, reason: '파일을 읽을 수 없습니다: /tmp/api/CLAUDE.md' })
+      })
+      await waitFor(() =>
+        expect(screen.getByLabelText('본문')).toHaveValue('파일을 읽을 수 없습니다: /tmp/api/CLAUDE.md'))
+    })
+
+    it('authored는 readBody를 부르지 않는다 — DB 본문을 편집한다', () => {
+      const client = renderDetail(asset({ source: 'authored', content: '처음' }), {
+        readBody: vi.fn()
+      })
+      expect(client.assets.readBody).not.toHaveBeenCalled()
+      expect(screen.getByLabelText('본문')).toHaveValue('처음')
+    })
+  })
+
 })

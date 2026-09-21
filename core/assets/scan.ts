@@ -1,9 +1,10 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { parseFrontmatter } from './frontmatter'
+import type { AssetKind } from '@shared/models'
 
 export interface FoundAsset {
-  kind: 'skill' | 'agent'
+  kind: AssetKind
   name: string
   description: string | null
   /** 절대 경로 */
@@ -51,7 +52,16 @@ export async function scanDir(path: string): Promise<FoundAsset[]> {
 }
 
 /**
- * repo 하나를 훑어 발견한 skill/agent 파일을 돌려준다.
+ * repo 루트에서 찾는 지시 파일. CLI가 실행할 때 알아서 읽는 두 파일이다
+ * (claude는 CLAUDE.md, opencode는 AGENTS.md). 이름은 **파일명 그대로** 쓴다 —
+ * 파일명 자체가 CLI가 찾는 정체성이라 frontmatter의 name으로 바꾸지 않는다
+ * (docs/sdlc/repo-instructions/ FR-6). `.claude/CLAUDE.md`·`CLAUDE.local.md`·글로벌
+ * `~/.claude/CLAUDE.md`는 범위 밖이다.
+ */
+const INSTRUCTION_FILES = ['CLAUDE.md', 'AGENTS.md'] as const
+
+/**
+ * repo 하나를 훑어 발견한 skill/agent/지시 파일을 돌려준다.
  *
  * **DB를 모른다.** 디스크에 무엇이 있는지만 답하고, 그것을 어떻게 저장할지는
  * 저장소와 서비스의 몫이다.
@@ -67,6 +77,14 @@ export async function scanRepo(repoPath: string): Promise<FoundAsset[]> {
   ]
   const found: FoundAsset[] = []
   for (const root of roots) found.push(...await scanDir(root))
+
+  // 지시 파일은 repo 루트에서만 본다. scanDir(글로벌 루트도 쓴다)에는 넣지 않는다 (FR-11).
+  for (const name of INSTRUCTION_FILES) {
+    const file = join(repoPath, name)
+    const meta = await readMeta(file)
+    if (!meta) continue
+    found.push({ kind: 'instructions', name, description: meta.description, filePath: file })
+  }
   return found
 }
 

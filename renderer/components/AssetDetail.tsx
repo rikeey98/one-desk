@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useClient } from '../client/ClientProvider'
 import { useDebouncedSave } from '../hooks/useDebouncedSave'
 import { ConflictBanner } from './ConflictBanner'
@@ -25,6 +25,24 @@ export function AssetDetail({ asset, onChanged, onDeleted }: {
    * 어느 쪽이 진짜인지 알 수 없게 된다 (설계 §6-2).
    */
   const readOnly = asset.source === 'discovered'
+
+  // discovered의 본문은 DB에 없다 — 파일의 지금 내용을 id로 읽어 온다
+  // (docs/sdlc/repo-instructions/ FR-1·FR-3). 못 읽으면 빈 칸이 아니라 실패 문구가
+  // 본문 자리에 들어간다 — 빈 칸은 "파일이 비었다"로 읽힌다(FR-2).
+  useEffect(() => {
+    if (!readOnly) return
+    let alive = true
+    setBody('읽는 중…')
+    client.assets.readBody(asset.id)
+      .then((result) => {
+        if (!alive) return
+        setBody(result.ok ? result.content : result.reason)
+      })
+      .catch((err: unknown) => {
+        if (alive) setBody(err instanceof Error ? err.message : String(err))
+      })
+    return () => { alive = false }
+  }, [client, asset.id, readOnly])
 
   async function persist(patch: { name?: string; content?: string }) {
     setError(null)
@@ -94,14 +112,8 @@ export function AssetDetail({ asset, onChanged, onDeleted }: {
         onBlur={() => { void nameSave.flush() }}
       />
 
-      {readOnly && (
-        <div className="asset-path">
-          {asset.filePath}
-          {/* 본문을 DB에 두지 않으므로 여기 띄울 것이 없다. 빈 칸만 보이면
-              사용자는 파일이 비었다고 오해한다 (설계 §2-2). */}
-          <span className="panel-empty">본문은 실행 시점에 이 파일에서 읽습니다</span>
-        </div>
-      )}
+      {/* 경로는 계속 띄운다 — 본문이 어느 파일의 것인지 보여야 한다 (설계 §6-2). */}
+      {readOnly && <div className="asset-path">{asset.filePath}</div>}
 
       {/* 마크다운으로 그리지 않는다 — 외부 repo의 파일이라 신뢰할 수 없는 입력이다
           (설계 §6-3). */}

@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { and, eq, inArray } from 'drizzle-orm'
 import type { Database } from './db/open'
-import { readFile } from 'node:fs/promises'
 import { issue, memo, repo, asset } from './db/schema'
 import { assemblePrompt, type AssetForPrompt } from './context/assemble'
+import { readAssetBody } from './assets/body'
 import type { FinishRunInput, RunRepository } from './db/repositories/run'
 import type { RunManager } from './runner/manager'
 import type { RunQueue } from './runner/queue'
@@ -497,6 +497,16 @@ function collectContext(db: Database, input: { workspaceId: string; context: Con
   assertFound(memoIds, memoRows.map((r) => r.id), 'memo')
   assertFound(assetIds, assetRows.map((r) => r.id), 'asset')
 
+  // 지시 파일은 CLI가 실행할 때 알아서 싣는다. 담으면 같은 본문이 두 번 들어가므로
+  // 조용히 빼지 않고 거부한다 (docs/sdlc/repo-instructions/ FR-9). 화면에는 담기
+  // 버튼이 없지만, IPC로 밀어 넣는 경로까지 여기서 막는다.
+  const instructions = assetRows.filter((r) => r.kind === 'instructions')
+  if (instructions.length > 0) {
+    throw new Error(
+      `지시 파일은 맥락에 담을 수 없습니다 — CLI가 알아서 읽습니다: ${instructions.map((r) => r.name).join(', ')}`
+    )
+  }
+
   return {
     repos,
     issues: issueRows.map((r) => ({ ...r, repoIds: [] })),
@@ -519,18 +529,12 @@ async function resolveAssets(
   const resolved: AssetForPrompt[] = []
   const missing: Asset[] = []
   for (const row of rows) {
-    if (row.source === 'authored') {
-      resolved.push({
-        kind: row.kind, name: row.name, description: row.description, content: row.content ?? ''
-      })
-      continue
-    }
-    try {
-      const content = await readFile(row.filePath ?? '', 'utf8')
-      resolved.push({ kind: row.kind, name: row.name, description: row.description, content })
-    } catch {
-      missing.push(row)
-    }
+    // 읽기는 상세 보기와 같은 함수다 — 두 자리가 따로 읽으면 처리가 갈린다.
+    const body = await readAssetBody(row)
+    if (!body.ok) { missing.push(row); continue }
+    resolved.push({
+      kind: row.kind, name: row.name, description: row.description, content: body.content
+    })
   }
   return { resolved, missing }
 }

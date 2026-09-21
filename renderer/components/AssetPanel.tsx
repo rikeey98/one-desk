@@ -77,17 +77,25 @@ export function AssetPanel({
         <ul className="item-list">
           {items.map((a) => {
             const picked = chipKeys.has(chipKey({ type: 'asset', id: a.id }))
+            // 지시 파일은 보기 전용이다 — CLI가 실행할 때 알아서 읽으므로 담으면 같은
+            // 본문이 두 번 들어간다. 버튼을 숨기는 것이 아니라 렌더하지 않는다
+            // (docs/sdlc/repo-instructions/ FR-8). core도 거부한다(FR-9).
+            const attachable = a.kind !== 'instructions'
             return (
               <li key={a.id} className="item" aria-label={a.name}>
-                <button
-                  type="button"
-                  className={picked ? 'item-pick item-picked' : 'item-pick'}
-                  aria-label={`${a.name} 맥락에 담기`}
-                  aria-pressed={picked}
-                  onClick={() => onToggleContext({ type: 'asset', id: a.id, label: a.name })}
-                >
-                  {picked ? '✓' : ''}
-                </button>
+                {attachable
+                  ? (
+                      <button
+                        type="button"
+                        className={picked ? 'item-pick item-picked' : 'item-pick'}
+                        aria-label={`${a.name} 맥락에 담기`}
+                        aria-pressed={picked}
+                        onClick={() => onToggleContext({ type: 'asset', id: a.id, label: a.name })}
+                      >
+                        {picked ? '✓' : ''}
+                      </button>
+                    )
+                  : <span className="item-pick item-pick-none" aria-hidden="true" />}
                 {/* 이름·설명·경로는 평문이다. 외부 repo의 파일에서 왔으므로
                     마크다운으로 그리지 않는다 (설계 §6-3). */}
                 <button
@@ -123,6 +131,8 @@ export function AssetPanel({
       {error && <div role="alert">{error}</div>}
       {group('skill', 'SKILLS')}
       {group('agent', 'AGENTS')}
+      {/* repo 루트의 CLAUDE.md·AGENTS.md. repo를 고르면 그 repo 것만 보인다 (FR-12). */}
+      {group('instructions', 'INSTRUCTIONS')}
     </>
   )
 

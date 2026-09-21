@@ -1292,3 +1292,28 @@ describe('사용량 배선 (docs/sdlc/run-info/)', () => {
     rmSync(ctx2.logDir, { recursive: true, force: true })
   })
 })
+
+describe('지시 파일은 맥락에 담을 수 없다 (docs/sdlc/repo-instructions/ FR-9)', () => {
+  it('instructions asset을 담아 시작하면 거부된다', async () => {
+    const ctx = setup()
+    try {
+      const repoId = createRepoRepository(ctx.db)
+        .create({ workspaceId: ctx.workspaceId, name: 'api', path: '/tmp/api' }).id
+      const assets = createAssetRepository(ctx.db)
+      assets.upsertDiscovered({
+        workspaceId: ctx.workspaceId, repoId, seenAt: 1,
+        found: [{ kind: 'instructions', name: 'CLAUDE.md', description: null, filePath: '/tmp/api/CLAUDE.md' }]
+      })
+      const id = assets.list({ workspaceId: ctx.workspaceId })[0]!.id
+      // workspace 밖 항목(assertFound)과 같은 자리에서 막는다 — run 행이 생기기 전이라
+      // start 자체가 거부된다. 조용히 빼고 성공으로 끝나면 여기서 잡힌다.
+      await expect(ctx.service.start({
+        workspaceId: ctx.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+        permission: 'edit', userPrompt: 'x', context: [{ type: 'asset', id }]
+      })).rejects.toThrow(/지시 파일/)
+      expect(ctx.runs.list(ctx.workspaceId)).toHaveLength(0)
+    } finally {
+      rmSync(ctx.logDir, { recursive: true, force: true })
+    }
+  })
+})

@@ -16,6 +16,9 @@ describe('asset 스캔', () => {
       '---\nname: 알파\ndescription: e2e가 심은 스킬\n---\n# 알파 스킬\n'
     )
 
+    // repo 루트의 지시 파일도 등록 스캔이 발견한다 (docs/sdlc/repo-instructions/).
+    writeFileSync(join(app.repoDir, 'CLAUDE.md'), '# e2e가 심은 규칙')
+
     await page.getByPlaceholder('새 workspace 이름…').fill('asset-ws')
     await page.getByPlaceholder('새 workspace 이름…').press('Enter')
     const ws = page.getByRole('button', { name: 'asset-ws', exact: true })
@@ -28,6 +31,20 @@ describe('asset 스캔', () => {
 
     // 등록이 촉발한 스캔의 결과가 목록에 뜬다.
     const pick = page.getByRole('button', { name: '알파 맥락에 담기' })
+    await pick.waitFor({ state: 'visible', timeout: 10_000 })
+
+    // 지시 파일: INSTRUCTIONS 절에 보이고, 담기 버튼은 없고, 이름을 누르면 파일의
+    // 지금 내용이 읽기 전용으로 보인다 (FR-7·FR-8·FR-1). 스캔 → 목록 → readBody IPC →
+    // 화면까지가 여기 걸려 있다.
+    const instruction = page.getByRole('button', { name: 'CLAUDE.md', exact: true })
+    await instruction.waitFor({ state: 'visible', timeout: 10_000 })
+    expect(await page.getByRole('button', { name: 'CLAUDE.md 맥락에 담기' }).count()).toBe(0)
+    await instruction.click()
+    const body = page.getByRole('textbox', { name: '본문' })
+    await expect.poll(() => body.inputValue(), { timeout: 10_000 }).toContain('e2e가 심은 규칙')
+    expect(await body.getAttribute('readonly')).not.toBeNull()
+    await page.getByRole('button', { name: '축소' }).click()
+
     await pick.waitFor({ state: 'visible', timeout: 10_000 })
     await pick.click()
 

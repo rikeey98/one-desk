@@ -77,6 +77,16 @@ MCP 상태와 포트 · DB 파일 · 로그 디렉토리 · 앱 버전을 보여
 
 **이슈 훑기**가 붙었다(설계 `2026-08-27-issue-triage-design.md`, 계획 `2026-08-27-issue-triage.md`). **첫 실행에 마이그레이션 `0003`이 돈다** — 컬럼 다섯 추가 + 기존 이슈의 `triaged_at` 백필. 이슈를 제목 한 줄로 던져 넣고 분류는 나중에 훑기로 몰아서 한다. 목록은 축(급함·출처·성격·repo)으로 묶고 접되 **접혀도 개수는 보이며**, 그룹 안은 `seenAt` 오래된 순이다. MCP `create_issue`가 축을 받으므로 agent가 회의 메모를 이슈로 쪼개며 분류까지 끝낼 수 있다.
 
+**asset 종류가 셋이다** (2026-09-21, `docs/sdlc/repo-instructions/`). `skill`·`agent`에 더해
+repo 루트의 `CLAUDE.md`·`AGENTS.md`가 `instructions`로 목록에 오른다. **보기 전용이다** —
+CLI가 실행할 때 알아서 읽는 파일이라 담으면 두 번 들어가므로, 패널에 담기 버튼이 없고
+core의 `collectContext`가 그 id를 거부한다(`assertFound`와 같은 자리에서 `start`가 던진다).
+앱에서 작성할 수도 없다. 같은 작업에서 **discovered asset의 본문이 드디어 보인다** —
+`assets.readBody(id)`가 파일의 지금 내용을 읽어 온다. **id로만 받는다**: 렌더러가 경로를
+넘기는 통로는 없다(`core/app/reveal.ts`가 이름만 받는 것과 같은 원칙). 읽기 함수는
+`core/assets/body.ts` 하나이고 실행 서비스도 그것을 쓴다. 마이그레이션 없음 — `kind`에
+CHECK 제약이 없다.
+
 **슬래시 커맨드가 붙었다** (`docs/sdlc/slash-commands/`). Claude Code 실행 입력에서 `/`로
 커맨드를 검색하고 ↑↓·Enter/Tab으로 삽입한다. 목록은 cwd마다 한 번 얻어 core에 캐시하며,
 실패 결과도 수동 새로고침 전까지 유지한다. probe는 init 직후 SIGKILL로 종료한다 — 일반 실행의
@@ -331,6 +341,7 @@ opencode는 `--variant`를 받지만 `init`에도 `result`에도 그 값이 없�
 | `docs/sdlc/slash-commands/` | 슬래시 커맨드 — intent·spec·plan. 커맨드 조회와 캐시, 피커, 프롬프트 조립 |
 | `docs/sdlc/conversation-context/` | 대화에 담긴 맥락 표시 — intent·spec·plan. 담긴 것의 합집합을 어디에 두는지, 이름을 core가 붙이는 이유, 지워진 asset 필터링 개정 |
 | `docs/sdlc/run-info/` | 대화에 실행 정보 표시 — intent·spec·plan. 두 CLI가 주는 것의 실측 표, 합계와 컨텍스트 점유를 가르는 근거(spec §3-2), 필드마다 다른 병합 규칙(§3-3) |
+| `docs/sdlc/repo-instructions/` | repo의 지시 파일 보기 — intent·spec·plan. discovered 본문 읽기 통로(`readBody`, id로만), `instructions` 종류가 맥락에 담기지 않는 이유(FR-9) |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |
 | `docs/diagrams/` | 아키텍처 다이어그램 — `one-desk-architecture.html`(단독 실행 가능)과 그것을 만든 archify 사양 `one-desk.architecture.json`. `main`에 들어가면 `.github/workflows/pages.yml`이 GitHub Pages로 올린다 |
 

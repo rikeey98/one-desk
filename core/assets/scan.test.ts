@@ -98,3 +98,36 @@ describe('scanDir', () => {
     await expect(scanDir(join(dir, '없는곳'))).resolves.toEqual([])
   })
 })
+
+/** repo 루트의 지시 파일 (docs/sdlc/repo-instructions/ FR-6·FR-11) */
+describe('scanRepo — 지시 파일', () => {
+  it('루트의 CLAUDE.md와 AGENTS.md를 instructions로 발견한다', async () => {
+    write('CLAUDE.md', '# 이 repo의 규칙\n')
+    write('AGENTS.md', '---\ndescription: opencode용\n---\n# 규칙\n')
+    const found = await scanRepo(dir)
+    const instructions = found.filter((f) => f.kind === 'instructions')
+    expect(instructions.map((f) => f.name).sort()).toEqual(['AGENTS.md', 'CLAUDE.md'])
+    expect(instructions.find((f) => f.name === 'AGENTS.md')?.description).toBe('opencode용')
+    expect(instructions.find((f) => f.name === 'CLAUDE.md')?.filePath).toBe(join(dir, 'CLAUDE.md'))
+  })
+
+  it('이름은 frontmatter가 있어도 파일명 그대로다 — 파일명이 CLI가 찾는 정체성이다', async () => {
+    write('CLAUDE.md', '---\nname: 다른이름\n---\n# 규칙\n')
+    const found = await scanRepo(dir)
+    expect(found.find((f) => f.kind === 'instructions')?.name).toBe('CLAUDE.md')
+  })
+
+  it('둘 다 없으면 기존 셋만 나온다', async () => {
+    write('.claude/skills/알파/SKILL.md', '---\nname: 알파\n---\n')
+    const found = await scanRepo(dir)
+    expect(found.some((f) => f.kind === 'instructions')).toBe(false)
+    expect(found).toHaveLength(1)
+  })
+
+  it('scanDir(글로벌 루트)은 루트 파일을 보지 않는다', async () => {
+    // 글로벌 경로에 CLAUDE.md가 있어도 지시 파일로 올리지 않는다 (FR-11).
+    write('CLAUDE.md', '# 글로벌\n')
+    const found = await scanDir(dir)
+    expect(found.some((f) => f.kind === 'instructions')).toBe(false)
+  })
+})

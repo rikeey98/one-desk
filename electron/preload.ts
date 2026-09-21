@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { OneDeskClient, Unsubscribe } from '@shared/client'
-import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, CommandListResult, AgentStatuses, AppInfo } from '@shared/models'
+import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, CommandListResult, AgentStatuses, AppInfo, AssetBody } from '@shared/models'
 import type { RunEvent } from '@shared/events'
 
 /**
@@ -62,7 +62,8 @@ const client: OneDeskClient = {
     updateIfUnchanged: (input) =>
       call<AssetUpdateResult>(CHANNELS.assetsUpdateIfUnchanged, input),
     remove: (id) => call<void>(CHANNELS.assetsRemove, id),
-    rescan: (workspaceId) => call<Asset[]>(CHANNELS.assetsRescan, workspaceId)
+    rescan: (workspaceId) => call<Asset[]>(CHANNELS.assetsRescan, workspaceId),
+    readBody: (id) => call<AssetBody>(CHANNELS.assetsReadBody, id)
   },
   commands: {
     list: (target) => call<CommandListResult>(CHANNELS.commandsList, target),

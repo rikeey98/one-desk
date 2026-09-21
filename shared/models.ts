@@ -327,7 +327,17 @@ export interface InboxCounts {
   byWorkspace: Record<string, number>
 }
 
-export type AssetKind = 'skill' | 'agent'
+/**
+ * `instructions`는 repo 루트의 CLAUDE.md·AGENTS.md다 (docs/sdlc/repo-instructions/).
+ * 보기 전용이다 — CLI가 실행할 때 알아서 싣는 파일이라 맥락에 담으면 두 번 들어간다.
+ * 앱에서 작성할 수도 없다.
+ */
+export type AssetKind = 'skill' | 'agent' | 'instructions'
+
+/** discovered asset의 본문. 파일을 못 읽으면 던지지 않고 실패로 온다 (preload가 오류 클래스를 벗긴다) */
+export type AssetBody =
+  | { ok: true; content: string }
+  | { ok: false; reason: string }
 export type AssetSource = 'discovered' | 'authored'
 
 export interface Asset {

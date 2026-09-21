@@ -8,6 +8,7 @@ import { createWorkspaceRepository } from './db/repositories/workspace'
 import { createRepoRepository } from './db/repositories/repo'
 import { createAssetRepository } from './db/repositories/asset'
 import { createAssetService } from './assets/service'
+import { readAssetBody } from './assets/body'
 import { createCommandService } from './commands/service'
 import { probeCommands } from './commands/probe'
 import { describeCommands } from './commands/describe'
@@ -313,6 +314,14 @@ export function createCore(opts: CoreOptions) {
       async rescan(workspaceId: string) {
         await assetService.scanWorkspace(workspaceId)
         return assetRows.list({ workspaceId })
+      },
+
+      /**
+       * 본문. **id로만 받는다** — 경로는 DB에서 찾는다. 렌더러가 임의 파일을 읽는
+       * 통로가 되면 안 된다 (docs/sdlc/repo-instructions/ FR-3·NFR-2).
+       */
+      readBody(id: string) {
+        return readAssetBody(assetRows.get(id))
       }
     },
 

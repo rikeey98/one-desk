@@ -11,7 +11,7 @@ import type {
   McpStatus, ResumeRunInput,
   Asset, CreateAuthoredAssetInput, GuardedUpdateAssetInput, AssetUpdateResult, ListAssetQuery,
   GlobalRoots, CommandTarget, CommandListResult,
-  UpdateRepoInput, AppInfo, RevealTarget
+  UpdateRepoInput, AppInfo, RevealTarget, AssetBody
 } from './models'
 import type { RunEvent } from './events'
 
@@ -100,6 +100,11 @@ export interface OneDeskClient {
     remove(id: string): Promise<void>
     /** 다시 훑고, 갱신된 목록을 돌려준다 */
     rescan(workspaceId: string): Promise<Asset[]>
+    /**
+     * 본문을 읽는다. discovered는 그 파일의 지금 내용이고 authored는 DB 본문이다.
+     * **id로만 요청한다** — 경로를 넘기는 통로는 없다 (docs/sdlc/repo-instructions/ FR-3).
+     */
+    readBody(id: string): Promise<AssetBody>
   }
   commands: {
     list(target: CommandTarget): Promise<CommandListResult>

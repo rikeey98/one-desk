@@ -157,7 +157,10 @@ export const asset = sqliteTable('asset', {
   id: text('id').primaryKey(),
   workspaceId: text('workspace_id').notNull()
     .references(() => workspace.id, { onDelete: 'cascade' }),
-  kind: text('kind', { enum: ['skill', 'agent'] }).notNull(),
+  // instructions = repo 루트의 CLAUDE.md·AGENTS.md (docs/sdlc/repo-instructions/).
+  // 이 enum은 타입에만 있다 — SQLite 컬럼은 `text NOT NULL`이고 CHECK가 없어
+  // 값이 늘어도 마이그레이션이 생기지 않는다.
+  kind: text('kind', { enum: ['skill', 'agent', 'instructions'] }).notNull(),
   source: text('source', { enum: ['discovered', 'authored'] }).notNull(),
   name: text('name').notNull(),
   description: text('description'),

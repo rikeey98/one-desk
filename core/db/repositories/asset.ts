@@ -87,6 +87,11 @@ export function createAssetRepository(db: Database) {
     },
 
     createAuthored(input: CreateAuthoredAssetInput): Asset {
+      // 지시 파일은 CLI가 repo 루트에서 읽는 것이지 앱이 만드는 것이 아니다
+      // (docs/sdlc/repo-instructions/ FR-10). 만들어 두면 어디에도 안 실린다.
+      if (input.kind === 'instructions') {
+        throw new Error('지시 파일(CLAUDE.md·AGENTS.md)은 앱에서 작성할 수 없습니다. repo 루트에 파일로 두세요.')
+      }
       const now = Date.now()
       const row = {
         id: randomUUID(),

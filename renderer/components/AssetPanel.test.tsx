@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { AssetPanel } from './AssetPanel'
@@ -23,6 +23,7 @@ function makeClient(list: Asset[], over: Record<string, unknown> = {}): OneDeskC
       updateIfUnchanged: vi.fn(),
       remove: vi.fn(),
       rescan: vi.fn().mockResolvedValue(list),
+      readBody: vi.fn().mockResolvedValue({ ok: true, content: '' }),
       ...over
     }
   } as unknown as OneDeskClient
@@ -170,4 +171,43 @@ describe('AssetPanel — 출처와 필터', () => {
     await waitFor(() => expect(client.assets.list)
       .toHaveBeenCalledWith({ workspaceId: 'w1', repoId: null }))
   })
+
+  /** repo 루트의 지시 파일 (docs/sdlc/repo-instructions/ FR-7·FR-8·FR-10) */
+  describe('지시 파일', () => {
+    const rows = [
+      asset({ id: 'a1', kind: 'skill', name: '알파' }),
+      asset({ id: 'i1', kind: 'instructions', name: 'CLAUDE.md', filePath: '/tmp/api/CLAUDE.md' })
+    ]
+
+    it('INSTRUCTIONS 절에 지시 파일만 보인다', async () => {
+      renderPanel(makeClient(rows))
+      expect(await screen.findByText('CLAUDE.md')).toBeInTheDocument()
+      const section = screen.getByRole('heading', { name: 'INSTRUCTIONS' }).closest('section')!
+      expect(within(section).getByText('CLAUDE.md')).toBeInTheDocument()
+      expect(within(section).queryByText('알파')).toBeNull()
+    })
+
+    it('지시 파일 줄에는 담기 버튼이 없다 — CLI가 알아서 읽는다', async () => {
+      renderPanel(makeClient(rows))
+      await screen.findByText('CLAUDE.md')
+      expect(screen.queryByRole('button', { name: 'CLAUDE.md 맥락에 담기' })).toBeNull()
+      // skill 줄에는 그대로 있다 — 조건이 통째로 사라진 것이 아니다.
+      expect(screen.getByRole('button', { name: '알파 맥락에 담기' })).toBeInTheDocument()
+    })
+
+    it('이름을 누르면 상세가 열린다 — 보기는 된다', async () => {
+      const onOpen = vi.fn()
+      renderPanel(makeClient(rows), { onOpen })
+      await userEvent.click(await screen.findByRole('button', { name: 'CLAUDE.md' }))
+      expect(onOpen).toHaveBeenCalledWith('i1')
+    })
+
+    it('새 asset 종류에 instructions가 없다', async () => {
+      renderPanel(makeClient([]))
+      const select = await screen.findByLabelText('새 asset 종류')
+      const options = within(select).getAllByRole('option').map((o) => (o as HTMLOptionElement).value)
+      expect(options).toEqual(['skill', 'agent'])
+    })
+  })
+
 })

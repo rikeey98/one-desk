@@ -18,4 +18,5 @@ export function registerAssetHandlers(core: Core) {
   ipcMain.handle(CHANNELS.assetsRemove, (_e, id: string) => core.assets.remove(id))
   ipcMain.handle(CHANNELS.assetsRescan, (_e, workspaceId: string) =>
     core.assets.rescan(workspaceId))
+  ipcMain.handle(CHANNELS.assetsReadBody, (_e, id: string) => core.assets.readBody(id))
 }

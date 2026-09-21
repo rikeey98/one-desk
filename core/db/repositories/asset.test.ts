@@ -286,3 +286,10 @@ describe('movePathPrefix', () => {
     expect(mine.map((a) => a.filePath).sort()).toEqual(['/tmp/api/a/SKILL.md', '/tmp/api/c/SKILL.md'])
   })
 })
+
+describe('createAuthored — instructions', () => {
+  it('지시 파일은 앱에서 작성할 수 없다 (docs/sdlc/repo-instructions/ FR-10)', () => {
+    expect(() => assets.createAuthored({ workspaceId, kind: 'instructions', name: 'CLAUDE.md' }))
+      .toThrow(/지시 파일/)
+  })
+})
