@@ -7,6 +7,8 @@ import { makeTestDb } from './testing'
 import { createWorkspaceRepository } from './workspace'
 import { createRepoRepository } from './repo'
 import { createIssueRepository } from './issue'
+import { createMemoRepository } from './memo'
+import { createAssetRepository } from './asset'
 import { createRunRepository } from './run'
 import { run } from '../schema'
 import type { Database } from '../open'
@@ -42,7 +44,7 @@ describe('RunRepository', () => {
   it('생성하면 pending 상태이고 맥락 항목이 함께 저장된다', () => {
     const created = runs.create(baseInput())
     expect(created.status).toBe('pending')
-    expect(created.contextItems).toEqual([{ type: 'issue', id: issueId }])
+    expect(created.contextItems).toEqual([{ type: 'issue', id: issueId, label: '버그' }])
   })
 
   it('시작과 종료를 기록한다', () => {
@@ -75,6 +77,41 @@ describe('RunRepository', () => {
     const found = runs.get(created.id)
     expect(found.id).toBe(created.id)
     expect(found.contextItems).toEqual([])
+  })
+
+  it('맥락 항목의 이름은 읽는 시점의 이름이다 — 이슈 제목을 바꾸면 따라 바뀐다', () => {
+    runs.create(baseInput())
+    createIssueRepository(db).update({ id: issueId, title: '토큰 만료 버그' })
+    expect(runs.list(workspaceId)[0]!.contextItems)
+      .toEqual([{ type: 'issue', id: issueId, label: '토큰 만료 버그' }])
+  })
+
+  it('repo·메모·asset에도 이름이 붙는다', () => {
+    const repoId = createRepoRepository(db).create({ workspaceId, name: 'web', path: '/tmp/web' }).id
+    const memoId = createMemoRepository(db).create({ workspaceId, title: '릴리스 절차' }).id
+    const assetId = createAssetRepository(db)
+      .createAuthored({ workspaceId, kind: 'skill', name: 'review' }).id
+    const created = runs.create({ ...baseInput(), context: [
+      { type: 'repo', id: repoId }, { type: 'memo', id: memoId }, { type: 'asset', id: assetId }
+    ] })
+    expect(runs.get(created.id).contextItems).toEqual([
+      { type: 'repo', id: repoId, label: 'web' },
+      { type: 'memo', id: memoId, label: '릴리스 절차' },
+      { type: 'asset', id: assetId, label: 'review' }
+    ])
+  })
+
+  // 지워진 asset도 이슈·메모·repo와 똑같이 빠진다. 4단계의 "asset은 테이블이 없어
+  // 걸러내지 않는다"를 뒤집은 것 — spec의 확인 필요 항목에서 2026-09-17 승인됐다.
+  it('첨부한 asset을 지워도 run 기록은 남고 그 항목만 빠진다', () => {
+    const assets = createAssetRepository(db)
+    const assetId = assets.createAuthored({ workspaceId, kind: 'skill', name: 'review' }).id
+    const created = runs.create({ ...baseInput(), context: [
+      { type: 'issue', id: issueId }, { type: 'asset', id: assetId }
+    ] })
+    assets.remove(assetId)
+    expect(runs.get(created.id).contextItems)
+      .toEqual([{ type: 'issue', id: issueId, label: '버그' }])
   })
 
   it('앱 재시작 시 running은 interrupted로, pending은 canceled로 정리한다', () => {

@@ -1,4 +1,4 @@
-import type { Run } from '@shared/models'
+import type { ContextItemView, Run } from '@shared/models'
 
 /**
  * 한 대화. run 목록에서 파생하며 저장되지 않는다 (설계 §2).
@@ -49,4 +49,27 @@ export function groupConversations(runs: Run[]): Conversation[] {
     })
   }
   return out.sort((a, b) => b.last.createdAt - a.last.createdAt)
+}
+
+/**
+ * 대화가 지금까지 담은 항목의 합집합 (설계 `docs/sdlc/conversation-context/`).
+ *
+ * 저장하지 않는 파생값이다 — `groupConversations`·`titleOf`와 같은 자리, 같은 패턴.
+ * 이름은 core가 읽는 시점에 붙여 준 것이고(`run.ts` `loadContext`), 지워진 항목은
+ * 거기서 이미 빠져 있다.
+ */
+export function contextOf(conversation: Conversation): ContextItemView[] {
+  const seen = new Set<string>()
+  const out: ContextItemView[] = []
+  for (const run of conversation.runs) {
+    // 취소된 턴은 담으려다 만 것이다 (spec FR-6).
+    if (run.status === 'canceled') continue
+    for (const item of run.contextItems) {
+      const key = `${item.type}:${item.id}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(item)
+    }
+  }
+  return out
 }

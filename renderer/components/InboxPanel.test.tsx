@@ -92,7 +92,9 @@ describe('InboxPanel', () => {
   })
 
   it('첨부된 이슈마다 관련 이슈 닫기를 보여주고 그 id로 알린다', () => {
-    const item = run({ contextItems: [{ type: 'issue', id: 'i1' }, { type: 'issue', id: 'i2' }] })
+    const item = run({ contextItems: [
+      { type: 'issue', id: 'i1', label: '버그' }, { type: 'issue', id: 'i2', label: '오타' }
+    ] })
     const { onCloseIssue } = renderPanel([item])
     const buttons = screen.getAllByRole('button', { name: '관련 이슈 닫기' })
     expect(buttons).toHaveLength(2)
@@ -102,7 +104,7 @@ describe('InboxPanel', () => {
 
   it('repo 맥락은 관련 이슈 닫기를 만들지 않는다', () => {
     // contextItems에는 repo·memo도 섞여 온다. 이슈만 골라야 한다.
-    renderPanel([run({ contextItems: [{ type: 'repo', id: 'p1' }] })])
+    renderPanel([run({ contextItems: [{ type: 'repo', id: 'p1', label: 'api' }] })])
     expect(screen.queryByRole('button', { name: '관련 이슈 닫기' })).toBeNull()
   })
 
@@ -142,7 +144,7 @@ describe('InboxPanel', () => {
       { category: '실패', over: { status: 'failed', errorMessage: '오류' }, expected: ['대화 열기', '다시 실행', '이슈로 만들기', '보관'] },
       {
         category: '실패 (이슈 첨부)',
-        over: { status: 'failed', errorMessage: '오류', contextItems: [{ type: 'issue', id: 'i1' }] },
+        over: { status: 'failed', errorMessage: '오류', contextItems: [{ type: 'issue', id: 'i1', label: '버그' }] },
         expected: ['대화 열기', '다시 실행', '이슈로 만들기', '보관', '관련 이슈 닫기']
       },
       { category: '중단됨', over: { status: 'interrupted' }, expected: ['대화 열기', '다시 실행', '보관'] },

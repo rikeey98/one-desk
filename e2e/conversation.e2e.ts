@@ -20,8 +20,11 @@ describe('대화', () => {
     await page.getByPlaceholder('repo 이름').fill('샘플')
     await page.getByPlaceholder('/절대/경로').fill(app.repoDir)
     await page.getByRole('button', { name: '추가' }).click()
-    await page.getByRole('button', { name: '샘플 맥락에 담기' })
-      .waitFor({ state: 'visible', timeout: 10_000 })
+    const attach = page.getByRole('button', { name: '샘플 맥락에 담기' })
+    await attach.waitFor({ state: 'visible', timeout: 10_000 })
+    // 이 대화가 무엇을 받았는지 보여주는 줄을 함께 본다
+    // (docs/sdlc/conversation-context/). 담아 두고 1턴을 보낸다.
+    await attach.click()
 
     const prompt = page.getByRole('textbox', { name: '지시' })
     // run-start 버튼의 접근성 이름은 정확히 "실행"뿐이다. exact 없이 substring으로
@@ -40,10 +43,19 @@ describe('대화', () => {
     // 끝난 뒤의 안정된 인스턴스를 보장한다.
     const turnPrompt = (text: string) => page.locator('.turn-user').filter({ hasText: text })
 
+    const applied = page.locator('.applied-chip')
+
     // 1턴
     await prompt.fill('첫 지시')
     await send.click()
     await turnPrompt('첫 지시').waitFor({ state: 'visible', timeout: 5_000 })
+
+    // 담아 보낸 것이 대화에 남아 보인다.
+    await applied.filter({ hasText: 'repo · 샘플' })
+      .waitFor({ state: 'visible', timeout: 5_000 })
+    // 그리고 입력부의 칩은 비었다 — 두 줄이 서로 다른 것을 말한다(설계 §4-1, FR-8).
+    await page.getByText('왼쪽 항목의 ＋를 눌러 맥락을 담으세요')
+      .waitFor({ state: 'visible', timeout: 5_000 })
 
     // 2턴 — 1턴이 도는 중에 보낸다. 대화당 예약은 하나뿐이라(설계 §3-2) 예약 버블이
     // 생기고 전송이 잠긴다. RunQueue의 groupKey가 같은 대화의 두 턴을 동시에 띄우지
@@ -78,6 +90,9 @@ describe('대화', () => {
 
     // 대화록에 턴이 셋, 도크 탭은 하나다 — 세 턴이 별개의 대화로 흩어지지 않았다.
     await expect.poll(() => page.locator('.turn').count(), { timeout: 20_000 }).toBe(3)
+
+    // 2·3턴은 아무것도 담지 않았다 — 줄은 1턴의 것 하나 그대로다(FR-2).
+    await expect.poll(() => applied.count(), { timeout: 5_000 }).toBe(1)
 
     // 2턴이 pending을 벗어났다는 사실만으로는 부족하다 — resume spec이 잘못된
     // session id나 cwd를 만들어 즉시 실패·취소돼도 위 단언들은 전부 그대로

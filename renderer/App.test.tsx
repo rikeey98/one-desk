@@ -546,7 +546,10 @@ describe('App', () => {
       issues: [makeIssue({ id: 'i1' }), makeIssue({ id: 'i2' })],
       inbox: [makeRun({
         id: 'r-done', userPrompt: '두 이슈 붙은 실행',
-        contextItems: [{ type: 'issue', id: 'i1' }, { type: 'issue', id: 'i2' }]
+        contextItems: [
+          { type: 'issue', id: 'i1', label: '이슈 1' },
+          { type: 'issue', id: 'i2', label: '이슈 2' }
+        ]
       })]
     })
     renderApp(client)

@@ -301,7 +301,7 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 | `docs/sdlc/asset-scope/` | asset 범위 확장 — intent(문제)·spec(FR/NFR과 정책 검토)·plan(12단계). 글로벌 경로, 설정 화면, repo 필터 |
 | `docs/sdlc/settings-screen/` | 탭 기반 설정 화면 — intent·spec·plan. 탭을 값의 범위로 가르는 근거(spec FR-2), 초안 state와 탭 전환(FR-11), repo 경로 변경과 asset 이동(FR-9) |
 | `docs/sdlc/slash-commands/` | 슬래시 커맨드 — intent·spec·plan. 커맨드 조회와 캐시, 피커, 프롬프트 조립 |
-| `docs/sdlc/conversation-context/` | 대화에 담긴 맥락 표시 — intent·spec 승인됨, plan은 draft (진행 중) |
+| `docs/sdlc/conversation-context/` | 대화에 담긴 맥락 표시 — intent·spec·plan. 담긴 것의 합집합을 어디에 두는지, 이름을 core가 붙이는 이유, 지워진 asset 필터링 개정 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |
 | `docs/diagrams/` | 아키텍처 다이어그램 — `one-desk-architecture.html`(단독 실행 가능)과 그것을 만든 archify 사양 `one-desk.architecture.json`. `main`에 들어가면 `.github/workflows/pages.yml`이 GitHub Pages로 올린다 |
 

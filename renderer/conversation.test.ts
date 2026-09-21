@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { conversationIdOf, groupConversations, titleOf } from './conversation'
+import { contextOf, conversationIdOf, groupConversations, titleOf } from './conversation'
 import type { Run } from '@shared/models'
 
 function makeRun(over: Partial<Run> & { id: string }): Run {
@@ -59,5 +59,36 @@ describe('titleOf', () => {
 
   it('빈 지시도 이름을 갖는다', () => {
     expect(titleOf(makeRun({ id: 'a', userPrompt: '   ' }))).toBe('(빈 지시)')
+  })
+})
+
+describe('contextOf', () => {
+  const A = { type: 'issue' as const, id: 'i1', label: '버그' }
+  const B = { type: 'memo' as const, id: 'm1', label: '릴리스 절차' }
+  const C = { type: 'asset' as const, id: 'a1', label: 'review' }
+  const D = { type: 'memo' as const, id: 'm2', label: '취소된 턴의 메모' }
+
+  // useRuns가 주는 최신순 목록을 그대로 묶는다 — 3턴이 앞이다.
+  const conversation = groupConversations([
+    makeRun({ id: 't3', rootRunId: 't1', createdAt: 30, status: 'canceled', contextItems: [D] }),
+    makeRun({ id: 't2', rootRunId: 't1', createdAt: 20, contextItems: [B, A] }),
+    makeRun({ id: 't1', rootRunId: 't1', createdAt: 10, contextItems: [A, C] })
+  ])[0]!
+
+  it('처음 담긴 턴 순으로 모은다 — 같은 턴 안에서는 담긴 순서다', () => {
+    expect(contextOf(conversation)).toEqual([A, C, B])
+  })
+
+  it('같은 항목을 여러 턴에 담아도 한 번만 나온다', () => {
+    expect(contextOf(conversation).filter((c) => c.id === 'i1')).toHaveLength(1)
+  })
+
+  it('취소된 턴이 담았던 것은 세지 않는다', () => {
+    expect(contextOf(conversation).map((c) => c.id)).not.toContain('m2')
+  })
+
+  it('아무것도 담지 않은 대화는 빈 목록이다', () => {
+    const empty = groupConversations([makeRun({ id: 'e1', rootRunId: 'e1' })])[0]!
+    expect(contextOf(empty)).toEqual([])
   })
 })

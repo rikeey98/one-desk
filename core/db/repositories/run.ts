@@ -2,10 +2,11 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import type { Database } from '../open'
-import { issue, memo, repo, run, runContextItem } from '../schema'
+import { asset, issue, memo, repo, run, runContextItem } from '../schema'
 import { NotFoundError } from '../../errors'
 import type {
-  Run, ContextItemRef, RunStatus, AgentKind, Permission, InboxCounts
+  Run, ContextItemRef, ContextItemType, ContextItemView, RunStatus, AgentKind,
+  Permission, InboxCounts
 } from '@shared/models'
 import type { RunEvent } from '@shared/events'
 
@@ -50,40 +51,59 @@ export function createRunRepository(db: Database) {
   const INBOX_STATUSES: RunStatus[] = ['succeeded', 'failed', 'interrupted', 'canceled']
 
   /**
-   * 아직 살아 있는 id만 남긴다.
+   * 아직 살아 있는 id와 **지금의 이름**.
    *
    * 설계 §5는 `ON DELETE SET NULL`을 요구하지만 `item_id`는 repo·issue·memo·asset을
    * 함께 가리키는 다형 참조라 외래키 자체를 걸 수 없다. 그래서 이슈를 지워도
    * 행에는 죽은 id가 그대로 남는다. 읽는 시점에 걸러내 SET NULL과 같은 관측 동작을
    * 만든다 — run 기록은 남고 맥락 항목만 빠진다.
-   * asset은 아직 테이블이 없어(5단계) 걸러내지 않고 그대로 둔다.
+   *
+   * asset도 네 종류 중 하나로 똑같이 다룬다. "asset은 테이블이 없어 걸러내지
+   * 않는다"는 4단계의 결정이었고, 그 전제가 사라졌다 — 이름을 붙이려면 어차피
+   * 조회하므로 이름을 못 찾은 asset은 다른 종류와 같이 빠진다
+   * (`docs/sdlc/conversation-context/spec.md` 확인 필요 항목, 2026-09-17 승인).
+   *
+   * 종류당 한 번만 부른다(`inArray`) — run마다 부르면 N+1이 된다.
    */
-  function livingIds(type: 'repo' | 'issue' | 'memo', ids: string[]): Set<string> {
-    if (ids.length === 0) return new Set()
-    const table = type === 'repo' ? repo : type === 'issue' ? issue : memo
-    const rows = db.select({ id: table.id }).from(table).where(inArray(table.id, ids)).all()
-    return new Set(rows.map((r) => r.id))
+  function livingNames(type: ContextItemType, ids: string[]): Map<string, string> {
+    if (ids.length === 0) return new Map()
+    // 이름 컬럼은 종류마다 다르다 — repo·asset은 name, issue·memo는 title.
+    const rows = type === 'repo'
+      ? db.select({ id: repo.id, name: repo.name }).from(repo)
+        .where(inArray(repo.id, ids)).all()
+      : type === 'issue'
+        ? db.select({ id: issue.id, name: issue.title }).from(issue)
+          .where(inArray(issue.id, ids)).all()
+        : type === 'memo'
+          ? db.select({ id: memo.id, name: memo.title }).from(memo)
+            .where(inArray(memo.id, ids)).all()
+          : db.select({ id: asset.id, name: asset.name }).from(asset)
+            .where(inArray(asset.id, ids)).all()
+    return new Map(rows.map((r) => [r.id, r.name]))
   }
 
-  function loadContext(runIds: string[]): Map<string, ContextItemRef[]> {
-    const map = new Map<string, ContextItemRef[]>()
+  function loadContext(runIds: string[]): Map<string, ContextItemView[]> {
+    const map = new Map<string, ContextItemView[]>()
     if (runIds.length === 0) return map
     const rows = db.select().from(runContextItem)
       .where(inArray(runContextItem.runId, runIds)).all()
 
-    const idsOf = (type: 'repo' | 'issue' | 'memo') =>
+    const idsOf = (type: ContextItemType) =>
       rows.filter((r) => r.itemType === type && r.itemId).map((r) => r.itemId!)
-    const alive = {
-      repo: livingIds('repo', idsOf('repo')),
-      issue: livingIds('issue', idsOf('issue')),
-      memo: livingIds('memo', idsOf('memo'))
+    const names = {
+      repo: livingNames('repo', idsOf('repo')),
+      issue: livingNames('issue', idsOf('issue')),
+      memo: livingNames('memo', idsOf('memo')),
+      asset: livingNames('asset', idsOf('asset'))
     }
 
     for (const row of rows) {
       if (!row.itemId) continue
-      if (row.itemType !== 'asset' && !alive[row.itemType].has(row.itemId)) continue
+      const label = names[row.itemType].get(row.itemId)
+      // 이름이 없다 = 지워졌다. 종류를 가리지 않고 뺀다.
+      if (label === undefined) continue
       const list = map.get(row.runId) ?? []
-      list.push({ type: row.itemType, id: row.itemId })
+      list.push({ type: row.itemType, id: row.itemId, label })
       map.set(row.runId, list)
     }
     return map

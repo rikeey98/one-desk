@@ -240,6 +240,12 @@ export interface ContextItemRef {
   id: string
 }
 
+/** 화면에 보이는 맥락 항목. 요청(ContextItemRef)에는 label이 없다. */
+export interface ContextItemView extends ContextItemRef {
+  /** 지금의 이름 — repo.name · issue.title · memo.title · asset.name */
+  label: string
+}
+
 export interface Run {
   id: string
   workspaceId: string
@@ -265,7 +271,7 @@ export interface Run {
   startedAt: number | null
   endedAt: number | null
   createdAt: number
-  contextItems: ContextItemRef[]
+  contextItems: ContextItemView[]
 }
 
 /** 렌더러가 실행을 요청할 때 넘기는 것 */
