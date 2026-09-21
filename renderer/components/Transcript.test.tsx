@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Transcript } from './Transcript'
 import { groupConversations } from '../conversation'
@@ -26,7 +26,7 @@ function makeRun(over: Partial<Run> & { id: string }): Run {
     externalSessionId: null, parentRunId: null, rootRunId: over.id, resultText: null,
     needsAnswer: false, timeoutMs: null, exitCode: null, errorMessage: null,
     logPath: '/tmp/x.log', reviewedAt: null, reviewedKind: null, startedAt: null,
-    endedAt: null, createdAt: 0, contextItems: [], ...over
+    endedAt: null, createdAt: 0, contextItems: [], usage: null, ...over
   }
 }
 
@@ -100,4 +100,64 @@ describe('Transcript', () => {
     render(<Transcript conversation={conv} onCancel={() => {}} />)
     expect(screen.getByText('답변 필요')).toBeInTheDocument()
   })
+
+  /** 실행 정보 한 줄 (`docs/sdlc/run-info/`) */
+  describe('실행 정보 줄', () => {
+    const full = {
+      model: 'claude-opus-5[1m]', inputTokens: 12431, outputTokens: 1203,
+      cacheReadTokens: 15428, cacheWriteTokens: 37917, reasoningTokens: 0,
+      costUsd: 0.386994, contextTokens: 53347, contextWindow: 1000000
+    }
+
+    function renderTurn(usage: Run['usage']) {
+      const conv = groupConversations([
+        makeRun({ id: 'a1', rootRunId: 'a1', resultText: '했습니다', usage })
+      ])[0]!
+      const { container } = render(<Transcript conversation={conv} onCancel={() => {}} />)
+      return container.querySelector('.turn-info')
+    }
+
+    it('모델·토큰·컨텍스트를 한 줄로 보여준다', () => {
+      const row = renderTurn(full)!
+      expect(row).toBeInTheDocument()
+      expect(row.textContent).toContain('claude-opus-5[1m]')
+      expect(row.textContent).toContain('12.4k↑ 1.2k↓')
+      expect(row.textContent).toContain('컨텍스트 5%')
+    })
+
+    it('정확한 수치와 비용은 호버로 읽는다 — 화면에 돈을 띄우지 않는다', () => {
+      const row = renderTurn(full)!
+      expect(row.getAttribute('title')).toContain('캐시 읽기 15,428')
+      expect(row.getAttribute('title')).toContain('$0.3870')
+      expect(row.textContent).not.toContain('$')
+    })
+
+    it('모르는 조각은 빠진다 — OpenCode는 모델도 창도 모른다', () => {
+      const row = renderTurn({
+        ...full, model: null, contextWindow: null, contextTokens: 6000
+      })!
+      expect(row.textContent).not.toContain('claude')
+      expect(row.textContent).toContain('컨텍스트 6.0k')
+      expect(row.textContent).not.toContain('%')
+    })
+
+    it('사용량이 없으면 줄 자체가 없다 — 이 기능 이전의 run은 화면이 그대로다', () => {
+      expect(renderTurn(null)).toBeNull()
+    })
+
+    it('보기 전용이다 — 줄 안에 버튼이 없다', () => {
+      const row = renderTurn(full)!
+      expect(within(row as HTMLElement).queryAllByRole('button')).toEqual([])
+    })
+
+    it('예약된 턴에는 줄이 없다 — 아직 아무것도 쓰지 않았다', () => {
+      const conv = groupConversations([
+        makeRun({ id: 'a2', rootRunId: 'a1', createdAt: 20, status: 'pending', usage: full }),
+        makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10, status: 'succeeded', usage: null })
+      ])[0]!
+      const { container } = render(<Transcript conversation={conv} onCancel={() => {}} />)
+      expect(container.querySelectorAll('.turn-info')).toHaveLength(0)
+    })
+  })
+
 })

@@ -244,7 +244,7 @@ describe('RunPanel', () => {
     status: 'succeeded', externalSessionId: 'sess-1', parentRunId: null, rootRunId: 'p1',
     resultText: null, needsAnswer: true, timeoutMs: null, exitCode: 0,
     errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
-    startedAt: 1, endedAt: 2, createdAt: 0, contextItems: []
+    startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], usage: null,
   }
   const conversation = groupConversations([parent])[0]!
 
@@ -257,7 +257,7 @@ describe('RunPanel', () => {
     status: 'succeeded', externalSessionId: 'sess-2', parentRunId: null, rootRunId: 'p2',
     resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
     errorMessage: null, logPath: '/tmp/y', reviewedAt: null, reviewedKind: null,
-    startedAt: 1, endedAt: 2, createdAt: 0, contextItems: []
+    startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], usage: null,
   }
   const otherConversation = groupConversations([otherParent])[0]!
 
@@ -403,7 +403,7 @@ describe('RunPanel — agent 선택', () => {
       status: 'succeeded', externalSessionId: 'ses_1', parentRunId: null, rootRunId: 'p9',
       resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
       errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
-      startedAt: 1, endedAt: 2, createdAt: 0, contextItems: []
+      startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], usage: null,
     }
     const opencodeConversation = groupConversations([opencodeParent])[0]!
 
@@ -500,7 +500,7 @@ describe('RunPanel — 모델 기본값', () => {
       status: 'succeeded', externalSessionId: 'sess-3', parentRunId: null, rootRunId: 'p3',
       resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
       errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
-      startedAt: 1, endedAt: 2, createdAt: 0, contextItems: []
+      startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], usage: null,
     }
     const resume = vi.fn().mockResolvedValue({ id: 'run-2' })
 
@@ -526,7 +526,7 @@ describe('RunPanel — 모델 기본값', () => {
       status: 'succeeded', externalSessionId: 'sess-4', parentRunId: null, rootRunId: 'p4',
       resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
       errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
-      startedAt: 1, endedAt: 2, createdAt: 0, contextItems: []
+      startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], usage: null,
     }
     const client = makeClient()
     const { rerender } = render(panel(client, repos, [], vi.fn(), 'w1',

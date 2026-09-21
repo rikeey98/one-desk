@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
 import type { AgentKind, Permission, RunStatus } from '@shared/models'
-import type { RunEvent, RunEventInit } from '@shared/events'
+import type { RunEvent, RunEventInit, RunUsage } from '@shared/events'
 import type { AgentAdapter, McpRunConfig } from './types'
 import { createLineSplitter } from './stream'
 import { createLogWriter } from './logWriter'
@@ -46,9 +46,42 @@ export interface StartSpec {
   preEvents?: RunEventInit[]
 }
 
+/**
+ * 두 사용량을 겹친다 (`docs/sdlc/run-info/spec.md` §3-3).
+ *
+ * **필드마다 규칙이 다르다.** 토큰과 비용은 더하고(opencode는 스텝마다, claude는 턴에
+ * 한 번 온다 — 하나를 더하면 그 하나가 되므로 한 규칙이 둘을 모두 맞춘다), 모델과
+ * 컨텍스트 둘은 마지막 non-null이 이긴다(합이 아니라 상태다 — 컨텍스트를 더하면
+ * 도구를 쓴 턴에서 창을 넘는다).
+ *
+ * null은 어느 쪽도 덮지 않는다. 모르는 값이 아는 값을 지우면 안 된다.
+ */
+export function mergeUsage(prev: RunUsage | null, next: RunUsage | null): RunUsage | null {
+  if (!prev) return next
+  if (!next) return prev
+
+  const add = (a: number | null, b: number | null): number | null =>
+    a === null ? b : b === null ? a : a + b
+  const latest = <T>(a: T | null, b: T | null): T | null => (b === null ? a : b)
+
+  return {
+    model: latest(prev.model, next.model),
+    inputTokens: add(prev.inputTokens, next.inputTokens),
+    outputTokens: add(prev.outputTokens, next.outputTokens),
+    cacheReadTokens: add(prev.cacheReadTokens, next.cacheReadTokens),
+    cacheWriteTokens: add(prev.cacheWriteTokens, next.cacheWriteTokens),
+    reasoningTokens: add(prev.reasoningTokens, next.reasoningTokens),
+    costUsd: add(prev.costUsd, next.costUsd),
+    contextTokens: latest(prev.contextTokens, next.contextTokens),
+    contextWindow: latest(prev.contextWindow, next.contextWindow)
+  }
+}
+
 export interface RunOutcome {
   status: RunStatus
   resultText: string | null
+  /** 모델·토큰·컨텍스트. 스트림이 알려주지 않았으면 null이다 */
+  usage: RunUsage | null
   externalSessionId: string | null
   needsAnswer: boolean
   exitCode: number | null
@@ -102,6 +135,7 @@ export function createRunManager(opts: RunManagerOptions) {
     let seq = 0
     let sessionId: string | null = null
     let resultText: string | null = null
+    let usage: RunUsage | null = null
     let needsAnswer = false
     let reportedStatus: RunStatus | null = null
     let canceled = false
@@ -113,6 +147,7 @@ export function createRunManager(opts: RunManagerOptions) {
       opts.onEvent(event)
 
       if (event.type === 'session') sessionId = event.sessionId
+      if (event.type === 'usage') usage = mergeUsage(usage, event.usage)
       if (event.type === 'result') {
         reportedStatus = event.status
         resultText = event.resultText
@@ -184,7 +219,10 @@ export function createRunManager(opts: RunManagerOptions) {
       : status === 'failed' && stderr ? stderr.slice(0, 2000)
       : null
 
-    return { status, resultText, externalSessionId: sessionId, needsAnswer, exitCode, errorMessage, logPath }
+    return {
+      status, resultText, usage,
+      externalSessionId: sessionId, needsAnswer, exitCode, errorMessage, logPath
+    }
   }
 
   function cancel(runId: string): void {

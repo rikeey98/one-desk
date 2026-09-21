@@ -31,6 +31,8 @@ function finish(code) {
 // terminal_slash_commands는 slash_commands의 부분집합이다(진짜 CLI와 같다).
 emit({
   type: 'system', subtype: 'init', session_id: 'fake-session',
+  // 실제로 쓰인 모델. 진짜 CLI가 여기에만 싣는다 (docs/sdlc/run-info/ FR-9).
+  model: 'claude-fake-5[1m]',
   slash_commands: ['code-review', 'compact', 'doctor', 'color', 'reload-plugins', 'pinetest'],
   terminal_slash_commands: ['doctor', 'color', 'reload-plugins'],
   plugins: []
@@ -59,7 +61,21 @@ if (scenario === 'hang') {
   const delayMs = Number.isFinite(parsedDelay) ? parsedDelay : 0
   emit({ type: 'assistant', message: { content: [{ type: 'text', text: '작업 중' }] } })
   setTimeout(() => {
-    emit({ type: 'result', subtype: 'success', is_error: false, result: '끝남', session_id: 'fake-session' })
+    emit({
+      type: 'result', subtype: 'success', is_error: false, result: '끝남',
+      session_id: 'fake-session',
+      // 토큰·비용·컨텍스트. 모양은 claude 2.1.278 실측 그대로다.
+      usage: {
+        input_tokens: 2, output_tokens: 4,
+        cache_read_input_tokens: 15428, cache_creation_input_tokens: 37917,
+        output_tokens_details: { thinking_tokens: 0 },
+        iterations: [
+          { input_tokens: 2, cache_read_input_tokens: 15428, cache_creation_input_tokens: 37917 }
+        ]
+      },
+      total_cost_usd: 0.386994,
+      modelUsage: { 'claude-fake-5[1m]': { contextWindow: 1000000, costUSD: 0.386994 } }
+    })
     finish(0)
   }, delayMs)
 }

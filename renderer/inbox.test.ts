@@ -12,7 +12,7 @@ function run(over: Partial<Run>): Run {
     rootRunId: over.id ?? 'r1',
     resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
     errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
-    startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [],
+    startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], usage: null,
     ...over
   }
 }

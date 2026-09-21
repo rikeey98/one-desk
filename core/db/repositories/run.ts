@@ -8,7 +8,7 @@ import type {
   Run, ContextItemRef, ContextItemType, ContextItemView, RunStatus, AgentKind,
   Permission, InboxCounts
 } from '@shared/models'
-import type { RunEvent } from '@shared/events'
+import type { RunEvent, RunUsage } from '@shared/events'
 
 /** db.transaction()의 콜백이 받는 runner. db와 같은 쿼리 빌더 API를 갖는다. */
 type Runner = Parameters<Parameters<Database['transaction']>[0]>[0]
@@ -39,6 +39,64 @@ export interface FinishRunInput {
   needsAnswer: boolean
   exitCode: number | null
   errorMessage: string | null
+  /** 모델·토큰·컨텍스트. 스트림이 알려주지 않았으면 null이다 (docs/sdlc/run-info/) */
+  usage: RunUsage | null
+}
+
+/** 사용량이 사는 컬럼들. 이 배열이 펼치기·접기·빼기 세 곳의 단일 출처다. */
+const USAGE_COLUMNS = [
+  'actualModel', 'inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens',
+  'reasoningTokens', 'costUsd', 'contextTokens', 'contextWindow'
+] as const
+
+/**
+ * 행에서 사용량 컬럼을 떼어낸다.
+ *
+ * **`{ ...row }`를 그대로 `Run`으로 흘려보내면 안 된다.** 스프레드는 초과 속성
+ * 검사를 받지 않으므로 컬럼 아홉이 `usage`와 **함께** 실려 IPC로 나가는데,
+ * 타입은 끝까지 아무 말도 하지 않는다. 같은 값이 두 벌 나가고, 나중에 누가
+ * 낱개 필드를 쓰기 시작하면 출처가 갈린다.
+ */
+function withoutUsageColumns(
+  row: typeof run.$inferSelect
+): Omit<typeof run.$inferSelect, (typeof USAGE_COLUMNS)[number]> {
+  const rest: Partial<typeof run.$inferSelect> = { ...row }
+  for (const key of USAGE_COLUMNS) delete rest[key]
+  return rest as Omit<typeof run.$inferSelect, (typeof USAGE_COLUMNS)[number]>
+}
+
+/** `RunUsage` → 컬럼 아홉. 모르는 값은 null로 들어간다(0이 아니다) */
+function usageColumns(usage: RunUsage | null) {
+  return {
+    actualModel: usage?.model ?? null,
+    inputTokens: usage?.inputTokens ?? null,
+    outputTokens: usage?.outputTokens ?? null,
+    cacheReadTokens: usage?.cacheReadTokens ?? null,
+    cacheWriteTokens: usage?.cacheWriteTokens ?? null,
+    reasoningTokens: usage?.reasoningTokens ?? null,
+    costUsd: usage?.costUsd ?? null,
+    contextTokens: usage?.contextTokens ?? null,
+    contextWindow: usage?.contextWindow ?? null
+  }
+}
+
+/**
+ * 컬럼 아홉 → `RunUsage`. 전부 NULL이면 `null`이다 — 빈 껍데기를 만들면 화면이
+ * "0토큰"으로 읽는다(FR-2의 "줄을 그리지 않는다"가 여기서 갈린다).
+ */
+function foldUsage(row: typeof run.$inferSelect): RunUsage | null {
+  const usage: RunUsage = {
+    model: row.actualModel,
+    inputTokens: row.inputTokens,
+    outputTokens: row.outputTokens,
+    cacheReadTokens: row.cacheReadTokens,
+    cacheWriteTokens: row.cacheWriteTokens,
+    reasoningTokens: row.reasoningTokens,
+    costUsd: row.costUsd,
+    contextTokens: row.contextTokens,
+    contextWindow: row.contextWindow
+  }
+  return Object.values(usage).every((v) => v === null) ? null : usage
 }
 
 export function createRunRepository(db: Database) {
@@ -111,7 +169,11 @@ export function createRunRepository(db: Database) {
 
   function hydrate(rows: (typeof run.$inferSelect)[]): Run[] {
     const ctx = loadContext(rows.map((r) => r.id))
-    return rows.map((r) => ({ ...r, contextItems: ctx.get(r.id) ?? [] }))
+    return rows.map((r) => ({
+      ...withoutUsageColumns(r),
+      contextItems: ctx.get(r.id) ?? [],
+      usage: foldUsage(r)
+    }))
   }
 
   function get(id: string): Run {
@@ -270,7 +332,10 @@ export function createRunRepository(db: Database) {
     },
 
     markFinished(id: string, input: FinishRunInput): Run {
-      db.update(run).set({ ...input, endedAt: Date.now() }).where(eq(run.id, id)).run()
+      const { usage, ...rest } = input
+      db.update(run)
+        .set({ ...rest, ...usageColumns(usage), endedAt: Date.now() })
+        .where(eq(run.id, id)).run()
       return get(id)
     },
 

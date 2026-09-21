@@ -6,7 +6,32 @@
  * - withLoopbackBypass: MCP 서버가 항상 127.0.0.1이라는 우리 쪽 사정
  * - stripNeedsAnswer: [NEEDS_ANSWER] 표식은 우리가 프롬프트로 심은 규약이다
  * - summarize: 로그 길이 정책
+ * - emptyUsage: RunUsage의 "전부 모름" 기준값 (아홉 필드를 매번 손으로 적지 않는다)
  */
+
+import type { RunUsage } from '@shared/events'
+
+/**
+ * 아무것도 모르는 `RunUsage`. 아는 것만 얹어 쓴다.
+ *
+ * **0이 아니라 null이 기준값이다** — 모르는 것과 0은 다르다(spec §3-1). 어댑터가
+ * 필드 하나를 빠뜨려도 0이 아니라 null이 되어 화면에서 조각이 사라질 뿐,
+ * "안 썼다"는 거짓말이 되지 않는다.
+ */
+export function emptyUsage(known: Partial<RunUsage> = {}): RunUsage {
+  return {
+    model: null,
+    inputTokens: null,
+    outputTokens: null,
+    cacheReadTokens: null,
+    cacheWriteTokens: null,
+    reasoningTokens: null,
+    costUsd: null,
+    contextTokens: null,
+    contextWindow: null,
+    ...known
+  }
+}
 
 export function summarize(content: unknown): string {
   const text = typeof content === 'string' ? content : JSON.stringify(content ?? '')

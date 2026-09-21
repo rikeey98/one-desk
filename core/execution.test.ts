@@ -305,7 +305,8 @@ describe('ExecutionService', () => {
       needsAnswer: false,
       exitCode: 0,
       errorMessage: null,
-      logPath: run.logPath
+      logPath: run.logPath,
+      usage: null
     })
     await vi.waitFor(() => expect(local.runs.get(run.id).status).toBe('succeeded'))
     rmSync(local.logDir, { recursive: true, force: true })
@@ -876,7 +877,8 @@ describe('ExecutionService', () => {
       })
       ctx.runs.markFinished(created.id, {
         status: 'failed', resultText: null, externalSessionId: null,
-        needsAnswer: false, exitCode: 1, errorMessage: '죽음'
+        needsAnswer: false, exitCode: 1, errorMessage: '죽음',
+        usage: null
       })
 
       const child = await ctx.service.resume({
@@ -921,7 +923,7 @@ describe('ExecutionService', () => {
             seen.push(spec.resumeSessionId)
             return {
               status: 'succeeded' as const, resultText: null, externalSessionId: null,
-              needsAnswer: false, exitCode: 0, errorMessage: null, logPath: 'x'
+              needsAnswer: false, exitCode: 0, errorMessage: null, logPath: 'x', usage: null
             }
           },
           cancel: () => {},
@@ -943,7 +945,8 @@ describe('ExecutionService', () => {
       })
       spy.runs.markFinished(seeded.id, {
         status: 'succeeded', resultText: null, externalSessionId: 'fake-session',
-        needsAnswer: false, exitCode: 0, errorMessage: null
+        needsAnswer: false, exitCode: 0, errorMessage: null,
+        usage: null
       })
 
       await spy.service.resume({
@@ -965,7 +968,8 @@ describe('ExecutionService', () => {
       await vi.waitFor(() => expect(ctx.runs.get(failed.id).status).toBe('succeeded'))
       ctx.runs.markFinished(failed.id, {
         status: 'failed', resultText: null, externalSessionId: null,
-        needsAnswer: false, exitCode: 1, errorMessage: '실행 파일을 찾을 수 없습니다.'
+        needsAnswer: false, exitCode: 1, errorMessage: '실행 파일을 찾을 수 없습니다.',
+        usage: null
       })
 
       // 3턴은 그 앞 턴(1턴)의 세션을 이어받는다.
@@ -1190,7 +1194,8 @@ function createPerRunManager() {
         needsAnswer: false,
         exitCode: 0,
         errorMessage: null,
-        logPath: logPathFor(runId)
+        logPath: logPathFor(runId),
+        usage: null
       })
     }
   }
@@ -1233,3 +1238,57 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
     })
   ])
 }
+
+describe('사용량 배선 (docs/sdlc/run-info/)', () => {
+  it('RunManager가 낸 usage가 run에 저장된다', async () => {
+    // execution.ts의 finish(...)에 `usage:` 한 줄이 없으면 여기서 잡힌다.
+    // 실제 spawn에 얹지 않는 이유: Windows에서는 가짜 CLI가 뜨지 않아 스트림이
+    // 아예 없다(CLAUDE.md). 스텁이라야 두 OS에서 같은 것을 본다.
+    const usage = {
+      model: 'claude-opus-5[1m]',
+      inputTokens: 2, outputTokens: 4,
+      cacheReadTokens: 15428, cacheWriteTokens: 37917,
+      reasoningTokens: 0, costUsd: 0.386994,
+      contextTokens: 53347, contextWindow: 1000000
+    }
+    const manager = {
+      logPathFor: (id: string) => `/tmp/${id}.jsonl`,
+      async start() {
+        return {
+          status: 'succeeded' as const, resultText: '끝', externalSessionId: null,
+          needsAnswer: false, exitCode: 0, errorMessage: null, logPath: '/tmp/x',
+          usage
+        }
+      },
+      cancel() {}, cancelAll() {}, isRunning: () => false
+    }
+    const ctx2 = setup({ manager: manager as unknown as RunManager })
+    const started = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: 'x', context: []
+    })
+    expect(ctx2.runs.get(started.id).usage).toEqual(usage)
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+
+  it('usage가 없는 실행은 run.usage가 null이다', async () => {
+    const manager = {
+      logPathFor: (id: string) => `/tmp/${id}.jsonl`,
+      async start() {
+        return {
+          status: 'succeeded' as const, resultText: '끝', externalSessionId: null,
+          needsAnswer: false, exitCode: 0, errorMessage: null, logPath: '/tmp/x',
+          usage: null
+        }
+      },
+      cancel() {}, cancelAll() {}, isRunning: () => false
+    }
+    const ctx2 = setup({ manager: manager as unknown as RunManager })
+    const started = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: 'x', context: []
+    })
+    expect(ctx2.runs.get(started.id).usage).toBeNull()
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+})

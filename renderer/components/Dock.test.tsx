@@ -32,7 +32,7 @@ function makeRun(over: Partial<Run> = {}): Run {
     parentRunId: null, rootRunId: over.id ?? 'run-1', resultText: null, needsAnswer: false, timeoutMs: null,
     exitCode: null, errorMessage: null, logPath: '/tmp/logs/run-1/stream.jsonl',
     reviewedAt: null, reviewedKind: null, startedAt: 1, endedAt: null,
-    createdAt: 1, contextItems: [],
+    createdAt: 1, contextItems: [], usage: null,
     ...over
   }
 }

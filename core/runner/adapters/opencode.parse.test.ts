@@ -100,3 +100,53 @@ describe('opencodeAdapter.parseLine — 단위', () => {
     expect((result as { ok: boolean }).ok).toBe(false)
   })
 })
+
+/** 모델·토큰·컨텍스트 (`docs/sdlc/run-info/`). 값은 기록된 실측 픽스처의 모양이다. */
+describe('opencodeAdapter.parseLine — usage', () => {
+  const stepFinish = (tokens: unknown, cost = 0) => JSON.stringify({
+    type: 'step_finish', sessionID: 'ses_x',
+    part: { type: 'step-finish', reason: 'tool-calls', tokens, cost }
+  })
+
+  it('step_finish 한 줄이 usage 하나가 된다', () => {
+    const out = opencodeAdapter.parseLine(stepFinish({
+      total: 4017, input: 1765, output: 45, reasoning: 31, cache: { write: 12, read: 2176 }
+    }, 0.004), 'run-1')
+    expect(out.filter((e) => e.type === 'usage')).toHaveLength(1)
+    expect(out[0]).toMatchObject({
+      type: 'usage',
+      usage: {
+        inputTokens: 1765, outputTokens: 45, reasoningTokens: 31,
+        cacheReadTokens: 2176, cacheWriteTokens: 12, costUsd: 0.004
+      }
+    })
+  })
+
+  it('contextTokens는 그 스텝의 입력 + 캐시 읽기 + 캐시 쓰기다', () => {
+    const out = opencodeAdapter.parseLine(stepFinish({
+      total: 4017, input: 1765, output: 45, reasoning: 0, cache: { write: 12, read: 2176 }
+    }), 'run-1')
+    // 1765 + 2176 + 12 = 3953. total(4017)은 출력까지 포함하므로 컨텍스트가 아니다.
+    expect(out[0]).toMatchObject({ usage: { contextTokens: 3953 } })
+  })
+
+  it('모델과 컨텍스트 창은 알 수 없어 null이다', () => {
+    // OpenCode 스트림에는 모델도 창 크기도 없다 — 지어내지 않는다(spec §3-1).
+    const out = opencodeAdapter.parseLine(stepFinish({
+      total: 10, input: 5, output: 5, reasoning: 0, cache: { write: 0, read: 0 }
+    }), 'run-1')
+    expect(out[0]).toMatchObject({ usage: { model: null, contextWindow: null } })
+  })
+
+  it('tokens가 없는 step_finish는 usage를 내지 않는다', () => {
+    const out = opencodeAdapter.parseLine(JSON.stringify({
+      type: 'step_finish', sessionID: 'ses_x', part: { type: 'step-finish', reason: 'stop' }
+    }), 'run-1')
+    expect(out).toEqual([])
+  })
+
+  it('기록된 픽스처의 step_finish 넷이 모두 usage가 된다', () => {
+    // 픽스처에는 step_finish가 넷 있다 — 마지막(reason: "stop")까지 포함한다.
+    expect(parseAll().filter((e) => e.type === 'usage')).toHaveLength(4)
+  })
+})

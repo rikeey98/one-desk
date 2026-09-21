@@ -132,3 +132,103 @@ describe('init의 MCP 연결 상태', () => {
     expect(out.find((e) => e.type === 'error')).toBeUndefined()
   })
 })
+
+/**
+ * 모델·토큰·컨텍스트 (`docs/sdlc/run-info/`). 값은 2026-09-21에 claude 2.1.278로
+ * 실측한 모양 그대로다.
+ */
+describe('claudeCodeAdapter.parseLine — usage', () => {
+  const resultLine = (usage: unknown, extra: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      type: 'result', subtype: 'success', session_id: 's1', result: '끝',
+      ...(usage === undefined ? {} : { usage }),
+      ...extra
+    })
+
+  it('init에서 실제로 쓰인 모델을 뽑는다', () => {
+    const out = claudeCodeAdapter.parseLine(
+      JSON.stringify({
+        type: 'system', subtype: 'init', session_id: 's1', model: 'claude-opus-5[1m]'
+      }), 'r1'
+    )
+    const ev = out.find((e) => e.type === 'usage')
+    // 사용자가 모델 칸을 비워도 무엇이 돌았는지 알 수 있는 유일한 자리다.
+    expect(ev).toMatchObject({ usage: { model: 'claude-opus-5[1m]' } })
+  })
+
+  it('model이 없는 init은 usage를 내지 않는다', () => {
+    const out = claudeCodeAdapter.parseLine(
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: 's1' }), 'r1'
+    )
+    expect(out.find((e) => e.type === 'usage')).toBeUndefined()
+  })
+
+  it('result에서 토큰과 비용을 뽑는다', () => {
+    const out = claudeCodeAdapter.parseLine(resultLine({
+      input_tokens: 2,
+      output_tokens: 4,
+      cache_read_input_tokens: 15428,
+      cache_creation_input_tokens: 37917,
+      output_tokens_details: { thinking_tokens: 11 }
+    }, { total_cost_usd: 0.386994 }), 'r1')
+    expect(out.find((e) => e.type === 'usage')).toMatchObject({
+      usage: {
+        inputTokens: 2, outputTokens: 4,
+        cacheReadTokens: 15428, cacheWriteTokens: 37917,
+        reasoningTokens: 11, costUsd: 0.386994
+      }
+    })
+  })
+
+  it('contextTokens는 iterations의 마지막 요청으로 잰다', () => {
+    // 합이 아니라 마지막 하나다 — 합으로 재면 도구를 쓴 턴에서 창을 넘는다(spec §3-2).
+    const out = claudeCodeAdapter.parseLine(resultLine({
+      input_tokens: 12, output_tokens: 8,
+      cache_read_input_tokens: 500, cache_creation_input_tokens: 100,
+      iterations: [
+        { input_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 100 },
+        { input_tokens: 2, cache_read_input_tokens: 500, cache_creation_input_tokens: 0 }
+      ]
+    }), 'r1')
+    // 마지막 = 2 + 500 + 0 = 502. 앞의 것(110)이나 합(612)이 아니다.
+    expect(out.find((e) => e.type === 'usage')).toMatchObject({
+      usage: { contextTokens: 502 }
+    })
+  })
+
+  it('iterations가 없으면 최상위 값으로 컨텍스트를 잰다', () => {
+    const out = claudeCodeAdapter.parseLine(resultLine({
+      input_tokens: 2, output_tokens: 4,
+      cache_read_input_tokens: 15428, cache_creation_input_tokens: 37917
+    }), 'r1')
+    expect(out.find((e) => e.type === 'usage')).toMatchObject({
+      usage: { contextTokens: 53347 }
+    })
+  })
+
+  it('modelUsage에서 컨텍스트 창 크기를 뽑는다', () => {
+    const out = claudeCodeAdapter.parseLine(resultLine(
+      { input_tokens: 1, output_tokens: 1 },
+      { modelUsage: { 'claude-opus-5[1m]': { contextWindow: 1000000, costUSD: 0.5 } } }
+    ), 'r1')
+    expect(out.find((e) => e.type === 'usage')).toMatchObject({
+      usage: { contextWindow: 1000000 }
+    })
+  })
+
+  it('usage가 없는 옛 result 줄은 usage 이벤트를 내지 않는다', () => {
+    const out = claudeCodeAdapter.parseLine(resultLine(undefined), 'r1')
+    expect(out.find((e) => e.type === 'usage')).toBeUndefined()
+    // result 자체는 그대로 나와야 한다.
+    expect(out.find((e) => e.type === 'result')).toBeDefined()
+  })
+
+  it('rate_limit_event는 아무 이벤트도 내지 않는다', () => {
+    // 개인 구독 정보다 — 파싱하지 않는 것이 결정이고, 그 금지를 여기서 고정한다(spec §7).
+    const out = claudeCodeAdapter.parseLine(JSON.stringify({
+      type: 'rate_limit_event', session_id: 's1',
+      rate_limit_info: { status: 'allowed', unifiedWindows: { five_hour: { utilization: 0.03 } } }
+    }), 'r1')
+    expect(out).toEqual([])
+  })
+})

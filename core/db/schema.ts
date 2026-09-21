@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, primaryKey, index, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, real, primaryKey, index, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import { sql } from 'drizzle-orm'
 
 const nowMs = () => sql`(unixepoch() * 1000)`
@@ -109,6 +109,23 @@ export const run = sqliteTable('run', {
   // PRAGMA foreign_keys=OFF는 트랜잭션 안이라 무시된다. 읽는 쪽이 `?? id`로 푼다.
   rootRunId: text('root_run_id'),
   resultText: text('result_text'),
+  // 모델·토큰·컨텍스트 (docs/sdlc/run-info/). 전부 nullable이고 기본값이 없다 —
+  // **모르는 것과 0은 다르다.** 0으로 채우면 화면이 "안 썼다"는 거짓말을 한다.
+  //
+  // actualModel은 위의 model과 **다른 컬럼이다.** model은 우리가 요청한 값(비어
+  // 있을 수 있다 = CLI 기본값)이고 이것은 실제로 돈 모델이다. 뭉치면 "비워서
+  // 돌렸는데 무엇이 돌았나"를 영영 알 수 없게 된다.
+  actualModel: text('actual_model'),
+  inputTokens: integer('input_tokens'),
+  outputTokens: integer('output_tokens'),
+  cacheReadTokens: integer('cache_read_tokens'),
+  cacheWriteTokens: integer('cache_write_tokens'),
+  reasoningTokens: integer('reasoning_tokens'),
+  /** 정가 기준 추정이다 — 청구액이 아니다 */
+  costUsd: real('cost_usd'),
+  /** 마지막 요청의 프롬프트 크기. 토큰 합계와 다른 수다 */
+  contextTokens: integer('context_tokens'),
+  contextWindow: integer('context_window'),
   needsAnswer: integer('needs_answer', { mode: 'boolean' }).notNull().default(false),
   timeoutMs: integer('timeout_ms'),
   exitCode: integer('exit_code'),
