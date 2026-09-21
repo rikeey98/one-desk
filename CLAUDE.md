@@ -202,6 +202,8 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **사라진 asset을 지우지 않는다.** `last_seen_at`으로 "없음"만 표시한다. 지우면 그 asset을 첨부했던 과거 run의 기록이 끊긴다(전체 설계 §232).
 
+**한 번의 스캔은 시각 하나를 찍는다 — 배치마다 `Date.now()`를 따로 찍지 말 것.** 화면의 "없음"은 그 workspace에서 가장 최근에 본 `lastSeenAt`보다 오래된 discovered asset이다(엄격 비교). `scanWorkspace`가 repo 하나·글로벌 루트 하나마다 시각을 새로 찍으면, 먼저 훑은 repo의 asset이 나중에 훑은 글로벌보다 몇 ms 오래돼 **방금 본 파일에 "없음"이 붙는다.** 글로벌 skill이 많은 장비일수록 걷는 데 1ms를 넘겨 잘 나고, 단위 테스트는 임시 디렉토리가 작아 시각이 같아져 조용히 초록이다 — `core/assets/service.test.ts`는 그래서 `Date.now`를 호출마다 1ms씩 흐르는 시계로 바꿔 결정적으로 잡는다. `scanRepo`(등록·경로 변경)는 그 repo만 훑는 부분 스캔이라 이 규칙 밖이다 — 그 뒤에는 같은 workspace의 나머지(글로벌 포함)가 상대적으로 오래돼 다음 전체 스캔까지 "없음"으로 보일 수 있다. 설계 §3-2("등록할 때 — 그 repo만")가 정한 것이라 코드에서 바꾸지 않았다.
+
 **`core.repos.create`는 스캔을 await한다 — 이 `await`는 어떤 테스트도 고정하지 못한다.** 기다리지 않으면 화면이 목록을 다시 읽는 시점에 스캔이 아직 안 끝나 있어 방금 등록한 repo의 asset이 새로고침 전까지 안 보인다. 그런데 스캔이 워낙 빨라 e2e는 `await`를 빼도 통과한다(실측). 지우지 말 것 — 통과는 경합에서 이긴 것이지 옳아서가 아니다.
 
 **asset 목록은 repo 목록이 바뀌면 다시 읽어야 한다.** `useAssets`가 `repoKey`(repo id를 이어붙인 문자열)를 의존성으로 받는 이유다. 이것이 빠지면 repo를 등록해도 asset이 화면에 나타나지 않는다 — 실제로 e2e가 여기서 걸렸다.

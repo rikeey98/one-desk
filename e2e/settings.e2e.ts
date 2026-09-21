@@ -57,16 +57,23 @@ describe('설정 화면 탭', () => {
     ).toBe(1)
 
     // 새로고침으로 다시 훑어도 한 벌이다 — 옛 경로의 행이 옮겨졌지 새 행이 생긴 것이 아니다.
+    // 새로고침 뒤에만 생길 수 있는 것(옮긴 자리에 방금 심은 베타)을 기다려야 "새로고침의
+    // 결과가 화면에 왔다"를 알 수 있다 — 알파는 새로고침 전에도 하나였다.
+    mkdirSync(join(movedDir, '.claude', 'skills', '베타'), { recursive: true })
+    writeFileSync(join(movedDir, '.claude', 'skills', '베타', 'SKILL.md'), '---\nname: 베타\n---\n')
     await page.getByRole('button', { name: '새로고침' }).click()
     await expect.poll(
-      () => page.getByRole('button', { name: '알파 맥락에 담기' }).count(),
+      () => page.getByRole('button', { name: '베타 맥락에 담기' }).count(),
       { timeout: 10_000 }
     ).toBe(1)
-    // "없음" 배지까지는 여기서 단언하지 않는다. 화면의 없음 판정은 workspace에서 가장
-    // 최근에 본 시각과의 비교인데, e2e 앱은 진짜 홈을 훑으므로 이 장비의 글로벌 skill이
-    // repo보다 몇 ms 뒤에 스캔돼 repo asset이 "없음"으로 칠해진다 — 이 기능과 무관한
-    // 판정 문제다. 옮긴 자리에서 실제로 다시 봤다는 것(lastSeenAt 상승)은
-    // core/index.test.ts의 "경로를 바꾸면 … 한 벌만 남는다"가 잡는다.
+    expect(await page.getByRole('button', { name: '알파 맥락에 담기' }).count()).toBe(1)
+
+    // 방금 두 번(경로 변경 재스캔·새로고침) 본 asset에 "없음"이 붙으면 안 된다. e2e 앱은
+    // 진짜 홈을 훑으므로 이 장비의 글로벌 skill이 repo 뒤에 스캔되는데, 한 번의 스캔이
+    // 배치마다 다른 시각을 찍던 시절에는 repo asset이 글로벌보다 몇 ms 오래돼 "없음"으로
+    // 칠해졌다. 시각 하나를 잡는 규칙은 core/assets/service.test.ts가 결정적으로 고정하고,
+    // 여기는 그것이 화면까지 닿는지를 본다(글로벌 skill이 없는 장비에서는 원래 재현되지 않는다).
+    expect(await page.getByRole('listitem', { name: '알파', exact: true }).innerText()).not.toContain('없음')
   })
 
   it('앱 탭에서 바꾼 상한을 도크의 슬롯 표시기가 같은 값으로 보여준다', async () => {
