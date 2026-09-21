@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events'
+import { spawn } from 'node:child_process'
 import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,6 +21,8 @@ import { createExecutionService } from './execution'
 import { claudeCodeAdapter } from './runner/adapters/claudeCode'
 import { opencodeAdapter } from './runner/adapters/opencode'
 import { resolveAgentPath } from './runner/agentPath'
+import { findVscodeExecutable, newWindowArgs } from './editor/vscodeLaunch'
+import { vscodeFolderUrl } from './editor/vscodeUrl'
 import type { AgentStatuses } from '@shared/models'
 import { createSettingRepository } from './db/repositories/setting'
 import { createRunQueue } from './runner/queue'
@@ -230,6 +233,31 @@ export function createCore(opts: CoreOptions) {
      */
     repos: {
       ...repos,
+
+      /**
+       * repo를 VS Code **새 창**으로 연다.
+       *
+       * URL 스킴은 마지막으로 쓰던 창을 재사용해 그 폴더를 덮어쓴다 — 보고 있던
+       * 작업이 사라진다. 새 창을 열려면 CLI의 `--new-window`뿐이다
+       * (microsoft/vscode#141548은 아직 열려 있다).
+       *
+       * **CLI를 못 찾으면 URL로 되돌아간다.** macOS에서 "Install 'code' command in
+       * PATH"를 누른 적 없는 사람에게는 CLI가 없는데, 그때 아무 일도 안 일어나면
+       * 버튼이 고장난 것처럼 보인다. 기존 창에 열리더라도 열리는 편이 낫다.
+       * 그 URL을 여는 것은 electron의 `shell`이라 여기서 하지 않고 돌려준다.
+       */
+      async openInEditor(id: string): Promise<{ fallbackUrl: string | null }> {
+        const { path } = repos.get(id)
+        const exe = await findVscodeExecutable()
+        if (!exe) return { fallbackUrl: vscodeFolderUrl(path) }
+
+        // detached + unref: VS Code가 앱보다 오래 살아야 하고, 앱이 그 프로세스를
+        // 기다리지 않아야 한다. stdio를 열어두면 파이프가 차면서 VS Code가 멈춘다.
+        const child = spawn(exe, newWindowArgs(path), { detached: true, stdio: 'ignore' })
+        child.on('error', (err) => onError('VS Code를 띄우지 못했습니다', err))
+        child.unref()
+        return { fallbackUrl: null }
+      },
       async create(input: Parameters<typeof repos.create>[0]) {
         const made = repos.create(input)
         // **스캔을 기다린 뒤에 돌려준다.** 기다리지 않으면 화면이 목록을 다시 읽는

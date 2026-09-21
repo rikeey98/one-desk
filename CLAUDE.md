@@ -173,6 +173,15 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **MCP 서버의 응답은 SSE(`text/event-stream`)다.** `StreamableHTTPServerTransport`가 그렇게 응답한다. `res.json()`으로 바로 파싱하면 깨진다 — 본문을 텍스트로 받아 `data:`로 시작하는 줄을 찾아 그 뒤를 JSON.parse해야 한다. `core/runner/fixtures/fake-claude-mcp.mjs`가 그 패턴이다.
 
+**`vscode://file/...`로는 새 창을 못 연다.** URL 스킴은 마지막으로 쓰던 창을 재사용해 그
+폴더를 덮어쓴다 — 보고 있던 작업이 사라진다. URL에 새 창 옵션을 달라는 요청은 아직 열려
+있다(microsoft/vscode#141548). 그래서 repo 열기는 CLI의 `--new-window`를 spawn한다.
+**Windows에서 PATH의 `code`는 `<설치>in\code.cmd`라 그대로 spawn하면 `EINVAL`이다** —
+다행히 그 shim이 부르는 `Code.exe`가 `bin`의 부모에 있어 거기서 유도한다
+(`core/editor/vscodeLaunch.ts`). CLI를 못 찾으면 URL로 되돌아간다 — 기존 창에 열리더라도
+아무 일도 안 일어나는 것보다 낫다(macOS에서 "Install 'code' command in PATH"를 누른 적
+없는 경우).
+
 **`--tools`와 `--allowedTools`는 다른 일을 한다.** `--tools`는 도구 자체를 존재하지 않게 만들어 모델이 시도조차 못 하게 하고, `--allowedTools`는 존재하는 도구를 묻지 않고 승인한다. **MCP 도구는 `--permission-mode`로 자동 승인되지 않는다** — `mcp__<serverName>` 접두사를 `--allowedTools`에 직접 얹어야 하고, 빠뜨리면 agent가 MCP 도구를 전혀 못 쓰는데 실패가 조용하다(`core/runner/adapters/claudeCode.ts`의 `mcpToolPrefixes`).
 
 **agent가 MCP로 만든 데이터는 run이 끝나면 화면에 나타난다.** `useIssues`/`useMemos`가 `onRunUpdate`를 구독해, **같은 workspace의 끝난 run**에 대해 목록을 다시 읽는다. 4단계 설계 §1이 "UI 변경 없음"으로 미뤄뒀던 경계였고, MCP가 실제로 돌기 시작하면서 매번 걸려 해소했다. 같은 run의 후속 갱신(확인함/보관)으로는 다시 읽지 않는다. **`e2e/mcp.e2e.ts`는 화면을 벗어나지 않고 확인한다** — 예전처럼 인박스에 갔다 돌아오면 패널이 다시 마운트돼 구독이 죽어도 통과해 버린다.

@@ -1,6 +1,5 @@
 import { ipcMain, shell } from 'electron'
 import { CHANNELS } from '@shared/channels'
-import { vscodeFolderUrl } from '@core/editor/vscodeUrl'
 import type { Core } from '@core/index'
 import type { CreateRepoInput, UpdateRepoInput } from '@shared/models'
 
@@ -16,8 +15,10 @@ export function registerRepoHandlers(core: Core) {
     core.repos.update(input))
   ipcMain.handle(CHANNELS.reposRemove, (_e, id: string) =>
     core.repos.remove(id))
-  // `shell`은 electron 전용이라 core가 부를 수 없다. URL 조립만 순수 함수로
-  // 떼어내 core에서 테스트하고, 여기는 경로를 찾아 넘기는 일만 한다.
-  ipcMain.handle(CHANNELS.reposOpenInEditor, (_e, id: string) =>
-    shell.openExternal(vscodeFolderUrl(core.repos.get(id).path)))
+  // core가 VS Code를 **새 창**으로 띄운다. CLI를 못 찾았을 때만 URL을 돌려주고,
+  // `shell`은 electron 전용이라 그 마지막 한 걸음만 여기서 한다.
+  ipcMain.handle(CHANNELS.reposOpenInEditor, async (_e, id: string) => {
+    const { fallbackUrl } = await core.repos.openInEditor(id)
+    if (fallbackUrl) await shell.openExternal(fallbackUrl)
+  })
 }
