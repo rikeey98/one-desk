@@ -387,6 +387,7 @@ export function SettingsPanel({
 
                 {/* 모델 칸이 둘인 것은 두 CLI의 지정 형식이 다르기 때문이다 — 하나로 합치면
                     agent를 바꾼 순간 상대가 모르는 이름이 넘어간다 (전체 설계 §199). */}
+                <div className="settings-grid">
                 <label className="settings-field">
                   Claude Code 기본 모델
                   <input
@@ -406,6 +407,7 @@ export function SettingsPanel({
                     onChange={(e) => setModelOpencode(e.target.value)}
                   />
                 </label>
+                </div>
 
                 <label className="settings-field">
                   기본 권한
@@ -451,6 +453,7 @@ export function SettingsPanel({
                   비워두면 PATH에서 찾습니다. 실행이 &quot;찾을 수 없습니다&quot;로 막힐 때 여기에 절대 경로를 넣으세요.
                 </p>
 
+                <div className="settings-grid">
                 <label className="settings-field">
                   Claude Code 실행 파일
                   <input
@@ -470,6 +473,7 @@ export function SettingsPanel({
                     onChange={(e) => setOpencodePath(e.target.value)}
                   />
                 </label>
+                </div>
 
                 <button type="button" disabled={pathsBusy} onClick={() => void savePaths()}>
                   CLI 경로 저장
@@ -482,7 +486,7 @@ export function SettingsPanel({
                     {AGENT_LABELS.map(([kind, label]) => {
                       const status = agents[kind]
                       return (
-                        <li key={kind}>
+                        <li key={kind} className={status.ok ? 'settings-status-ok' : 'settings-status-bad'}>
                           {label}: {status.ok
                             ? `${status.executable ?? ''}`
                             : (status.reason ?? '확인할 수 없습니다')}
@@ -507,6 +511,7 @@ export function SettingsPanel({
               비워두면 기본값으로 돌아갑니다.
             </p>
 
+            <div className="settings-grid">
             <label className="settings-field">
               Claude Code 글로벌 경로
               <textarea
@@ -526,6 +531,7 @@ export function SettingsPanel({
                 onChange={(e) => setOpencode(e.target.value)}
               />
             </label>
+            </div>
 
             <button type="button" disabled={busy} onClick={() => void save()}>저장</button>
 

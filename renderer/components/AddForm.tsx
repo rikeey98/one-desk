@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { IconPlus } from './icons'
 
 export function AddForm({ placeholder, onSubmit }: {
   placeholder: string
@@ -27,6 +28,8 @@ export function AddForm({ placeholder, onSubmit }: {
 
   return (
     <form onSubmit={handleSubmit} className="add-form">
+      {/* 입력칸 왼쪽의 + 표시. "여기에 적으면 새로 생긴다"를 placeholder보다 먼저 말한다. */}
+      <span className="add-form-icon"><IconPlus /></span>
       <input
         value={value}
         onChange={(e) => setValue(e.target.value)}

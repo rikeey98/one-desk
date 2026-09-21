@@ -5,6 +5,7 @@ import { AssetDetail } from './AssetDetail'
 import { useAssets } from '../hooks/useAssets'
 import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextChip } from '../context'
+import { IconCollapse, IconRefresh } from './icons'
 import type { Asset, AssetKind, Repo } from '@shared/models'
 
 /**
@@ -72,7 +73,11 @@ export function AssetPanel({
     const items = assets.filter((a) => a.kind === kind)
     return (
       <section className="asset-group">
-        <h3>{title}</h3>
+        {/* 개수는 h3 밖에 둔다 — 제목의 접근성 이름이 "SKILLS 3"이 되면 안 된다. */}
+        <div className="asset-group-head">
+          <h3>{title}</h3>
+          <span className="group-count">{items.length}</span>
+        </div>
         {items.length === 0 && <div className="panel-empty">없습니다</div>}
         <ul className="item-list">
           {items.map((a) => {
@@ -104,8 +109,10 @@ export function AssetPanel({
                   onClick={() => onOpen?.(a.id)}
                 >{a.name}</button>
                 <span className="asset-desc">{a.description ?? ''}</span>
-                <span className="asset-origin" title={a.filePath ?? ''}>{origin(a)}</span>
-                {isMissing(a, latestSeenAt) && <span className="chip-badge">없음</span>}
+                <span className="item-meta">
+                  <span className="asset-origin" title={a.filePath ?? ''}>{origin(a)}</span>
+                  {isMissing(a, latestSeenAt) && <span className="chip-badge">없음</span>}
+                </span>
               </li>
             )
           })}
@@ -126,7 +133,16 @@ export function AssetPanel({
           <option value="agent">agent</option>
         </select>
         <AddForm placeholder="새 asset 이름…" onSubmit={addAuthored} />
-        <button type="button" onClick={() => void rescan()}>새로고침</button>
+        {/* 이름은 aria-label이 준다 — 테스트와 스크린리더는 "새로고침"으로 잡는다. */}
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="새로고침"
+          title="새로고침"
+          onClick={() => void rescan()}
+        >
+          <IconRefresh />
+        </button>
       </div>
       {error && <div role="alert">{error}</div>}
       {group('skill', 'SKILLS')}
@@ -139,8 +155,14 @@ export function AssetPanel({
   return (
     <Panel
       title="Skills / Agents"
+      count={assets.length}
+      // 이슈·메모와 같이 열리면 세 칸을 통째로 쓴다. 이 prop이 빠져 있던 동안은
+      // 상세가 좁은 세 번째 칸 안에서만 보였다.
+      expanded={Boolean(expanded)}
       action={expanded && openId && (
-        <button type="button" onClick={() => onOpen?.(openId)}>축소</button>
+        <button type="button" className="icon-button icon-button-sm" aria-label="축소" title="축소" onClick={() => onOpen?.(openId)}>
+          <IconCollapse />
+        </button>
       )}
     >
       {expanded && open

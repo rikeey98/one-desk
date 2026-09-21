@@ -20,6 +20,7 @@ describe('핵심 한 바퀴', () => {
     await wsButton.click()
 
     // 2. repo 등록 — cwd로 쓰이므로 실제로 존재하는 디렉토리여야 한다
+    await page.getByRole('button', { name: 'repo 등록' }).click()
     await page.getByPlaceholder('repo 이름').fill('샘플')
     await page.getByPlaceholder('/절대/경로').fill(app.repoDir)
     await page.getByRole('button', { name: '추가' }).click()

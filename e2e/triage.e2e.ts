@@ -47,7 +47,8 @@ describe('이슈 훑기', () => {
     await banner.waitFor({ state: 'detached', timeout: 5_000 })
 
     // 그리고 그 이슈가 '이번주' 그룹 안에 있다
-    const group = page.getByRole('button', { name: /이번주 \(1\)/ })
+    // 개수는 괄호가 아니라 알약이다 — 접근성 이름은 "이번주 1".
+    const group = page.getByRole('button', { name: /이번주\s*1/ })
     await group.waitFor({ state: 'visible', timeout: 5_000 })
 
     // 축을 바꾸면 다시 묶인다 — App.tsx가 repos를 안 내려보내면 여기서 깨진다.
@@ -56,7 +57,7 @@ describe('이슈 훑기', () => {
     // 내용이 실제로 쓰이는 것은 axis === 'repo'일 때뿐이므로, repos prop 자체를
     // 지키는 가드는 아래 repo 축 단언이다.
     await page.getByLabel('묶기').selectOption('kind')
-    await page.getByRole('button', { name: /조사 \(1\)/ })
+    await page.getByRole('button', { name: /조사\s*1/ })
       .waitFor({ state: 'visible', timeout: 5_000 })
 
     // repo 축은 groupIssues()가 repos 배열의 이름·순서를 직접 읽는 유일한 경로다
@@ -64,6 +65,7 @@ describe('이슈 훑기', () => {
     // repo 등록은 core-loop.e2e.ts와 같은 관용구를 그대로 쓴다: 작업 디렉토리는
     // launchApp()이 만들어준 실제 임시 디렉토리(app.repoDir)여야 한다 — repo의
     // path가 cwd로 쓰이므로 존재하지 않는 경로를 넣으면 등록 자체가 의미 없다.
+    await page.getByRole('button', { name: 'repo 등록' }).click()
     await page.getByPlaceholder('repo 이름').fill(REPO_NAME)
     await page.getByPlaceholder('/절대/경로').fill(app.repoDir)
     await page.getByRole('button', { name: '추가' }).click()
@@ -90,7 +92,7 @@ describe('이슈 훑기', () => {
     // repo 축으로 묶으면 repo의 "이름"이 그룹 헤더로 보인다 — 이 이름은
     // App.tsx가 IssuePanel에 내려보내는 repos 배열에서만 올 수 있다.
     await page.getByLabel('묶기').selectOption('repo')
-    await page.getByRole('button', { name: new RegExp(`${REPO_NAME} \\(1\\)`) })
+    await page.getByRole('button', { name: new RegExp(`${REPO_NAME}\\s*1`) })
       .waitFor({ state: 'visible', timeout: 5_000 })
   })
 })

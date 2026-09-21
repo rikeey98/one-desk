@@ -256,6 +256,9 @@ export function IssueDetail({ issue, repos, onChanged, onDeleted, onRequestClose
         onChange={(e) => { setTitle(e.target.value); titleSave.schedule(e.target.value) }}
         onBlur={() => { void titleSave.flush() }}
       />
+      {/* 상태·축 셋·repo를 한 줄(넘치면 줄바꿈)에 모은다 — 세로로 쌓으면 본문이
+          그만큼 밀려 내려가 정작 읽고 쓰는 칸이 작아진다. */}
+      <div className="detail-meta">
       <select
         aria-label="상태"
         className={`detail-status status status-${status}`}
@@ -283,6 +286,7 @@ export function IssueDetail({ issue, repos, onChanged, onDeleted, onRequestClose
         picked={repoIds}
         onChange={changeRepos}
       />
+      </div>
       <textarea
         aria-label="본문"
         className="detail-body"

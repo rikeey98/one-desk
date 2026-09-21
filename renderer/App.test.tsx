@@ -354,6 +354,7 @@ describe('App', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: 'ws1' }))
 
+    await userEvent.click(await screen.findByRole('button', { name: 'repo 등록' }))
     await userEvent.type(await screen.findByPlaceholderText('repo 이름'), 'api')
     await userEvent.type(screen.getByPlaceholderText('/절대/경로'), '/tmp/api')
     await userEvent.click(screen.getByRole('button', { name: '추가' }))
@@ -1499,7 +1500,7 @@ describe('App — asset repo 필터 배선', () => {
 
     // repo 카드다 — 이름과 경로가 함께 접근성 이름이 된다.
     // "api 맥락에 담기" 버튼과 구별해야 한다.
-    await userEvent.click(await screen.findByRole('button', { name: 'api /tmp/api' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'api repo' }))
 
     await waitFor(() => expect(queries).toContain('r1'))
   })
@@ -1523,7 +1524,7 @@ describe('App — 메모 repo 배선', () => {
     await selectWorkspace()
     await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
 
-    // repo 카드("api /tmp/api")·담기 버튼("api 맥락에 담기")과 구별되는,
+    // repo 카드("api repo")·담기 버튼("api 맥락에 담기")과 구별되는,
     // 이름만 가진 토글이다. getByRole의 name은 문자열이면 완전 일치라
     // 저 둘에는 걸리지 않는다.
     expect(await screen.findByRole('button', { name: 'api' }))

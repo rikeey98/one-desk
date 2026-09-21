@@ -1,12 +1,15 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useState, type KeyboardEvent, type ReactNode } from 'react'
 
 /**
  * 두 번 눌러야 실행되는 버튼. 되돌릴 수 없는 동작에 쓴다.
  *
  * 이 앱에는 모달이 없고 SlotIndicator가 이미 인라인 확인 패턴을 쓴다 (설계 §5).
  */
-export function ConfirmButton({ label, confirmLabel, ariaLabel, onConfirm }: {
-  label: string
+export function ConfirmButton({ label, confirmLabel, ariaLabel, className, onConfirm }: {
+  /** 평소 표시. 아이콘 버튼이면 ariaLabel이 반드시 있어야 한다 — 아이콘은 이름이 없다. */
+  label: ReactNode
+  /** 감싸는 줄의 다른 버튼과 같은 모양이어야 할 때 덧붙이는 클래스 */
+  className?: string
   confirmLabel: string
   /**
    * 접근성 이름. 같은 화면에 이 버튼이 여럿일 때(예: repo마다 하나) 무엇을
@@ -32,7 +35,7 @@ export function ConfirmButton({ label, confirmLabel, ariaLabel, onConfirm }: {
   return (
     <button
       type="button"
-      className={armed ? 'confirm-button confirm-armed' : 'confirm-button'}
+      className={[armed ? 'confirm-button confirm-armed' : 'confirm-button', className].filter(Boolean).join(' ')}
       {...(armed || !ariaLabel ? {} : { 'aria-label': ariaLabel })}
       onClick={() => { if (armed) { setArmed(false); onConfirm() } else setArmed(true) }}
       onBlur={() => setArmed(false)}

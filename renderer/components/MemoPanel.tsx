@@ -5,6 +5,7 @@ import { MemoDetail } from './MemoDetail'
 import { useMemos } from '../hooks/useMemos'
 import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextChip } from '../context'
+import { IconCollapse } from './icons'
 import type { Repo } from '@shared/models'
 
 export function MemoPanel({
@@ -43,12 +44,17 @@ export function MemoPanel({
   const list = (
     <>
       <AddForm placeholder="새 메모 제목…" onSubmit={addMemo} />
-      {!listError && memos.length === 0 && <div className="panel-empty">메모가 없습니다</div>}
+      {!listError && memos.length === 0 && (
+        <div className="panel-empty">
+          메모가 없습니다
+          <span className="panel-empty-hint">위 칸에 제목을 적고 Enter를 누르면 생깁니다</span>
+        </div>
+      )}
       <ul className="item-list">
         {memos.map((m) => {
           const picked = chipKeys.has(chipKey({ type: 'memo', id: m.id }))
           return (
-            <li key={m.id} className="item">
+            <li key={m.id} className={openId === m.id ? 'item item-active' : 'item'}>
               <button
                 type="button"
                 className={picked ? 'item-pick item-picked' : 'item-pick'}
@@ -77,9 +83,12 @@ export function MemoPanel({
   return (
     <Panel
       title="Memos"
+      count={memos.length}
       expanded={expanded}
       action={expanded && openId && (
-        <button type="button" onClick={() => onOpen(openId)}>축소</button>
+        <button type="button" className="icon-button icon-button-sm" aria-label="축소" title="축소" onClick={() => onOpen(openId)}>
+          <IconCollapse />
+        </button>
       )}
     >
       {listError && <div role="alert" className="form-error">{listError}</div>}

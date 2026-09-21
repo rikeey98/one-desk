@@ -61,6 +61,8 @@ describe('이슈 본문', () => {
     // 제목을 눌러도 도크에 칩이 생기지 않는다
     expect(await page.getByRole('button', { name: new RegExp(`${ISSUE}.*맥락에서 빼기`) }).count()).toBe(0)
 
+    // 열린 동안은 그 패널에 상세만 남아 목록의 담기 토글이 안 보인다 — 먼저 닫는다.
+    await page.keyboard.press('Escape')
     await page.getByRole('button', { name: `${ISSUE} 맥락에 담기` }).click()
     await page.getByRole('button', { name: new RegExp(`${ISSUE}.*맥락에서 빼기`) })
       .waitFor({ state: 'visible', timeout: 5_000 })

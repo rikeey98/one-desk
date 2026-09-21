@@ -1,17 +1,21 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { AddForm } from './AddForm'
 import { RenameField } from './RenameField'
 import { DeleteByName } from './DeleteByName'
 import { useClient } from '../client/ClientProvider'
+import { IconPencil, IconTrash } from './icons'
 import type { InboxCounts, McpStatus, Workspace } from '@shared/models'
 
 /** workspace 목록은 App이 useWorkspaces()로 한 번만 조회해 내려준다 — 이 컴포넌트가
  * 자기 인스턴스를 따로 가지면 다른 인스턴스(App→InboxPanel 등)가 새 workspace를
  * 모르게 된다(App.tsx의 주석 참고). */
 export function Sidebar({
-  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectInbox, onSelectSettings, counts, countsError, mcpStatus, onDeleted
+  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectInbox, onSelectSettings, counts, countsError, mcpStatus, onDeleted, repoTree
 }: {
   workspaces: Workspace[]
+  /** 고른 workspace 아래에 들여쓰기로 붙는 repo 목록(App이 RepoStrip을 넘긴다).
+   *  본문 상단에 있던 것을 여기로 옮겼다 — 세 패널이 그만큼 높아진다. */
+  repoTree?: ReactNode
   loading: boolean
   error: string | null
   refresh: () => Promise<void>
@@ -106,7 +110,7 @@ export function Sidebar({
                     aria-label={`${w.name} 이름 바꾸기`}
                     onClick={() => { setEditing(w.id); setDeleting(null) }}
                   >
-                    ✎
+                    <IconPencil />
                   </button>
                   <button
                     type="button"
@@ -114,7 +118,7 @@ export function Sidebar({
                     aria-label={`${w.name} 삭제`}
                     onClick={() => { setDeleting(w.id); setEditing(null) }}
                   >
-                    🗑
+                    <IconTrash />
                   </button>
                 </span>
               </>
@@ -129,6 +133,8 @@ export function Sidebar({
                 onCancel={() => setDeleting(null)}
               />
             )}
+            {/* repo는 고른 workspace 아래에만 펼친다 — App이 그 workspace의 repo만 읽는다. */}
+            {w.id === selectedId && view === 'workspace' && repoTree}
           </li>
         ))}
       </ul>

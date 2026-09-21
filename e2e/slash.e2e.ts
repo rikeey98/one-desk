@@ -19,6 +19,7 @@ describe('슬래시 커맨드', () => {
     await page.getByPlaceholder('새 workspace 이름…').fill('slash-ws')
     await page.getByPlaceholder('새 workspace 이름…').press('Enter')
     await page.getByRole('button', { name: 'slash-ws', exact: true }).click()
+    await page.getByRole('button', { name: 'repo 등록' }).click()
     await page.getByPlaceholder('repo 이름').fill('slash-repo')
     await page.getByPlaceholder('/절대/경로').fill(app.repoDir)
     await page.getByRole('button', { name: '추가', exact: true }).click()

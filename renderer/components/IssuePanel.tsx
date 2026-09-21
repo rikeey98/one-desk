@@ -8,6 +8,7 @@ import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextChip } from '../context'
 import { groupIssues, isStale, nextInQueue, triageQueue } from '../issueGroups'
 import { AXIS_LABELS, SOURCE_LABELS, KIND_LABELS, type GroupAxis } from '../issueAxes'
+import { IconChevronRight, IconCollapse } from './icons'
 import type { Issue, Repo } from '@shared/models'
 
 const AXES: GroupAxis[] = ['priority', 'source', 'kind', 'repo']
@@ -144,7 +145,12 @@ export function IssuePanel({
         </select>
       </label>
 
-      {!listError && issues.length === 0 && <div className="panel-empty">이슈가 없습니다</div>}
+      {!listError && issues.length === 0 && (
+        <div className="panel-empty">
+          이슈가 없습니다
+          <span className="panel-empty-hint">제목만 적어 던져 두세요. 분류는 나중에 훑기로 몰아서 합니다</span>
+        </div>
+      )}
 
       {groups.map((group) => {
         const isCollapsed = collapsed.has(group.key)
@@ -156,15 +162,18 @@ export function IssuePanel({
               aria-expanded={!isCollapsed}
               onClick={() => toggleGroup(group.key)}
             >
+              {/* 화살표는 aria-expanded가 이미 말하는 것이라 장식이다 — CSS가 돌린다. */}
+              <IconChevronRight className="group-chevron" />
+              <span className="group-label">{group.label}</span>
               {/* 개수는 접혀도 남는다. 안 보여도 있다는 것은 알아야 한다. */}
-              {isCollapsed ? '▸' : '▾'} {group.label} ({group.issues.length})
+              <span className="group-count">{group.issues.length}</span>
             </button>
             {!isCollapsed && (
               <ul className="item-list">
                 {group.issues.map((i) => {
                   const picked = chipKeys.has(chipKey({ type: 'issue', id: i.id }))
                   return (
-                    <li key={i.id} className="item">
+                    <li key={i.id} className={openId === i.id ? 'item item-active' : 'item'}>
                       <button
                         type="button"
                         className={picked ? 'item-pick item-picked' : 'item-pick'}
@@ -181,15 +190,18 @@ export function IssuePanel({
                       >
                         {i.title}
                       </button>
-                      <AxisChips issue={i} />
-                      {isStale(i, now) && (
-                        <span className="axis-chip axis-chip-stale" aria-label="오래 방치됨">⚠</span>
-                      )}
-                      {/* 목록의 상태와 축은 읽기 전용이다. 편집은 상세가 맡는다.
-                          여기서 잠기지 않은 update로 쓰면 그 쓰기가 updatedAt을 올려
-                          열려 있는 상세의 기대값만 낡게 만들고, 다음 자동 저장이
-                          사용자 자신의 클릭을 agent의 편집으로 착각한다. */}
-                      <span className={`status status-${i.status}`}>{i.status}</span>
+                      {/* 오른쪽 끝의 읽기 전용 표식들. 제목이 길면 이쪽이 아니라 제목이 줄어든다. */}
+                      <span className="item-meta">
+                        <AxisChips issue={i} />
+                        {isStale(i, now) && (
+                          <span className="axis-chip axis-chip-stale" aria-label="오래 방치됨">⚠</span>
+                        )}
+                        {/* 목록의 상태와 축은 읽기 전용이다. 편집은 상세가 맡는다.
+                            여기서 잠기지 않은 update로 쓰면 그 쓰기가 updatedAt을 올려
+                            열려 있는 상세의 기대값만 낡게 만들고, 다음 자동 저장이
+                            사용자 자신의 클릭을 agent의 편집으로 착각한다. */}
+                        <span className={`status status-${i.status}`}>{i.status}</span>
+                      </span>
                     </li>
                   )
                 })}
@@ -204,9 +216,12 @@ export function IssuePanel({
   return (
     <Panel
       title="Issues"
+      count={issues.length}
       expanded={expanded}
       action={expanded && openId && (
-        <button type="button" onClick={() => onOpen(openId)}>축소</button>
+        <button type="button" className="icon-button icon-button-sm" aria-label="축소" title="축소" onClick={() => onOpen(openId)}>
+          <IconCollapse />
+        </button>
       )}
     >
       {listError && <div role="alert" className="form-error">{listError}</div>}

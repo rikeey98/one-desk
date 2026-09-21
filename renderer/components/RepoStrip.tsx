@@ -4,6 +4,7 @@ import { AddRepoForm } from './AddRepoForm'
 import { RenameField } from './RenameField'
 import { ConfirmButton } from './ConfirmButton'
 import { chipKey, type ContextChip } from '../context'
+import { IconExternalLink, IconFolder, IconPencil, IconPlus, IconTrash } from './icons'
 import type { Repo } from '@shared/models'
 
 export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, onSelect, chipKeys, onToggleContext, onDeleted }: {
@@ -23,6 +24,9 @@ export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, 
   // 열기 실패는 부모가 주는 `error`와 다른 출처다 — 목록을 읽다 난 오류가
   // 이 버튼 때문에 지워지면 안 된다.
   const [openError, setOpenError] = useState<string | null>(null)
+  // 등록 폼은 "repo 등록"을 눌렀을 때만 펼친다 — 등록은 repo마다 한 번 있는 일이라
+  // 늘 펼쳐 두면 사이드바만 길어진다. 등록이 끝나면 다시 접는다.
+  const [adding, setAdding] = useState(false)
 
   async function renameRepo(id: string, name: string) {
     setEditing(null)
@@ -81,11 +85,16 @@ export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, 
                 <button
                   type="button"
                   className={r.id === selectedRepoId ? 'repo-card repo-card-selected' : 'repo-card'}
+                  /* 사이드바에는 경로를 둘 자리가 없다 — 이름만 보이고 경로는 hover(title)로 닿는다.
+                     고치는 것은 설정의 repo 탭이다. */
+                  title={r.path}
+                  /* 이름만으로는 상세의 repo 태그 칩("api")과 접근성 이름이 같아진다 —
+                     스크린리더도 테스트도 둘을 못 가른다. */
+                  aria-label={`${r.name} repo`}
                   onClick={() => onSelect(r.id === selectedRepoId ? null : r.id)}
                 >
+                  <IconFolder className="repo-icon" />
                   <span className="repo-name">{r.name}</span>
-                  {/* 이름과 한 줄에 놓으므로 긴 경로는 말줄임으로 잘린다 — 전체는 title로 닿는다. */}
-                  <span className="repo-path" title={r.path}>{r.path}</span>
                 </button>
                 {/* 평소엔 CSS로 감춰 두고 호버·포커스에서 드러낸다. DOM에는 항상
                     있어야 키보드로도 닿는다. */}
@@ -96,7 +105,7 @@ export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, 
                     aria-label={`${r.name} VS Code로 열기`}
                     onClick={() => void openInEditor(r.id)}
                   >
-                    ⧉
+                    <IconExternalLink />
                   </button>
                   <button
                     type="button"
@@ -104,12 +113,13 @@ export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, 
                     aria-label={`${r.name} 이름 바꾸기`}
                     onClick={() => setEditing(r.id)}
                   >
-                    ✎
+                    <IconPencil />
                   </button>
                   {/* repo 삭제는 이슈·메모에 붙은 태그만 떼고 본문은 남긴다 —
                       workspace 삭제와 달리 두 번 누르기로 무게가 맞는다. */}
                   <ConfirmButton
-                    label="🗑"
+                    label={<IconTrash />}
+                    className="row-action row-action-danger"
                     confirmLabel="정말 삭제?"
                     ariaLabel={`${r.name} 삭제`}
                     onConfirm={() => void removeRepo(r.id)}
@@ -121,7 +131,22 @@ export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, 
         ))}
         {!error && repos.length === 0 && <div className="repo-empty">등록된 repo가 없습니다</div>}
       </div>
-      <AddRepoForm workspaceId={workspaceId} onAdded={refresh} />
+      {/* 이름에 "추가"를 넣지 않는다 — 폼의 "추가" 버튼을 부분 일치로 잡는 e2e와 부딪힌다. */}
+      <button
+        type="button"
+        className="repo-add-toggle"
+        aria-expanded={adding}
+        onClick={() => setAdding((v) => !v)}
+      >
+        <IconPlus />
+        repo 등록
+      </button>
+      {adding && (
+        <AddRepoForm
+          workspaceId={workspaceId}
+          onAdded={async () => { await refresh(); setAdding(false) }}
+        />
+      )}
     </div>
   )
 }

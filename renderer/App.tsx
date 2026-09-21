@@ -233,6 +233,21 @@ export default function App() {
         countsError={inboxError}
         mcpStatus={mcpStatus}
         onDeleted={forgetWorkspace}
+        // repo 목록은 사이드바의 고른 workspace 아래에 붙는다 (2026-09-22). 본문 상단에
+        // 있던 것을 옮겼다 — 같은 useRepos 인스턴스를 RunPanel과 나눠 쓰는 것은 그대로다.
+        repoTree={workspaceId ? (
+          <RepoStrip
+            workspaceId={workspaceId}
+            repos={repos}
+            error={reposError}
+            refresh={refreshRepos}
+            selectedRepoId={repoId}
+            onSelect={setRepoId}
+            chipKeys={chipKeys}
+            onToggleContext={toggleChip}
+            onDeleted={forgetRepo}
+          />
+        ) : null}
       />
       <main className="main">
         {view === 'settings' && (
@@ -272,17 +287,6 @@ export default function App() {
         )}
         {view === 'workspace' && workspaceId && (
           <>
-            <RepoStrip
-              workspaceId={workspaceId}
-              repos={repos}
-              error={reposError}
-              refresh={refreshRepos}
-              selectedRepoId={repoId}
-              onSelect={setRepoId}
-              chipKeys={chipKeys}
-              onToggleContext={toggleChip}
-              onDeleted={forgetRepo}
-            />
             <div className="columns">
               <IssuePanel
                 workspaceId={workspaceId}

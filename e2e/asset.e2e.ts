@@ -25,6 +25,7 @@ describe('asset 스캔', () => {
     await ws.waitFor({ state: 'visible', timeout: 10_000 })
     await ws.click()
 
+    await page.getByRole('button', { name: 'repo 등록' }).click()
     await page.getByPlaceholder('repo 이름').fill('샘플')
     await page.getByPlaceholder('/절대/경로').fill(app.repoDir)
     await page.getByRole('button', { name: '추가' }).click()

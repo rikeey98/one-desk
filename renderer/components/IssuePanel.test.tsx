@@ -118,29 +118,30 @@ describe('IssuePanel 그룹', () => {
       makeIssue({ id: 'a', title: 'A', priority: 'urgent' }),
       makeIssue({ id: 'b', title: 'B', priority: 'urgent' })
     ])
-    expect(await screen.findByRole('button', { name: /긴급 \(2\)/ })).toBeInTheDocument()
+    // 개수는 괄호가 아니라 알약이다 — 접근성 이름은 "긴급 2".
+    expect(await screen.findByRole('button', { name: /긴급 2/ })).toBeInTheDocument()
   })
 
   it('접어도 개수는 계속 보인다', async () => {
     renderPanel([makeIssue({ id: 'a', title: 'A', priority: 'someday' })])
-    const header = await screen.findByRole('button', { name: /언젠가 \(1\)/ })
+    const header = await screen.findByRole('button', { name: /언젠가 1/ })
     await userEvent.click(header)
     expect(screen.queryByRole('button', { name: 'A' })).not.toBeInTheDocument()
     // 접힌 뒤에도 개수는 남아야 한다. 이것이 A안을 고른 이유 자체다.
-    expect(screen.getByRole('button', { name: /언젠가 \(1\)/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /언젠가 1/ })).toBeInTheDocument()
   })
 
   it('완료 그룹은 처음부터 접혀 있다', async () => {
     renderPanel([makeIssue({ id: 'z', title: 'Z', status: 'done' })])
-    expect(await screen.findByRole('button', { name: /완료 \(1\)/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /완료 1/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Z' })).not.toBeInTheDocument()
   })
 
   it('축을 바꾸면 다시 묶는다', async () => {
     renderPanel([makeIssue({ id: 'a', title: 'A', priority: 'urgent', source: 'customer' })])
-    await screen.findByRole('button', { name: /긴급 \(1\)/ })
+    await screen.findByRole('button', { name: /긴급 1/ })
     await userEvent.selectOptions(screen.getByLabelText('묶기'), 'source')
-    expect(await screen.findByRole('button', { name: /고객 \(1\)/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /고객 1/ })).toBeInTheDocument()
   })
 
   it('정리 안 된 이슈가 있으면 배너가 뜬다', async () => {

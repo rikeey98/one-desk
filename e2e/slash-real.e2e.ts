@@ -19,6 +19,7 @@ describe.skipIf(process.env['ONE_DESK_REAL_CLI'] !== '1')('실제 CLI 슬래시 
     await page.getByPlaceholder('새 workspace 이름…').fill('실제 CLI 검증')
     await page.getByPlaceholder('새 workspace 이름…').press('Enter')
     await page.getByRole('button', { name: '실제 CLI 검증', exact: true }).click()
+    await page.getByRole('button', { name: 'repo 등록' }).click()
     await page.getByPlaceholder('repo 이름').fill('합성 테스트')
     await page.getByPlaceholder('/절대/경로').fill(app.repoDir)
     await page.getByRole('button', { name: '추가', exact: true }).click()

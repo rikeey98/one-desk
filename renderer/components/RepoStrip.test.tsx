@@ -123,19 +123,28 @@ describe('RepoStrip 세로 목록', () => {
     expect(list.querySelectorAll('.repo-slot')).toHaveLength(repos.length)
   })
 
-  it('추가 폼은 목록 밖에 있다 — 목록만 스크롤하고 추가 줄은 늘 보여야 한다', () => {
-    // 폼이 목록 안으로 들어가면 repo가 늘어났을 때 스크롤을 끝까지 내려야만 새 repo를
-    // 등록할 수 있다. 추가는 목록 길이와 무관하게 닿을 수 있어야 한다.
+  it('추가 폼은 "repo 등록"을 눌러야 펼쳐지고, 목록 밖에 있다', async () => {
+    // 등록은 repo마다 한 번 있는 일이라 평소엔 접혀 있다. 펼쳐진 폼이 목록 안으로
+    // 들어가면 repo가 늘어났을 때 스크롤을 끝까지 내려야만 닿는다.
     const { container } = renderStrip()
+    expect(container.querySelector('form.add-repo-form')).toBeNull()
+    const toggle = screen.getByRole('button', { name: 'repo 등록' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await userEvent.click(toggle)
     const form = container.querySelector('form.add-repo-form')!
     expect(form).toBeTruthy()
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
     expect(container.querySelector('.repo-list')!.contains(form)).toBe(false)
     expect(container.querySelector('.repo-strip')!.contains(form)).toBe(true)
+    await userEvent.click(toggle)
+    expect(container.querySelector('form.add-repo-form')).toBeNull()
   })
 
-  it('경로 전체는 title로 닿는다 — 좁은 줄에서는 말줄임으로 잘린다', () => {
+  it('경로는 화면에 없고 hover(title)로만 닿는다 — 사이드바에는 둘 자리가 없다', () => {
     renderStrip()
-    expect(screen.getByTitle('/tmp/api')).toHaveTextContent('/tmp/api')
+    const card = screen.getByTitle('/tmp/api')
+    expect(card).toHaveTextContent('api-server')
+    expect(screen.queryByText('/tmp/api')).toBeNull()
   })
 })
 
