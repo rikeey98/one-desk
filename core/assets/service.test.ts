@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -37,7 +37,10 @@ beforeEach(() => {
   globalRoots = []
   ctx = setup()
 })
-afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
+afterEach(() => {
+  vi.restoreAllMocks()
+  rmSync(dir, { recursive: true, force: true })
+})
 
 describe('createAssetService', () => {
   it('repo 하나를 훑어 저장한다', async () => {
@@ -162,5 +165,56 @@ describe('글로벌 스캔', () => {
     } finally {
       rmSync(home, { recursive: true, force: true })
     }
+  })
+})
+
+describe('스캔 한 번의 시각', () => {
+  /**
+   * `Date.now()`를 부를 때마다 1ms씩 흐르게 한다. 실제 디렉토리 걷기는 1ms 안에 끝날 수도
+   * 있어 "배치마다 시각이 다르다"는 결함이 테스트에서 재현되지 않는다 — 시계를 쥐어야
+   * 서비스가 시각을 몇 번 찍는지가 결정적으로 드러난다.
+   */
+  function tickingClock(): void {
+    let t = 1_700_000_000_000
+    vi.spyOn(Date, 'now').mockImplementation(() => ++t)
+  }
+
+  it('repo와 글로벌 루트를 한 번에 훑으면 모든 배치의 lastSeenAt이 같다', async () => {
+    // 화면의 "없음"은 workspace에서 가장 최근에 본 시각보다 오래된 것이다(설계 §3-4).
+    // 한 번의 스캔이 배치마다 다른 시각을 찍으면, 먼저 훑은 repo의 asset이 나중에
+    // 훑은 글로벌보다 몇 ms 오래돼 방금 본 파일에 "없음"이 붙는다.
+    const homeA = mkdtempSync(join(tmpdir(), 'one-desk-home-a-'))
+    const homeB = mkdtempSync(join(tmpdir(), 'one-desk-home-b-'))
+    try {
+      writeSkill(dir, '알파')
+      writeSkill(homeA, '글로벌 알파')
+      writeSkill(homeB, '글로벌 베타')
+      ctx.repos.create({ workspaceId: ctx.workspaceId, name: 'api', path: dir })
+      globalRoots = [join(homeA, '.claude', 'skills'), join(homeB, '.claude', 'skills')]
+      tickingClock()
+
+      await ctx.service.scanWorkspace(ctx.workspaceId)
+
+      const list = ctx.assets.list({ workspaceId: ctx.workspaceId })
+      expect(list).toHaveLength(3)
+      expect(new Set(list.map((a) => a.lastSeenAt)).size).toBe(1)
+    } finally {
+      rmSync(homeA, { recursive: true, force: true })
+      rmSync(homeB, { recursive: true, force: true })
+    }
+  })
+
+  it('두 번째 스캔은 첫 스캔보다 늦은 시각을 찍는다', async () => {
+    // 시각 하나를 잡는 것이 "매번 같은 시각"으로 퇴화하면 사라진 파일을 영영 못 잡는다.
+    writeSkill(dir, '알파')
+    ctx.repos.create({ workspaceId: ctx.workspaceId, name: 'api', path: dir })
+    tickingClock()
+
+    await ctx.service.scanWorkspace(ctx.workspaceId)
+    const first = ctx.assets.list({ workspaceId: ctx.workspaceId })[0]!.lastSeenAt!
+    await ctx.service.scanWorkspace(ctx.workspaceId)
+    const second = ctx.assets.list({ workspaceId: ctx.workspaceId })[0]!.lastSeenAt!
+
+    expect(second).toBeGreaterThan(first)
   })
 })

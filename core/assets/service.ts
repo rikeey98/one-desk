@@ -22,21 +22,27 @@ export interface AssetServiceDeps {
  * repo 등록(scanRepo), 새로고침(scanWorkspace), 부팅(scanAll).
  *
  * 파일 감시는 하지 않는다. 예측 가능한 시점에만 돈다.
+ *
+ * **한 번의 스캔은 시각 하나를 찍는다.** 화면의 "없음"은 그 workspace에서 가장 최근에
+ * 본 시각보다 오래된 asset이다(설계 §3-4). 배치(repo 하나, 글로벌 루트 하나)마다
+ * `Date.now()`를 따로 찍으면 먼저 훑은 repo의 asset이 나중에 훑은 글로벌보다 몇 ms
+ * 오래돼, 방금 본 파일에 "없음"이 붙는다 — 글로벌 skill이 많은 장비일수록 잘 난다.
  */
 export function createAssetService(deps: AssetServiceDeps) {
-  async function scanOne(workspaceId: string, repoId: string, path: string): Promise<void> {
+  async function scanOne(workspaceId: string, repoId: string, path: string, seenAt: number): Promise<void> {
     const found = await walk(path)
-    deps.assets.upsertDiscovered({ workspaceId, repoId, seenAt: Date.now(), found })
+    deps.assets.upsertDiscovered({ workspaceId, repoId, seenAt, found })
   }
 
   async function scanWorkspace(workspaceId: string): Promise<void> {
+    const seenAt = Date.now()
     for (const r of deps.repos.list(workspaceId)) {
-      await scanOne(workspaceId, r.id, r.path)
+      await scanOne(workspaceId, r.id, r.path, seenAt)
     }
     // 글로벌은 repo와 무관하다. repo를 하나도 등록하지 않은 workspace에서도 보여야 한다.
     for (const root of deps.globalRoots()) {
       const found = await scanDir(root)
-      deps.assets.upsertDiscovered({ workspaceId, repoId: null, seenAt: Date.now(), found })
+      deps.assets.upsertDiscovered({ workspaceId, repoId: null, seenAt, found })
     }
   }
 
@@ -44,7 +50,7 @@ export function createAssetService(deps: AssetServiceDeps) {
     async scanRepo(workspaceId: string, repoId: string): Promise<void> {
       const target = deps.repos.list(workspaceId).find((r) => r.id === repoId)
       if (!target) return
-      await scanOne(workspaceId, repoId, target.path)
+      await scanOne(workspaceId, repoId, target.path, Date.now())
     },
 
     scanWorkspace,
