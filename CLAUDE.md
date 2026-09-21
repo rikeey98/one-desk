@@ -18,7 +18,7 @@ workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 
 
 **asset 스캔도 붙었다**(설계 `2026-09-07-asset-scan-design.md`, 계획 `2026-09-07-asset-scan.md`). **첫 실행에 마이그레이션 `0004`가 돈다** — `asset` 테이블 하나가 추가된다. repo의 `.claude/skills/*/SKILL.md`·`.claude/agents/*.md`·`.opencode/agent/*.md`를 훑어 목록에 띄우고(`discovered`), 앱에서 직접 쓴 것(`authored`)과 함께 맥락에 담아 실행에 실어 보낸다. `SKILLS / AGENTS` 패널의 자리표시자가 사라졌다.
 
-**asset 범위가 글로벌까지 넓어졌다**(intent·spec·plan은 `docs/sdlc/asset-scope/`). **첫 실행에 마이그레이션 `0005`가 돈다** — 동일성 인덱스를 갈아끼우고 그 전에 중복 행을 정리한다. repo 루트뿐 아니라 `~/.claude/skills` 같은 **글로벌 경로**도 훑고, 그 경로는 **사이드바 하단의 설정 화면**에서 claude용·opencode용을 따로 정한다. 목록은 repo를 고르면 글로벌 + 그 repo만 보여주고, run이 끝나면 그 workspace를 다시 훑는다.
+**asset 범위가 글로벌까지 넓어졌다**(intent·spec·plan은 `docs/sdlc/asset-scope/`). **첫 실행에 마이그레이션 `0005`가 돈다** — 동일성 인덱스를 갈아끼우고 그 전에 중복 행을 정리한다. repo 루트뿐 아니라 `~/.claude/skills` 같은 **글로벌 경로**도 훑고, 그 경로는 **설정 화면의 앱 탭**에서 claude용·opencode용을 따로 정한다. 목록은 repo를 고르면 글로벌 + 그 repo만 보여주고, run이 끝나면 그 workspace를 다시 훑는다.
 
 **workspace 실행 기본값이 배선됐다** (2026-09-19). `default_model_claude`·
 `default_model_opencode`·`default_agent_kind` 세 컬럼은 스키마에만 있고 **읽는 코드가
@@ -52,6 +52,24 @@ workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 
 **설정 화면은 초록인데 실행 버튼은 막히는** 상태가 생긴다. 프로세스를 띄우지 않으므로 값싸다.
 e2e에서 진짜 경로를 넣어 검증하려면 `launchApp({ agentPath: '' })`로 그 변수를 비워야 한다 —
 비우지 않으면 무엇을 넣든 가짜 CLI가 이긴다.
+
+**설정 화면은 네 탭이다**(intent·spec·plan은 `docs/sdlc/settings-screen/`). 실행 · 앱 · repo ·
+정보 — **탭은 값의 범위로 가른다.** 실행과 repo는 지금 고른 workspace 하나에, 앱은 장비
+전체에 걸리고, 정보는 읽기 전용이다. 위에서 "세 절"이라 부른 것이 탭으로 갈라졌다 —
+실행 기본값(권한 포함)과 CLI 경로는 **실행 탭**에, 글로벌 asset 경로는 **앱 탭**에 있고
+동시 실행 상한이 앱 탭에 더해졌다. **절마다 저장이 따로인 것은 그대로다.** 정보 탭은
+MCP 상태와 포트 · DB 파일 · 로그 디렉토리 · 앱 버전을 보여주고 데이터/로그 폴더를 연다 —
+여는 대상은 경로가 아니라 **이름**(`'data'`·`'logs'`)으로 넘긴다. 임의 경로를 여는 통로를
+만들지 않기 위해서고, 그 검증은 `core/app/reveal.ts`의 순수 함수다(electron IPC에는 테스트가
+없어 main에 두면 아무것도 고정하지 못한다 — `core/editor/vscodeUrl.ts`와 같은 구조).
+
+**초안 state는 전부 `SettingsPanel`이 쥔다 — 절을 자식 컴포넌트로 떼면서 state를 함께
+내리지 말 것.** 탭 전환이 곧 언마운트가 되어 고치던 입력이 사라진다(spec FR-11). `RepoTab`·
+`InfoTab`이 떨어져 나가 있는 것은 **state 없이 그리기만 하기 때문**이다. e2e "탭을 옮겼다
+돌아와도 고치던 입력이 그대로다"가 이것을 고정한다.
+
+**repo 이름·경로·설명은 이제 repo 탭에서 고친다** — 그전에는 DB를 SQL로 직접 고쳐야 했다.
+경로를 바꾸면 그 repo의 asset `file_path`가 같은 트랜잭션에서 따라 옮겨간다(아래 함정 절).
 
 **문서 체계가 하나 늘었다.** 이 작업부터 `docs/sdlc/<기능>/`에 intent → spec → plan 세 artifact를 두고 각각 사람의 승인을 받는다. 기존 `docs/superpowers/{specs,plans}/`는 그대로 두고 새 작업만 이쪽을 쓴다.
 
@@ -98,7 +116,7 @@ gh workflow run release.yml   # 3플랫폼 산출물을 손으로 빌드 (태그
 
 **Node는 22다.** 루트의 `.nvmrc`가 고정한다 — Node 26은 renderer 테스트 78개를 깬다(회귀가 아니다). CI도 22로 돈다.
 
-**Windows 장비에서 처음 셋업한다면 `docs/windows-setup.md`를 먼저 읽을 것.** 빌드 도구는 Visual Studio Build Tools **2022**여야 하고(최신 VS 18은 node-gyp가 못 읽는다), 앱 데이터를 옮겨 왔다면 repo 경로를 SQL로 직접 고쳐야 한다 — 앱에 path 편집 UI가 없다.
+**Windows 장비에서 처음 셋업한다면 `docs/windows-setup.md`를 먼저 읽을 것.** 빌드 도구는 Visual Studio Build Tools **2022**여야 하고(최신 VS 18은 node-gyp가 못 읽는다), 앱 데이터를 옮겨 왔다면 repo 경로를 다시 지정해야 한다 — 설정 화면의 **repo 탭**에서 고친다(전에는 SQL로 직접 고쳐야 했다).
 
 ## 절대 지켜야 할 경계 세 가지
 
@@ -281,6 +299,7 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 | `docs/superpowers/specs/2026-09-07-asset-scan-design.md` | asset 스캔 설계 — 데이터 모델과 `updated_at`(§2), 스캔 시점과 동일성(§3), frontmatter 파서(§4), 맥락 조립(§5), UI와 평문 렌더(§6) |
 | `docs/superpowers/plans/2026-09-07-asset-scan.md` | asset 스캔 구현 계획 (10개 태스크) |
 | `docs/sdlc/asset-scope/` | asset 범위 확장 — intent(문제)·spec(FR/NFR과 정책 검토)·plan(12단계). 글로벌 경로, 설정 화면, repo 필터 |
+| `docs/sdlc/settings-screen/` | 탭 기반 설정 화면 — intent·spec·plan. 탭을 값의 범위로 가르는 근거(spec FR-2), 초안 state와 탭 전환(FR-11), repo 경로 변경과 asset 이동(FR-9) |
 | `docs/sdlc/slash-commands/` | 슬래시 커맨드 — intent·spec·plan. 커맨드 조회와 캐시, 피커, 프롬프트 조립 |
 | `docs/sdlc/conversation-context/` | 대화에 담긴 맥락 표시 — intent·spec 승인됨, plan은 draft (진행 중) |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |
