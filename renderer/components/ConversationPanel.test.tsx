@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { RunEventProvider } from '../store/RunEventContext'
@@ -62,7 +62,8 @@ function renderPanel(
   opts: { resume?: ReturnType<typeof vi.fn>; onCancel?: (runId: string) => void } = {}
 ) {
   const client = makeClient(opts)
-  render(
+  const onRemoveChip = vi.fn()
+  const { container } = render(
     <ClientProvider client={client}>
       {/* 진행 중인 턴은 처음부터 펼쳐져 useRunEvents를 건다(Task 7) — 그 훅이
           RunEventProvider 컨텍스트를 요구하므로 여기서도 감싸 준다. */}
@@ -74,7 +75,7 @@ function renderPanel(
           repos={repos}
           reposError={null}
           chips={[]}
-          onRemoveChip={vi.fn()}
+          onRemoveChip={onRemoveChip}
           onStarted={vi.fn()}
           onCancel={opts.onCancel ?? vi.fn()}
           draftPrompt=""
@@ -83,7 +84,12 @@ function renderPanel(
       </RunEventProvider>
     </ClientProvider>
   )
-  return client
+  return { client, container, onRemoveChip }
+}
+
+/** 이 대화에 담긴 것 줄. 없으면 null이다. */
+function appliedRow(container: HTMLElement): HTMLElement | null {
+  return container.querySelector('.applied-context')
 }
 
 describe('ConversationPanel', () => {
@@ -123,5 +129,42 @@ describe('ConversationPanel', () => {
     await userEvent.type(box, '다음 말')
     expect(box).toHaveValue('다음 말')
     expect(screen.getByRole('button', { name: '실행' })).toBeEnabled()
+  })
+
+  describe('이 대화에 담긴 것', () => {
+    const applied = () => groupConversations([
+      makeRun({ id: 'a2', rootRunId: 'a1', createdAt: 20, contextItems: [
+        { type: 'memo', id: 'm1', label: '릴리스 절차' }
+      ] }),
+      makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10, contextItems: [
+        { type: 'issue', id: 'i1', label: '토큰 만료 버그' },
+        { type: 'asset', id: 's1', label: 'review' }
+      ] })
+    ])[0]!
+
+    it('담긴 항목을 종류와 이름으로, 처음 담긴 턴 순으로 보여준다', () => {
+      const { container } = renderPanel(applied())
+      const row = appliedRow(container)!
+      expect([...row.querySelectorAll('.applied-chip')].map((e) => e.textContent)).toEqual([
+        '이슈 · 토큰 만료 버그', 'asset · review', '메모 · 릴리스 절차'
+      ])
+    })
+
+    it('보기 전용이다 — 줄 안에 누를 것이 없다', () => {
+      const { container } = renderPanel(applied())
+      expect(within(appliedRow(container)!).queryAllByRole('button')).toEqual([])
+    })
+
+    it('항목을 눌러도 입력부의 칩은 건드리지 않는다', async () => {
+      const { container, onRemoveChip } = renderPanel(applied())
+      await userEvent.click(within(appliedRow(container)!).getByText('이슈 · 토큰 만료 버그'))
+      expect(onRemoveChip).not.toHaveBeenCalled()
+    })
+
+    it('새 대화와 아무것도 담지 않은 대화에는 줄이 없다', () => {
+      expect(appliedRow(renderPanel(null).container)).toBeNull()
+      const empty = groupConversations([makeRun({ id: 'b1', rootRunId: 'b1' })])[0]!
+      expect(appliedRow(renderPanel(empty).container)).toBeNull()
+    })
   })
 })

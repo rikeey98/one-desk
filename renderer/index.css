@@ -197,6 +197,11 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
 .conversation-panel { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
 .conversation-panel .transcript { flex: 1 1 auto; min-height: 0; }
 .conversation-panel .run-panel { flex: 0 0 auto; height: auto; }
+/* 이 대화가 이미 받은 것. 아래 .run-chips와 위아래로 붙어 한 쌍으로 읽힌다.
+   .chip을 물려받지 않는다 — 표시 전용이라 클릭 가능해 보이면 안 된다(.axis-chip과 같은 이유). */
+.applied-context { flex: 0 0 auto; display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+.applied-label { font-size: 10px; letter-spacing: .07em; text-transform: uppercase; opacity: .55; font-weight: 700; }
+.applied-chip { font-size: 11px; padding: 1px 7px; border-radius: 99px; border: 1px solid rgba(128, 128, 128, .4); background: transparent; opacity: .8; white-space: nowrap; cursor: default; }
 
 /* 이름 바꾸기·삭제 — 평소엔 감춰 두고 호버·포커스에서 드러낸다.
    DOM에는 항상 있어야 키보드로 닿는다(:focus-within이 그래서 필요하다). */

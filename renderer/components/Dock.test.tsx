@@ -306,6 +306,24 @@ describe('Dock', () => {
     await userEvent.click(screen.getByText('대화 하나'))
     expect(screen.getByLabelText('지시')).toHaveValue('')
   })
+
+  it('탭을 옮기면 담긴 것 줄도 그 대화의 것으로 바뀐다', async () => {
+    // conversation prop이 한 줄 새면 줄은 그려지지만 늘 같은 대화 것을 보여준다.
+    const { container } = renderDock([
+      makeRun({ id: 'c1', rootRunId: 'c1', createdAt: 10, userPrompt: '대화 하나',
+        contextItems: [{ type: 'issue', id: 'i1', label: '버그' }] }),
+      makeRun({ id: 'c2', rootRunId: 'c2', createdAt: 20, userPrompt: '대화 둘',
+        contextItems: [{ type: 'memo', id: 'm1', label: '릴리스 절차' }] })
+    ])
+    const applied = () =>
+      [...container.querySelectorAll('.applied-chip')].map((e) => e.textContent)
+
+    await userEvent.click(screen.getByText('대화 하나'))
+    expect(applied()).toEqual(['이슈 · 버그'])
+
+    await userEvent.click(screen.getByText('대화 둘'))
+    expect(applied()).toEqual(['메모 · 릴리스 절차'])
+  })
 })
 
 describe('Dock 크기 조절', () => {
