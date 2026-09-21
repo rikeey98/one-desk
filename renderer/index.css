@@ -1,18 +1,95 @@
+/* 색은 전부 여기서 나온다 — 규칙 안에 hex를 직접 쓰지 않는다. 다크 스킴은 같은 이름의
+   값만 바꾼다(OS 설정을 따른다). 이름은 역할이다: 같은 값이라도 테두리와 호버 배경은
+   다른 토큰이라 다크에서 따로 조정할 수 있다. 문서는 DESIGN.md. */
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --bg-panel: #fafafa;
+  --bg-muted: #f4f4f5;
+  --bg-hover: #e4e4e7;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --border-faint: #f0f0f2;
+  --neutral: #a1a1aa;
+  --neutral-rgb: 128, 128, 128;
+  --text: #18181b;
+  --text-secondary: #52525b;
+  /* 안내문·빈 상태용. 흰 바탕에서 5:1 — opacity로 흐리게 하면 4.5:1 아래로 떨어진다. */
+  --text-muted: #6b6b70;
+  --on-accent: #ffffff;
+  --accent: #2563eb;
+  --accent-strong: #1d4ed8;
+  --accent-text: #1d4ed8;
+  --accent-border: #60a5fa;
+  --accent-border-soft: #93c5fd;
+  --accent-bg: #eff6ff;
+  --accent-bg-strong: #dbeafe;
+  --focus-ring: #60a5fa;
+  --danger: #dc2626;
+  --danger-text: #991b1b;
+  --danger-bg: #fee2e2;
+  --danger-bg-soft: #fef2f2;
+  --danger-border: #fca5a5;
+  --warn: #b45309;
+  --warn-text: #92400e;
+  --warn-text-strong: #78350f;
+  --warn-bg: #fef3c7;
+  --warn-bg-strong: #fde68a;
+  --attention-rgb: 224, 108, 0;
+  --success: #16a34a;
+  --success-bg: #d1fae5;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1b1f;
+    --bg-panel: #232327;
+    --bg-muted: #2a2a2f;
+    --bg-hover: #3a3a41;
+    --border: #3a3a41;
+    --border-strong: #4b4b53;
+    --border-faint: #2f2f35;
+    --neutral: #71717a;
+    --text: #e4e4e7;
+    --text-secondary: #b4b4bb;
+    --text-muted: #a1a1aa;
+    --accent-text: #93c5fd;
+    --accent-border: #3b82f6;
+    --accent-border-soft: #3b82f6;
+    --accent-bg: rgba(59, 130, 246, .16);
+    --accent-bg-strong: rgba(59, 130, 246, .32);
+    --focus-ring: #60a5fa;
+    --danger-text: #fca5a5;
+    --danger-bg: rgba(239, 68, 68, .18);
+    --danger-bg-soft: rgba(239, 68, 68, .1);
+    --danger-border: rgba(239, 68, 68, .6);
+    --warn: #d97706;
+    --warn-text: #fcd34d;
+    --warn-text-strong: #fde68a;
+    --warn-bg: rgba(217, 119, 6, .2);
+    --warn-bg-strong: rgba(217, 119, 6, .35);
+    --success: #22c55e;
+    --success-bg: rgba(34, 197, 94, .22);
+  }
+}
+/* 키보드 포커스 링. 브라우저 기본값(Chromium의 주황 auto 링)은 강조색과 충돌한다.
+   마우스 클릭에는 뜨지 않는다(:focus-visible). */
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+
 * { box-sizing: border-box; }
-body { margin: 0; background: #ffffff; color: #18181b; }
+body { margin: 0; background: var(--bg); color: var(--text); }
 
 .app { display: flex; height: 100vh; font-family: system-ui, sans-serif; }
-.sidebar { flex: 0 0 180px; min-width: 0; overflow-x: hidden; background: #f4f4f5; border-right: 1px solid #e4e4e7; padding: 12px 10px; }
-.sidebar-label { font-size: 10px; letter-spacing: .07em; text-transform: uppercase; opacity: .55; font-weight: 700; margin-bottom: 8px; }
+.sidebar { flex: 0 0 180px; min-width: 0; overflow-x: hidden; background: var(--bg-muted); border-right: 1px solid var(--border); padding: 12px 10px; }
+.sidebar-label { font-size: .6875rem; letter-spacing: .07em; text-transform: uppercase; opacity: .55; font-weight: 700; margin-bottom: 8px; }
 .sidebar ul { list-style: none; margin: 0; padding: 0; }
-.ws { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; font-size: 13px; }
-.ws:hover { background: #e4e4e7; }
-.ws-selected { background: #dbeafe; font-weight: 700; }
-.inbox-link { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; border-radius: 5px; background: transparent; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; padding: 5px 8px; text-align: left; }
-.inbox-link-selected { background: #e4e4e7; }
-.badge { margin-left: auto; border-radius: 9px; background: #dc2626; color: #fff; font-size: 10px; font-weight: 700; padding: 1px 6px; }
+.ws { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; font-size: .8125rem; }
+.ws:hover { background: var(--bg-hover); }
+.ws-selected { background: var(--accent-bg-strong); font-weight: 700; }
+.inbox-link { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; border-radius: 5px; background: transparent; cursor: pointer; font: inherit; font-size: .75rem; font-weight: 600; padding: 5px 8px; text-align: left; }
+.inbox-link-selected { background: var(--bg-hover); }
+.badge { margin-left: auto; border-radius: 9px; background: var(--danger); color: var(--on-accent); font-size: .625rem; font-weight: 700; padding: 1px 6px; }
 /* 건수가 아니라 "못 읽었다"는 표식이다. 색을 나눠야 숫자와 헷갈리지 않는다. */
-.badge-error { background: #b45309; cursor: help; }
+.badge-error { background: var(--warn); cursor: help; }
 .main { flex: 1; display: flex; flex-direction: column; padding: 12px; gap: 10px; min-width: 0; }
 /* repo는 세로로 쌓는다. 가로로 늘어놓으면 넷만 넘어가도 카드가 짜부라져 이름이
    잘리고, 줄 폭이 repo 개수에 따라 계속 흔들린다. 세로는 몇 개가 되든 같은 모양이다. */
@@ -20,19 +97,19 @@ body { margin: 0; background: #ffffff; color: #18181b; }
 /* 목록만 스크롤한다 — 추가 줄은 이 밖에 있다. 상한을 두는 것은 repo가 열 개여도
    아래 패널이 밀려나면 안 되기 때문이다. */
 .repo-list { display: flex; flex-direction: column; gap: 4px; max-height: 31vh; overflow-y: auto; }
-.repo-card { display: flex; align-items: baseline; gap: 10px; width: 100%; text-align: left; padding: 7px 11px; border: 1px solid #e4e4e7; border-radius: 7px; background: #fafafa; font: inherit; cursor: pointer; transition: border-color .12s, background .12s; }
-.repo-card:hover { border-color: #d4d4d8; background: #f4f4f5; }
-.repo-card-selected, .repo-card-selected:hover { border-color: #60a5fa; background: #eff6ff; }
-.repo-name { flex: 0 1 auto; min-width: 0; font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repo-card { display: flex; align-items: baseline; gap: 10px; width: 100%; text-align: left; padding: 7px 11px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-panel); font: inherit; cursor: pointer; transition: border-color .12s, background .12s; }
+.repo-card:hover { border-color: var(--border-strong); background: var(--bg-muted); }
+.repo-card-selected, .repo-card-selected:hover { border-color: var(--accent-border); background: var(--accent-bg); }
+.repo-name { flex: 0 1 auto; min-width: 0; font-weight: 600; font-size: .8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 경로는 같은 줄 오른쪽 끝으로 민다 — 이름이 왼쪽에 세로로 줄을 맞춰야 목록으로
    읽힌다. 길면 잘리고 전체는 title에 있다. */
-.repo-path { flex: 1; min-width: 0; text-align: right; font-family: ui-monospace, monospace; font-size: 10px; opacity: .5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repo-path { flex: 1; min-width: 0; text-align: right; font-family: ui-monospace, monospace; font-size: .625rem; opacity: .5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .columns { flex: 1; display: flex; gap: 8px; min-height: 0; }
-.panel { flex: 1; display: flex; flex-direction: column; border: 1px solid #e4e4e7; border-radius: 7px; background: #fafafa; min-width: 0; }
-.panel-header { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; border-bottom: 1px solid #e4e4e7; }
-.panel-title { font-size: 10px; letter-spacing: .07em; text-transform: uppercase; opacity: .58; font-weight: 700; }
+.panel { flex: 1; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-panel); min-width: 0; }
+.panel-header { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+.panel-title { font-size: .6875rem; letter-spacing: .07em; text-transform: uppercase; opacity: .58; font-weight: 700; }
 .panel-body { flex: 1; overflow-y: auto; padding: 7px; }
-.panel-empty, .repo-empty, .sidebar-empty, .blank { font-size: 12px; opacity: .5; padding: 10px; }
+.panel-empty, .repo-empty, .sidebar-empty, .blank { font-size: .75rem; color: var(--text-muted); padding: 10px; }
 /* 선택한 패널이 커지고 나머지가 줄어든다 (설계 §4). JS로 픽셀을 계산하지 않는다. */
 .columns > .panel-expanded { flex: 3; }
 .panel-split { display: flex; gap: 8px; height: 100%; min-height: 0; }
@@ -43,93 +120,93 @@ body { margin: 0; background: #ffffff; color: #18181b; }
 .item-pick, .repo-context {
   flex: 0 0 auto; width: 16px; height: 16px; padding: 0;
   display: inline-flex; align-items: center; justify-content: center;
-  border: 1.5px solid #a1a1aa; border-radius: 50%; background: #fff;
-  color: transparent; cursor: pointer; font-size: 10px; line-height: 1;
+  border: 1.5px solid var(--neutral); border-radius: 50%; background: var(--bg);
+  color: transparent; cursor: pointer; font-size: .625rem; line-height: 1;
 }
-.item-pick:hover, .repo-context:hover { border-color: #60a5fa; }
+.item-pick:hover, .repo-context:hover { border-color: var(--accent-border); }
 /* 담을 수 없는 줄(지시 파일)의 자리 맞춤. 버튼이 아니라 빈 칸이다 — 호버도 없다. */
 .item-pick-none { border-color: transparent; background: transparent; cursor: default; pointer-events: none; }
 /* 색만으로는 구분이 약해서 체크 글리프를 함께 쓴다. */
 .item-pick.item-picked, .repo-context.repo-context-picked {
-  border-color: #1d4ed8; background: #1d4ed8; color: #fff;
+  border-color: var(--accent-text); background: var(--accent-strong); color: var(--on-accent);
 }
 .item-open { font-weight: 700; }
 .item-list { list-style: none; margin: 0; padding: 0; }
-.item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: 5px; margin-bottom: 3px; background: #f4f4f5; font-size: 13px; }
+.item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: 5px; margin-bottom: 3px; background: var(--bg-muted); font-size: .8125rem; }
 .item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.status { font-size: 10px; padding: 1px 7px; border-radius: 9px; background: #e4e4e7; flex: 0 0 auto; }
-.status-doing { background: #fef3c7; }
-.status-done { background: #d1fae5; }
+.status { font-size: .625rem; padding: 1px 7px; border-radius: 9px; background: var(--bg-hover); flex: 0 0 auto; }
+.status-doing { background: var(--warn-bg); }
+.status-done { background: var(--success-bg); }
 .add-form { margin-bottom: 7px; }
-.add-form input { width: 100%; padding: 6px 9px; border: 1px solid #e4e4e7; border-radius: 5px; font-size: 12px; font-family: inherit; }
+.add-form input { width: 100%; padding: 6px 9px; border: 1px solid var(--border); border-radius: 5px; font-size: .75rem; font-family: inherit; }
 .add-form input:disabled { opacity: .5; }
-.form-error { margin-top: 5px; padding: 5px 8px; border-radius: 4px; font-size: 11px; background: #fee2e2; color: #991b1b; }
+.form-error { margin-top: 5px; padding: 5px 8px; border-radius: 4px; font-size: .6875rem; background: var(--danger-bg); color: var(--danger-text); }
 /* repo 추가 줄. 목록과 같은 폭·같은 모서리로 두되 테두리를 점선으로 해서 "아직
    채워지지 않은 자리"로 읽히게 한다. 실선이면 등록된 repo와 구분이 안 된다. */
-.add-repo-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 7px; border: 1px dashed #d4d4d8; border-radius: 7px; background: #fff; transition: border-color .12s; }
-.add-repo-form:focus-within { border-color: #93c5fd; }
-.add-repo-form input { min-width: 0; padding: 6px 9px; border: 1px solid #e4e4e7; border-radius: 5px; font: inherit; font-size: 12px; background: #fafafa; }
+.add-repo-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 7px; border: 1px dashed var(--border-strong); border-radius: 7px; background: var(--bg); transition: border-color .12s; }
+.add-repo-form:focus-within { border-color: var(--accent-border-soft); }
+.add-repo-form input { min-width: 0; padding: 6px 9px; border: 1px solid var(--border); border-radius: 5px; font: inherit; font-size: .75rem; background: var(--bg-panel); }
 /* 이름은 짧고 경로는 길다. 폭을 똑같이 주면 경로가 늘 잘린다. */
 .add-repo-form input:first-of-type { flex: 0 1 170px; }
-.add-repo-form input:nth-of-type(2) { flex: 1; font-family: ui-monospace, monospace; font-size: 11px; }
-.add-repo-form input:focus { outline: none; border-color: #60a5fa; background: #fff; }
+.add-repo-form input:nth-of-type(2) { flex: 1; font-family: ui-monospace, monospace; font-size: .6875rem; }
+.add-repo-form input:focus { outline: none; border-color: var(--accent-border); background: var(--bg); }
 .add-repo-form input:disabled { opacity: .5; }
-.add-repo-form button { flex: 0 0 auto; padding: 6px 15px; border: 1px solid #e4e4e7; border-radius: 5px; background: #fafafa; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: border-color .12s, background .12s, color .12s; }
-.add-repo-form button:hover:not(:disabled) { border-color: #60a5fa; background: #eff6ff; color: #1d4ed8; }
+.add-repo-form button { flex: 0 0 auto; padding: 6px 15px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-panel); font: inherit; font-size: .75rem; font-weight: 600; cursor: pointer; transition: border-color .12s, background .12s, color .12s; }
+.add-repo-form button:hover:not(:disabled) { border-color: var(--accent-border); background: var(--accent-bg); color: var(--accent-text); }
 .add-repo-form button:disabled { opacity: .5; cursor: not-allowed; }
 /* 오류는 줄 아래로 온전히 떨어뜨린다. 입력칸 사이에 끼면 칸 폭이 밀린다. */
 .add-repo-form .form-error { flex: 1 0 100%; margin-top: 0; }
 
-.dock { flex: 0 0 auto; display: flex; flex-direction: column; border: 1px solid #e4e4e7; border-radius: 7px; background: #fafafa; overflow: hidden; }
+.dock { flex: 0 0 auto; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-panel); overflow: hidden; }
 /* 높이는 인라인 style이 정한다 (renderer/dockHeight.ts). flex-basis를 남겨두면
    그것이 이겨서 드래그가 아무 효과도 내지 않는다. */
 .dock-open { flex: 0 0 auto; min-height: 0; }
 .dock-resizer { flex: 0 0 auto; height: 7px; margin: -1px -1px 0; cursor: ns-resize; background: transparent; touch-action: none; user-select: none; }
-.dock-resizer:hover { background: #dbeafe; }
+.dock-resizer:hover { background: var(--accent-bg-strong); }
 /* 스크롤은 .dock-tabs만 한다. 토글과 슬롯 표시기는 헤더에 고정돼 탭이 아무리
    늘어나도 화면 밖으로 밀리지 않는다 (스펙 §7). */
-.dock-header { display: flex; align-items: center; gap: 5px; padding: 5px 7px; border-bottom: 1px solid #e4e4e7; }
+.dock-header { display: flex; align-items: center; gap: 5px; padding: 5px 7px; border-bottom: 1px solid var(--border); }
 .dock-tabs { display: flex; align-items: center; gap: 5px; flex: 1 1 auto; min-width: 0; overflow-x: auto; }
-.dock-toggle { border: 0; background: transparent; cursor: pointer; font: inherit; font-size: 11px; font-weight: 700; opacity: .6; flex: 0 0 auto; }
-.dock-tab { display: flex; align-items: center; gap: 5px; border: 1px solid #e4e4e7; border-radius: 5px; background: #fff; cursor: pointer; font: inherit; font-size: 11px; padding: 3px 8px; white-space: nowrap; flex: 0 0 auto; }
-.dock-tab-selected { border-color: #60a5fa; background: #eff6ff; font-weight: 600; }
-.dock-cancel { margin-left: auto; border: 1px solid #fca5a5; border-radius: 5px; background: #fff; color: #991b1b; cursor: pointer; font: inherit; font-size: 11px; padding: 3px 9px; flex: 0 0 auto; }
+.dock-toggle { border: 0; background: transparent; cursor: pointer; font: inherit; font-size: .6875rem; font-weight: 700; opacity: .6; flex: 0 0 auto; }
+.dock-tab { display: flex; align-items: center; gap: 5px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); cursor: pointer; font: inherit; font-size: .6875rem; padding: 3px 8px; white-space: nowrap; flex: 0 0 auto; }
+.dock-tab-selected { border-color: var(--accent-border); background: var(--accent-bg); font-weight: 600; }
+.dock-cancel { margin-left: auto; border: 1px solid var(--danger-border); border-radius: 5px; background: var(--bg); color: var(--danger-text); cursor: pointer; font: inherit; font-size: .6875rem; padding: 3px 9px; flex: 0 0 auto; }
 .dock-slots { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
-.dock-slots-button { border: 1px solid #e4e4e7; border-radius: 5px; background: #fff; cursor: pointer; font: inherit; font-size: 11px; padding: 3px 8px; }
-.dock-slots-waiting { font-size: 11px; opacity: .6; }
-.dock-slots-input { width: 52px; border: 1px solid #a1a1aa; border-radius: 5px; font: inherit; font-size: 11px; padding: 2px 4px; }
-.dock-empty { font-size: 11px; opacity: .5; }
+.dock-slots-button { border: 1px solid var(--border); border-radius: 5px; background: var(--bg); cursor: pointer; font: inherit; font-size: .6875rem; padding: 3px 8px; }
+.dock-slots-waiting { font-size: .6875rem; opacity: .6; }
+.dock-slots-input { width: 52px; border: 1px solid var(--neutral); border-radius: 5px; font: inherit; font-size: .6875rem; padding: 2px 4px; }
+.dock-empty { font-size: .6875rem; color: var(--text-muted); }
 .dock-body { flex: 1; overflow-y: auto; padding: 8px 10px; min-height: 0; }
-.run-log { font-family: ui-monospace, monospace; font-size: 11px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
-.log-text { color: #18181b; }
-.log-tool { color: #1d4ed8; }
+.run-log { font-family: ui-monospace, monospace; font-size: .6875rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.log-text { color: var(--text); }
+.log-tool { color: var(--accent-text); }
 .log-meta { opacity: .55; }
-.log-error { color: #991b1b; }
+.log-error { color: var(--danger-text); }
 .log-result { font-weight: 600; }
-.log-divider { border: 0; border-top: 1px solid #e4e4e7; margin: 8px 0; }
-.needs-answer { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 9px; background: #fde68a; color: #78350f; margin-right: 5px; }
-.status-running { background: #dbeafe; }
-.status-pending { background: #e4e4e7; }
-.status-succeeded { background: #d1fae5; }
-.status-failed, .status-interrupted { background: #fee2e2; }
-.status-canceled { background: #fef3c7; }
+.log-divider { border: 0; border-top: 1px solid var(--border); margin: 8px 0; }
+.needs-answer { display: inline-block; font-size: .625rem; font-weight: 700; padding: 1px 7px; border-radius: 9px; background: var(--warn-bg-strong); color: var(--warn-text-strong); margin-right: 5px; }
+.status-running { background: var(--accent-bg-strong); }
+.status-pending { background: var(--bg-hover); }
+.status-succeeded { background: var(--success-bg); }
+.status-failed, .status-interrupted { background: var(--danger-bg); }
+.status-canceled { background: var(--warn-bg); }
 
 /* 대화를 이어갈 때는 작업 디렉토리 select 대신 잠긴 agent·cwd를 고정해서 보여준다
    (RunPanel의 conversation prop, 설계 §4-1). 자물쇠 표시는 눈에 띄되 dock-tab
    톤을 벗어나지 않는다. */
-.resume-locked { display: flex; align-items: center; gap: 6px; font-size: 11px; opacity: .85; }
-.resume-badge { border: 1px solid #60a5fa; border-radius: 5px; background: #eff6ff; font-weight: 700; padding: 2px 7px; }
+.resume-locked { display: flex; align-items: center; gap: 6px; font-size: .6875rem; opacity: .85; }
+.resume-badge { border: 1px solid var(--accent-border); border-radius: 5px; background: var(--accent-bg); font-weight: 700; padding: 2px 7px; }
 
 .inbox { flex: 1; overflow-y: auto; padding: 10px 12px; }
 .inbox-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.inbox-item { border: 1px solid #e4e4e7; border-radius: 7px; padding: 9px 11px; }
-.inbox-head { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.inbox-item { border: 1px solid var(--border); border-radius: 7px; padding: 9px 11px; }
+.inbox-head { display: flex; align-items: center; gap: 8px; font-size: .6875rem; }
 .inbox-ws { font-weight: 700; }
 .inbox-when { margin-left: auto; opacity: .6; }
-.inbox-prompt { margin-top: 5px; font-size: 13px; }
-.inbox-error { margin-top: 4px; font-size: 11px; color: #991b1b; }
+.inbox-prompt { margin-top: 5px; font-size: .8125rem; }
+.inbox-error { margin-top: 4px; font-size: .6875rem; color: var(--danger-text); }
 .inbox-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.inbox-actions button { border: 1px solid #e4e4e7; border-radius: 5px; background: #fff; cursor: pointer; font: inherit; font-size: 11px; padding: 3px 9px; }
+.inbox-actions button { border: 1px solid var(--border); border-radius: 5px; background: var(--bg); cursor: pointer; font: inherit; font-size: .6875rem; padding: 3px 9px; }
 
 /* stretch였을 때 원형 토글이 카드 높이만큼 늘어나 위쪽에 붙어 보였다.
    원은 세로 가운데에 놓여야 카드 제목과 나란히 읽힌다. */
@@ -139,61 +216,71 @@ body { margin: 0; background: #ffffff; color: #18181b; }
 .repo-slot .repo-card { flex: 1; min-width: 0; }
 
 button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer; font: inherit; text-align: left; padding: 0; min-width: 0; }
-.item-picked { font-weight: 700; color: #1d4ed8; }
+.item-picked { font-weight: 700; color: var(--accent-text); }
 .run-panel { display: flex; flex-direction: column; gap: 8px; height: 100%; }
 .run-settings { display: flex; gap: 8px; flex-wrap: wrap; }
-.run-settings label { display: flex; flex-direction: column; gap: 3px; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; opacity: .7; font-weight: 700; }
-.run-settings select, .run-settings input { font: inherit; font-size: 12px; text-transform: none; letter-spacing: 0; padding: 4px 6px; border: 1px solid #e4e4e7; border-radius: 5px; background: #fff; }
+.run-settings label { display: flex; flex-direction: column; gap: 3px; font-size: .6875rem; letter-spacing: .06em; text-transform: uppercase; opacity: .7; font-weight: 700; }
+.run-settings select, .run-settings input { font: inherit; font-size: .75rem; text-transform: none; letter-spacing: 0; padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); }
 .run-chips { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; min-height: 22px; }
-.chip { border: 1px solid #93c5fd; border-radius: 11px; background: #eff6ff; cursor: pointer; font: inherit; font-size: 11px; padding: 2px 9px; }
-.run-prompt { flex: 1; min-height: 64px; resize: none; font: inherit; font-size: 13px; padding: 8px; border: 1px solid #e4e4e7; border-radius: 6px; }
+/* 칩 전체가 "맥락에서 빼기" 버튼이다. 태그처럼 보이면 누르는 순간까지 그것을 모르므로
+   호버에서 경고 톤으로 바뀌어 미리 알린다 (.dock-cancel과 같은 색). */
+.chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--accent-border-soft); border-radius: 11px; background: var(--accent-bg); color: var(--text); cursor: pointer; font: inherit; font-size: .6875rem; padding: 2px 9px; transition: border-color .12s, background .12s, color .12s; }
+.chip:hover { border-color: var(--danger-border); background: var(--danger-bg-soft); color: var(--danger-text); }
+.chip-remove { flex: 0 0 auto; opacity: .7; }
+.chip:hover .chip-remove { opacity: 1; }
+/* 예약으로 전송이 잠긴 이유. 오류가 아니라 상태라 form-error보다 조용하다. */
+.run-note { padding: 5px 8px; border-radius: 4px; background: var(--bg-muted); color: var(--text-secondary); font-size: .75rem; }
+/* anchor-name은 피커가 이 칸 위에 뜨기 위한 것 (.command-picker 참고). */
+.run-prompt { flex: 1; min-height: 64px; resize: none; font: inherit; font-size: .8125rem; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); anchor-name: --run-prompt; }
 .run-actions { display: flex; justify-content: flex-end; }
-.run-start { border: 1px solid #1d4ed8; border-radius: 6px; background: #2563eb; color: #fff; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; padding: 5px 14px; }
+.run-start { border: 1px solid var(--accent-strong); border-radius: 6px; background: var(--accent); color: var(--on-accent); cursor: pointer; font: inherit; font-size: .75rem; font-weight: 600; padding: 5px 14px; transition: background .12s, box-shadow .12s; }
+.run-start:hover:not(:disabled) { background: var(--accent-strong); }
+.run-start:active:not(:disabled) { box-shadow: inset 0 1px 3px rgba(0, 0, 0, .3); }
 .run-start:disabled { opacity: .4; cursor: default; }
 
 .detail { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
-.detail-title { padding: 5px 8px; border: 1px solid #e4e4e7; border-radius: 5px; font: inherit; font-size: 14px; font-weight: 600; }
+.detail-title { padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px; font: inherit; font-size: .875rem; font-weight: 600; }
 /* 배경색은 .status-open/doing/done이 그대로 준다. 나머지(크기·모서리)만 덮어쓴다. */
-.detail-status { align-self: flex-start; padding: 3px 8px; border: 1px solid #e4e4e7; border-radius: 5px; font: inherit; font-size: 12px; cursor: pointer; }
+.detail-status { align-self: flex-start; padding: 3px 8px; border: 1px solid var(--border); border-radius: 5px; font: inherit; font-size: .75rem; cursor: pointer; }
 /* 출처·성격·급함 select를 감싼 label. .detail이 column flex라 클래스가 없으면
    기본 align-items: stretch를 그대로 물려받아 폭 전체로 늘어나 쌓인다 — 바로 위
    .detail-status 알약과 같은 모양(왼쪽 정렬, 작은 크기)으로 맞춘다. 값은 새로
    만들지 않고 .detail-status 것을 그대로 재사용한다. */
-.detail-axis { align-self: flex-start; display: flex; align-items: center; gap: 4px; font-size: 12px; }
-.detail-axis select { padding: 3px 8px; border: 1px solid #e4e4e7; border-radius: 5px; font: inherit; cursor: pointer; }
-.detail-body { flex: 1; min-height: 120px; padding: 7px 9px; border: 1px solid #e4e4e7; border-radius: 5px; font: inherit; font-size: 13px; resize: none; }
+.detail-axis { align-self: flex-start; display: flex; align-items: center; gap: 4px; font-size: .75rem; }
+.detail-axis select { padding: 3px 8px; border: 1px solid var(--border); border-radius: 5px; font: inherit; cursor: pointer; }
+.detail-body { flex: 1; min-height: 120px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 5px; font: inherit; font-size: .8125rem; resize: none; }
 .detail-actions { display: flex; justify-content: flex-end; }
 /* 전체 허용으로 기본값을 올릴 때의 경고 (설계 §403). form-error보다 약하되
    그냥 지나칠 수 없을 만큼은 눈에 띄어야 한다 — 확인 절차의 절반이 이 문장이다. */
-.settings-warning { margin-top: 6px; padding: 6px 9px; border-radius: 4px; font-size: 11px; background: #fef3c7; color: #92400e; }
+.settings-warning { margin-top: 6px; padding: 6px 9px; border-radius: 4px; font-size: .6875rem; background: var(--warn-bg); color: var(--warn-text); }
 /* CLI 경로 preflight 결과. 경로가 길어 줄바꿈을 허용한다. */
-.settings-status { margin: 8px 0 0; padding: 0; list-style: none; font-size: 11px; opacity: .8; }
+.settings-status { margin: 8px 0 0; padding: 0; list-style: none; font-size: .6875rem; opacity: .8; }
 .settings-status li { margin-top: 3px; word-break: break-all; }
-.confirm-button { border: 1px solid #e4e4e7; border-radius: 5px; background: #fff; cursor: pointer; font: inherit; font-size: 11px; padding: 3px 9px; }
-.confirm-button.confirm-armed { border-color: #fca5a5; color: #991b1b; }
-.conflict-banner { display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 5px; background: #fef3c7; font-size: 12px; }
-.conflict-banner button { border: 1px solid #e4e4e7; border-radius: 5px; background: #fff; cursor: pointer; font: inherit; font-size: 11px; padding: 2px 7px; }
+.confirm-button { border: 1px solid var(--border); border-radius: 5px; background: var(--bg); cursor: pointer; font: inherit; font-size: .6875rem; padding: 3px 9px; }
+.confirm-button.confirm-armed { border-color: var(--danger-border); color: var(--danger-text); }
+.conflict-banner { display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 5px; background: var(--warn-bg); font-size: .75rem; }
+.conflict-banner button { border: 1px solid var(--border); border-radius: 5px; background: var(--bg); cursor: pointer; font: inherit; font-size: .6875rem; padding: 2px 7px; }
 
 /* 사이드바 하단의 MCP 상태 줄. flex 컬럼이 아니므로 margin-top:auto 대신
    구분선으로 나머지와 떼어 놓는다. */
-.mcp-status { display: flex; align-items: center; gap: 6px; margin-top: 14px; padding: 7px 9px 0; border-top: 1px solid #e4e4e7; font-size: 11px; opacity: .75; }
-.mcp-dot { width: 7px; height: 7px; border-radius: 50%; background: #a1a1aa; flex: 0 0 auto; }
-.mcp-status-listening .mcp-dot { background: #16a34a; }
-.mcp-status-failed { opacity: 1; color: #b91c1c; cursor: help; }
-.mcp-status-failed .mcp-dot { background: #dc2626; }
+.mcp-status { display: flex; align-items: center; gap: 6px; margin-top: 14px; padding: 7px 9px 0; border-top: 1px solid var(--border); font-size: .6875rem; opacity: .75; }
+.mcp-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--neutral); flex: 0 0 auto; }
+.mcp-status-listening .mcp-dot { background: var(--success); }
+.mcp-status-failed { opacity: 1; color: var(--danger-text); cursor: help; }
+.mcp-status-failed .mcp-dot { background: var(--danger); }
 
 /* 대화록 — 턴 버블 (설계 §4-1) */
 .transcript { display: flex; flex-direction: column; gap: 14px; overflow-y: auto; padding: 8px 4px; }
 .turn { display: flex; flex-direction: column; gap: 6px; }
-.turn-user { align-self: flex-end; max-width: 80%; border-radius: 10px; background: #eff6ff; padding: 8px 11px; white-space: pre-wrap; }
-.turn-answer { align-self: flex-start; max-width: 90%; border-radius: 10px; background: #f4f4f5; padding: 8px 11px; white-space: pre-wrap; }
+.turn-user { align-self: flex-end; max-width: 80%; border-radius: 10px; background: var(--accent-bg); padding: 8px 11px; white-space: pre-wrap; }
+.turn-answer { align-self: flex-start; max-width: 90%; border-radius: 10px; background: var(--bg-muted); padding: 8px 11px; white-space: pre-wrap; }
 /* 이 턴이 무엇으로 돌았고 얼마나 썼는지 (docs/sdlc/run-info/). 표시 전용이라
    클릭 가능해 보이면 안 된다 — .applied-chip과 같은 이유. 조각 사이의 구분점은
    ::before로 넣는다: 빠진 조각이 있어도 앞뒤에 점이 남지 않는다. */
-.turn-info { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; font-size: 11px; opacity: .6; cursor: default; }
+.turn-info { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; font-size: .6875rem; opacity: .6; cursor: default; }
 .turn-info > span + span::before { content: '·'; margin-right: 5px; opacity: .6; }
-.turn-meta { display: flex; align-items: center; gap: 6px; font-size: 11px; opacity: .8; }
-.turn-meta button { border: 1px solid #e4e4e7; border-radius: 5px; background: #fff; cursor: pointer; font: inherit; font-size: 11px; padding: 2px 8px; }
+.turn-meta { display: flex; align-items: center; gap: 6px; font-size: .6875rem; opacity: .8; }
+.turn-meta button { border: 1px solid var(--border); border-radius: 5px; background: var(--bg); cursor: pointer; font: inherit; font-size: .6875rem; padding: 2px 8px; }
 .turn-pending { opacity: .7; }
 
 /* 대화록(위)과 입력부(아래)를 위아래로 쌓는다 (설계 §4-1). 대화록만 늘어나고
@@ -207,8 +294,8 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
 /* 이 대화가 이미 받은 것. 아래 .run-chips와 위아래로 붙어 한 쌍으로 읽힌다.
    .chip을 물려받지 않는다 — 표시 전용이라 클릭 가능해 보이면 안 된다(.axis-chip과 같은 이유). */
 .applied-context { flex: 0 0 auto; display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
-.applied-label { font-size: 10px; letter-spacing: .07em; text-transform: uppercase; opacity: .55; font-weight: 700; }
-.applied-chip { font-size: 11px; padding: 1px 7px; border-radius: 99px; border: 1px solid rgba(128, 128, 128, .4); background: transparent; opacity: .8; white-space: nowrap; cursor: default; }
+.applied-label { font-size: .6875rem; letter-spacing: .07em; text-transform: uppercase; opacity: .55; font-weight: 700; }
+.applied-chip { font-size: .6875rem; padding: 1px 7px; border-radius: 99px; border: 1px solid rgba(var(--neutral-rgb), .4); background: transparent; opacity: .8; white-space: nowrap; cursor: default; }
 
 /* 이름 바꾸기·삭제 — 평소엔 감춰 두고 호버·포커스에서 드러낸다.
    DOM에는 항상 있어야 키보드로 닿는다(:focus-within이 그래서 필요하다). */
@@ -222,19 +309,19 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
 .ws-row:focus-within .ws-actions,
 .repo-slot:hover .repo-actions,
 .repo-slot:focus-within .repo-actions { opacity: 1; }
-.row-action { border: 0; border-radius: 4px; background: transparent; cursor: pointer; font-size: 11px; line-height: 1; padding: 3px 4px; opacity: .6; }
-.row-action:hover { background: #e4e4e7; opacity: 1; }
-.row-action-danger:hover { background: #fee2e2; }
+.row-action { border: 0; border-radius: 4px; background: transparent; cursor: pointer; font-size: .6875rem; line-height: 1; padding: 3px 4px; opacity: .6; }
+.row-action:hover { background: var(--bg-hover); opacity: 1; }
+.row-action-danger:hover { background: var(--danger-bg); }
 
-.rename-field { flex: 1; min-width: 0; border: 1px solid #60a5fa; border-radius: 5px; font: inherit; font-size: 13px; padding: 6px 8px; }
+.rename-field { flex: 1; min-width: 0; border: 1px solid var(--accent-border); border-radius: 5px; font: inherit; font-size: .8125rem; padding: 6px 8px; }
 
 /* workspace 삭제는 이슈·메모·실행 기록까지 지운다 — 이름을 받아 무게를 맞춘다. */
-.delete-by-name { display: flex; flex-direction: column; gap: 5px; margin-top: 5px; padding: 7px; border: 1px solid #fca5a5; border-radius: 6px; background: #fef2f2; }
-.delete-by-name-warning { margin: 0; font-size: 11px; line-height: 1.4; color: #991b1b; }
-.delete-by-name-input { border: 1px solid #fca5a5; border-radius: 5px; font: inherit; font-size: 12px; padding: 4px 6px; }
+.delete-by-name { display: flex; flex-direction: column; gap: 5px; margin-top: 5px; padding: 7px; border: 1px solid var(--danger-border); border-radius: 6px; background: var(--danger-bg-soft); }
+.delete-by-name-warning { margin: 0; font-size: .6875rem; line-height: 1.4; color: var(--danger-text); }
+.delete-by-name-input { border: 1px solid var(--danger-border); border-radius: 5px; font: inherit; font-size: .75rem; padding: 4px 6px; }
 .delete-by-name-actions { display: flex; gap: 4px; }
-.delete-by-name-actions button { border: 1px solid #e4e4e7; border-radius: 5px; background: #fff; cursor: pointer; font: inherit; font-size: 11px; padding: 3px 9px; }
-.delete-by-name-actions .row-action-danger { border-color: #fca5a5; color: #991b1b; }
+.delete-by-name-actions button { border: 1px solid var(--border); border-radius: 5px; background: var(--bg); cursor: pointer; font: inherit; font-size: .6875rem; padding: 3px 9px; }
+.delete-by-name-actions .row-action-danger { border-color: var(--danger-border); color: var(--danger-text); }
 .delete-by-name-actions .row-action-danger:disabled { opacity: .4; cursor: not-allowed; }
 
 /* 훑기 배너 — 정리 안 된 이슈가 있을 때만 뜬다 */
@@ -244,27 +331,27 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
   gap: 8px;
   padding: 6px 10px;
   margin: 6px 0;
-  border: 1px solid rgba(224, 108, 0, 0.5);
-  background: rgba(224, 108, 0, 0.12);
+  border: 1px solid rgba(var(--attention-rgb), 0.5);
+  background: rgba(var(--attention-rgb), 0.12);
   border-radius: 6px;
-  font-size: 12px;
+  font-size: .75rem;
 }
 
 /* 훑기 카드 — 상세 자리에 뜨는 축 선택 카드 */
 .triage-card { padding: 12px; }
-.triage-position { font-size: 11px; opacity: 0.6; }
-.triage-title { margin: 8px 0 16px; font-size: 15px; }
+.triage-position { font-size: .6875rem; opacity: 0.6; }
+.triage-title { margin: 8px 0 16px; font-size: .9375rem; }
 .triage-row { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
-.triage-row-label { width: 40px; font-size: 12px; opacity: 0.7; }
+.triage-row-label { width: 40px; font-size: .75rem; opacity: 0.7; }
 .triage-pick {
-  font-size: 12px;
+  font-size: .75rem;
   padding: 3px 10px;
   border-radius: 5px;
-  border: 1px solid rgba(128, 128, 128, 0.4);
+  border: 1px solid rgba(var(--neutral-rgb), 0.4);
   background: transparent;
   cursor: pointer;
 }
-.triage-picked { border-color: currentColor; background: rgba(128, 128, 128, 0.2); font-weight: 600; }
+.triage-picked { border-color: currentColor; background: rgba(var(--neutral-rgb), 0.2); font-weight: 600; }
 .triage-actions { display: flex; justify-content: space-between; margin-top: 18px; }
 
 /* repo 토글. 훑기 카드와 두 상세가 함께 쓴다 — 훑기 안에서는 triage-row와 나란히
@@ -277,22 +364,22 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
   margin-bottom: 10px;
   align-self: flex-start;
 }
-.repo-tags-label { width: 40px; font-size: 12px; opacity: 0.7; }
+.repo-tags-label { width: 40px; font-size: .75rem; opacity: 0.7; }
 .repo-tag {
-  font-size: 12px;
+  font-size: .75rem;
   padding: 3px 10px;
   border-radius: 5px;
-  border: 1px solid rgba(128, 128, 128, 0.4);
+  border: 1px solid rgba(var(--neutral-rgb), 0.4);
   background: transparent;
   cursor: pointer;
 }
-.repo-tag-picked { border-color: currentColor; background: rgba(128, 128, 128, 0.2); font-weight: 600; }
+.repo-tag-picked { border-color: currentColor; background: rgba(var(--neutral-rgb), 0.2); font-weight: 600; }
 
 .group-axis {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: .75rem;
   opacity: 0.8;
   margin: 6px 0;
 }
@@ -304,10 +391,10 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
   padding: 6px 8px;
   margin-top: 4px;
   border: none;
-  background: rgba(128, 128, 128, 0.12);
+  background: rgba(var(--neutral-rgb), 0.12);
   border-radius: 5px;
   font-weight: 600;
-  font-size: 12px;
+  font-size: .75rem;
   cursor: pointer;
 }
 
@@ -315,10 +402,10 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
    이름을 여기서 다시 선언하면 동일 우선순위에서 이 규칙이 나중에 이겨,
    RunPanel의 파란 테두리 칩이 조용히 다시 칠해진다. 별도 이름으로 분리한다. */
 .axis-chip {
-  font-size: 11px;
+  font-size: .6875rem;
   padding: 1px 7px;
   border-radius: 99px;
-  border: 1px solid rgba(128, 128, 128, 0.4);
+  border: 1px solid rgba(var(--neutral-rgb), 0.4);
   background: transparent;
   opacity: 0.8;
   white-space: nowrap;
@@ -328,29 +415,35 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
 }
 
 .axis-chip-stale {
-  border-color: rgba(224, 108, 0, 0.6);
-  background: rgba(224, 108, 0, 0.15);
+  border-color: rgba(var(--attention-rgb), 0.6);
+  background: rgba(var(--attention-rgb), 0.15);
   opacity: 1;
 }
 
-.command-picker { border: 1px solid #d4d4d8; border-radius: 6px; background: #fff; padding: 8px; margin-bottom: 6px; }
-.command-picker-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; color: #52525b; margin-bottom: 5px; }
+/* 슬래시 피커는 입력칸 위에 떠 있는 오버레이다 — 인라인으로 끼어들면 "/"를 칠 때마다
+   위 내용이 밀린다. popover(최상위 레이어)라 .dock-body의 overflow에 잘리지 않고,
+   anchor positioning으로 .run-prompt의 위쪽 가장자리에 붙는다(Chromium 125+).
+   위에 자리가 없으면 아래로 뒤집힌다. inset·margin·border·padding은 [popover]의
+   UA 기본값을 덮는 것이다. */
+.command-picker { position: fixed; position-anchor: --run-prompt; inset: auto; left: anchor(left); right: anchor(right); bottom: anchor(top); position-try-fallbacks: flip-block; margin: 0 0 6px; width: auto; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--bg); color: var(--text); padding: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, .12); }
+.command-picker-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .6875rem; color: var(--text-secondary); margin-bottom: 5px; }
 .command-picker [role="listbox"] { max-height: 180px; overflow-y: auto; }
-.command-option { display: flex; width: 100%; gap: 12px; text-align: left; padding: 6px 8px; border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
-.command-option[aria-selected="true"] { background: #dbeafe; }
-.command-option span { color: #52525b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.command-warning { font-size: 12px; color: #92400e; margin: 6px 0; }
+.command-option { display: flex; width: 100%; gap: 12px; text-align: left; padding: 6px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+.command-option:hover { background: var(--bg-muted); }
+.command-option[aria-selected="true"] { background: var(--accent-bg-strong); }
+.command-option span { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-warning { font-size: .75rem; color: var(--warn-text); margin: 6px 0; }
 /* 설정 화면의 탭. 도크 탭(.dock-tab)과 같은 생김새 — 앱 안에서 "탭"이 두 가지로
    보이면 안 된다. 값은 새로 만들지 않고 그쪽 것을 그대로 쓴다. */
 .settings-tabs { display: flex; gap: 5px; margin: 6px 0 10px; }
-.settings-tab { border: 1px solid #e4e4e7; border-radius: 5px; background: #fff; cursor: pointer; font: inherit; font-size: 11px; padding: 3px 8px; }
-.settings-tab-selected { border-color: #60a5fa; background: #eff6ff; font-weight: 600; }
+.settings-tab { border: 1px solid var(--border); border-radius: 5px; background: var(--bg); cursor: pointer; font: inherit; font-size: .6875rem; padding: 3px 8px; }
+.settings-tab-selected { border-color: var(--accent-border); background: var(--accent-bg); font-weight: 600; }
 /* 탭마다 맨 위에 오는 한 문장 — 이 값이 어디까지 걸리는지(spec FR-2). 힌트보다 진하다. */
-.settings-scope { margin: 0 0 8px; font-size: 12px; }
+.settings-scope { margin: 0 0 8px; font-size: .75rem; }
 /* repo 탭의 repo 한 줄. 이름·경로·설명 세 칸과 저장 버튼이 한 덩어리다. */
-.settings-repo { margin-top: 10px; padding-top: 8px; border-top: 1px solid #f0f0f2; }
+.settings-repo { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-faint); }
 .settings-repo h3 { margin-top: 0; }
 /* 정보 탭. 상태 목록은 CLI 상태 줄(.settings-status)과 같은 모양이되 흐리지 않다 —
    읽으라고 보여주는 값이다. */
-.settings-info { opacity: 1; font-size: 12px; }
+.settings-info { opacity: 1; font-size: .75rem; }
 .settings-actions { display: flex; gap: 6px; margin-top: 8px; }

@@ -49,7 +49,7 @@ describe('asset 스캔', () => {
     await pick.click()
 
     // 담기면 실행 패널의 칩이 된다.
-    await page.getByRole('button', { name: '알파 ✕' })
+    await page.getByRole('button', { name: '알파 맥락에서 빼기' })
       .waitFor({ state: 'visible', timeout: 5_000 })
 
     await page.getByPlaceholder(/무엇을 시킬지/).fill('스킬을 읽어라')

@@ -36,7 +36,7 @@ describe('핵심 한 바퀴', () => {
 
     // 4. 담기 토글을 눌러 맥락에 담는다 — 칩에는 제거 표시가 함께 붙는다
     await page.getByRole('button', { name: `${ISSUE} 맥락에 담기` }).click()
-    const chip = page.getByRole('button', { name: `${ISSUE} ✕` })
+    const chip = page.getByRole('button', { name: `${ISSUE} 맥락에서 빼기` })
     await chip.waitFor({ state: 'visible', timeout: 5_000 })
 
     // 5. 권한을 읽기 전용으로

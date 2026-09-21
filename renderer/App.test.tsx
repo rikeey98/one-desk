@@ -790,7 +790,7 @@ describe('패널 확장', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
 
-    expect(screen.queryByRole('button', { name: /토큰 만료 ✕/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /토큰 만료 맥락에서 빼기/ })).toBeNull()
   })
 
   it('담기 토글이 맥락 칩을 만든다', async () => {
@@ -799,7 +799,7 @@ describe('패널 확장', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: '토큰 만료 맥락에 담기' }))
 
-    expect(screen.getByRole('button', { name: /토큰 만료 ✕/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /토큰 만료 맥락에서 빼기/ })).toBeInTheDocument()
   })
 
   it('메모 항목 클릭은 맥락에 담지 않는다', async () => {
@@ -810,7 +810,7 @@ describe('패널 확장', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
 
-    expect(screen.queryByRole('button', { name: /배포 메모 ✕/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /배포 메모 맥락에서 빼기/ })).toBeNull()
   })
 
   it('메모의 담기 토글이 맥락 칩을 만든다', async () => {
@@ -819,7 +819,7 @@ describe('패널 확장', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: '배포 메모 맥락에 담기' }))
 
-    expect(screen.getByRole('button', { name: /배포 메모 ✕/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /배포 메모 맥락에서 빼기/ })).toBeInTheDocument()
   })
 
   it('담은 이슈에는 담김 표시가 남는다', async () => {
@@ -1317,7 +1317,7 @@ describe('App — AssetPanel 배선', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '알파 스킬 맥락에 담기' }))
 
-    expect(await screen.findByRole('button', { name: '알파 스킬 ✕' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '알파 스킬 맥락에서 빼기' })).toBeInTheDocument()
   })
 })
 

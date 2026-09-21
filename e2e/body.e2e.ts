@@ -59,10 +59,10 @@ describe('이슈 본문', () => {
 
     await title.click()
     // 제목을 눌러도 도크에 칩이 생기지 않는다
-    expect(await page.getByRole('button', { name: new RegExp(`${ISSUE}.*✕`) }).count()).toBe(0)
+    expect(await page.getByRole('button', { name: new RegExp(`${ISSUE}.*맥락에서 빼기`) }).count()).toBe(0)
 
     await page.getByRole('button', { name: `${ISSUE} 맥락에 담기` }).click()
-    await page.getByRole('button', { name: new RegExp(`${ISSUE}.*✕`) })
+    await page.getByRole('button', { name: new RegExp(`${ISSUE}.*맥락에서 빼기`) })
       .waitFor({ state: 'visible', timeout: 5_000 })
   })
 })

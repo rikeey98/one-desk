@@ -98,7 +98,7 @@ export function Dock({
   // 막 마운트됐는데 runs가 아직 그 workspace 것으로 안 갈렸거나(useRuns는 workspaceId가
   // 바뀔 때 목록을 즉시 비우지 않는다), 방금 시작한 run이 아직 목록에 없는(started()가
   // pickedId를 먼저 세운다) 그 찰나에 폴백이 다른 대화를 골라 버리면, 화면과 입력부가
-  // 다른 대화를 가리키는 채로 ⌘↵을 누르는 순간 턴이 엉뚱한 대화로 나간다.
+  // 다른 대화를 가리키는 채로 Ctrl/⌘+Enter를 누르는 순간 턴이 엉뚱한 대화로 나간다.
   const selected = pickedId
     ? conversations.find((c) => c.id === pickedId) ?? null
     : conversations[0] ?? null

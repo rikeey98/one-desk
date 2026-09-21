@@ -292,6 +292,23 @@ opencode는 `--variant`를 받지만 `init`에도 `result`에도 그 값이 없�
 
 **"정리 안 됨"과 "미지정"은 다른 말이다.** 전자는 훑기 대기열(`triagedAt IS NULL`), 후자는 지금 묶은 축의 값이 비었다는 뜻이다. 마이그레이션 `0003`이 백필한 이슈는 `triagedAt`은 있는데 축이 비어 있어 두 값이 갈린다 — 같은 단어로 쓰면 "정리 안 됨 0건인데 미분류 그룹에 3개"라는 화면이 나온다.
 
+**색은 `renderer/index.css` 맨 위의 `:root` 토큰에서만 나온다 — 규칙 안에 hex를 직접 쓰지 말 것.**
+다크 스킴(`prefers-color-scheme: dark`)은 같은 이름의 값만 바꾸므로, hex를 하나라도 직접 쓰면
+그 자리만 다크에서 흰 채로 남는다. 새 색이 필요하면 토큰을 더하고 다크 값도 같이 정한다.
+글꼴 크기는 rem이다. 안내문·빈 상태를 `opacity`로 흐리게 하지 않는다(대비 4.5:1 아래로
+떨어진다) — `--text-muted`를 쓴다. 규칙은 `DESIGN.md`.
+
+**슬래시 피커는 `popover` + CSS anchor positioning으로 최상위 레이어에 뜬다.** 인라인이면
+"/"를 칠 때마다 위 내용이 밀리고, 도크 안에 `position: absolute`로 두면 `.dock-body`의
+overflow에 잘린다. jsdom에는 `togglePopover`가 없어 옵셔널 호출이다 — 단위 테스트에서는
+그냥 보통 요소로 보인다. 입력창의 `aria-controls`·`aria-activedescendant`가 피커의 id를
+가리키므로 option의 id 규칙(`optionId`)을 바꾸면 그 둘도 같이 본다.
+
+**맥락 칩의 접근성 이름은 `<이름> 맥락에서 빼기`다.** 보이는 글자에는 동작이 없으니 e2e와
+`App.test`가 이 이름으로 칩을 잡는다. 담기 토글(`맥락에 담기`)과 부분 문자열이 겹치지
+않게 고른 것이다. 실행 단축키 안내는 `renderer/shortcut.ts`가 플랫폼에 따라 정한다 —
+placeholder에 ⌘를 직접 쓰면 Windows 사용자에게 없는 키를 가리킨다.
+
 ## 데이터 규칙
 
 - **시각은 전부 epoch milliseconds 정수.** `Date.now()`로 명시 삽입한다. 스키마의 `unixepoch() * 1000` 기본값은 해상도가 초라서 같은 초에 만든 항목들의 정렬이 무너진다.

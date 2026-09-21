@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { CommandPicker } from './CommandPicker'
 import { useCommands } from '../hooks/useCommands'
 import { findSlashToken, insertCommand, extendCommand, matchCommands, commonPrefix } from '../slash'
 import { useClient } from '../client/ClientProvider'
 import { PERMISSION_LABELS } from '../permission'
+import { runShortcutLabel } from '../shortcut'
 import type { AgentKind, CommandInfo, Permission, Repo, Run, Workspace } from '@shared/models'
 import type { Conversation } from '../conversation'
 import type { ContextChip } from '../context'
@@ -66,6 +67,10 @@ export function RunPanel({
   const [cursor, setCursor] = useState(0)
   const [dismissed, setDismissed] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
+  // 피커의 listbox와 option id. textarea가 aria-controls/aria-activedescendant로 가리켜야
+  // 스크린리더가 ↑↓로 무엇이 골라지는지 읽는다 — 시각적 하이라이트만으로는 전달되지 않는다.
+  const listboxId = useId()
+  const optionId = (name: string) => `${listboxId}-${name}`
   const effectiveCwd = conversation?.last.cwd ?? (missingCwd === null ? cwd : '')
   const commandState = useCommands(workspaceId, agentKind === 'claude-code' ? effectiveCwd : '')
   const token = agentKind === 'claude-code' && !dismissed ? findSlashToken(prompt, cursor) : null
@@ -73,6 +78,7 @@ export function RunPanel({
   // 앞글자 일치 > 중간 일치 > 설명 > 건너뛰기 > 오타 순. 규칙은 slash.ts에.
   const filtered = matchCommands(commandState.commands, query)
   const pickedIndex = Math.min(selectedIndex, Math.max(0, filtered.length - 1))
+  const picked = token ? filtered[pickedIndex] : undefined
   const argumentWarning = agentKind === 'claude-code' && commandState.commands.some((command) =>
     command.usesArguments && prompt.trimStart().split(/\s+/).includes(`/${command.name}`))
 
@@ -269,6 +275,13 @@ export function RunPanel({
       {repos.length === 0 && (
         <div className="panel-empty">작업 디렉토리로 쓸 repo를 먼저 등록하세요</div>
       )}
+      {reserved && (
+        // 실행 버튼만 조용히 꺼지면 왜 막혔는지 알 수 없다. 대화록의 대기 버블이 이유를
+        // 보여주긴 하지만 입력부만 보는 사람에게도 같은 말이 있어야 한다 (설계 §3-2).
+        <div role="status" className="run-note">
+          이 대화에 이미 예약된 지시가 있습니다. 앞 턴이 끝나 그 지시가 나간 뒤에 다음 지시를 보낼 수 있습니다.
+        </div>
+      )}
 
       <div className="run-settings">
         <label>
@@ -339,15 +352,23 @@ export function RunPanel({
             key={`${chip.type}:${chip.id}`}
             type="button"
             className="chip"
+            /* 칩 전체가 "빼기" 버튼이다. 보이는 글자는 이름뿐이라 동작은 접근성 이름이 말한다.
+               e2e·App.test가 이 이름으로 칩을 잡는다. */
+            aria-label={`${chip.label} 맥락에서 빼기`}
             onClick={() => onRemoveChip(chip)}
           >
-            {chip.label} ✕
+            {chip.label}
+            <svg className="chip-remove" aria-hidden="true" width="10" height="10" viewBox="0 0 10 10">
+              <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
           </button>
         ))}
       </div>
 
       {token && (
         <CommandPicker
+          id={listboxId}
+          optionId={optionId}
           commands={filtered}
           selectedIndex={pickedIndex}
           loading={commandState.loading}
@@ -368,8 +389,11 @@ export function RunPanel({
         ref={promptRef}
         className="run-prompt"
         aria-label="지시"
+        aria-autocomplete="list"
+        aria-controls={token ? listboxId : undefined}
+        aria-activedescendant={picked ? optionId(picked.name) : undefined}
         value={prompt}
-        placeholder="무엇을 시킬지 적으세요. ⌘↵ 로 실행합니다."
+        placeholder={`무엇을 시킬지 적으세요. ${runShortcutLabel(navigator.platform)}로 실행합니다.`}
         onChange={(e) => {
           setPrompt(e.target.value)
           setCursor(e.target.selectionStart)

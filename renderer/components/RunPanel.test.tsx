@@ -369,6 +369,114 @@ describe('RunPanel', () => {
   })
 })
 
+describe('RunPanel — 접근성', () => {
+  it('실행 단축키 안내는 플랫폼의 키 이름을 쓴다', () => {
+    // jsdom의 navigator.platform은 빈 문자열이라 macOS가 아닌 쪽으로 떨어진다.
+    renderPanel(makeClient())
+    expect(screen.getByRole('textbox', { name: '지시' }))
+      .toHaveAttribute('placeholder', expect.stringContaining('Ctrl+Enter'))
+  })
+
+  it('칩은 "맥락에서 빼기"라는 이름의 버튼이다', async () => {
+    const chips: ContextChip[] = [{ type: 'issue', id: 'i1', label: '토큰 만료' }]
+    const onRemoveChip = vi.fn()
+    render(
+      <ClientProvider client={makeClient()}>
+        <RunPanel workspaceId="w1" workspaces={[makeWorkspace('edit')]} repos={repos} reposError={null}
+          chips={chips} onRemoveChip={onRemoveChip} onStarted={vi.fn()}
+          conversation={null} draftPrompt="" draftCwd={null} reserved={false} />
+      </ClientProvider>
+    )
+    // 보이는 글자는 이름만이고, 동작(빼기)은 접근성 이름이 말한다 — 글리프 "✕"는 이름에 들어가지 않는다.
+    const chip = screen.getByRole('button', { name: '토큰 만료 맥락에서 빼기' })
+    expect(chip).toHaveTextContent('토큰 만료')
+    await userEvent.click(chip)
+    expect(onRemoveChip).toHaveBeenCalledWith(chips[0])
+  })
+
+  it('예약으로 잠겼을 때 그 이유를 보여준다', () => {
+    renderPanel(makeClient(), repos, [], vi.fn(), { reserved: true })
+    expect(screen.getByRole('status')).toHaveTextContent(/예약된 지시/)
+  })
+
+  it('피커가 열리면 입력창이 목록과 고른 항목을 ARIA로 가리킨다', async () => {
+    const commands = [
+      { name: 'review', description: '코드 검사', usesArguments: false },
+      { name: 'prepare', description: '준비', usesArguments: false }
+    ]
+    renderPanel(makeClient({ commands: {
+      list: vi.fn().mockResolvedValue({ commands, error: null }), refresh: vi.fn()
+    } }))
+    const box = screen.getByRole('textbox', { name: '지시' })
+    expect(box).not.toHaveAttribute('aria-controls')
+    await userEvent.type(box, '/')
+    const listbox = await screen.findByRole('listbox')
+    expect(box).toHaveAttribute('aria-autocomplete', 'list')
+    expect(box).toHaveAttribute('aria-controls', listbox.id)
+    const [first, second] = within(listbox).getAllByRole('option')
+    expect(box).toHaveAttribute('aria-activedescendant', first!.id)
+    await userEvent.keyboard('{ArrowDown}')
+    expect(box).toHaveAttribute('aria-activedescendant', second!.id)
+    await userEvent.keyboard('{Escape}')
+    expect(box).not.toHaveAttribute('aria-controls')
+    expect(box).not.toHaveAttribute('aria-activedescendant')
+  })
+})
+
+describe('RunPanel — 접근성', () => {
+  it('실행 단축키 안내는 플랫폼의 키 이름을 쓴다', () => {
+    // jsdom의 navigator.platform은 빈 문자열이라 macOS가 아닌 쪽으로 떨어진다.
+    renderPanel(makeClient())
+    expect(screen.getByRole('textbox', { name: '지시' }))
+      .toHaveAttribute('placeholder', expect.stringContaining('Ctrl+Enter'))
+  })
+
+  it('칩은 "맥락에서 빼기"라는 이름의 버튼이다', async () => {
+    const chips: ContextChip[] = [{ type: 'issue', id: 'i1', label: '토큰 만료' }]
+    const onRemoveChip = vi.fn()
+    render(
+      <ClientProvider client={makeClient()}>
+        <RunPanel workspaceId="w1" workspaces={[makeWorkspace('edit')]} repos={repos} reposError={null}
+          chips={chips} onRemoveChip={onRemoveChip} onStarted={vi.fn()}
+          conversation={null} draftPrompt="" draftCwd={null} reserved={false} />
+      </ClientProvider>
+    )
+    // 보이는 글자는 이름만이고, 동작(빼기)은 접근성 이름이 말한다 — 글리프는 이름에 들어가지 않는다.
+    const chip = screen.getByRole('button', { name: '토큰 만료 맥락에서 빼기' })
+    expect(chip).toHaveTextContent('토큰 만료')
+    await userEvent.click(chip)
+    expect(onRemoveChip).toHaveBeenCalledWith(chips[0])
+  })
+
+  it('예약으로 잠겼을 때 그 이유를 보여준다', () => {
+    renderPanel(makeClient(), repos, [], vi.fn(), { reserved: true })
+    expect(screen.getByRole('status')).toHaveTextContent(/예약된 지시/)
+  })
+
+  it('피커가 열리면 입력창이 목록과 고른 항목을 ARIA로 가리킨다', async () => {
+    const commands = [
+      { name: 'review', description: '코드 검사', usesArguments: false },
+      { name: 'prepare', description: '준비', usesArguments: false }
+    ]
+    renderPanel(makeClient({ commands: {
+      list: vi.fn().mockResolvedValue({ commands, error: null }), refresh: vi.fn()
+    } }))
+    const box = screen.getByRole('textbox', { name: '지시' })
+    expect(box).not.toHaveAttribute('aria-controls')
+    await userEvent.type(box, '/')
+    const listbox = await screen.findByRole('listbox')
+    expect(box).toHaveAttribute('aria-autocomplete', 'list')
+    expect(box).toHaveAttribute('aria-controls', listbox.id)
+    const [first, second] = within(listbox).getAllByRole('option')
+    expect(box).toHaveAttribute('aria-activedescendant', first!.id)
+    await userEvent.keyboard('{ArrowDown}')
+    expect(box).toHaveAttribute('aria-activedescendant', second!.id)
+    await userEvent.keyboard('{Escape}')
+    expect(box).not.toHaveAttribute('aria-controls')
+    expect(box).not.toHaveAttribute('aria-activedescendant')
+  })
+})
+
 describe('RunPanel — agent 선택', () => {
   it('workspace 기본값을 agent로 쓴다', async () => {
     const start = vi.fn().mockResolvedValue({ id: 'run-1' })
