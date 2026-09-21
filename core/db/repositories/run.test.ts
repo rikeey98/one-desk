@@ -56,7 +56,8 @@ describe('RunRepository', () => {
       externalSessionId: 'sess-1',
       needsAnswer: false,
       exitCode: 0,
-      errorMessage: null
+      errorMessage: null,
+      usage: null
     })
     expect(finished.status).toBe('succeeded')
     expect(finished.startedAt).toBeTypeOf('number')
@@ -146,7 +147,8 @@ describe('RunRepository', () => {
     runs.markStarted(done.id)
     runs.markFinished(done.id, {
       status: 'succeeded', resultText: '끝남', externalSessionId: null,
-      needsAnswer: false, exitCode: 0, errorMessage: null
+      needsAnswer: false, exitCode: 0, errorMessage: null,
+      usage: null
     })
     const before = runs.get(done.id)
 
@@ -208,7 +210,8 @@ describe('RunRepository', () => {
         externalSessionId: null,
         needsAnswer: extra.needsAnswer ?? false,
         exitCode: null,
-        errorMessage: null
+        errorMessage: null,
+        usage: null
       })
     }
 
@@ -304,7 +307,8 @@ describe('RunRepository', () => {
     function succeed(id: string, sessionId = 'sess') {
       runs.markFinished(id, {
         status: 'succeeded', resultText: null, externalSessionId: sessionId,
-        needsAnswer: false, exitCode: 0, errorMessage: null
+        needsAnswer: false, exitCode: 0, errorMessage: null,
+        usage: null
       })
     }
 
@@ -413,7 +417,8 @@ describe('RunRepository', () => {
     function finishWithSession(id: string, sessionId: string | null) {
       runs.markFinished(id, {
         status: 'succeeded', resultText: null, externalSessionId: sessionId,
-        needsAnswer: false, exitCode: 0, errorMessage: null
+        needsAnswer: false, exitCode: 0, errorMessage: null,
+        usage: null
       })
     }
 
@@ -442,4 +447,68 @@ describe('RunRepository', () => {
       expect(runs.latestSessionRun(first.id)).toBeNull()
     })
   })
+
+  /** 모델·토큰·컨텍스트 (`docs/sdlc/run-info/`) */
+  describe('usage', () => {
+    const sample = {
+      model: 'claude-opus-5[1m]',
+      inputTokens: 2, outputTokens: 4,
+      cacheReadTokens: 15428, cacheWriteTokens: 37917,
+      reasoningTokens: 0, costUsd: 0.386994,
+      contextTokens: 53347, contextWindow: 1000000
+    }
+
+    function finish(usage: typeof sample | null) {
+      const created = runs.create(baseInput())
+      runs.markFinished(created.id, {
+        status: 'succeeded', resultText: '끝', externalSessionId: 's1',
+        needsAnswer: false, exitCode: 0, errorMessage: null, usage
+      })
+      return runs.get(created.id)
+    }
+
+    it('저장한 사용량이 그대로 돌아온다', () => {
+      expect(finish(sample).usage).toEqual(sample)
+    })
+
+    it('사용량이 없으면 usage는 null이다 — 0으로 채우지 않는다', () => {
+      expect(finish(null).usage).toBeNull()
+    })
+
+    it('일부만 아는 사용량은 나머지가 null로 남는다', () => {
+      const created = runs.create(baseInput())
+      runs.markFinished(created.id, {
+        status: 'succeeded', resultText: '끝', externalSessionId: 's1',
+        needsAnswer: false, exitCode: 0, errorMessage: null,
+        usage: { ...sample, model: null, contextWindow: null }
+      })
+      const got = runs.get(created.id).usage!
+      expect(got.model).toBeNull()
+      expect(got.contextWindow).toBeNull()
+      expect(got.inputTokens).toBe(2)
+    })
+
+    it('아홉 컬럼이 Run에 낱개로 새지 않는다', () => {
+      // hydrate가 `{ ...row }`로 흘려보내면 usage와 낱개 컬럼이 둘 다 실려
+      // IPC로 나간다. 타입 오류가 안 나서 조용히 지나간다 — 여기서 잡는다.
+      const keys = Object.keys(finish(sample))
+      for (const leaked of [
+        'actualModel', 'inputTokens', 'outputTokens', 'cacheReadTokens',
+        'cacheWriteTokens', 'reasoningTokens', 'costUsd', 'contextTokens', 'contextWindow'
+      ]) {
+        expect(keys).not.toContain(leaked)
+      }
+    })
+
+    it('list와 get이 같은 usage를 준다', () => {
+      const created = runs.create(baseInput())
+      runs.markFinished(created.id, {
+        status: 'succeeded', resultText: '끝', externalSessionId: 's1',
+        needsAnswer: false, exitCode: 0, errorMessage: null, usage: sample
+      })
+      const listed = runs.list(workspaceId).find((r) => r.id === created.id)!
+      expect(listed.usage).toEqual(sample)
+    })
+  })
+
 })

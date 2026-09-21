@@ -177,6 +177,25 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **agent가 MCP로 만든 데이터는 run이 끝나면 화면에 나타난다.** `useIssues`/`useMemos`가 `onRunUpdate`를 구독해, **같은 workspace의 끝난 run**에 대해 목록을 다시 읽는다. 4단계 설계 §1이 "UI 변경 없음"으로 미뤄뒀던 경계였고, MCP가 실제로 돌기 시작하면서 매번 걸려 해소했다. 같은 run의 후속 갱신(확인함/보관)으로는 다시 읽지 않는다. **`e2e/mcp.e2e.ts`는 화면을 벗어나지 않고 확인한다** — 예전처럼 인박스에 갔다 돌아오면 패널이 다시 마운트돼 구독이 죽어도 통과해 버린다.
 
+**`Run`을 만드는 스프레드는 새 컬럼을 그대로 흘려보낸다.** `hydrate`의
+`{ ...row, contextItems }`는 초과 속성 검사를 받지 않으므로, run 테이블에 컬럼을 더하면
+그것이 **말없이 `Run`에 실려 IPC로 나간다.** 사용량 아홉 컬럼은 `usage` 하나로 접어
+보내는데, 접기만 하고 원본을 빼지 않으면 같은 값이 두 벌 나가고 나중에 누가
+`run.inputTokens`를 쓰기 시작하면 출처가 갈린다. 타입은 끝까지 아무 말도 하지 않는다 —
+`core/db/repositories/run.test.ts`의 "아홉 컬럼이 Run에 낱개로 새지 않는다"가 그것을 잡는다.
+
+**사용량의 합계와 컨텍스트 점유는 다른 수다.** 토큰 합계로 창 대비 비율을 그리면 도구를
+여러 번 쓴 턴에서 **100%를 넘는다.** 점유는 마지막 요청의 프롬프트 크기이고(claude는
+`usage.iterations`의 마지막, opencode는 마지막 `step_finish`), **캐시를 빼면 안 된다** —
+실측에서 `input_tokens`가 2인데 캐시 읽기 15,428 + 캐시 쓰기 37,917이라 실제 프롬프트는
+53,347토큰이었다. 병합 규칙도 그래서 필드마다 다르다(`mergeUsage`): 토큰·비용은 더하고,
+모델·컨텍스트는 마지막 non-null이 이긴다.
+
+**`--effort`는 어느 CLI도 스트림으로 되돌려 주지 않는다.** claude는 `--effort`를,
+opencode는 `--variant`를 받지만 `init`에도 `result`에도 그 값이 없다(2026-09-21 실측).
+그래서 "무슨 effort로 돌았나"는 앱이 보낸 값으로만 알 수 있고, 지금 앱은 그 플래그를
+넘기지 않는다. 표시 기능을 붙이려면 선택 UI가 먼저다.
+
 **`updatedAt`은 단조 증가해야 낙관적 잠금이 성립한다.** 같은 밀리초 안에 두 번 쓰면 `Date.now()`만으로는 이전 값과 같아져 "그 사이 바뀌었다"를 놓친다. `updateIfUnchanged`의 `buildPatch`는 `Math.max(Date.now(), previousUpdatedAt + 1)`로 반드시 이전 값보다 크게 만든다(`core/db/repositories/issue.ts`·`memo.ts`).
 
 **성공한 저장이 기대값(`expected.current`)을 갱신하지 않으면 두 번째 저장이 자기 자신과 충돌한다.** `IssueDetail`/`MemoDetail`의 `persist()`는 매 성공 응답의 `result.issue.updatedAt`(또는 `memo`)으로 `expected.current`를 다시 세운다 — 안 하면 디바운스로 이어지는 다음 자동 저장이 이미 낡은 `expectedUpdatedAt`을 들고 가 스스로와 충돌 배너를 띄운다.
@@ -302,6 +321,7 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 | `docs/sdlc/settings-screen/` | 탭 기반 설정 화면 — intent·spec·plan. 탭을 값의 범위로 가르는 근거(spec FR-2), 초안 state와 탭 전환(FR-11), repo 경로 변경과 asset 이동(FR-9) |
 | `docs/sdlc/slash-commands/` | 슬래시 커맨드 — intent·spec·plan. 커맨드 조회와 캐시, 피커, 프롬프트 조립 |
 | `docs/sdlc/conversation-context/` | 대화에 담긴 맥락 표시 — intent·spec·plan. 담긴 것의 합집합을 어디에 두는지, 이름을 core가 붙이는 이유, 지워진 asset 필터링 개정 |
+| `docs/sdlc/run-info/` | 대화에 실행 정보 표시 — intent·spec·plan. 두 CLI가 주는 것의 실측 표, 합계와 컨텍스트 점유를 가르는 근거(spec §3-2), 필드마다 다른 병합 규칙(§3-3) |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |
 | `docs/diagrams/` | 아키텍처 다이어그램 — `one-desk-architecture.html`(단독 실행 가능)과 그것을 만든 archify 사양 `one-desk.architecture.json`. `main`에 들어가면 `.github/workflows/pages.yml`이 GitHub Pages로 올린다 |
 

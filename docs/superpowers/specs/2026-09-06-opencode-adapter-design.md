@@ -260,6 +260,14 @@ MCP 서버가 함께 올라온다. 권한 구멍은 아니고 agent에게 여분
 
 무료 모델로 뜬다. 비용이 들지 않는다.
 
+> **2026-09-21 정정: 이 경로는 더 이상 열리지 않는다.** 같은 명령이 HTTP 403
+> `FreeTierError`로 끝난다 — `"OpenCode's free tier can only be used from within
+> OpenCode"`. 헤드리스(`opencode run`)에서는 무료 티어를 쓸 수 없다. 기록된
+> `core/runner/adapters/fixtures/opencode-stream.jsonl`이 이제 유일한 실측 근거다
+> (`docs/sdlc/run-info/spec.md` §8). 덧붙여 그 403은 `{"type":"error", …}` 한 줄로
+>오는데 `parseLine`의 `switch`에 그 분기가 없어 버려진다 — 이벤트 없이 종료 코드만
+> 1이 되어 **사용자는 이유 없는 실패를 본다.** 별도 수정거리다.
+
 ```bash
 opencode run --format json -m opencode/nemotron-3.5-lightning-free \
   "Read notes.txt, then create summary.txt whose entire contents are exactly: OK"

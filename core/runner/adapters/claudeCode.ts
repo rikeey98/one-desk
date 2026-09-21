@@ -2,8 +2,8 @@ import { access, constants } from 'node:fs/promises'
 import type { AgentAdapter, PreflightResult, ResolvedRunSpec, SpawnSpec } from '../types'
 import { claudeCodePermissionArgs } from '../permission'
 import { findExecutable, isBatchShim, type LookupOptions } from '../executable'
-import type { RunEventInit, ToolEffect } from '@shared/events'
-import { stripNeedsAnswer, summarize, withLoopbackBypass } from './common'
+import type { RunEventInit, RunUsage, ToolEffect } from '@shared/events'
+import { emptyUsage, stripNeedsAnswer, summarize, withLoopbackBypass } from './common'
 
 type RawEvent = RunEventInit
 
@@ -16,6 +16,59 @@ const TOOL_EFFECTS: Record<string, ToolEffect> = {
 
 function toolEffect(name: string): ToolEffect {
   return TOOL_EFFECTS[name] ?? 'other'
+}
+
+function obj(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null
+    ? value as Record<string, unknown>
+    : null
+}
+
+function num(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+/** 프롬프트 크기 = 비캐시 입력 + 캐시에서 읽은 것 + 캐시에 쓴 것. 셋 다 모델이 읽은 토큰이다. */
+function promptSize(u: Record<string, unknown>): number | null {
+  const parts = [
+    num(u['input_tokens']),
+    num(u['cache_read_input_tokens']),
+    num(u['cache_creation_input_tokens'])
+  ]
+  if (parts.every((p) => p === null)) return null
+  return parts.reduce<number>((sum, p) => sum + (p ?? 0), 0)
+}
+
+/**
+ * `result` 줄의 사용량. 없으면 null을 돌려주고 이벤트를 만들지 않는다 —
+ * 빈 껍데기를 내면 화면이 "0토큰"으로 읽는다.
+ *
+ * **`contextTokens`는 `iterations`의 마지막 하나로 잰다.** 최상위 `usage`는 턴 안의
+ * 모든 요청을 더한 값이라, 도구를 여러 번 쓴 턴에서 그것으로 창 대비 비율을 그리면
+ * 100%를 넘는다 (spec §3-2). `iterations`가 없는 버전에서는 최상위로 폴백한다.
+ */
+function resultUsage(line: Record<string, unknown>): RunUsage | null {
+  const u = obj(line['usage'])
+  if (!u) return null
+
+  const iterations = Array.isArray(u['iterations']) ? u['iterations'] : []
+  const last = obj(iterations[iterations.length - 1])
+
+  // modelUsage의 키는 모델 이름이고 값이 창 크기를 들고 있다. 이름을 리터럴로
+  // 박지 않는다 — 모델마다 달라진다.
+  const models = obj(line['modelUsage'])
+  const first = models ? obj(Object.values(models)[0]) : null
+
+  return emptyUsage({
+    inputTokens: num(u['input_tokens']),
+    outputTokens: num(u['output_tokens']),
+    cacheReadTokens: num(u['cache_read_input_tokens']),
+    cacheWriteTokens: num(u['cache_creation_input_tokens']),
+    reasoningTokens: num(obj(u['output_tokens_details'])?.['thinking_tokens']),
+    costUsd: num(line['total_cost_usd']),
+    contextTokens: promptSize(last ?? u),
+    contextWindow: num(first?.['contextWindow'])
+  })
 }
 
 /** 도구 입력에서 파일 경로를 뽑는다. 5단계의 스냅샷 트리거가 이걸 쓴다. */
@@ -134,6 +187,13 @@ export const claudeCodeAdapter = {
         const events: RawEvent[] = [
           { type: 'session', runId, at, sessionId: String(obj['session_id'] ?? '') }
         ]
+        // 실제로 쓰인 모델은 여기서만 온다 — 사용자가 모델 칸을 비웠어도
+        // 무엇이 돌았는지 알 수 있는 유일한 자리다 (docs/sdlc/run-info/ FR-9).
+        const model = obj['model']
+        if (typeof model === 'string' && model) {
+          events.push({ type: 'usage', runId, at, usage: emptyUsage({ model }) })
+        }
+
         // CLI는 첫 줄에 MCP 서버의 연결 상태를 알려준다. 이걸 흘려보내면 연결
         // 실패가 화면 어디에도 남지 않고, agent가 이슈·메모를 전혀 못 건드리는
         // 채로 run이 "성공"으로 끝난다 — 사용자는 결과를 보고 나서야 뭔가
@@ -191,13 +251,16 @@ export const claudeCodeAdapter = {
       case 'result': {
         const raw = typeof obj['result'] === 'string' ? obj['result'] : ''
         const { text: resultText, marked: needsAnswer } = stripNeedsAnswer(raw)
-        return [{
+        const events: RawEvent[] = [{
           type: 'result', runId, at,
           status: obj['is_error'] === true ? 'failed' : 'succeeded',
           resultText,
           sessionId: typeof obj['session_id'] === 'string' ? obj['session_id'] : null,
           needsAnswer
         }]
+        const usage = resultUsage(obj)
+        if (usage) events.push({ type: 'usage', runId, at, usage })
+        return events
       }
 
       default:

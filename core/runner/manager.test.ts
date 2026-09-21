@@ -3,10 +3,11 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { createRunManager } from './manager'
+import { createRunManager, mergeUsage } from './manager'
 import { claudeCodeAdapter } from './adapters/claudeCode'
 import { consoleErrorSink } from '../errors'
-import type { RunEvent } from '@shared/events'
+import type { RunEvent, RunUsage } from '@shared/events'
+import { emptyUsage } from './adapters/common'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FAKE = resolve(HERE, 'fixtures/fake-claude.mjs')
@@ -198,5 +199,63 @@ describe('RunManager — 실행 런처', () => {
       cleanup()
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+/**
+ * 병합 규칙 (`docs/sdlc/run-info/spec.md` §3-3). 필드마다 규칙이 다르다 —
+ * 토큰·비용은 더하고, 모델과 컨텍스트 둘은 마지막 non-null이 이긴다.
+ *
+ * 순수 함수로 검증한다. 실제 spawn에 얹으면 Windows에서 가짜 CLI가 뜨지 않아
+ * OS마다 다른 것을 보게 된다(CLAUDE.md).
+ */
+describe('mergeUsage', () => {
+  const u = (known: Partial<RunUsage>): RunUsage => emptyUsage(known)
+
+  it('토큰과 비용은 더한다 — opencode는 스텝마다 온다', () => {
+    const merged = mergeUsage(
+      u({ inputTokens: 100, outputTokens: 10, cacheReadTokens: 5, cacheWriteTokens: 1, reasoningTokens: 2, costUsd: 0.1 }),
+      u({ inputTokens: 200, outputTokens: 20, cacheReadTokens: 7, cacheWriteTokens: 3, reasoningTokens: 4, costUsd: 0.2 })
+    )
+    expect(merged).toMatchObject({
+      inputTokens: 300, outputTokens: 30, cacheReadTokens: 12,
+      cacheWriteTokens: 4, reasoningTokens: 6
+    })
+    expect(merged!.costUsd).toBeCloseTo(0.3, 10)
+  })
+
+  it('claude처럼 한 번만 오면 그 값이 그대로 남는다', () => {
+    // 하나를 더하면 그 하나가 된다 — 한 규칙이 두 CLI를 모두 맞춘다.
+    const merged = mergeUsage(null, u({ inputTokens: 2, outputTokens: 4 }))
+    expect(merged).toMatchObject({ inputTokens: 2, outputTokens: 4 })
+  })
+
+  it('모델과 컨텍스트는 마지막 non-null이 이긴다 — 합이 아니라 상태다', () => {
+    const merged = mergeUsage(
+      u({ model: 'claude-opus-5[1m]' }),
+      u({ contextTokens: 502, contextWindow: 1000000 })
+    )
+    expect(merged).toMatchObject({
+      model: 'claude-opus-5[1m]', contextTokens: 502, contextWindow: 1000000
+    })
+  })
+
+  it('컨텍스트는 덮어쓴다 — 더하면 창을 넘는다', () => {
+    const merged = mergeUsage(u({ contextTokens: 1000 }), u({ contextTokens: 1200 }))
+    expect(merged!.contextTokens).toBe(1200)
+  })
+
+  it('null은 이미 아는 값을 덮지 않는다', () => {
+    const merged = mergeUsage(
+      u({ model: 'claude-opus-5', contextWindow: 200000, inputTokens: 5 }),
+      u({ outputTokens: 3 })
+    )
+    expect(merged).toMatchObject({
+      model: 'claude-opus-5', contextWindow: 200000, inputTokens: 5, outputTokens: 3
+    })
+  })
+
+  it('아무것도 없으면 null이다 — 빈 껍데기를 만들지 않는다', () => {
+    expect(mergeUsage(null, null)).toBeNull()
   })
 })

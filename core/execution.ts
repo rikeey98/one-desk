@@ -130,7 +130,9 @@ export function createExecutionService(opts: ExecutionOptions) {
           externalSessionId: null,
           needsAnswer: false,
           exitCode: null,
-          errorMessage: '이어받을 세션이 없습니다. 앞 턴이 세션을 남기지 못했습니다.'
+          errorMessage: '이어받을 세션이 없습니다. 앞 턴이 세션을 남기지 못했습니다.',
+          // 실패·취소 경로에는 사용량이 없다 — 0이 아니라 null이다.
+          usage: null
         })
         return
       }
@@ -189,7 +191,10 @@ export function createExecutionService(opts: ExecutionOptions) {
         externalSessionId: outcome.externalSessionId,
         needsAnswer: outcome.needsAnswer,
         exitCode: outcome.exitCode,
-        errorMessage: outcome.errorMessage
+        errorMessage: outcome.errorMessage,
+        // 모델·토큰·컨텍스트 (docs/sdlc/run-info/). 이 한 줄이 빠지면 화면이
+        // 영영 비는데 어디도 실패하지 않는다.
+        usage: outcome.usage
       }),
       // spawn 거부를 여기서 잡지 않으면 run이 영원히 running으로 남는다.
       (err: unknown) => finish(runId, {
@@ -198,7 +203,9 @@ export function createExecutionService(opts: ExecutionOptions) {
         externalSessionId: null,
         needsAnswer: false,
         exitCode: null,
-        errorMessage: err instanceof Error ? err.message : String(err)
+        errorMessage: err instanceof Error ? err.message : String(err),
+        // 실패·취소 경로에는 사용량이 없다 — 0이 아니라 null이다.
+        usage: null
       })
     )
   }
@@ -257,7 +264,9 @@ export function createExecutionService(opts: ExecutionOptions) {
         externalSessionId: null,
         needsAnswer: false,
         exitCode: null,
-        errorMessage: preflight.reason ?? '실행 파일을 찾을 수 없습니다.'
+        errorMessage: preflight.reason ?? '실행 파일을 찾을 수 없습니다.',
+        // 실패·취소 경로에는 사용량이 없다 — 0이 아니라 null이다.
+        usage: null
       }))
     }
 
@@ -278,7 +287,9 @@ export function createExecutionService(opts: ExecutionOptions) {
           externalSessionId: null,
           needsAnswer: false,
           exitCode: null,
-          errorMessage: verified.reason ?? '실행 전 확인에 실패했습니다.'
+          errorMessage: verified.reason ?? '실행 전 확인에 실패했습니다.',
+          // 실패·취소 경로에는 사용량이 없다 — 0이 아니라 null이다.
+          usage: null
         }))
       }
     }
@@ -309,7 +320,9 @@ export function createExecutionService(opts: ExecutionOptions) {
           externalSessionId: null,
           needsAnswer: false,
           exitCode: null,
-          errorMessage: `MCP 서버를 준비하지 못했습니다: ${err instanceof Error ? err.message : String(err)}`
+          errorMessage: `MCP 서버를 준비하지 못했습니다: ${err instanceof Error ? err.message : String(err)}`,
+          // 실패·취소 경로에는 사용량이 없다 — 0이 아니라 null이다.
+          usage: null
         }))
       }
     }
@@ -440,7 +453,9 @@ export function createExecutionService(opts: ExecutionOptions) {
         externalSessionId: null,
         needsAnswer: false,
         exitCode: null,
-        errorMessage: null
+        errorMessage: null,
+        // 실패·취소 경로에는 사용량이 없다 — 0이 아니라 null이다.
+        usage: null
       })
       notify(finished)
       notify(opts.runs.markReviewed(finished.rootRunId ?? finished.id, 'archived'))

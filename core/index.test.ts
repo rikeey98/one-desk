@@ -204,7 +204,8 @@ describe('createCore', () => {
     const seeded = seedRun(core, dataDir, '확인 대상')
     core.runs.markFinished(seeded.id, {
       status: 'succeeded', resultText: null, externalSessionId: null,
-      needsAnswer: false, exitCode: 0, errorMessage: null
+      needsAnswer: false, exitCode: 0, errorMessage: null,
+      usage: null
     })
     expect(core.inbox.counts().total).toBe(1)
 

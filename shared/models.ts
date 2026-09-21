@@ -1,3 +1,4 @@
+import type { RunUsage } from './events'
 export type AgentKind = 'claude-code' | 'opencode'
 export type Permission = 'read_only' | 'edit' | 'full'
 
@@ -272,6 +273,12 @@ export interface Run {
   endedAt: number | null
   createdAt: number
   contextItems: ContextItemView[]
+  /**
+   * 그 턴이 무엇으로 돌았고 얼마나 썼는지 (`docs/sdlc/run-info/`).
+   * 스트림이 알려주지 않았거나 이 기능 이전의 run이면 null이고, 그때 화면은
+   * 줄 자체를 그리지 않는다 (spec FR-2).
+   */
+  usage: RunUsage | null
 }
 
 /** 렌더러가 실행을 요청할 때 넘기는 것 */

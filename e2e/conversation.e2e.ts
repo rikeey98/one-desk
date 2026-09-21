@@ -91,6 +91,22 @@ describe('대화', () => {
     // 대화록에 턴이 셋, 도크 탭은 하나다 — 세 턴이 별개의 대화로 흩어지지 않았다.
     await expect.poll(() => page.locator('.turn').count(), { timeout: 20_000 }).toBe(3)
 
+    // 그 턴이 무엇으로 돌았고 얼마나 썼는지 (docs/sdlc/run-info/). 어댑터 →
+    // manager 병합 → DB 아홉 컬럼 → IPC → 화면까지가 이 한 줄에 걸려 있다.
+    //
+    // **끝난 턴에만 붙는다** — 사용량은 result와 함께 오므로, 이 줄을 기다리는
+    // 것은 곧 그 턴이 끝나기를 기다리는 것이다. 위쪽(2턴 예약을 관찰하는 구간)에
+    // 두면 1턴을 끝내버려 예약 버블이 영영 뜨지 않는다.
+    const info = page.locator('.turn-info').first()
+    await info.waitFor({ state: 'visible', timeout: 10_000 })
+    await expect.poll(() => info.textContent(), { timeout: 10_000 })
+      .toContain('claude-fake-5[1m]')
+    // 캐시를 포함한 마지막 요청의 프롬프트 크기로 잰다 — 2+15428+37917 = 53,347.
+    expect(await info.textContent()).toContain('컨텍스트 5%')
+    // 비용은 화면이 아니라 호버로만 읽는다 (FR-4).
+    expect(await info.textContent()).not.toContain('$')
+    expect(await info.getAttribute('title')).toContain('$0.3870')
+
     // 2·3턴은 아무것도 담지 않았다 — 줄은 1턴의 것 하나 그대로다(FR-2).
     await expect.poll(() => applied.count(), { timeout: 5_000 }).toBe(1)
 

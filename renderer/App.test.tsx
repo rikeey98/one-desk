@@ -34,7 +34,7 @@ function makeRun(over: Partial<Run> = {}): Run {
     rootRunId: over.id ?? 'run-1',
     resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
     errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
-    startedAt: 1, endedAt: 2, createdAt: 1, contextItems: [],
+    startedAt: 1, endedAt: 2, createdAt: 1, contextItems: [], usage: null,
     ...over
   }
 }

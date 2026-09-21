@@ -44,7 +44,11 @@ process.stdin.on('end', () => {
     })
     emit({
       type: 'step_finish', timestamp: at(), sessionID: sessionId,
-      part: { type: 'step-finish', reason: 'stop' }
+      // 토큰·비용. 모양은 기록된 실측 픽스처 그대로다 (모델도 창 크기도 없다).
+      part: {
+        type: 'step-finish', reason: 'stop', cost: 0,
+        tokens: { total: 3877, input: 3815, output: 31, reasoning: 0, cache: { write: 0, read: 0 } }
+      }
     })
     process.exit(0)
   }, delay)

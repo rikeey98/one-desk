@@ -6,7 +6,7 @@ import type {
 } from '../types'
 import { opencodePermissionConfig } from '../permission'
 import { agentCommand, findExecutable, isBatchShim, type LookupOptions } from '../executable'
-import { stripNeedsAnswer, summarize, withLoopbackBypass } from './common'
+import { emptyUsage, stripNeedsAnswer, summarize, withLoopbackBypass } from './common'
 import type { RunEventInit, ToolEffect } from '@shared/events'
 
 type RawEvent = RunEventInit
@@ -24,6 +24,10 @@ const TOOL_EFFECTS: Record<string, ToolEffect> = {
 
 function toolEffect(name: string): ToolEffect {
   return TOOL_EFFECTS[name] ?? 'other'
+}
+
+function num(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 /** 도구 입력에서 파일 경로를 뽑는다. claude의 file_path와 달리 filePath다. */
@@ -225,8 +229,42 @@ export const opencodeAdapter = {
         ]
       }
 
+      case 'step_finish': {
+        // 스텝마다 그 스텝의 수치가 온다. **누적은 여기서 하지 않는다** —
+        // parseLine은 앞 줄을 기억하지 못하고(설계 §7), 합치는 일은 manager 몫이다
+        // (docs/sdlc/run-info/spec.md §3-3).
+        const tokens = part && typeof part['tokens'] === 'object' && part['tokens'] !== null
+          ? part['tokens'] as Record<string, unknown>
+          : null
+        if (!tokens) return []
+        const cache = (typeof tokens['cache'] === 'object' && tokens['cache'] !== null)
+          ? tokens['cache'] as Record<string, unknown>
+          : {}
+
+        const input = num(tokens['input'])
+        const cacheRead = num(cache['read'])
+        const cacheWrite = num(cache['write'])
+        // 이 스텝이 모델에 넣은 프롬프트 크기. total은 출력까지 더한 값이라 다르다.
+        const context = [input, cacheRead, cacheWrite].every((n) => n === null)
+          ? null
+          : (input ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0)
+
+        return [{
+          type: 'usage', runId, at,
+          usage: emptyUsage({
+            // 모델도 컨텍스트 창도 스트림에 없다 — null로 남겨 화면이 조각을 빼게 한다.
+            inputTokens: input,
+            outputTokens: num(tokens['output']),
+            cacheReadTokens: cacheRead,
+            cacheWriteTokens: cacheWrite,
+            reasoningTokens: num(tokens['reasoning']),
+            costUsd: num(part?.['cost']),
+            contextTokens: context
+          })
+        }]
+      }
+
       default:
-        // step_finish의 토큰·비용은 아직 쓰는 곳이 없다.
         return []
     }
   }
