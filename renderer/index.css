@@ -333,6 +333,20 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
 .settings-status-ok::before { background: var(--success); }
 .settings-status-bad::before { background: var(--danger); }
 .settings-status-bad { color: var(--danger-text); }
+/* 아직 확인하지 않은 칸. **색만으로 가르지 않는다**(DESIGN.md) — 줄머리 문구가
+   "확인 중…"/"아직 확인하지 않았습니다"로 상태를 말한다. */
+.settings-status-wait::before { content: ''; flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; align-self: center; border: 1px solid var(--text-muted); }
+/* agent 줄은 여러 줄이 쌓인다 — 이름·줄머리·세부. li의 가로 배치를 세로로 돌린다. */
+.settings-status li { flex-wrap: wrap; }
+.settings-status-name { font-weight: 600; color: var(--text-primary); }
+.settings-status-head-line { color: var(--text-primary); }
+.settings-status-detail { flex: 1 0 100%; padding-left: 15px; color: var(--text-muted); }
+.settings-status-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.settings-status-head h3 { margin-bottom: 4px; }
+/* 입력칸 아래의 안내 한 줄. 흐리게 하되 opacity가 아니라 토큰으로 — 대비가
+   4.5:1 아래로 떨어지면 안 된다(DESIGN.md). */
+.field-note { margin-top: 4px; font-size: .75rem; line-height: 1.5; color: var(--text-muted); }
+.field-note code { font-size: .75rem; }
 .confirm-button { border: 1px solid var(--border); border-radius: 5px; background: var(--bg); cursor: pointer; font: inherit; font-size: .6875rem; padding: 3px 9px; }
 .confirm-button.confirm-armed { border-color: var(--danger-border); color: var(--danger-text); }
 .conflict-banner { display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 5px; background: var(--warn-bg); font-size: .75rem; }

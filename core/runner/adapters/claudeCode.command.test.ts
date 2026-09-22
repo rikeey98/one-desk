@@ -8,6 +8,7 @@ function spec(over: Partial<ResolvedRunSpec> = {}): ResolvedRunSpec {
     runId: 'r1',
     cwd: '/tmp/repo',
     model: null,
+    effort: null,
     permission: 'edit',
     prompt: '테스트 프롬프트',
     resumeSessionId: null,
@@ -57,6 +58,25 @@ describe('claudeCodeAdapter.buildCommand', () => {
     const { args } = claudeCodeAdapter.buildCommand(spec({ model: 'sonnet' }))
     const i = args.indexOf('--model')
     expect(args[i + 1]).toBe('sonnet')
+  })
+
+  it('effort가 있으면 --effort를 붙인다', () => {
+    const { args } = claudeCodeAdapter.buildCommand(spec({ effort: 'high' }))
+    const i = args.indexOf('--effort')
+    expect(i).toBeGreaterThanOrEqual(0)
+    expect(args[i + 1]).toBe('high')
+  })
+
+  it('effort가 null이면 --effort를 아예 붙이지 않는다', () => {
+    // 빈 값은 "CLI 자신의 기본값"이다 — `--effort ''`를 붙이면 그 뜻이 깨진다.
+    expect(claudeCodeAdapter.buildCommand(spec({ effort: null })).args).not.toContain('--effort')
+  })
+
+  it('표에 없는 effort 값도 그대로 넘긴다', () => {
+    // CLI가 값을 검증하지 않는다(`--effort bogus`도 통과, 2026-09-22 실측).
+    // 어댑터가 거르면 새 단계가 생겼을 때 앱이 먼저 막는다.
+    const { args } = claudeCodeAdapter.buildCommand(spec({ effort: 'ultra' }))
+    expect(args[args.indexOf('--effort') + 1]).toBe('ultra')
   })
 
   it('cwd와 executable을 SpawnSpec에 담는다', () => {

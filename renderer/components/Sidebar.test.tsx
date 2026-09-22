@@ -11,6 +11,7 @@ function makeWorkspace(name: string, id: string): Workspace {
     id, name, description: null,
     defaultAgentKind: 'claude-code',
     defaultModelClaude: null, defaultModelOpencode: null,
+  defaultEffortClaude: null, defaultVariantOpencode: null,
     defaultPermission: 'edit',
     claudePath: null, opencodePath: null,
     createdAt: 0, updatedAt: 0

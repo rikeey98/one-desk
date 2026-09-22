@@ -27,6 +27,16 @@ export interface Workspace {
   defaultAgentKind: AgentKind
   defaultModelClaude: string | null
   defaultModelOpencode: string | null
+  /**
+   * claude의 `--effort` 기본값. null이면 플래그를 붙이지 않는다(= CLI 자신의 기본값).
+   *
+   * **opencode의 `--variant`와 컬럼이 갈린 것은 모델과 같은 이유다**(전체 설계 §199) —
+   * claude의 `high`와 opencode의 `high`는 다른 것을 가리킨다. 하나로 합치면 agent를
+   * 바꾼 순간 상대가 모르는 값이 넘어간다.
+   */
+  defaultEffortClaude: string | null
+  /** opencode의 `--variant` 기본값. provider마다 값이 다르므로 목록이 없다 */
+  defaultVariantOpencode: string | null
   defaultPermission: Permission
   claudePath: string | null
   opencodePath: string | null
@@ -96,6 +106,10 @@ export interface UpdateWorkspaceDefaultsInput {
   defaultAgentKind: AgentKind
   defaultModelClaude: string | null
   defaultModelOpencode: string | null
+  /** claude의 `--effort`. 빈 문자열은 null로 저장한다 */
+  defaultEffortClaude: string | null
+  /** opencode의 `--variant`. 빈 문자열은 null로 저장한다 */
+  defaultVariantOpencode: string | null
   /**
    * 새 실행이 시작할 권한. **전체 허용으로 올리는 것은 화면이 별도 확인을 받은
    * 뒤에 보낸다**(전체 설계 §403). 저장소는 그 절차를 강제하지 않는다 — 확인은
@@ -134,6 +148,56 @@ export interface AgentStatus {
 }
 
 export type AgentStatuses = Record<AgentKind, AgentStatus>
+
+/**
+ * 이 CLI로 **지금 대화가 되는가**의 둘째 칸 (docs/sdlc/agent-setup/ FR-1).
+ *
+ * **셋으로 가른 것이 FR-3이다.** `ok: boolean`에 사유를 붙이는 모양으로는
+ * "자격 증명이 0개다"와 "조회를 못 했다"가 같은 칸에 들어간다 — 전자는 사용자가
+ * 고칠 일이고 후자는 우리가 모른다는 뜻이라, 같은 말로 적으면 거짓말이 된다.
+ */
+export type AgentAuth =
+  /** 로그인돼 있다. `method`·`plan`은 알려주는 CLI만 채운다 */
+  | { state: 'ok'; method: string | null; plan: string | null }
+  /** 로그인이 안 돼 있다. `hint`는 사용자가 칠 명령이다 */
+  | { state: 'none'; hint: string }
+  /** 조회를 못 했다 — **`none`이 아니다.** 옛 CLI, 깨진 출력, 타임아웃 */
+  | { state: 'unknown'; reason: string }
+
+/**
+ * 셋째 칸 — 지금 이 설정으로 돌리면 어떤 모델 이름이 넘어가는가.
+ *
+ * **`resolved`는 "유효하다"가 아니다.** claude의 `init`은 모델을 검증하지 않는다 —
+ * 없는 이름 `gpt-9`도 그대로 되돌려 준다(2026-09-22 실측). 화면 문구가 이 선을
+ * 넘으면 안 된다.
+ */
+export type AgentModel =
+  /** init이 해석해 준 이름. 별칭은 풀려서 온다 (`sonnet` → `claude-sonnet-5`) */
+  | { state: 'resolved'; model: string }
+  /** 일부러 돌리지 않았다 — 인증 없음 / cwd 없음 / opencode(관측 수단이 없다) */
+  | { state: 'skipped'; reason: string }
+  /** 돌렸는데 못 얻었다 */
+  | { state: 'unknown'; reason: string }
+
+/**
+ * `checkAgents`(빠른 칸)와 **따로** 조회하는 느린 칸들.
+ *
+ * 실행 파일 경로를 여기 담지 않는다 — 그것은 `AgentStatus`의 몫이고, 두 곳이 같은
+ * 값을 주면 화면이 어느 쪽을 믿을지 모호해진다.
+ */
+export interface AgentProbe {
+  auth: AgentAuth
+  model: AgentModel
+  /** CLI 버전. 알려주지 않으면 null */
+  version: string | null
+  /**
+   * 모델 칸의 제안 목록. opencode는 `opencode models`가 준 값이고,
+   * claude는 조회 수단이 없어 **항상 빈 배열**이다 — 화면이 자기 별칭 표를 쓴다.
+   */
+  models: string[]
+}
+
+export type AgentProbes = Record<AgentKind, AgentProbe>
 
 export interface CreateRepoInput {
   workspaceId: string
@@ -252,6 +316,15 @@ export interface Run {
   workspaceId: string
   agentKind: AgentKind
   model: string | null
+  /**
+   * 이 run에 넘긴 effort(claude의 `--effort`) 또는 variant(opencode의 `--variant`).
+   * 행이 `agentKind`를 이미 알고 있어 해석이 갈리지 않는다 — `model`과 같은 규칙이다.
+   *
+   * **관측본 컬럼이 없다.** `actualModel`이 따로 있는 이유는 CLI가 모델을 되돌려
+   * 주기 때문인데, effort는 어느 CLI도 되돌려 주지 않는다(docs/sdlc/run-info/ 실측).
+   * 여기 들어 있는 값이 **요청이자 기록의 전부**다.
+   */
+  effort: string | null
   cwd: string
   permission: Permission
   userPrompt: string
@@ -286,6 +359,8 @@ export interface StartRunInput {
   workspaceId: string
   agentKind: AgentKind
   model?: string | null
+  /** claude면 `--effort`, opencode면 `--variant`. 비우면 그 인자를 붙이지 않는다 */
+  effort?: string | null
   /** 작업 디렉토리. repo를 고르지 않으면 workspace의 첫 repo 경로 */
   cwd: string
   permission: Permission
@@ -306,6 +381,11 @@ export interface ResumeRunInput {
   /** 이어받을 대화 (= root run의 id) */
   conversationId: string
   model?: string | null
+  /**
+   * 이 턴의 effort/variant. **이어받지 않고 매 턴 새로 받는다** — agentKind·cwd와
+   * 달리 세션에 묶인 값이 아니다(모델과 같은 규칙).
+   */
+  effort?: string | null
   permission: Permission
   userPrompt: string
   /** 기본은 빈 배열 — 이전 대화가 이미 세션에 있다 (설계 §6) */

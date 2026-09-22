@@ -120,6 +120,7 @@ describe('McpHost', () => {
       runId: 'r-name',
       cwd: '/tmp',
       model: null,
+      effort: null,
       permission: 'edit',
       prompt: 'x',
       resumeSessionId: null,

@@ -94,6 +94,8 @@ describe('WorkspaceRepository.updateDefaults', () => {
       id: created.id,
       defaultAgentKind: 'opencode',
       defaultModelClaude: 'sonnet',
+      defaultEffortClaude: null,
+      defaultVariantOpencode: null,
       defaultModelOpencode: 'anthropic/claude-sonnet-4-5', defaultPermission: 'edit'
     })
 
@@ -115,6 +117,8 @@ describe('WorkspaceRepository.updateDefaults', () => {
       id: created.id,
       defaultAgentKind: 'claude-code',
       defaultModelClaude: 'opus',
+      defaultEffortClaude: null,
+      defaultVariantOpencode: null,
       defaultModelOpencode: 'openai/gpt-5', defaultPermission: 'edit'
     })
 
@@ -129,11 +133,15 @@ describe('WorkspaceRepository.updateDefaults', () => {
     const created = repo.create({ name: 'ws' })
     repo.updateDefaults({
       id: created.id, defaultAgentKind: 'claude-code',
+      defaultEffortClaude: null,
+      defaultVariantOpencode: null,
       defaultModelClaude: 'sonnet', defaultModelOpencode: 'openai/gpt-5', defaultPermission: 'edit'
     })
 
     const cleared = repo.updateDefaults({
       id: created.id, defaultAgentKind: 'claude-code',
+      defaultEffortClaude: null,
+      defaultVariantOpencode: null,
       defaultModelClaude: '', defaultModelOpencode: '   ', defaultPermission: 'edit'
     })
 
@@ -148,10 +156,77 @@ describe('WorkspaceRepository.updateDefaults', () => {
 
     const next = repo.updateDefaults({
       id: created.id, defaultAgentKind: 'claude-code',
+      defaultEffortClaude: null,
+      defaultVariantOpencode: null,
       defaultModelClaude: '  sonnet  ', defaultModelOpencode: null, defaultPermission: 'edit'
     })
 
     expect(next.defaultModelClaude).toBe('sonnet')
+  })
+
+  it('effort와 variant를 서로 다른 칸에 담는다', () => {
+    // 모델과 같은 이유다 (설계 §199) — claude의 'high'와 opencode의 'high'는
+    // 다른 것을 가리킨다. 한 칸에 담으면 agent를 바꾼 순간 값이 새어 넘어간다.
+    const db = makeTestDb()
+    const repo = createWorkspaceRepository(db)
+    const created = repo.create({ name: 'ws' })
+    expect(created.defaultEffortClaude).toBeNull()
+    expect(created.defaultVariantOpencode).toBeNull()
+
+    const next = repo.updateDefaults({
+      id: created.id, defaultAgentKind: 'claude-code',
+      defaultModelClaude: null, defaultModelOpencode: null,
+      defaultEffortClaude: 'high',
+      defaultVariantOpencode: 'minimal',
+      defaultPermission: 'edit'
+    })
+
+    expect(next.defaultEffortClaude).toBe('high')
+    expect(next.defaultVariantOpencode).toBe('minimal')
+    // 저장된 행도 본다 — returning만 맞고 UPDATE가 엉뚱한 행에 갔어도 위는 통과한다.
+    expect(repo.list()[0]!.defaultEffortClaude).toBe('high')
+    expect(repo.list()[0]!.defaultVariantOpencode).toBe('minimal')
+  })
+
+  it('빈 effort는 null로 저장한다', () => {
+    // null이 "CLI 자신의 기본값에 맡긴다"는 뜻이라 빈 칸과 같은 자리여야 한다 —
+    // ''를 그대로 두면 어댑터가 `--effort ''`를 붙인다 (모델과 같은 규칙).
+    const db = makeTestDb()
+    const repo = createWorkspaceRepository(db)
+    const created = repo.create({ name: 'ws' })
+    repo.updateDefaults({
+      id: created.id, defaultAgentKind: 'claude-code',
+      defaultModelClaude: null, defaultModelOpencode: null,
+      defaultEffortClaude: 'max', defaultVariantOpencode: 'high',
+      defaultPermission: 'edit'
+    })
+
+    const cleared = repo.updateDefaults({
+      id: created.id, defaultAgentKind: 'claude-code',
+      defaultModelClaude: null, defaultModelOpencode: null,
+      defaultEffortClaude: '', defaultVariantOpencode: '   ',
+      defaultPermission: 'edit'
+    })
+
+    expect(cleared.defaultEffortClaude).toBeNull()
+    expect(cleared.defaultVariantOpencode).toBeNull()
+  })
+
+  it('표에 없는 effort 값도 그대로 저장한다', () => {
+    // CLI가 이 값을 검증하지 않는다(`--effort bogus`도 통과, 2026-09-22 실측).
+    // 저장소가 흉내내면 판정이 두 벌이 되고, 새 단계가 생기면 앱이 먼저 막는다.
+    const db = makeTestDb()
+    const repo = createWorkspaceRepository(db)
+    const created = repo.create({ name: 'ws' })
+
+    const next = repo.updateDefaults({
+      id: created.id, defaultAgentKind: 'claude-code',
+      defaultModelClaude: null, defaultModelOpencode: null,
+      defaultEffortClaude: 'ultra', defaultVariantOpencode: null,
+      defaultPermission: 'edit'
+    })
+
+    expect(next.defaultEffortClaude).toBe('ultra')
   })
 
   it('이름과 CLI 경로는 건드리지 않는다', () => {
@@ -163,6 +238,8 @@ describe('WorkspaceRepository.updateDefaults', () => {
 
     const next = repo.updateDefaults({
       id: created.id, defaultAgentKind: 'opencode',
+      defaultEffortClaude: null,
+      defaultVariantOpencode: null,
       defaultModelClaude: null, defaultModelOpencode: null, defaultPermission: 'edit'
     })
 
@@ -178,6 +255,8 @@ describe('WorkspaceRepository.updateDefaults', () => {
 
     const next = repo.updateDefaults({
       id: created.id, defaultAgentKind: 'opencode',
+      defaultEffortClaude: null,
+      defaultVariantOpencode: null,
       defaultModelClaude: null, defaultModelOpencode: null, defaultPermission: 'edit'
     })
 
@@ -188,6 +267,8 @@ describe('WorkspaceRepository.updateDefaults', () => {
     const db = makeTestDb()
     expect(() => createWorkspaceRepository(db).updateDefaults({
       id: '없음', defaultAgentKind: 'claude-code',
+      defaultEffortClaude: null,
+      defaultVariantOpencode: null,
       defaultModelClaude: null, defaultModelOpencode: null, defaultPermission: 'edit'
     })).toThrow('workspace를 찾을 수 없습니다')
   })
@@ -203,6 +284,8 @@ describe('WorkspaceRepository.updateDefaults — 권한', () => {
     const next = repo.updateDefaults({
       id: created.id, defaultAgentKind: 'claude-code',
       defaultModelClaude: null, defaultModelOpencode: null,
+      defaultEffortClaude: null,
+      defaultVariantOpencode: null,
       defaultPermission: 'read_only'
     })
 
@@ -220,6 +303,8 @@ describe('WorkspaceRepository.updateDefaults — 권한', () => {
     expect(repo.updateDefaults({
       id: created.id, defaultAgentKind: 'claude-code',
       defaultModelClaude: null, defaultModelOpencode: null,
+      defaultEffortClaude: null,
+      defaultVariantOpencode: null,
       defaultPermission: 'full'
     }).defaultPermission).toBe('full')
   })
@@ -285,6 +370,8 @@ describe('WorkspaceRepository.updatePaths', () => {
     repo.updateDefaults({
       id: created.id, defaultAgentKind: 'opencode',
       defaultModelClaude: 'sonnet', defaultModelOpencode: 'openai/gpt-5',
+      defaultEffortClaude: null,
+      defaultVariantOpencode: null,
       defaultPermission: 'read_only'
     })
 

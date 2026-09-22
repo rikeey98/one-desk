@@ -6,7 +6,7 @@ import type {
   CreateMemoInput, UpdateMemoInput,
   GuardedUpdateMemoInput, MemoUpdateResult,
   ListQuery, StartRunInput, QueueSnapshot,
-  UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses,
+  UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses, AgentProbes,
   InboxCounts,
   McpStatus, ResumeRunInput,
   Asset, CreateAuthoredAssetInput, GuardedUpdateAssetInput, AssetUpdateResult, ListAssetQuery,
@@ -38,6 +38,16 @@ export interface OneDeskClient {
      * 실행을 막는 것과 같은 판정이라, 화면의 표시와 실행 버튼이 어긋나지 않는다.
      */
     checkAgents(workspaceId: string): Promise<AgentStatuses>
+    /**
+     * 느린 칸 — 인증과 모델 (docs/sdlc/agent-setup/).
+     *
+     * `checkAgents`와 **따로** 부른다. 화면은 둘을 같이 띄워 빠른 것으로 먼저
+     * 그리고 이 결과가 오면 채운다 — 합치면 workspace를 고를 때마다 실행 파일
+     * 줄까지 1초씩 비어 있게 된다(spec NFR-4).
+     *
+     * `refresh`가 참이면 캐시를 버린다. `다시 확인` 버튼이 쓴다.
+     */
+    probeAgents(workspaceId: string, refresh?: boolean): Promise<AgentProbes>
     remove(id: string): Promise<void>
   }
   repos: {

@@ -16,13 +16,13 @@ const repos: Repo[] = [
 
 const workspace: Workspace = {
   id: 'w1', name: 'ws', description: null, defaultAgentKind: 'claude-code',
-  defaultModelClaude: null, defaultModelOpencode: null, defaultPermission: 'edit',
+  defaultModelClaude: null, defaultModelOpencode: null, defaultEffortClaude: null, defaultVariantOpencode: null, defaultPermission: 'edit',
   claudePath: null, opencodePath: null, createdAt: 0, updatedAt: 0
 }
 
 function makeRun(over: Partial<Run> & { id: string }): Run {
   return {
-    workspaceId: 'w1', agentKind: 'claude-code', model: null, cwd: '/tmp/api',
+    workspaceId: 'w1', agentKind: 'claude-code', model: null, effort: null, cwd: '/tmp/api',
     permission: 'edit', userPrompt: '지시', assembledPrompt: '지시', status: 'succeeded',
     externalSessionId: 'sess-1', parentRunId: null, rootRunId: over.id, resultText: null,
     needsAnswer: false, timeoutMs: null, exitCode: null, errorMessage: null,

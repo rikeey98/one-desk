@@ -29,6 +29,8 @@ export interface StartSpec {
   agentKind: AgentKind
   cwd: string
   model: string | null
+  /** claude면 --effort, opencode면 --variant. **나르기만 한다 — 판단은 없다** */
+  effort: string | null
   permission: Permission
   prompt: string
   resumeSessionId: string | null
@@ -118,6 +120,9 @@ export function createRunManager(opts: RunManagerOptions) {
       runId: spec.runId,
       cwd: spec.cwd,
       model: spec.model,
+      // model과 같은 성격이다 — 빠뜨려도 타입이 막아주지 않는 자리였다면
+      // effort가 화면에는 남고 CLI에는 안 가는 상태가 조용히 생긴다.
+      effort: spec.effort,
       permission: spec.permission,
       prompt: spec.prompt,
       resumeSessionId: spec.resumeSessionId,

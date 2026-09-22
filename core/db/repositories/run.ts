@@ -22,6 +22,8 @@ export interface CreateRunInput {
   workspaceId: string
   agentKind: AgentKind
   model: string | null
+  /** claude면 --effort, opencode면 --variant. 관측본이 없어 이 값이 기록의 전부다 */
+  effort: string | null
   cwd: string
   permission: Permission
   userPrompt: string
@@ -296,6 +298,7 @@ export function createRunRepository(db: Database) {
           workspaceId: input.workspaceId,
           agentKind: input.agentKind,
           model: input.model,
+          effort: input.effort,
           cwd: input.cwd,
           permission: input.permission,
           userPrompt: input.userPrompt,

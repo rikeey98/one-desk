@@ -30,6 +30,7 @@ function spec(scenario: string) {
     agentKind: 'claude-code' as const,
     cwd: process.cwd(),
     model: null,
+    effort: null,
     permission: 'edit' as const,
     prompt: '테스트',
     resumeSessionId: null,

@@ -1,10 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { SettingsPanel } from './SettingsPanel'
 import type { OneDeskClient } from '@shared/client'
 import type {
+  AgentProbes,
   AgentStatuses, AppInfo, GlobalRoots, McpStatus, QueueSnapshot, Repo, UpdateRepoInput,
   UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, Workspace
 } from '@shared/models'
@@ -22,7 +23,7 @@ const DEFAULTS: GlobalRoots = {
 function makeWorkspace(over: Partial<Workspace> = {}): Workspace {
   return {
     id: 'w1', name: 'ws1', description: null, defaultAgentKind: 'claude-code',
-    defaultModelClaude: null, defaultModelOpencode: null, defaultPermission: 'edit',
+    defaultModelClaude: null, defaultModelOpencode: null, defaultEffortClaude: null, defaultVariantOpencode: null, defaultPermission: 'edit',
     claudePath: null, opencodePath: null, createdAt: 0, updatedAt: 0, ...over
   }
 }
@@ -73,6 +74,8 @@ function makeClient(
         defaultAgentKind: input.defaultAgentKind,
         defaultModelClaude: (input.defaultModelClaude ?? '').trim() || null,
         defaultModelOpencode: (input.defaultModelOpencode ?? '').trim() || null,
+        defaultEffortClaude: (input.defaultEffortClaude ?? '').trim() || null,
+        defaultVariantOpencode: (input.defaultVariantOpencode ?? '').trim() || null,
         defaultPermission: input.defaultPermission
       })),
       updatePaths: vi.fn(async (input: UpdateWorkspacePathsInput) => makeWorkspace({
@@ -80,9 +83,26 @@ function makeClient(
         opencodePath: (input.opencodePath ?? '').trim() || null
       })),
       checkAgents: vi.fn(async () => AGENTS_OK),
+      probeAgents: vi.fn(async () => PROBES_OK),
       ...workspacesOver
     }
   } as unknown as OneDeskClient
+}
+
+/** 느린 칸의 기본 스텁 — 둘 다 로그인돼 있고 모델까지 확인된 상태 */
+const PROBES_OK: AgentProbes = {
+  'claude-code': {
+    auth: { state: 'ok', method: 'claude.ai', plan: 'max' },
+    model: { state: 'resolved', model: 'claude-opus-5[1m]' },
+    version: '2.1.278',
+    models: []
+  },
+  opencode: {
+    auth: { state: 'ok', method: null, plan: null },
+    model: { state: 'skipped', reason: 'OpenCode는 실제로 쓰인 모델을 알려주지 않습니다.' },
+    version: null,
+    models: ['openrouter/anthropic/claude-sonnet-4.5']
+  }
 }
 
 function renderPanel(
@@ -200,8 +220,9 @@ describe('SettingsPanel — 실행 기본값', () => {
     expect(await screen.findByLabelText('Claude Code 기본 모델')).toHaveValue('')
   })
 
-  it('고쳐서 저장하면 셋을 한 번에 보낸다', async () => {
-    // 부분 갱신이 아니다 — 무엇이 덮이는지 흐려지지 않게 세 값을 전부 보낸다.
+  it('고쳐서 저장하면 전부 한 번에 보낸다', async () => {
+    // 부분 갱신이 아니다 — 무엇이 덮이는지 흐려지지 않게 값을 전부 보낸다.
+    // 빈 칸은 ''로 나가고 저장소가 null로 바꾼다("CLI 자신의 기본값").
     const updateDefaults = vi.fn(async () => makeWorkspace())
     renderPanel(makeClient({}, { updateDefaults }))
 
@@ -215,8 +236,46 @@ describe('SettingsPanel — 실행 기본값', () => {
       defaultAgentKind: 'opencode',
       defaultModelClaude: 'sonnet',
       defaultModelOpencode: 'openai/gpt-5',
+      defaultEffortClaude: '',
+      defaultVariantOpencode: '',
       defaultPermission: 'edit'
     })
+  })
+
+  it('effort와 variant를 서로 다른 칸으로 보낸다', async () => {
+    // 한 칸에 담으면 agent를 바꾼 순간 claude의 high가 opencode의 --variant로
+    // 넘어간다 — 두 값이 가리키는 것이 다르다(설계 §199와 같은 이유).
+    const updateDefaults = vi.fn(async () => makeWorkspace())
+    renderPanel(makeClient({}, { updateDefaults }))
+
+    await userEvent.selectOptions(
+      await screen.findByLabelText('Claude Code 기본 effort'), 'high'
+    )
+    await userEvent.type(screen.getByLabelText('OpenCode 기본 variant'), 'minimal')
+    await userEvent.click(screen.getByRole('button', { name: '기본값 저장' }))
+
+    expect(updateDefaults).toHaveBeenCalledWith(expect.objectContaining({
+      defaultEffortClaude: 'high',
+      defaultVariantOpencode: 'minimal'
+    }))
+  })
+
+  it('effort 드롭다운의 첫 항목이 기본값(빈 값)이다', async () => {
+    // 빈 항목이 없으면 한 번 고른 뒤에는 "CLI 자신의 기본값"으로 못 돌아간다.
+    renderPanel(makeClient())
+    const select = await screen.findByLabelText('Claude Code 기본 effort')
+    expect((select as HTMLSelectElement).value).toBe('')
+    expect(screen.getByRole('option', { name: '기본값' })).toBeInTheDocument()
+  })
+
+  it('표에 없는 effort 값이 저장돼 있어도 잃지 않는다', async () => {
+    // select에 없는 값을 주면 브라우저가 ''로 정규화해 문제가 화면에서 사라진다.
+    // CLI도 값을 검증하지 않으므로(`--effort bogus`도 통과) 이런 행이 있을 수 있다.
+    renderPanel(makeClient(), {
+      workspaces: [makeWorkspace({ defaultEffortClaude: 'ultra' })]
+    })
+    const select = await screen.findByLabelText('Claude Code 기본 effort')
+    expect((select as HTMLSelectElement).value).toBe('ultra')
   })
 
   it('저장하면 돌아온 값으로 다시 채운다', async () => {
@@ -228,6 +287,64 @@ describe('SettingsPanel — 실행 기본값', () => {
     await userEvent.click(screen.getByRole('button', { name: '기본값 저장' }))
 
     await waitFor(() => expect(box).toHaveValue('sonnet'))
+  })
+
+  it('느린 칸을 기다리지 않고 실행 파일 줄을 먼저 그린다 (FR-7)', async () => {
+    // 합쳐 기다리면 workspace를 고를 때마다 이 블록이 통째로 1초씩 비어 있다.
+    let releaseProbe: (probes: AgentProbes) => void = () => {}
+    const probeAgents = vi.fn(() => new Promise<AgentProbes>((r) => { releaseProbe = r }))
+    renderPanel(makeClient({}, { probeAgents }))
+
+    // 느린 칸이 아직 안 왔는데도 빠른 칸은 이미 보인다.
+    const status = await screen.findByLabelText('CLI 상태')
+    await waitFor(() => expect(status).toHaveTextContent('/usr/local/bin/claude'))
+    expect(status).not.toHaveTextContent('claude-opus-5[1m]')
+
+    releaseProbe(PROBES_OK)
+
+    await waitFor(() => expect(status).toHaveTextContent('claude-opus-5[1m]'))
+  })
+
+  it('로그인 안 된 agent를 초록으로 두지 않는다', async () => {
+    // **이 작업이 고치려던 증상이다.** 실행 파일은 있는데 자격 증명이 없어
+    // 아무것도 못 도는 상태가 지금은 초록으로 지나간다.
+    const probeAgents = vi.fn(async (): Promise<AgentProbes> => ({
+      ...PROBES_OK,
+      opencode: {
+        auth: { state: 'none', hint: '`opencode auth login`으로 provider에 로그인하세요.' },
+        model: { state: 'skipped', reason: 'OpenCode는 실제로 쓰인 모델을 알려주지 않습니다.' },
+        version: null,
+        models: []
+      }
+    }))
+    renderPanel(makeClient({}, { probeAgents }))
+
+    const status = await screen.findByLabelText('CLI 상태')
+    await waitFor(() => expect(status).toHaveTextContent('opencode auth login'))
+    const row = within(status).getAllByRole('listitem').find((li) => li.textContent?.includes('OpenCode'))!
+    expect(row.className).not.toContain('settings-status-ok')
+  })
+
+  it('다시 확인은 캐시를 버리고 두 칸을 함께 다시 읽는다', async () => {
+    // 버리지 않으면 로그인을 마치고 눌러도 옛 답이 그대로 온다.
+    const checkAgents = vi.fn(async () => AGENTS_OK)
+    const probeAgents = vi.fn(async () => PROBES_OK)
+    renderPanel(makeClient({}, { checkAgents, probeAgents }))
+    await screen.findByLabelText('CLI 상태')
+    await waitFor(() => expect(probeAgents).toHaveBeenCalledTimes(1))
+
+    await userEvent.click(screen.getByRole('button', { name: '다시 확인' }))
+
+    await waitFor(() => expect(checkAgents).toHaveBeenCalledTimes(2))
+    expect(probeAgents).toHaveBeenLastCalledWith('w1', true)
+  })
+
+  it('느린 칸이 실패해도 빠른 칸은 남는다 (FR-6)', async () => {
+    const probeAgents = vi.fn().mockRejectedValue(new Error('IPC 끊김'))
+    renderPanel(makeClient({}, { probeAgents }))
+
+    const status = await screen.findByLabelText('CLI 상태')
+    await waitFor(() => expect(status).toHaveTextContent('/usr/local/bin/claude'))
   })
 
   it('저장이 끝나면 목록을 다시 읽으라고 알린다', async () => {

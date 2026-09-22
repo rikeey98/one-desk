@@ -50,6 +50,7 @@ function seedRun(core: Core, dataDir: string, userPrompt: string) {
     workspaceId,
     agentKind: 'claude-code',
     model: null,
+    effort: null,
     cwd: dataDir,
     permission: 'edit',
     userPrompt,
@@ -331,7 +332,7 @@ describe('글로벌 asset', () => {
     process.env['ONE_DESK_AGENT_PATH'] = FAKE_AGENT
     try {
       const run = await core.execution.start({
-        workspaceId, agentKind: 'claude-code', model: null, cwd: repoPath,
+        workspaceId, agentKind: 'claude-code', model: null, effort: null, cwd: repoPath,
         permission: 'edit', userPrompt: 'x', context: []
       })
       // status가 아니라 endedAt으로 기다린다 — 재스캔은 endedAt !== null로만 걸리고,
@@ -604,6 +605,86 @@ describe('core.workspaces.checkAgents', () => {
       if (previous === undefined) delete process.env['ONE_DESK_AGENT_PATH']
       else process.env['ONE_DESK_AGENT_PATH'] = previous
     }
+  })
+})
+
+describe('core.workspaces.probeAgents (docs/sdlc/agent-setup/)', () => {
+  /** 실행 파일 자리에 가짜 CLI를 물린다. checkAgents 테스트와 같은 통로다. */
+  async function withAgentPath<T>(path: string, fn: () => Promise<T>): Promise<T> {
+    const previous = process.env['ONE_DESK_AGENT_PATH']
+    process.env['ONE_DESK_AGENT_PATH'] = path
+    try {
+      return await fn()
+    } finally {
+      if (previous === undefined) delete process.env['ONE_DESK_AGENT_PATH']
+      else process.env['ONE_DESK_AGENT_PATH'] = previous
+    }
+  }
+
+  it('실행 파일이 없으면 두 agent 모두 unknown이고 던지지 않는다', async () => {
+    // 이 조회의 실패가 예외로 새면 설정 화면이 통째로 빈다(FR-6).
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const ws = core.workspaces.create({ name: 'ws' }).id
+    const missing = join(dataDir, '없는-cli')
+
+    const probes = await withAgentPath(missing, () => core.workspaces.probeAgents(ws))
+
+    expect(probes['claude-code'].auth.state).toBe('unknown')
+    expect(probes['claude-code'].model.state).toBe('skipped')
+    expect(probes.opencode.auth.state).toBe('unknown')
+    close(core)
+  })
+
+  it('repo가 없으면 모델 칸이 skipped다', async () => {
+    // probe의 cwd는 실행 패널이 쓰는 것과 같아야 한다 — repo가 없으면 그 자리가 없다.
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const ws = core.workspaces.create({ name: 'ws' }).id
+
+    const probes = await withAgentPath(FAKE_AGENT, () => core.workspaces.probeAgents(ws))
+
+    expect(probes['claude-code'].model.state).toBe('skipped')
+    close(core)
+  })
+
+  it('조회해도 슬롯·큐·run 테이블·이벤트에 흔적이 없다 (FR-5)', async () => {
+    // 슬래시 커맨드 FR-11과 같은 규칙이다. RunManager를 타면 실행 슬롯이 물리고
+    // 인박스에 유령 run이 뜬다.
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const seeded = seedRun(core, dataDir, '기존 것')
+    const workspaceId = seeded.workspaceId
+    const leaked: unknown[] = []
+    core.onRunEvent((e) => leaked.push(e))
+    core.onRunUpdate((r) => leaked.push(r))
+    core.onQueueUpdate((s) => leaked.push(s))
+    const queueBefore = core.queue.snapshot()
+    const runsBefore = core.runs.list(workspaceId)
+
+    await withAgentPath(FAKE_AGENT, () => core.workspaces.probeAgents(workspaceId))
+
+    expect(core.queue.snapshot()).toEqual(queueBefore)
+    expect(core.runs.list(workspaceId)).toEqual(runsBefore)
+    expect(leaked).toEqual([])
+    // manager는 프로세스를 띄우는 첫 동작으로 logs/를 만든다 — 없다는 것이
+    // 조회가 RunManager를 타지 않았다는 관측 가능한 증거다.
+    expect(existsSync(join(dataDir, 'logs'))).toBe(false)
+    close(core)
+  })
+
+  it('checkAgents는 그대로다 — 느린 칸이 빠른 칸을 대신하지 않는다', async () => {
+    // 두 메서드가 하나로 합쳐지면 workspace를 고를 때마다 실행 파일 줄까지
+    // 1초씩 비어 있게 된다(spec NFR-4).
+    const core = open(makeDataDir())
+    const ws = core.workspaces.create({ name: 'ws' }).id
+
+    const status = await core.workspaces.checkAgents(ws)
+
+    // 준비 상태의 느린 칸이 여기 섞여 들어오지 않는다.
+    expect(status['claude-code']).not.toHaveProperty('auth')
+    expect(status['claude-code']).not.toHaveProperty('model')
+    close(core)
   })
 })
 

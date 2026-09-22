@@ -25,6 +25,19 @@ export interface ProbeResult {
   /** 터미널이 있어야 도는 것(`doctor` 등). 헤드리스에선 무의미하므로 service가 목록에서 뺀다. */
   terminalSlashCommands: string[]
   plugins: CommandPlugin[]
+  /**
+   * `init`이 해석해 준 모델 이름 (`sonnet` → `claude-sonnet-5`). 없으면 null.
+   *
+   * **슬래시 커맨드와 같은 한 번의 기동에서 함께 온다** — 이 줄을 이미 손에
+   * 들고 있으면서 버리고 있었다(docs/sdlc/agent-setup/ NFR-3). 설정 화면이
+   * 이것 때문에 CLI를 또 띄우지 않는다.
+   *
+   * **"유효하다"는 뜻이 아니다.** init은 모델을 검증하지 않는다 — 없는 이름
+   * `gpt-9`도 그대로 되돌려 준다(2026-09-22 실측).
+   */
+  model: string | null
+  /** `claude_code_version`. 없으면 null */
+  version: string | null
   /** 목록을 얻지 못한 사유. 성공이면 null. */
   error: string | null
 }

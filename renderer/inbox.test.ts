@@ -4,7 +4,7 @@ import type { Run } from '@shared/models'
 
 function run(over: Partial<Run>): Run {
   return {
-    id: 'r1', workspaceId: 'w1', agentKind: 'claude-code', model: null,
+    id: 'r1', workspaceId: 'w1', agentKind: 'claude-code', model: null, effort: null,
     cwd: '/tmp', permission: 'edit', userPrompt: 'x', assembledPrompt: 'x',
     status: 'succeeded', externalSessionId: null, parentRunId: null,
     // over.id가 있으면 그것을 뿌리로 본다 — 하드코딩하면 id가 다른 두 run을

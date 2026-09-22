@@ -16,12 +16,15 @@ const repos: Repo[] = [
 function makeWorkspace(
   defaultPermission: Permission,
   defaultAgentKind: AgentKind = 'claude-code',
-  models: { claude?: string | null; opencode?: string | null } = {}
+  models: { claude?: string | null; opencode?: string | null } = {},
+  efforts: { claude?: string | null; opencode?: string | null } = {}
 ): Workspace {
   return {
     id: 'w1', name: 'ws', description: null, defaultAgentKind,
     defaultModelClaude: models.claude ?? null,
     defaultModelOpencode: models.opencode ?? null,
+    defaultEffortClaude: efforts.claude ?? null,
+    defaultVariantOpencode: efforts.opencode ?? null,
     defaultPermission,
     claudePath: null, opencodePath: null, createdAt: 0, updatedAt: 0
   }
@@ -239,7 +242,7 @@ describe('RunPanel', () => {
   })
 
   const parent: Run = {
-    id: 'p1', workspaceId: 'w1', agentKind: 'claude-code', model: null,
+    id: 'p1', workspaceId: 'w1', agentKind: 'claude-code', model: null, effort: null,
     cwd: '/tmp/api', permission: 'read_only', userPrompt: '원래 지시', assembledPrompt: 'x',
     status: 'succeeded', externalSessionId: 'sess-1', parentRunId: null, rootRunId: 'p1',
     resultText: null, needsAnswer: true, timeoutMs: null, exitCode: 0,
@@ -252,7 +255,7 @@ describe('RunPanel', () => {
   // 실제로 다른 대화이고, 마지막 턴 권한도 다르다('edit'는 parent의 'read_only'·
   // 사용자가 고를 'full' 어느 쪽과도 겹치지 않는다).
   const otherParent: Run = {
-    id: 'p2', workspaceId: 'w1', agentKind: 'claude-code', model: null,
+    id: 'p2', workspaceId: 'w1', agentKind: 'claude-code', model: null, effort: null,
     cwd: '/tmp/web', permission: 'edit', userPrompt: '다른 지시', assembledPrompt: 'y',
     status: 'succeeded', externalSessionId: 'sess-2', parentRunId: null, rootRunId: 'p2',
     resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
@@ -335,6 +338,29 @@ describe('RunPanel', () => {
     // 항상 빈 프롬프트에서 시작해야 한다 (설계 §7).
     renderPanel(makeClient(), repos, [], vi.fn(), { conversation, draftPrompt: '남은 초안' })
     expect(screen.getByPlaceholderText(/무엇을 시킬지/)).toHaveValue('')
+  })
+
+  it('이어가는 턴도 고른 effort를 싣는다', async () => {
+    // 이 턴에 고른 값이 나가지 않으면 화면은 high인데 CLI는 기본값으로 돈다 —
+    // 어느 CLI도 effort를 되돌려 주지 않아 그 어긋남이 영영 드러나지 않는다.
+    const client = makeClient()
+    renderPanel(client, repos, [], vi.fn(), { conversation })
+
+    await userEvent.selectOptions(screen.getByLabelText('effort'), 'xhigh')
+    await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '이어서 해줘')
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
+
+    expect(client.runs.resume).toHaveBeenCalledWith(
+      expect.objectContaining({ effort: 'xhigh' })
+    )
+  })
+
+  it('이어가는 턴은 effort를 이어받지 않고 기본값에서 시작한다', async () => {
+    // agentKind·cwd와 다르다 — 그 둘은 세션에 묶여 잠기지만 effort는 매 턴 고르는
+    // 값이다. 어느 CLI도 되돌려 주지 않아 "지난 턴이 무엇이었나"를 화면이
+    // 단정할 수 없다(spec FR-14).
+    renderPanel(makeClient(), repos, [], vi.fn(), { conversation })
+    expect(screen.getByLabelText('effort')).toHaveValue('')
   })
 
   it('대화를 이어가며 실행하면 resume을 부른다', async () => {
@@ -506,7 +532,7 @@ describe('RunPanel — agent 선택', () => {
     // 세션은 특정 CLI가 특정 디렉토리에서 만든 것이라 다른 조합으로 이어받을 수
     // 없다 (전체 설계 §362).
     const opencodeParent: Run = {
-      id: 'p9', workspaceId: 'w1', agentKind: 'opencode', model: null,
+      id: 'p9', workspaceId: 'w1', agentKind: 'opencode', model: null, effort: null,
       cwd: '/tmp/api', permission: 'edit', userPrompt: '원래 지시', assembledPrompt: 'x',
       status: 'succeeded', externalSessionId: 'ses_1', parentRunId: null, rootRunId: 'p9',
       resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
@@ -557,6 +583,62 @@ describe('RunPanel — 모델 기본값', () => {
       expect.objectContaining({ agentKind: 'opencode', model: 'openai/gpt-5' })))
   })
 
+  it('effort를 담아 실행을 요청한다', async () => {
+    const start = vi.fn().mockResolvedValue({ id: 'run-1' })
+    renderPanel(makeClient({ start }), repos, [], vi.fn(), {},
+      [makeWorkspace('edit', 'claude-code', {}, { claude: 'high' })])
+
+    await waitFor(() => expect(screen.getByLabelText('effort')).toHaveValue('high'))
+    await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '뭐든')
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
+
+    await waitFor(() => expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({ effort: 'high' })))
+  })
+
+  it('effort가 비어 있으면 null로 나간다', async () => {
+    // 빈 칸은 "CLI 자신의 기본값"이다 — 어댑터가 --effort를 붙이지 않는다.
+    const start = vi.fn().mockResolvedValue({ id: 'run-1' })
+    renderPanel(makeClient({ start }), repos, [], vi.fn(), {}, [makeWorkspace('edit')])
+
+    await userEvent.type(await screen.findByPlaceholderText(/무엇을 시킬지/), '뭐든')
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
+
+    await waitFor(() => expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({ effort: null })))
+  })
+
+  it('agent를 바꾸면 claude의 effort가 opencode로 새지 않는다', async () => {
+    // **수용 기준 7.** claude의 `high`와 opencode의 `high`는 다른 것을 가리킨다 —
+    // 한 칸을 공유하면 agent를 바꾼 순간 상대가 모르는 값이 넘어간다(설계 §199).
+    const start = vi.fn().mockResolvedValue({ id: 'run-1' })
+    renderPanel(makeClient({ start }), repos, [], vi.fn(), {},
+      [makeWorkspace('edit', 'claude-code', {}, { claude: 'high' })])
+
+    await waitFor(() => expect(screen.getByLabelText('effort')).toHaveValue('high'))
+    await userEvent.selectOptions(screen.getByLabelText('agent'), 'opencode')
+
+    // 드롭다운이 사라지고 자유 입력 칸이 나오며, claude의 값이 따라오지 않는다.
+    await waitFor(() => expect(screen.getByLabelText('variant')).toHaveValue(''))
+    expect(screen.queryByLabelText('effort')).toBeNull()
+
+    await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '뭐든')
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
+    await waitFor(() => expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({ agentKind: 'opencode', effort: null })))
+  })
+
+  it('agent를 되돌리면 claude의 effort가 그대로 돌아온다', async () => {
+    renderPanel(makeClient(), repos, [], vi.fn(), {},
+      [makeWorkspace('edit', 'claude-code', {}, { claude: 'max', opencode: 'minimal' })])
+
+    await waitFor(() => expect(screen.getByLabelText('effort')).toHaveValue('max'))
+    await userEvent.selectOptions(screen.getByLabelText('agent'), 'opencode')
+    await waitFor(() => expect(screen.getByLabelText('variant')).toHaveValue('minimal'))
+    await userEvent.selectOptions(screen.getByLabelText('agent'), 'claude-code')
+    await waitFor(() => expect(screen.getByLabelText('effort')).toHaveValue('max'))
+  })
+
   it('기본 모델을 담아 실행을 요청한다', async () => {
     const start = vi.fn().mockResolvedValue({ id: 'run-1' })
     renderPanel(makeClient({ start }), repos, [], vi.fn(), {},
@@ -603,7 +685,7 @@ describe('RunPanel — 모델 기본값', () => {
     // workspace 기본값으로 출발하면 1턴이 CLI 기본값으로 돌았는데 2턴만 조용히
     // 다른 모델이 된다. 권한과 같은 규칙이다.
     const modelParent: Run = {
-      id: 'p3', workspaceId: 'w1', agentKind: 'claude-code', model: 'haiku',
+      id: 'p3', workspaceId: 'w1', agentKind: 'claude-code', model: 'haiku', effort: null,
       cwd: '/tmp/api', permission: 'edit', userPrompt: '원래 지시', assembledPrompt: 'x',
       status: 'succeeded', externalSessionId: 'sess-3', parentRunId: null, rootRunId: 'p3',
       resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
@@ -629,7 +711,7 @@ describe('RunPanel — 모델 기본값', () => {
     // Conversation 객체를 만든다. [conversation] 참조에 기대면 그때마다 마지막 턴
     // 값으로 되감긴다.
     const stableParent: Run = {
-      id: 'p4', workspaceId: 'w1', agentKind: 'claude-code', model: 'haiku',
+      id: 'p4', workspaceId: 'w1', agentKind: 'claude-code', model: 'haiku', effort: null,
       cwd: '/tmp/api', permission: 'edit', userPrompt: '원래 지시', assembledPrompt: 'x',
       status: 'succeeded', externalSessionId: 'sess-4', parentRunId: null, rootRunId: 'p4',
       resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,

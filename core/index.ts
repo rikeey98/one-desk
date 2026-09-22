@@ -10,6 +10,10 @@ import { createAssetRepository } from './db/repositories/asset'
 import { createAssetService } from './assets/service'
 import { readAssetBody } from './assets/body'
 import { createCommandService } from './commands/service'
+import { createAgentProbeService } from './agent/service'
+import { createModelCatalog } from './agent/models'
+import { checkAuth } from './agent/auth'
+import { runCli } from './agent/exec'
 import { probeCommands } from './commands/probe'
 import { describeCommands } from './commands/describe'
 import type { GlobalRoots } from './db/repositories/setting'
@@ -24,7 +28,7 @@ import { opencodeAdapter } from './runner/adapters/opencode'
 import { resolveAgentPath } from './runner/agentPath'
 import { findVscodeExecutable, newWindowArgs } from './editor/vscodeLaunch'
 import { vscodeFolderUrl } from './editor/vscodeUrl'
-import type { AgentStatuses } from '@shared/models'
+import type { AgentProbes, AgentStatuses } from '@shared/models'
 import { createSettingRepository } from './db/repositories/setting'
 import { createRunQueue } from './runner/queue'
 import { createMcpHost } from './mcp/host'
@@ -105,7 +109,11 @@ export function createCore(opts: CoreOptions) {
       const resolved = await claudeCodeAdapter.preflight(resolveAgentPath('claude-code', workspace))
       const result = resolved.ok && resolved.executable
         ? await probeCommands({ executable: resolved.executable, cwd })
-        : { slashCommands: [], terminalSlashCommands: [], plugins: [], error: resolved.reason ?? 'claude 실행 파일을 찾을 수 없습니다' }
+        : {
+            slashCommands: [], terminalSlashCommands: [], plugins: [],
+            model: null, version: null,
+            error: resolved.reason ?? 'claude 실행 파일을 찾을 수 없습니다'
+          }
       if (result.error) onError('커맨드 목록 조회 실패', new Error(result.error))
       return result
     },
@@ -142,6 +150,35 @@ export function createCore(opts: CoreOptions) {
   })
 
   const adapters = createAdapters()
+  /**
+   * 모델 목록 조회. 실행 파일마다 캐시하므로 설정 화면과 실행 패널이 나눠 쓴다.
+   */
+  const modelCatalog = createModelCatalog(runCli)
+
+  /**
+   * 준비 상태의 느린 칸들 (docs/sdlc/agent-setup/).
+   *
+   * **`checkAgents`와 나란히 두되 합치지 않는다.** 그쪽은 파일 검사뿐이라 즉시
+   * 답하고, 이쪽은 1~1.6초가 걸린다. 합치면 workspace를 고를 때마다 화면이
+   * 그만큼 비어 있게 된다(spec NFR-4).
+   *
+   * 실행 파일 해석은 `checkAgents`와 **같은 길**을 탄다 — 갈라지면 한 화면 안에서
+   * 두 줄이 다른 말을 한다.
+   */
+  const agentProbes = createAgentProbeService({
+    preflight: (kind, workspaceId) => {
+      const workspace = workspaces.list().find((w) => w.id === workspaceId) ?? null
+      return adapters[kind].preflight(resolveAgentPath(kind, workspace))
+    },
+    checkAuth: (kind, executable) => checkAuth(kind, executable, runCli),
+    // 슬래시 커맨드 probe와 **같은 캐시**다 — 실행 패널이 이미 돌렸으면 CLI가
+    // 새로 뜨지 않는다(spec NFR-3).
+    agentInfo: (target) => commands.agentInfo(target),
+    listModels: (kind, executable) => modelCatalog.list(kind, executable),
+    // 실행 패널이 cwd를 고르는 규칙과 같다 (StartRunInput.cwd의 주석).
+    firstRepoPath: (workspaceId) => repos.list(workspaceId)[0]?.path ?? null
+  })
+
 
   const emitter = new EventEmitter()
 
@@ -224,6 +261,24 @@ export function createCore(opts: CoreOptions) {
           adapters['opencode'].preflight(resolveAgentPath('opencode', ws))
         ])
         return { 'claude-code': claude, opencode }
+      },
+
+      /**
+       * 느린 칸들 — 인증과 모델 (docs/sdlc/agent-setup/ FR-1).
+       *
+       * **`checkAgents`를 대신하지 않는다.** 화면은 둘을 같이 불러 빠른 것으로
+       * 먼저 그리고, 이 결과가 오면 채운다(FR-7).
+       *
+       * `refresh`는 캐시를 버린다 — `다시 확인` 버튼이 쓴다. 버리지 않으면
+       * 로그인을 마치고 눌러도 옛 답이 그대로 온다.
+       */
+      async probeAgents(workspaceId: string, refresh = false): Promise<AgentProbes> {
+        if (refresh) {
+          modelCatalog.refresh()
+          const cwd = repos.list(workspaceId)[0]?.path
+          if (cwd) commands.invalidate(cwd)
+        }
+        return agentProbes.probeAgents(workspaceId)
       }
     },
     commands,

@@ -868,6 +868,7 @@ describe('ExecutionService', () => {
         workspaceId: ctx.workspaceId,
         agentKind: 'claude-code',
         model: null,
+        effort: null,
         cwd: process.cwd(),
         permission: 'edit',
         userPrompt: 'x',
@@ -936,6 +937,7 @@ describe('ExecutionService', () => {
         workspaceId: spy.workspaceId,
         agentKind: parent.agentKind,
         model: null,
+        effort: null,
         cwd: parent.cwd,
         permission: parent.permission,
         userPrompt: parent.userPrompt,
@@ -985,6 +987,77 @@ describe('ExecutionService', () => {
     // 더 이상 호출 시점에 세션을 확인하지 않는다 — Task 4가 그 확인을 beginRun의
     // 실행 시점으로 옮겼다. 같은 시나리오는 이제 최상단 describe의
     // '예약한 사이 세션이 하나도 남지 않으면 실패로 끝난다'가 덮는다.
+  })
+})
+
+describe('effort 배선 (docs/sdlc/agent-setup/)', () => {
+  /** manager.start가 받은 spec을 모으는 setup. resume 테스트의 spy와 같은 모양이다. */
+  function spySetup() {
+    const seen: (string | null)[] = []
+    const ctx = setup({
+      manager: {
+        logPathFor: (id: string) => resolve(tmpdir(), `one-desk-effort-${id}.jsonl`),
+        start: async (spec) => {
+          seen.push(spec.effort)
+          return {
+            status: 'succeeded' as const, resultText: null, externalSessionId: 'sess-1',
+            needsAnswer: false, exitCode: 0, errorMessage: null, logPath: 'x', usage: null
+          }
+        },
+        cancel: () => {},
+        cancelAll: () => {},
+        isRunning: () => false
+      }
+    })
+    return { ...ctx, seen }
+  }
+
+  it('넘긴 effort가 저장되고 어댑터까지 닿는다', async () => {
+    // 저장만 되고 CLI에 안 가면 화면은 high인데 실제로는 기본값으로 돈다 —
+    // 어느 CLI도 effort를 되돌려 주지 않아 그 어긋남이 영영 드러나지 않는다.
+    const ctx = spySetup()
+    const run = await ctx.service.start({
+      workspaceId: ctx.workspaceId, agentKind: 'claude-code', effort: 'high',
+      cwd: process.cwd(), permission: 'edit', userPrompt: '해줘', context: []
+    })
+
+    expect(ctx.runs.get(run.id).effort).toBe('high')
+    expect(ctx.seen).toEqual(['high'])
+    rmSync(ctx.logDir, { recursive: true, force: true })
+  })
+
+  it('effort를 넘기지 않으면 null이 흐른다', async () => {
+    const ctx = spySetup()
+    const run = await ctx.service.start({
+      workspaceId: ctx.workspaceId, agentKind: 'claude-code',
+      cwd: process.cwd(), permission: 'edit', userPrompt: '해줘', context: []
+    })
+
+    expect(ctx.runs.get(run.id).effort).toBeNull()
+    expect(ctx.seen).toEqual([null])
+    rmSync(ctx.logDir, { recursive: true, force: true })
+  })
+
+  it('이어서 실행하면 effort는 이어받지 않고 그 턴이 새로 정한다', async () => {
+    // agentKind·cwd와 다르다 — 그 둘은 세션에 묶여 잠기지만 effort는 모델과 같이
+    // 매 턴 고르는 값이다. 이어받으면 화면에 없는 값이 따라와 무엇으로 도는지 모른다.
+    const ctx = spySetup()
+    const first = await ctx.service.start({
+      workspaceId: ctx.workspaceId, agentKind: 'claude-code', effort: 'max',
+      cwd: process.cwd(), permission: 'edit', userPrompt: '첫 턴', context: []
+    })
+    ctx.runs.markFinished(first.id, {
+      status: 'succeeded', resultText: null, externalSessionId: 'sess-1',
+      needsAnswer: false, exitCode: 0, errorMessage: null, usage: null
+    })
+
+    const second = await ctx.service.resume({
+      conversationId: first.id, permission: 'edit', userPrompt: '둘째 턴', context: []
+    })
+
+    expect(ctx.runs.get(second.id).effort).toBeNull()
+    expect(ctx.seen).toEqual(['max', null])
+    rmSync(ctx.logDir, { recursive: true, force: true })
   })
 })
 

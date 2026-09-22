@@ -159,6 +159,9 @@ export const claudeCodeAdapter = {
     }
 
     if (spec.model) args.push('--model', spec.model)
+    // --model 바로 옆자리다 — 둘 다 "무엇으로 돌릴지"다. 값은 검증하지 않는다:
+    // CLI 자신도 하지 않는다(`--effort bogus`도 오류 없이 통과, 2026-09-22 실측).
+    if (spec.effort) args.push('--effort', spec.effort)
     if (spec.resumeSessionId) args.push('--resume', spec.resumeSessionId)
 
     // 프롬프트는 stdin으로 넘긴다. 맥락이 합쳐지면 수십 KB가 되는데

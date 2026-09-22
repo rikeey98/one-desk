@@ -100,6 +100,10 @@ export const opencodeAdapter = {
 
     // 모델은 provider/model 형식이다 (전체 설계 §199).
     if (spec.model) args.push('-m', spec.model)
+    // claude의 --effort와 **같은 자리이되 다른 플래그다.** opencode의 변형은
+    // provider별 reasoning effort라 값의 표가 provider마다 다르다 — 그래서
+    // 저장 컬럼도 claude와 갈라 두었다(전체 설계 §199와 같은 이유).
+    if (spec.effort) args.push('--variant', spec.effort)
     if (spec.resumeSessionId) args.push('--session', spec.resumeSessionId)
 
     const env = withLoopbackBypass(process.env)

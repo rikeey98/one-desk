@@ -8,6 +8,8 @@ import { runShortcutLabel } from '../shortcut'
 import type { AgentKind, CommandInfo, Permission, Repo, Run, Workspace } from '@shared/models'
 import type { Conversation } from '../conversation'
 import type { ContextChip } from '../context'
+import { ModelField } from './ModelField'
+import { EFFORT_OPTIONS } from '../effort'
 
 /**
  * 이 agent에 쓸 workspace 기본 모델. 빈 문자열은 "CLI 자신의 기본값"이다.
@@ -22,6 +24,20 @@ function defaultModelOf(workspace: Workspace | null, agentKind: AgentKind): stri
   const value = agentKind === 'opencode'
     ? workspace.defaultModelOpencode
     : workspace.defaultModelClaude
+  return value ?? ''
+}
+
+/**
+ * 이 agent에 쓸 workspace 기본 effort/variant. **모델과 같은 규칙이다.**
+ *
+ * claude의 `high`와 opencode의 `high`는 다른 것을 가리키므로 컬럼이 갈려 있고
+ * (전체 설계 §199), 고르는 기준도 workspace가 아니라 **지금 고른 agent**다.
+ */
+function defaultEffortOf(workspace: Workspace | null, agentKind: AgentKind): string {
+  if (!workspace) return ''
+  const value = agentKind === 'opencode'
+    ? workspace.defaultVariantOpencode
+    : workspace.defaultEffortClaude
   return value ?? ''
 }
 
@@ -59,6 +75,7 @@ export function RunPanel({
   // 계산하면 같은 규칙이 두 군데에 생기고, effect 쪽이 어떤 테스트로도 고정되지
   // 않는다(변이를 돌려 실제로 확인했다).
   const [model, setModel] = useState('')
+  const [effort, setEffort] = useState('')
   const [prompt, setPrompt] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -135,6 +152,17 @@ export function RunPanel({
     if (conversation) return
     setModel(defaultModelOf(workspace, agentKind))
   }, [workspace, conversation, agentKind])
+
+  // effort도 **모델과 같은 규칙**이다 — agent별 칸에서 오고, agent를 바꾸면 따라
+  // 바뀐다. 이 effect가 없으면 claude에 넣은 `high`가 opencode의 `--variant`로
+  // 그대로 넘어간다.
+  //
+  // **대화를 이어갈 때도 초기화한다.** 모델과 다른 점이다: 모델은 세션이 쓰던 것을
+  // 이어 보여주는 편이 낫지만, effort는 어느 CLI도 되돌려 주지 않아 "지난 턴이
+  // 무엇이었나"를 화면이 단정할 수 없다. 매 턴 새로 고른다(spec FR-14).
+  useEffect(() => {
+    setEffort(defaultEffortOf(workspace, agentKind))
+  }, [workspace, agentKind])
 
   // 권한 기본값은 workspace의 defaultPermission이고, 선택은 그 run에만 적용된다 (설계 §7).
   // 대화를 이어갈 때는 원본(마지막 턴)의 권한이 우선이다 — workspace 조회가 비동기라
@@ -218,6 +246,7 @@ export function RunPanel({
         ? await client.runs.resume({
             conversationId: conversation.id,
             model: model.trim() || null,
+            effort: effort.trim() || null,
             permission,
             userPrompt: prompt,
             context: chips.map(({ type, id }) => ({ type, id }))
@@ -226,6 +255,7 @@ export function RunPanel({
             workspaceId,
             agentKind,
             model: model.trim() || null,
+            effort: effort.trim() || null,
             cwd,
             permission,
             userPrompt: prompt,
@@ -300,17 +330,48 @@ export function RunPanel({
             <option value="opencode">OpenCode</option>
           </select>
         </label>
-        <label>
-          모델
-          {/* 빈 칸이면 -m을 붙이지 않아 CLI 자신의 기본값으로 돈다. workspace
-              기본값은 설정 화면에서 agent별로 정한다 (설계 §403). */}
-          <input
-            aria-label="모델"
-            value={model}
-            placeholder="기본값"
-            onChange={(e) => setModel(e.target.value)}
-          />
-        </label>
+        {/* 빈 칸이면 -m을 붙이지 않아 CLI 자신의 기본값으로 돈다. workspace
+            기본값은 설정 화면에서 agent별로 정한다 (설계 §403).
+            **설정 화면과 같은 컴포넌트다** — 두 화면이 같은 값을 다른 말로
+            부르면 안 된다(docs/sdlc/agent-setup/ FR-11). */}
+        <ModelField
+          agentKind={agentKind}
+          label="모델"
+          value={model}
+          onChange={setModel}
+        />
+
+        {/* claude는 다섯 단계가 정해져 있고(`--help`가 열거한다), opencode의
+            variant는 provider마다 값이 달라 자유 입력이다(FR-12·FR-13). */}
+        {agentKind === 'opencode' ? (
+          <label>
+            variant
+            <input
+              aria-label="variant"
+              value={effort}
+              placeholder="기본값"
+              onChange={(e) => setEffort(e.target.value)}
+            />
+          </label>
+        ) : (
+          <label>
+            effort
+            <select
+              aria-label="effort"
+              value={effort}
+              onChange={(e) => setEffort(e.target.value)}
+            >
+              {/* 표에 없는 값(설정에 손으로 넣은 것)을 잃지 않는다 — select에 없는
+                  값을 주면 브라우저가 ''로 정규화해 문제가 화면에서 사라진다. */}
+              {effort && !EFFORT_OPTIONS.some((o) => o.value === effort) && (
+                <option value={effort}>{effort} (표에 없는 값)</option>
+              )}
+              {EFFORT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </label>
+        )}
         {conversation ? (
           <div className="resume-locked">
             <span className="resume-badge">대화 이어가기</span>

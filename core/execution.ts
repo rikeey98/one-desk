@@ -92,6 +92,7 @@ export function createExecutionService(opts: ExecutionOptions) {
     agentKind: AgentKind
     cwd: string
     model: string | null
+    effort: string | null
     permission: Permission
     prompt: string
     executable: string
@@ -175,6 +176,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       agentKind: spec.agentKind,
       cwd: spec.cwd,
       model: spec.model,
+      effort: spec.effort,
       permission: spec.permission,
       prompt: spec.prompt,
       resumeSessionId,
@@ -215,6 +217,8 @@ export function createExecutionService(opts: ExecutionOptions) {
     workspaceId: string
     agentKind: AgentKind
     model: string | null
+    /** claude면 --effort, opencode면 --variant. 모델과 같은 규칙으로 흐른다 */
+    effort: string | null
     cwd: string
     permission: Permission
     userPrompt: string
@@ -243,6 +247,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       workspaceId: spec.workspaceId,
       agentKind: spec.agentKind,
       model: spec.model,
+      effort: spec.effort,
       cwd: spec.cwd,
       permission: spec.permission,
       userPrompt: spec.userPrompt,
@@ -331,6 +336,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       agentKind: spec.agentKind,
       cwd: spec.cwd,
       model: spec.model,
+      effort: spec.effort,
       permission: spec.permission,
       prompt: assembled,
       executable,
@@ -366,6 +372,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       workspaceId: input.workspaceId,
       agentKind: input.agentKind,
       model: input.model ?? null,
+      effort: input.effort ?? null,
       cwd: input.cwd,
       permission: input.permission,
       userPrompt: input.userPrompt,
@@ -415,6 +422,10 @@ export function createExecutionService(opts: ExecutionOptions) {
       parentRunId: source.id,
       // 바꿀 수 있는 값
       model: input.model ?? null,
+      // agentKind·cwd와 달리 **잠기지 않는다.** 세션에 묶인 값이 아니라 매 턴
+      // 고르는 것이다 — 모델과 같은 규칙이고, 이어받으면 앞 턴의 effort가
+      // 화면에 없는 채로 따라와 무엇으로 도는지 모르게 된다.
+      effort: input.effort ?? null,
       permission: input.permission,
       userPrompt: input.userPrompt,
       context: input.context,

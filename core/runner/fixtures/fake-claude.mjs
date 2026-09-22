@@ -9,6 +9,13 @@ function emit(obj) {
   process.stdout.write(`${JSON.stringify(obj)}\n`)
 }
 
+// 받은 인자를 그대로 남긴다. 어댑터가 조립한 커맨드가 실제로 CLI까지 닿는지는
+// 여기서만 드러난다 — 단위 테스트는 buildCommand의 반환값만 보므로, manager나
+// execution이 중간에서 값을 떨어뜨려도 전부 초록이다 (docs/sdlc/agent-setup/).
+if (process.env.ONE_DESK_ARGS_CAPTURE) {
+  writeFileSync(process.env.ONE_DESK_ARGS_CAPTURE, JSON.stringify(process.argv.slice(2)))
+}
+
 // 프롬프트를 stdin으로 받는다. 끝까지 읽어야 부모의 write가 막히지 않는다.
 process.stdin.resume()
 let receivedPrompt = ''
@@ -33,6 +40,8 @@ emit({
   type: 'system', subtype: 'init', session_id: 'fake-session',
   // 실제로 쓰인 모델. 진짜 CLI가 여기에만 싣는다 (docs/sdlc/run-info/ FR-9).
   model: 'claude-fake-5[1m]',
+  // 설정 화면의 CLI 상태 줄이 이것을 보여준다 (docs/sdlc/agent-setup/).
+  claude_code_version: '9.9.9-fake',
   slash_commands: ['code-review', 'compact', 'doctor', 'color', 'reload-plugins', 'pinetest'],
   terminal_slash_commands: ['doctor', 'color', 'reload-plugins'],
   plugins: []

@@ -93,7 +93,10 @@ export function probeCommands(input: {
 }
 
 function failure(error: string): ProbeResult {
-  return { slashCommands: [], terminalSlashCommands: [], plugins: [], error }
+  return {
+    slashCommands: [], terminalSlashCommands: [], plugins: [],
+    model: null, version: null, error
+  }
 }
 
 function errorMessage(err: unknown): string {
@@ -103,8 +106,12 @@ function errorMessage(err: unknown): string {
 /**
  * `system/init` 줄이면 목록을 뽑고, 아니면 null. 깨진 JSON도 null이다 — 줄 하나 때문에
  * 목록 전체를 포기하지 않는다(어댑터의 `parseLine`이 깨진 줄을 다루는 것과 같은 규칙).
+ *
+ * **내보내는 것은 테스트를 위해서다.** 이 파일의 다른 테스트는 shebang 스크립트를
+ * 실행 파일로 띄우므로 Windows에서 통째로 스킵된다 — 순수 함수로 빼 두면 파싱만은
+ * 모든 플랫폼에서 고정된다(`core/app/reveal.ts`가 같은 이유로 순수 함수다).
  */
-function parseInit(line: string): Omit<ProbeResult, 'error'> | null {
+export function parseInit(line: string): Omit<ProbeResult, 'error'> | null {
   let obj: unknown
   try {
     obj = JSON.parse(line)
@@ -117,8 +124,17 @@ function parseInit(line: string): Omit<ProbeResult, 'error'> | null {
   return {
     slashCommands: strings(record['slash_commands']),
     terminalSlashCommands: strings(record['terminal_slash_commands']),
-    plugins: plugins(record['plugins'])
+    plugins: plugins(record['plugins']),
+    // 같은 줄에 이미 실려 오던 것들이다. 설정 화면이 이 둘 때문에 CLI를 또
+    // 띄우지 않도록 여기서 함께 나른다 (docs/sdlc/agent-setup/ NFR-3).
+    model: text(record['model']),
+    version: text(record['claude_code_version'])
   }
+}
+
+/** 비어 있지 않은 문자열만. 그 외는 전부 null — 모르는 것은 모른다고 둔다. */
+function text(raw: unknown): string | null {
+  return typeof raw === 'string' && raw ? raw : null
 }
 
 /** 배열이 아니면 빈 배열, 배열이면 문자열만 남긴다. */

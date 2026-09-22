@@ -24,6 +24,13 @@ export interface ResolvedRunSpec {
   runId: string
   cwd: string
   model: string | null
+  /**
+   * claude면 `--effort`, opencode면 `--variant`. null이면 그 인자를 붙이지 않는다.
+   *
+   * **어댑터가 값을 검증하지 않는다** — CLI 자신도 검증하지 않는다(`--effort bogus`도
+   * 통과, 2026-09-22 실측). 고르는 자리(화면의 드롭다운)가 유일한 가드다.
+   */
+  effort: string | null
   permission: Permission
   /** 맥락이 합쳐진 최종 프롬프트 */
   prompt: string

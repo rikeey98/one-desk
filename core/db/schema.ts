@@ -11,6 +11,11 @@ export const workspace = sqliteTable('workspace', {
     .notNull().default('claude-code'),
   defaultModelClaude: text('default_model_claude'),
   defaultModelOpencode: text('default_model_opencode'),
+  // claude의 --effort와 opencode의 --variant. **컬럼을 가른 이유는 모델과 같다**
+  // (전체 설계 §199) — 두 값은 이름이 겹쳐도 가리키는 것이 다르다. 합치면 agent를
+  // 바꾼 순간 claude의 'high'가 opencode의 --variant로 그대로 넘어간다.
+  defaultEffortClaude: text('default_effort_claude'),
+  defaultVariantOpencode: text('default_variant_opencode'),
   defaultPermission: text('default_permission', { enum: ['read_only', 'edit', 'full'] })
     .notNull().default('edit'),
   claudePath: text('claude_path'),
@@ -92,6 +97,11 @@ export const run = sqliteTable('run', {
     .references(() => workspace.id, { onDelete: 'cascade' }),
   agentKind: text('agent_kind', { enum: ['claude-code', 'opencode'] }).notNull(),
   model: text('model'),
+  // claude면 --effort, opencode면 --variant. 행이 agent_kind를 알고 있어 컬럼이
+  // 하나로 족하다 (model과 같은 규칙). **관측본 컬럼을 두지 않는다** — actual_model이
+  // 따로 있는 이유는 CLI가 모델을 되돌려 주기 때문이고, effort는 어느 CLI도
+  // 되돌려 주지 않는다(docs/sdlc/run-info/ 실측). 여기 값이 기록의 전부다.
+  effort: text('effort'),
   cwd: text('cwd').notNull(),
   permission: text('permission', { enum: ['read_only', 'edit', 'full'] }).notNull(),
   userPrompt: text('user_prompt').notNull(),

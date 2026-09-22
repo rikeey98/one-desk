@@ -32,6 +32,7 @@ describe('RunRepository', () => {
       workspaceId,
       agentKind: 'claude-code' as const,
       model: null,
+      effort: null,
       cwd: '/tmp/api',
       permission: 'edit' as const,
       userPrompt: '고쳐줘',
@@ -40,6 +41,21 @@ describe('RunRepository', () => {
       context: [{ type: 'issue' as const, id: issueId }]
     }
   }
+
+  it('effort를 저장하고 그대로 돌려준다', () => {
+    // claude면 --effort, opencode면 --variant. 어느 CLI도 실행 결과로 되돌려 주지
+    // 않으므로(docs/sdlc/run-info/ 실측) 이 컬럼이 기록의 전부다 — 잃으면
+    // "무슨 effort로 돌았나"를 영영 알 수 없다.
+    const created = runs.create({ ...baseInput(), effort: 'high' })
+    expect(created.effort).toBe('high')
+    expect(runs.get(created.id).effort).toBe('high')
+  })
+
+  it('effort를 넘기지 않으면 null이다', () => {
+    // null이 "그 인자를 붙이지 않았다"이고, 화면의 빈 칸과 같은 자리다.
+    const created = runs.create(baseInput())
+    expect(created.effort).toBeNull()
+  })
 
   it('생성하면 pending 상태이고 맥락 항목이 함께 저장된다', () => {
     const created = runs.create(baseInput())

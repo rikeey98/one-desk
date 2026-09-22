@@ -45,7 +45,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-const EMPTY = { slashCommands: [], terminalSlashCommands: [], plugins: [] }
+const EMPTY = { slashCommands: [], terminalSlashCommands: [], plugins: [], model: null, version: null }
 
 describe.skipIf(POSIX_ONLY)('probeCommands — init 수신 후 즉시 종료 (FR-10)', () => {
   it('init의 목록을 돌려주고 프로세스를 즉시 죽인다 — 마커 파일이 생기지 않는다', async () => {
@@ -140,6 +140,49 @@ describe.skipIf(POSIX_ONLY)('probeCommands — init 수신 후 즉시 종료 (FR
   })
 })
 
+describe.skipIf(POSIX_ONLY)('probeCommands — init의 모델과 버전 (docs/sdlc/agent-setup/)', () => {
+  it('해석된 모델 이름과 버전을 함께 싣는다', async () => {
+    // 같은 한 번의 기동에서 온다 — 설정 화면이 이것 때문에 CLI를 또 띄우지
+    // 않는다는 것이 이 작업의 핵심이다(NFR-3).
+    const cli = writeCli(`
+      ${emitLine({
+        type: 'system', subtype: 'init',
+        model: 'claude-sonnet-5', claude_code_version: '2.1.278',
+        slash_commands: ['review']
+      })}
+      setTimeout(() => {}, 5000)
+    `)
+
+    const result = await probeCommands({ executable: cli, cwd: dir })
+
+    expect(result.model).toBe('claude-sonnet-5')
+    expect(result.version).toBe('2.1.278')
+    // 슬래시 커맨드는 그대로 온다 — 한 번의 조회가 둘을 같이 준다.
+    expect(result.slashCommands).toEqual(['review'])
+  })
+
+  it('필드가 없으면 null이다 — 빈 문자열로 채우지 않는다', async () => {
+    const cli = writeCli(`
+      ${emitLine({ type: 'system', subtype: 'init', slash_commands: [] })}
+      setTimeout(() => {}, 5000)
+    `)
+
+    const result = await probeCommands({ executable: cli, cwd: dir })
+
+    expect(result.model).toBeNull()
+    expect(result.version).toBeNull()
+  })
+
+  it('모델이 문자열이 아니면 null이다', async () => {
+    const cli = writeCli(`
+      ${emitLine({ type: 'system', subtype: 'init', model: 7, slash_commands: [] })}
+      setTimeout(() => {}, 5000)
+    `)
+
+    expect((await probeCommands({ executable: cli, cwd: dir })).model).toBeNull()
+  })
+})
+
 describe.skipIf(POSIX_ONLY)('probeCommands — 실패 내성 (NFR-2)', () => {
   it('init 없이 끝나면 던지지 않고 빈 목록과 사유를 준다', async () => {
     const cli = writeCli(`
@@ -195,6 +238,8 @@ describe.skipIf(POSIX_ONLY)('probeCommands — 실패 내성 (NFR-2)', () => {
       slashCommands: ['좋음'],
       terminalSlashCommands: [],
       plugins: [{ name: '초능력', path: '/p/초능력' }],
+      model: null,
+      version: null,
       error: null
     })
   })

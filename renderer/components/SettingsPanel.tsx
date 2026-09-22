@@ -3,17 +3,14 @@ import { useClient } from '../client/ClientProvider'
 import { ConfirmButton } from './ConfirmButton'
 import { PERMISSION_LABELS } from '../permission'
 import { RepoTab, type RepoDraft } from './settings/RepoTab'
+import { AgentStatusList } from './AgentStatusList'
+import { ModelField } from './ModelField'
+import { EFFORT_OPTIONS, effortFieldOf } from '../effort'
 import { InfoTab } from './settings/InfoTab'
 import type {
-  AgentKind, AgentStatuses, AppInfo, GlobalRoots, McpStatus, Permission, QueueSnapshot, Repo,
-  RevealTarget, Workspace
+  AgentKind, AgentProbes, AgentStatuses, AppInfo, GlobalRoots, McpStatus, Permission,
+  QueueSnapshot, Repo, RevealTarget, Workspace
 } from '@shared/models'
-
-/** CLI 상태 줄의 순서와 이름. 실행 패널의 agent 드롭다운과 같은 순서다. */
-const AGENT_LABELS: ReadonlyArray<readonly [AgentKind, string]> = [
-  ['claude-code', 'Claude Code'],
-  ['opencode', 'OpenCode']
-]
 
 /**
  * 탭은 **값의 범위**로 가른다 (spec FR-2). 실행·repo는 지금 고른 workspace 하나에,
@@ -89,6 +86,8 @@ export function SettingsPanel({
   const [agentKind, setAgentKind] = useState<AgentKind>('claude-code')
   const [modelClaude, setModelClaude] = useState('')
   const [modelOpencode, setModelOpencode] = useState('')
+  const [effortClaude, setEffortClaude] = useState('')
+  const [variantOpencode, setVariantOpencode] = useState('')
   const [permission, setPermission] = useState<Permission>('edit')
   const [defaultsError, setDefaultsError] = useState<string | null>(null)
   const [defaultsBusy, setDefaultsBusy] = useState(false)
@@ -98,6 +97,10 @@ export function SettingsPanel({
   const [pathsError, setPathsError] = useState<string | null>(null)
   const [pathsBusy, setPathsBusy] = useState(false)
   const [agents, setAgents] = useState<AgentStatuses | null>(null)
+  // 느린 칸은 따로 담는다 — 빠른 칸이 그것을 기다리면 workspace를 고를 때마다
+  // 실행 파일 줄까지 1초씩 비어 있게 된다 (docs/sdlc/agent-setup/ FR-7).
+  const [probes, setProbes] = useState<AgentProbes | null>(null)
+  const [probing, setProbing] = useState(false)
 
   // repo 탭의 초안. 탭 컴포넌트가 아니라 여기 있어야 탭을 옮겨도 남는다(FR-11).
   const [repoDrafts, setRepoDrafts] = useState<Record<string, RepoDraft>>({})
@@ -184,6 +187,9 @@ export function SettingsPanel({
     // null이 "CLI 기본값에 맡긴다"이고, 화면에서는 빈 칸이 그 뜻이다.
     setModelClaude(w.defaultModelClaude ?? '')
     setModelOpencode(w.defaultModelOpencode ?? '')
+    // effort도 같은 규칙이다 — null이 "CLI 자신의 기본값"이고 빈 칸이 그 뜻이다.
+    setEffortClaude(w.defaultEffortClaude ?? '')
+    setVariantOpencode(w.defaultVariantOpencode ?? '')
     setPermission(w.defaultPermission)
     // 경로도 같다 — null이면 어댑터가 PATH를 뒤진다.
     setClaudePath(w.claudePath ?? '')
@@ -210,6 +216,38 @@ export function SettingsPanel({
     }
   }, [client])
 
+  /**
+   * 느린 칸 — 인증과 모델. `check`와 **따로** 돈다.
+   *
+   * 늦게 온 결과가 최신을 덮지 않도록 순번을 따로 쥔다(`check`와 같은 가드).
+   * workspace를 빠르게 옮기면 앞선 조회가 1초 뒤에 도착해 다른 workspace의
+   * 상태를 덮어쓴다.
+   *
+   * **실패해도 화면을 비우지 않는다** — 빠른 칸은 이미 그려져 있고, 이 칸만
+   * "확인할 수 없음"으로 남는다(FR-6).
+   */
+  const probeSeq = useRef(0)
+  const probe = useCallback(async (id: string, refresh = false) => {
+    const seq = ++probeSeq.current
+    setProbing(true)
+    try {
+      const next = await client.workspaces.probeAgents(id, refresh)
+      if (seq === probeSeq.current) setProbes(next)
+    } catch {
+      // core가 이미 어떤 실패도 unknown으로 돌려주므로 여기 오는 것은 IPC 자체가
+      // 끊긴 경우다. 그때는 아무 말도 지어내지 않고 비워 둔다 — 화면은 "확인 중"
+      // 대신 "아직 확인하지 않았습니다"로 돌아간다.
+      if (seq === probeSeq.current) setProbes(null)
+    } finally {
+      if (seq === probeSeq.current) setProbing(false)
+    }
+  }, [client])
+
+  /** `다시 확인` — 캐시를 버리고 빠른 칸까지 전부 다시 본다 */
+  const refreshProbes = useCallback(async (id: string) => {
+    await Promise.all([check(id), probe(id, true)])
+  }, [check, probe])
+
   // 고른 workspace가 바뀌면 칸을 그 workspace의 값으로 다시 채운다. 이것이 없으면
   // 앞 workspace의 값이 남아 있다가 저장 버튼 한 번에 엉뚱한 workspace로 넘어간다.
   useEffect(() => {
@@ -218,7 +256,10 @@ export function SettingsPanel({
     // 저장하기 전에도 지금 무엇이 잡히는지 보여야 한다 — 이 절에 오는 사람은
     // 대개 실행이 "찾을 수 없습니다"로 막혀서 온 사람이다 (설계 §595).
     void check(workspace.id)
-  }, [workspace, applyWorkspace, check])
+    // 느린 칸도 자동으로 돈다. 사용자가 버튼을 눌러야만 보인다면 "대화 전에
+    // 무엇이 붙는지 안다"는 약속이 성립하지 않는다 — 누르는 것을 잊는다.
+    void probe(workspace.id)
+  }, [workspace, applyWorkspace, check, probe])
 
   const apply = useCallback((roots: GlobalRoots) => {
     setClaude(roots.claude.join('\n'))
@@ -266,6 +307,8 @@ export function SettingsPanel({
         defaultAgentKind: agentKind,
         defaultModelClaude: modelClaude,
         defaultModelOpencode: modelOpencode,
+        defaultEffortClaude: effortClaude,
+        defaultVariantOpencode: variantOpencode,
         defaultPermission: permission
       }))
       // App이 목록을 다시 읽어야 RunPanel이 새 기본값을 집는다. 이 호출이 빠지면
@@ -386,25 +429,58 @@ export function SettingsPanel({
                 </label>
 
                 {/* 모델 칸이 둘인 것은 두 CLI의 지정 형식이 다르기 때문이다 — 하나로 합치면
-                    agent를 바꾼 순간 상대가 모르는 이름이 넘어간다 (전체 설계 §199). */}
+                    agent를 바꾼 순간 상대가 모르는 이름이 넘어간다 (전체 설계 §199).
+                    effort/variant가 둘인 것도 **같은 이유다.** */}
                 <div className="settings-grid">
+                <ModelField
+                  agentKind="claude-code"
+                  label="Claude Code 기본 모델"
+                  value={modelClaude}
+                  onChange={setModelClaude}
+                  probed={probes?.['claude-code'].models}
+                  resolved={probes?.['claude-code'].model ?? null}
+                />
+
+                <ModelField
+                  agentKind="opencode"
+                  label="OpenCode 기본 모델"
+                  value={modelOpencode}
+                  onChange={setModelOpencode}
+                  probed={probes?.opencode.models}
+                  resolved={probes?.opencode.model ?? null}
+                />
+                </div>
+
+                <div className="settings-grid">
+                {/* claude는 다섯 단계가 정해져 있다(`--help`가 열거한다). */}
                 <label className="settings-field">
-                  Claude Code 기본 모델
-                  <input
-                    aria-label="Claude Code 기본 모델"
-                    value={modelClaude}
-                    placeholder="예: sonnet"
-                    onChange={(e) => setModelClaude(e.target.value)}
-                  />
+                  Claude Code 기본 effort
+                  <select
+                    aria-label="Claude Code 기본 effort"
+                    value={effortClaude}
+                    onChange={(e) => setEffortClaude(e.target.value)}
+                  >
+                    {/* 목록에 없는 값(DB를 손으로 고친 경우)을 잃지 않는다 — select에
+                        없는 값을 주면 브라우저가 ''로 정규화해 문제가 화면에서 사라진다.
+                        작업 디렉토리 칸이 없는 경로를 보여주는 것과 같은 규칙이다. */}
+                    {effortClaude && !EFFORT_OPTIONS.some((o) => o.value === effortClaude) && (
+                      <option value={effortClaude}>{effortClaude} (표에 없는 값)</option>
+                    )}
+                    {EFFORT_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
                 </label>
 
+                {/* opencode의 variant는 provider마다 값이 달라 표로 묶을 수 없다 —
+                    묶으면 그 표가 거짓말이 된다(FR-13). */}
                 <label className="settings-field">
-                  OpenCode 기본 모델
+                  OpenCode 기본 variant
                   <input
-                    aria-label="OpenCode 기본 모델"
-                    value={modelOpencode}
-                    placeholder="예: anthropic/claude-sonnet-4-5"
-                    onChange={(e) => setModelOpencode(e.target.value)}
+                    aria-label="OpenCode 기본 variant"
+                    value={variantOpencode}
+                    placeholder={effortFieldOf('opencode').hint}
+                    onChange={(e) => setVariantOpencode(e.target.value)}
                   />
                 </label>
                 </div>
@@ -479,22 +555,15 @@ export function SettingsPanel({
                   CLI 경로 저장
                 </button>
 
-                {/* 실행을 막는 것과 **같은 판정**을 보여준다 — 따로 구현하면 여기는
-                    초록인데 실행 버튼은 막히는 상태가 생긴다. */}
-                {agents && (
-                  <ul className="settings-status" aria-label="CLI 상태">
-                    {AGENT_LABELS.map(([kind, label]) => {
-                      const status = agents[kind]
-                      return (
-                        <li key={kind} className={status.ok ? 'settings-status-ok' : 'settings-status-bad'}>
-                          {label}: {status.ok
-                            ? `${status.executable ?? ''}`
-                            : (status.reason ?? '확인할 수 없습니다')}
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
+                {/* 실행 파일 칸은 실행을 막는 것과 **같은 판정**이다 — 따로 구현하면
+                    여기는 초록인데 실행 버튼은 막히는 상태가 생긴다. 인증·모델은
+                    그 뒤에 붙는 느린 칸이고 따로 조회한다(FR-1·FR-7). */}
+                <AgentStatusList
+                  statuses={agents}
+                  probes={probes}
+                  busy={probing}
+                  onRefresh={() => { if (workspace) void refreshProbes(workspace.id) }}
+                />
               </>
             )}
           </>

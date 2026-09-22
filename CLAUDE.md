@@ -87,6 +87,19 @@ core의 `collectContext`가 그 id를 거부한다(`assertFound`와 같은 자�
 `core/assets/body.ts` 하나이고 실행 서비스도 그것을 쓴다. 마이그레이션 없음 — `kind`에
 CHECK 제약이 없다.
 
+**agent 준비 상태와 실행 조건이 붙었다** (`docs/sdlc/agent-setup/`). **첫 실행에
+마이그레이션 `0007`이 돈다** — 컬럼 셋 추가(`workspace.default_effort_claude`·
+`default_variant_opencode`, `run.effort`). 설정 화면의 CLI 상태가 **세 칸이 쌓인 판정**을
+보여준다: 실행 파일(기존 `checkAgents`, 값싸다) → 인증(`auth status`/`auth list`) →
+모델(`init`의 `model`). **`checkAgents`는 그대로 두고 `probeAgents`를 옆에 놓았다** —
+느린 칸(1~1.6초)을 합치면 workspace를 고를 때마다 실행 파일 줄까지 비어 있게 된다.
+**모델 probe는 슬래시 커맨드 probe와 같은 기동·같은 캐시다**(`commands.agentInfo`) —
+CLI가 새로 뜨지 않는다. 모델 칸은 `<datalist>`가 붙은 자유 입력이고(opencode는
+`opencode models`의 382개, claude는 `renderer/models.ts`의 별칭 표), **목록에 없는 이름도
+그대로 실행에 쓰인다** — 드롭다운으로 강제하면 표가 낡은 날 새 모델을 아예 못 쓴다.
+effort는 claude만 다섯 단계 드롭다운이고 opencode의 `--variant`는 자유 입력이다
+(provider마다 값이 다르다).
+
 **슬래시 커맨드가 붙었다** (`docs/sdlc/slash-commands/`). Claude Code 실행 입력에서 `/`로
 커맨드를 검색하고 ↑↓·Enter/Tab으로 삽입한다. 목록은 cwd마다 한 번 얻어 core에 캐시하며,
 실패 결과도 수동 새로고침 전까지 유지한다. probe는 init 직후 SIGKILL로 종료한다 — 일반 실행의
@@ -212,8 +225,23 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **`--effort`는 어느 CLI도 스트림으로 되돌려 주지 않는다.** claude는 `--effort`를,
 opencode는 `--variant`를 받지만 `init`에도 `result`에도 그 값이 없다(2026-09-21 실측).
-그래서 "무슨 effort로 돌았나"는 앱이 보낸 값으로만 알 수 있고, 지금 앱은 그 플래그를
-넘기지 않는다. 표시 기능을 붙이려면 선택 UI가 먼저다.
+그래서 "무슨 effort로 돌았나"는 **앱이 보낸 값으로만** 알 수 있다 — `run.effort`가 기록의
+전부이고 `actual_model` 같은 관측본 컬럼이 없는 이유다. **CLI는 값을 검증하지도 않는다**
+(`--effort bogus`도 오류 없이 통과, 2026-09-22 실측) — 화면의 드롭다운이 유일한 가드다.
+
+**`system/init`은 인증도 모델 유효성도 보지 않는다.** 토큰이 하나도 없어도 init은 정상으로
+오고 `model`까지 실려 온다(`--bare`로 OAuth·키체인을 막고 실측: 384ms, `claude-opus-5[1m]`).
+`apiKeySource: "none"`은 "API 키 환경변수에서 오지 않았다"는 뜻이지 "인증이 없다"가 **아니다**
+— 로그인한 경우와 값이 같다. 그래서 준비 상태는 `claude auth status --json`(JSON이 기본 출력,
+실측 0.24초, 훅을 타지 않는다)이 먼저 보고, **그것이 `ok`일 때만** init probe를 돌린다
+(`core/agent/service.ts`). 이 순서를 뒤집거나 probe만으로 판정하면 **아무것도 못 돌리는
+사람에게 초록으로 모델 이름을 띄운다.** 모델 이름 역시 검증이 아니다 — 없는 이름 `gpt-9`도
+그대로 되돌아오므로 화면은 "이 이름으로 넘어갑니다"까지만 말한다.
+
+**`result`는 `subtype: "success"`인 채로 `is_error: true`가 올 수 있다.** 로그인하지 않고
+한 턴을 돌리면 그렇게 온다(exit 1, 답변 텍스트는 `model: "<synthetic>"`의
+`"Not logged in · Please run /login"`). **성공 판정에 `subtype`을 쓰지 말 것** — 어댑터는
+`is_error`를 본다.
 
 **`updatedAt`은 단조 증가해야 낙관적 잠금이 성립한다.** 같은 밀리초 안에 두 번 쓰면 `Date.now()`만으로는 이전 값과 같아져 "그 사이 바뀌었다"를 놓친다. `updateIfUnchanged`의 `buildPatch`는 `Math.max(Date.now(), previousUpdatedAt + 1)`로 반드시 이전 값보다 크게 만든다(`core/db/repositories/issue.ts`·`memo.ts`).
 
@@ -396,6 +424,7 @@ skill 상세가 세 번째 칸 안에서만 보였다). 이슈 상세의 상태�
 | `docs/sdlc/slash-commands/` | 슬래시 커맨드 — intent·spec·plan. 커맨드 조회와 캐시, 피커, 프롬프트 조립 |
 | `docs/sdlc/conversation-context/` | 대화에 담긴 맥락 표시 — intent·spec·plan. 담긴 것의 합집합을 어디에 두는지, 이름을 core가 붙이는 이유, 지워진 asset 필터링 개정 |
 | `docs/sdlc/run-info/` | 대화에 실행 정보 표시 — intent·spec·plan. 두 CLI가 주는 것의 실측 표, 합계와 컨텍스트 점유를 가르는 근거(spec §3-2), 필드마다 다른 병합 규칙(§3-3) |
+| `docs/sdlc/agent-setup/` | agent 준비 상태와 실행 조건 — intent·spec·plan. 세 칸이 쌓이는 판정(FR-1), init이 인증·모델을 보지 않는 실측, 자유 입력을 남긴 근거(FR-8), effort/variant를 가른 이유(FR-13) |
 | `docs/sdlc/repo-instructions/` | repo의 지시 파일 보기 — intent·spec·plan. discovered 본문 읽기 통로(`readBody`, id로만), `instructions` 종류가 맥락에 담기지 않는 이유(FR-9) |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |
 | `docs/diagrams/` | 아키텍처 다이어그램 — `one-desk-architecture.html`(단독 실행 가능)과 그것을 만든 archify 사양 `one-desk.architecture.json`. `main`에 들어가면 `.github/workflows/pages.yml`이 GitHub Pages로 올린다 |

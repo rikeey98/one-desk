@@ -10,6 +10,8 @@ function init(overrides: Partial<ProbeResult> = {}): ProbeResult {
     slashCommands: ['code-review', 'compact', 'doctor', 'color', 'reload-plugins', 'pinetest'],
     terminalSlashCommands: ['doctor', 'color', 'reload-plugins'],
     plugins: [],
+    model: 'claude-fake-5[1m]',
+    version: '9.9.9-fake',
     error: null,
     ...overrides
   }
@@ -152,7 +154,7 @@ describe('캐시', () => {
     // 버리지 않으면 실패 사유를 보여준 직후의 list가 옛 목록을 되돌려 화면이 스스로를 뒤집는다.
     probe = fakeProbe([
       init(),
-      { slashCommands: [], terminalSlashCommands: [], plugins: [], error: '시간이 초과됐습니다' },
+      { slashCommands: [], terminalSlashCommands: [], plugins: [], model: null, version: null, error: '시간이 초과됐습니다' },
       init()
     ])
     const service = createCommandService({ probe, describe: describeFn })
@@ -209,7 +211,7 @@ describe('캐시', () => {
   it('실패한 탐색도 캐시하고 수동 새로고침에서만 다시 시도한다', async () => {
     // 탭을 바꿀 때마다 실패한 탐색과 SessionStart 훅이 반복되지 않아야 한다.
     probe = fakeProbe([
-      { slashCommands: [], terminalSlashCommands: [], plugins: [], error: '시간이 초과됐습니다' },
+      { slashCommands: [], terminalSlashCommands: [], plugins: [], model: null, version: null, error: '시간이 초과됐습니다' },
       init()
     ])
     const service = createCommandService({ probe, describe: describeFn })

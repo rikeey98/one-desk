@@ -7,14 +7,14 @@ import type { Run, Workspace } from '@shared/models'
 const workspaces: Workspace[] = [
   {
     id: 'w1', name: '앱', description: null, defaultAgentKind: 'claude-code',
-    defaultModelClaude: null, defaultModelOpencode: null, defaultPermission: 'edit',
+    defaultModelClaude: null, defaultModelOpencode: null, defaultEffortClaude: null, defaultVariantOpencode: null, defaultPermission: 'edit',
     claudePath: null, opencodePath: null, createdAt: 0, updatedAt: 0
   }
 ]
 
 function run(over: Partial<Run>): Run {
   return {
-    id: 'r1', workspaceId: 'w1', agentKind: 'claude-code', model: null,
+    id: 'r1', workspaceId: 'w1', agentKind: 'claude-code', model: null, effort: null,
     cwd: '/tmp', permission: 'edit', userPrompt: '토큰 만료 고쳐줘', assembledPrompt: 'x',
     status: 'succeeded', externalSessionId: 'sess-1', parentRunId: null,
     // over.id가 있으면 그것을 뿌리로 본다 — 하드코딩하면 id가 다른 두 run을

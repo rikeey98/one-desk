@@ -10,6 +10,7 @@ function spec(over: Partial<ResolvedRunSpec> = {}): ResolvedRunSpec {
     runId: 'run-1',
     cwd: '/tmp/work',
     model: null,
+    effort: null,
     permission: 'edit',
     prompt: '무엇이든',
     resumeSessionId: null,
@@ -53,6 +54,19 @@ describe('opencodeAdapter.buildCommand', () => {
     expect(withModel.args).toContain('-m')
     expect(withModel.args[withModel.args.indexOf('-m') + 1]).toBe('anthropic/claude-sonnet-4-5')
     expect(opencodeAdapter.buildCommand(spec({ model: null })).args).not.toContain('-m')
+  })
+
+  it('effort는 --variant로 나간다', () => {
+    // claude의 --effort와 **다른 플래그다.** provider마다 값이 달라 다섯 단계 표로
+    // 묶을 수 없다 — 그래서 저장 컬럼도 갈라져 있다 (설계 §199와 같은 이유).
+    const withVariant = opencodeAdapter.buildCommand(spec({ effort: 'minimal' }))
+    expect(withVariant.args).toContain('--variant')
+    expect(withVariant.args[withVariant.args.indexOf('--variant') + 1]).toBe('minimal')
+    expect(withVariant.args).not.toContain('--effort')
+  })
+
+  it('effort가 null이면 --variant를 아예 붙이지 않는다', () => {
+    expect(opencodeAdapter.buildCommand(spec({ effort: null })).args).not.toContain('--variant')
   })
 
   it('이어서 실행은 --session으로 넘긴다', () => {

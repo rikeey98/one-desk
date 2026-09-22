@@ -16,7 +16,7 @@ import type {
 
 const workspace: Workspace = {
   id: 'w1', name: 'ws1', description: null, defaultAgentKind: 'claude-code',
-  defaultModelClaude: null, defaultModelOpencode: null, defaultPermission: 'edit',
+  defaultModelClaude: null, defaultModelOpencode: null, defaultEffortClaude: null, defaultVariantOpencode: null, defaultPermission: 'edit',
   claudePath: null, opencodePath: null, createdAt: 0, updatedAt: 0
 }
 
@@ -26,7 +26,7 @@ function makeRepo(id: string, name: string, path: string, workspaceId = 'w1'): R
 
 function makeRun(over: Partial<Run> = {}): Run {
   return {
-    id: 'run-1', workspaceId: 'w1', agentKind: 'claude-code', model: null,
+    id: 'run-1', workspaceId: 'w1', agentKind: 'claude-code', model: null, effort: null,
     cwd: '/tmp/api', permission: 'edit', userPrompt: '토큰 버그 고쳐줘', assembledPrompt: 'x',
     status: 'succeeded', externalSessionId: 'sess-1', parentRunId: null,
     // id만 넘기고 rootRunId를 따로 넘기지 않으면 그 id가 뿌리다 — 부모 없는
@@ -164,6 +164,7 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
           defaultAgentKind: input.defaultAgentKind,
           defaultModelClaude: (input.defaultModelClaude ?? '').trim() || null,
           defaultModelOpencode: (input.defaultModelOpencode ?? '').trim() || null,
+          defaultEffortClaude: null, defaultVariantOpencode: null,
           defaultPermission: input.defaultPermission,
           updatedAt: ++clock
         }

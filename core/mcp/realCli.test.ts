@@ -57,6 +57,7 @@ describe.skipIf(!ENABLED)('진짜 claude CLI', () => {
       runId: 'probe',
       cwd: dir,
       model: null,
+      effort: null,
       permission: 'edit',
       prompt: '무시',
       resumeSessionId: null,

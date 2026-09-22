@@ -26,7 +26,7 @@ const workspaces: Workspace[] = []
 // 읽지 않던 동안은 무해했지만, groupConversations를 쓰기 시작하면 바로 드러난다.
 function makeRun(over: Partial<Run> = {}): Run {
   return {
-    id: 'run-1', workspaceId: 'w1', agentKind: 'claude-code', model: null,
+    id: 'run-1', workspaceId: 'w1', agentKind: 'claude-code', model: null, effort: null,
     cwd: '/tmp/api', permission: 'edit', userPrompt: '토큰 버그 고쳐줘',
     assembledPrompt: '<task/>', status: 'running', externalSessionId: null,
     parentRunId: null, rootRunId: over.id ?? 'run-1', resultText: null, needsAnswer: false, timeoutMs: null,

@@ -59,20 +59,23 @@ export function createWorkspaceRepository(db: Database) {
     },
 
     /**
-     * 실행 기본값 셋을 한 번에 세운다 (전체 설계 §403).
+     * 실행 기본값을 한 번에 세운다 (전체 설계 §403) — agent · 모델 둘 ·
+     * effort/variant 둘 · 권한.
      *
      * `rename`과 나란히 두고 이름을 `update`로 넓히지 않은 것은 위 주석과 같은
-     * 이유다 — **부분 갱신을 받지 않는다.** 세 값을 전부 받으므로 어느 호출이든
+     * 이유다 — **부분 갱신을 받지 않는다.** 값을 전부 받으므로 어느 호출이든
      * 덮는 범위가 같고, 화면 하나가 저장 버튼 하나로 보낸다.
      *
-     * 모델은 앞뒤 공백을 떼고 **빈 문자열이면 null로 저장한다.** null이 "CLI
+     * 모델과 effort는 앞뒤 공백을 떼고 **빈 문자열이면 null로 저장한다.** null이 "CLI
      * 자신의 기본값에 맡긴다"는 뜻이라, 빈 칸과 같은 자리에 있어야 한다 —
      * `''`를 그대로 두면 RunPanel이 그것을 기본값으로 채우고 어댑터가
      * `-m ''`를 붙인다.
      *
-     * **모델 문자열의 형식은 검증하지 않는다.** 어느 별칭이 유효한지는 CLI가 알고,
-     * 앱이 목록을 들고 있으면 CLI가 모델을 추가할 때마다 낡는다. 틀린 값은 실행이
-     * 실패하며 드러나고 그 메시지가 인박스에 남는다.
+     * **모델·effort 문자열의 형식은 검증하지 않는다.** 어느 별칭이 유효한지는 CLI가
+     * 알고, 앱이 목록을 들고 있으면 CLI가 모델을 추가할 때마다 낡는다. 틀린 값은 실행이
+     * 실패하며 드러나고 그 메시지가 인박스에 남는다. effort도 마찬가지다 —
+     * **CLI가 값을 검증하지 않는다**(`--effort bogus`도 통과한다, 2026-09-22 실측).
+     * 화면의 드롭다운이 유일한 가드이고 여기서 그것을 흉내내지 않는다.
      */
     updateDefaults(input: UpdateWorkspaceDefaultsInput): Workspace {
       const [row] = db.update(workspace)
@@ -80,6 +83,8 @@ export function createWorkspaceRepository(db: Database) {
           defaultAgentKind: input.defaultAgentKind,
           defaultModelClaude: blankToNull(input.defaultModelClaude),
           defaultModelOpencode: blankToNull(input.defaultModelOpencode),
+          defaultEffortClaude: blankToNull(input.defaultEffortClaude),
+          defaultVariantOpencode: blankToNull(input.defaultVariantOpencode),
           defaultPermission: input.defaultPermission,
           updatedAt: Date.now()
         })

@@ -21,7 +21,7 @@ beforeEach(() => {
 
 function makeRun(over: Partial<Run> & { id: string }): Run {
   return {
-    workspaceId: 'ws', agentKind: 'claude-code', model: null, cwd: '/tmp',
+    workspaceId: 'ws', agentKind: 'claude-code', model: null, effort: null, cwd: '/tmp',
     permission: 'edit', userPrompt: '지시', assembledPrompt: '지시', status: 'succeeded',
     externalSessionId: null, parentRunId: null, rootRunId: over.id, resultText: null,
     needsAnswer: false, timeoutMs: null, exitCode: null, errorMessage: null,
