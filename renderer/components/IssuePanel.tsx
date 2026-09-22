@@ -8,7 +8,8 @@ import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextChip } from '../context'
 import { groupIssues, isStale, nextInQueue, triageQueue } from '../issueGroups'
 import { AXIS_LABELS, SOURCE_LABELS, KIND_LABELS, type GroupAxis } from '../issueAxes'
-import { IconChevronRight, IconCollapse } from './icons'
+import { ConfirmButton } from './ConfirmButton'
+import { IconChevronRight, IconCollapse, IconTrash } from './icons'
 import type { Issue, Repo } from '@shared/models'
 
 const AXES: GroupAxis[] = ['priority', 'source', 'kind', 'repo']
@@ -55,6 +56,7 @@ export function IssuePanel({
   // 부수적으로 "App이 내려보내는 prop 한 줄"이라는 변이 취약점이 늘지 않는다.
   const [triaging, setTriaging] = useState(false)
   const [triageError, setTriageError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   /** 훑기 대기열. 저장소가 준 순서를 그대로 쓴다 — 술어는 issueGroups의 triageQueue 하나뿐이다. */
   const queue = useMemo(() => triageQueue(issues), [issues])
@@ -120,6 +122,22 @@ export function IssuePanel({
       repoIds: repoId ? [repoId] : []
     })
     await refresh()
+  }
+
+  /**
+   * 목록 줄에서 바로 지운다. 상세의 삭제와 같은 저장소 호출이지만, 이쪽에는 취소할
+   * 자동 저장 버퍼가 없다 — 상세가 열려 있다면 그쪽이 사라지며 자기 타이머를 접는다.
+   */
+  async function removeIssue(id: string) {
+    setDeleteError(null)
+    try {
+      await client.issues.remove(id)
+      // 다시 읽지 않으면 방금 지운 줄이 화면에 그대로 남는다. 열려 있던 이슈였다면
+      // 목록에서 사라지는 것을 위 effect가 보고 상세를 접는다.
+      await refresh()
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : String(err))
+    }
   }
 
   const list = (
@@ -202,6 +220,17 @@ export function IssuePanel({
                             사용자 자신의 클릭을 agent의 편집으로 착각한다. */}
                         <span className={`status status-${i.status}`}>{i.status}</span>
                       </span>
+                      {/* 평소엔 폭 0으로 접혀 있다가 hover·포커스에 펼쳐진다 (repo 줄과 같은
+                          패턴). DOM에는 항상 있어야 키보드로도 닿는다. */}
+                      <span className="item-actions">
+                        <ConfirmButton
+                          label={<IconTrash />}
+                          className="row-action row-action-danger"
+                          confirmLabel="정말 삭제?"
+                          ariaLabel={`${i.title} 삭제`}
+                          onConfirm={() => void removeIssue(i.id)}
+                        />
+                      </span>
                     </li>
                   )
                 })}
@@ -226,6 +255,7 @@ export function IssuePanel({
     >
       {listError && <div role="alert" className="form-error">{listError}</div>}
       {triageError && <div role="alert" className="form-error">{triageError}</div>}
+      {deleteError && <div role="alert" className="form-error">{deleteError}</div>}
       {/* 감싸는 div의 엘리먼트 타입을 확장 여부와 무관하게 항상 유지한다.
           expanded에 따라 div ↔ Fragment로 타입이 바뀌면 React가 이 자리를
           통째로 언마운트-재마운트해 item-title 버튼의 DOM 정체성이 사라진다 —

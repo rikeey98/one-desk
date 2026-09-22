@@ -1,11 +1,12 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Panel } from './Panel'
 import { AddForm } from './AddForm'
 import { MemoDetail } from './MemoDetail'
 import { useMemos } from '../hooks/useMemos'
 import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextChip } from '../context'
-import { IconCollapse } from './icons'
+import { ConfirmButton } from './ConfirmButton'
+import { IconCollapse, IconTrash } from './icons'
 import type { Repo } from '@shared/models'
 
 export function MemoPanel({
@@ -23,6 +24,7 @@ export function MemoPanel({
 }) {
   const client = useClient()
   const { memos, error: listError, refresh } = useMemos(workspaceId, repoId)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const open = openId ? memos.find((m) => m.id === openId) ?? null : null
 
@@ -39,6 +41,19 @@ export function MemoPanel({
       repoIds: repoId ? [repoId] : []
     })
     await refresh()
+  }
+
+  /**
+   * 목록 줄에서 바로 지운다 (IssuePanel과 대칭 — 이유는 그쪽 주석 참고).
+   */
+  async function removeMemo(id: string) {
+    setDeleteError(null)
+    try {
+      await client.memos.remove(id)
+      await refresh()
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : String(err))
+    }
   }
 
   const list = (
@@ -73,6 +88,16 @@ export function MemoPanel({
               >
                 {m.title}
               </button>
+              {/* 평소엔 폭 0으로 접혀 있다가 hover·포커스에 펼쳐진다 (IssuePanel과 대칭). */}
+              <span className="item-actions">
+                <ConfirmButton
+                  label={<IconTrash />}
+                  className="row-action row-action-danger"
+                  confirmLabel="정말 삭제?"
+                  ariaLabel={`${m.title} 삭제`}
+                  onConfirm={() => void removeMemo(m.id)}
+                />
+              </span>
             </li>
           )
         })}
@@ -92,6 +117,7 @@ export function MemoPanel({
       )}
     >
       {listError && <div role="alert" className="form-error">{listError}</div>}
+      {deleteError && <div role="alert" className="form-error">{deleteError}</div>}
       {/* 감싸는 div의 엘리먼트 타입을 확장 여부와 무관하게 항상 유지한다.
           IssuePanel과 대칭 — 이유는 그쪽 주석 참고. */}
       <div className={expanded ? 'panel-split' : undefined}>

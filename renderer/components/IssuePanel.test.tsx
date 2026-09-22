@@ -23,6 +23,7 @@ interface PanelMocks {
   create: ReturnType<typeof vi.fn>
   update: ReturnType<typeof vi.fn>
   markSeen: ReturnType<typeof vi.fn>
+  remove: ReturnType<typeof vi.fn>
 }
 
 function renderPanel(issues: Issue[], over: {
@@ -35,13 +36,13 @@ function renderPanel(issues: Issue[], over: {
     list: vi.fn(async () => issues),
     create: vi.fn(),
     update: vi.fn(async (i: { id: string }) => makeIssue({ id: i.id })),
-    markSeen: vi.fn(async () => {})
+    markSeen: vi.fn(async () => {}),
+    remove: vi.fn(async () => {})
   }
   const client = {
     issues: {
       ...mocks,
-      updateIfUnchanged: vi.fn(),
-      remove: vi.fn()
+      updateIfUnchanged: vi.fn()
     },
     // useIssues가 run 완료를 구독한다. 해제 함수를 돌려주지 않으면 언마운트가 터진다.
     events: { onRunUpdate: () => () => {} }
@@ -75,13 +76,13 @@ function renderControlledPanel(issues: Issue[], initialOpenId: string | null): P
     list: vi.fn(async () => issues),
     create: vi.fn(),
     update: vi.fn(async (i: { id: string }) => makeIssue({ id: i.id })),
-    markSeen: vi.fn(async () => {})
+    markSeen: vi.fn(async () => {}),
+    remove: vi.fn(async () => {})
   }
   const client = {
     issues: {
       ...mocks,
-      updateIfUnchanged: vi.fn(),
-      remove: vi.fn()
+      updateIfUnchanged: vi.fn()
     },
     events: { onRunUpdate: () => () => {} }
   } as unknown as OneDeskClient
@@ -444,5 +445,46 @@ describe('IssuePanel repo 배선', () => {
       { openId: 'a', expanded: true, repos: REPOS }
     )
     expect(await screen.findByRole('button', { name: 'api' })).toBeInTheDocument()
+  })
+})
+
+describe('IssuePanel 목록 삭제', () => {
+  it('한 번 눌러서는 지우지 않는다', async () => {
+    const mocks = renderPanel([makeIssue({ id: 'a', title: 'A', priority: 'urgent' })])
+    await userEvent.click(await screen.findByRole('button', { name: 'A 삭제' }))
+    // 되돌릴 수 없는 동작이라 두 번 눌러야 한다 (설계 §5) — 상세의 삭제와 같은 무게다.
+    expect(mocks.remove).not.toHaveBeenCalled()
+  })
+
+  it('두 번 누르면 그 이슈를 지우고 목록을 다시 읽는다', async () => {
+    const mocks = renderPanel([makeIssue({ id: 'a', title: 'A', priority: 'urgent' })])
+    await userEvent.click(await screen.findByRole('button', { name: 'A 삭제' }))
+    await userEvent.click(screen.getByRole('button', { name: '정말 삭제?' }))
+    expect(mocks.remove).toHaveBeenCalledWith('a')
+    // 지운 뒤 다시 읽지 않으면 방금 지운 줄이 화면에 그대로 남는다.
+    await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2))
+  })
+
+  it('삭제가 실패하면 오류를 보여준다', async () => {
+    const mocks = renderPanel([makeIssue({ id: 'a', title: 'A', priority: 'urgent' })])
+    mocks.remove.mockRejectedValueOnce(new Error('DB가 잠겼습니다'))
+    await userEvent.click(await screen.findByRole('button', { name: 'A 삭제' }))
+    await userEvent.click(screen.getByRole('button', { name: '정말 삭제?' }))
+    // 조용히 삼키면 줄이 그대로 남아 "안 눌렸나" 하고 다시 누르게 된다.
+    expect(await screen.findByRole('alert')).toHaveTextContent('DB가 잠겼습니다')
+  })
+
+  it('열려 있는 이슈를 목록에서 지우면 상세가 닫힌다', async () => {
+    // 지운 행의 상세를 계속 그리면 안 된다 (설계 §8). 목록을 다시 읽으면 열린 항목이
+    // 사라지므로 기존 effect가 접어야 하는데, 그 배선은 여기서만 검증된다.
+    const issues = [makeIssue({ id: 'a', title: 'A', priority: 'urgent' })]
+    const opened: string[] = []
+    const mocks = renderPanel(issues, { openId: 'a', expanded: true, onOpen: (id) => opened.push(id) })
+    mocks.remove.mockImplementationOnce(async (id: string) => {
+      issues.splice(issues.findIndex((i) => i.id === id), 1)
+    })
+    await userEvent.click(await screen.findByRole('button', { name: 'A 삭제' }))
+    await userEvent.click(screen.getByRole('button', { name: '정말 삭제?' }))
+    await waitFor(() => expect(opened).toContain('a'))
   })
 })

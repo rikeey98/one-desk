@@ -143,7 +143,7 @@ body { margin: 0; background: var(--bg); color: var(--text); }
    숨겨 제목이 남게 하고, 창이 좁으면 둘을 숨긴다. 돌아오는 길은 축소 버튼과 Esc다. */
 .columns:has(> .panel-expanded) > .panel:not(.panel-expanded) { flex: 0 0 180px; }
 /* 좁은 열은 제목 목록만 남긴다 — 표식·설명·묶기·배너는 넓을 때 보면 된다. */
-.columns:has(> .panel-expanded) > .panel:not(.panel-expanded) :is(.item-meta, .asset-desc, .asset-origin, .group-axis, .triage-banner, .panel-empty-hint, .asset-add select, .asset-add .icon-button) { display: none; }
+.columns:has(> .panel-expanded) > .panel:not(.panel-expanded) :is(.item-meta, .item-actions, .asset-desc, .asset-origin, .group-axis, .triage-banner, .panel-empty-hint, .asset-add select, .asset-add .icon-button) { display: none; }
 @media (max-width: 1280px) {
   .columns:has(> .panel-expanded) > .panel:not(.panel-expanded) { display: none; }
 }
@@ -179,6 +179,11 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 /* 줄 오른쪽 끝의 읽기 전용 표식 묶음. 제목이 줄어들지 이쪽이 줄어들지 않는다. */
 .item-meta { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; margin-left: auto; }
 .item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 줄 위에 겹치지 않고 흐름 안에서 폭 0으로 접혀 있다가 hover·포커스에 펼쳐진다
+   (.repo-actions와 같은 이유 — 겹치면 제목을 누르는 클릭을 아이콘이 가로챈다).
+   폭 0이어도 Tab으로 닿는다. */
+.item-actions { display: flex; flex: 0 0 auto; margin-left: auto; width: 0; overflow: hidden; opacity: 0; transition: opacity .12s; }
+.item:hover .item-actions, .item:focus-within .item-actions { width: auto; opacity: 1; }
 .status { display: inline-flex; align-items: center; gap: 5px; font-size: .6875rem; font-weight: 500; padding: 1px 8px 1px 6px; border-radius: 99px; background: var(--bg-muted); color: var(--text-secondary); flex: 0 0 auto; white-space: nowrap; }
 /* 상태는 색만으로 가르지 않는다 — 점 + 글자. select(.detail-status)에는 ::before가 그려지지 않아 글자만 남는다. */
 .status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--neutral); flex: 0 0 auto; }
@@ -310,7 +315,10 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
 /* 상태·축·repo 한 줄. 좁으면 줄바꿈한다. */
 .detail-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
 .detail-meta .repo-tags { margin-bottom: 0; }
-.detail-actions { display: flex; justify-content: flex-end; }
+/* 본문이 길면 .detail이 스크롤 컨테이너(.panel-split-detail)를 넘치고, 그러면 삭제가
+   접힌 아래로 밀려 "삭제 기능이 없다"로 읽힌다 — 바닥에 붙여 항상 손에 닿게 한다.
+   배경은 .panel과 같은 값이어야 글자가 비쳐 보이지 않는다. */
+.detail-actions { display: flex; justify-content: flex-end; position: sticky; bottom: 0; padding: 8px 0 2px; background: var(--bg); border-top: 1px solid var(--border-faint); }
 /* discovered asset의 파일 경로. 본문이 어느 파일의 것인지 보이되 제목처럼 크면 안 된다. */
 .asset-path { font-family: ui-monospace, monospace; font-size: .6875rem; color: var(--text-muted); word-break: break-all; }
 /* 전체 허용으로 기본값을 올릴 때의 경고 (설계 §403). form-error보다 약하되

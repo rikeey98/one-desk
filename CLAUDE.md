@@ -282,6 +282,13 @@ opencode는 `--variant`를 받지만 `init`에도 `result`에도 그 값이 없�
 
 **이 함정은 "실행"만의 것이 아니다 — 짧은 라벨을 새로 붙일 때마다 기존 e2e가 깨진다.** 설정 화면에 "기본값 저장"을 더하자 글로벌 경로의 `{ name: '저장' }`이 둘을 잡아 `asset.e2e.ts`가 깨졌다. `getByLabel`도 같다 — "Skills / Agents" 패널이 `getByLabel('agent')`에 걸린다. **Vitest/RTL의 `getByLabelText`는 전체 일치라 단위 테스트는 전부 초록인 채로 넘어간다.** 새 라벨이 기존 라벨의 부분 문자열이면 e2e를 먼저 돌려볼 것. 그리고 `<label>`이 `<select>`를 감싸고 있으면 Playwright가 계산하는 접근성 이름에 `<option>` 텍스트까지 빨려 들어가므로(`"agentClaude CodeOpenCode"`), 그런 컨트롤에는 `aria-label`을 명시한다.
 
+**줄 끝의 아이콘은 폭 0으로 접혀 있어 Playwright가 직접 hover할 수 없다.** 이슈·메모 줄의
+삭제(`.item-actions`)와 repo 줄의 열기·이름 바꾸기·삭제(`.repo-actions`)는 hover·포커스에만
+폭이 풀린다 — 접힌 상태의 버튼은 폭이 0이라 `.hover()`가 "li.item intercepts pointer events"로
+막힌다(실측). **줄을 먼저 hover하고 버튼을 누른다**(`e2e/delete.e2e.ts`). 접근성 이름은
+`<제목> 삭제`라 상세의 `삭제`와 갈린다 — RTL의 이름 매칭은 전체 일치라 단위 테스트는 안
+부딪히지만, Playwright는 부분 일치이므로 `{ name: '삭제' }`로 잡으면 둘 다 걸린다.
+
 **대화의 첫 턴을 시작한 직후 도크 탭 텍스트로 "떴다"고 판단하지 말 것.** Dock의 `view`/`pickedId` 전환(RunPanel의 `onStarted` 콜백, 동기)과 `runs` 목록 갱신(`useRuns`의 `onRunUpdate` IPC push, 비동기)이 서로 다른 경로로 온다. 도크 탭(`conversations.map(...)`)은 `runs`가 갱신되는 즉시 그려지지만, 그 순간 `ConversationPanel`은 아직 `key='new'`인 옛 인스턴스일 수 있다 — 탭 텍스트가 보인다고 바로 다음 입력을 채우면 곧 재마운트될 RunPanel에 채워 넣어 버려 전송이 빈 프롬프트로 막힌다(실행 버튼이 계속 disabled). 대화록 안의 `.turn-user` 텍스트로 기다려야 재마운트가 끝난 안정된 인스턴스를 보장한다(`e2e/conversation.e2e.ts`).
 
 **인박스 소속은 뿌리의 `reviewedAt`으로 판정한다.** 확인·보관·취소 같은 "인박스에서 내리는" 동작은 전부 **뿌리(root run) id**에 찍어야 한다. 턴 id에 찍으면 아무 일도 일어나지 않는다 — 대화는 인박스에 그대로 남는다. 실제로 `execution.cancel()`이 이 자리에서 걸렸다: 예약된 뒤 턴을 취소하면서 그 턴의 id에 확인 표시를 찍었더니, 뿌리는 계속 미확인으로 남아 대화 전체가 "대기 중 취소됨"으로 인박스에 다시 떴다(C-1-a). 반대로 뿌리에 찍는 것만으로는 새 문제가 생긴다 — `markReviewed`는 한 번 찍히면 스스로 지워지지 않으므로, 뿌리(=첫 턴)를 실행 중에 취소하면 그 대화는 세션이 살아 있어 계속 이어갈 수 있는데도 이후 어떤 턴도(`needs_answer`로 멈춘 턴을 포함해) 인박스에도 배지에도 다시 나타나지 않는다(C-1-b). 그래서 반대쪽 절반이 반드시 같이 있어야 한다: **`create()`가 `parentRunId`를 받으면(=기존 대화에 새 턴을 잇는 것이면) 뿌리의 `reviewedAt`/`reviewedKind`를 지운다.** 확인 표시를 찍는 자리(취소·확인함·보관)와 지우는 자리(새 턴 생성)가 항상 짝을 이뤄야 한다 — 한쪽만 고치면 반대 방향으로 조용히 깨진다.
