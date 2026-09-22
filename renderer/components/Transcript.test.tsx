@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Transcript } from './Transcript'
 import { groupConversations } from '../conversation'
@@ -54,18 +54,22 @@ describe('Transcript', () => {
     expect(useRunEventsMock).toHaveBeenCalledWith('a1')
   })
 
-  it('진행 중인 턴은 로그가 처음부터 펼쳐져 있다', () => {
+  it('진행 중인 턴도 접혀 있고 눌러야 펼쳐진다', async () => {
+    // 지난 턴과 같은 규칙이다 — 진행 중이라고 먼저 펼치지 않는다(사용자가 뒤집은
+    // 결정: 대화록은 지시와 답변만 흐르고, 도구 호출은 눌러서 본다).
     const conv = groupConversations([
       makeRun({ id: 'a1', rootRunId: 'a1', status: 'running' })
     ])[0]!
     render(<Transcript conversation={conv} onCancel={() => {}} />)
+    expect(screen.queryByText('도구 로그')).not.toBeInTheDocument()
+    // 접힌 턴은 훅 자체를 걸지 않는다 — 진행 중이어도 마찬가지다.
+    expect(useRunEventsMock).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: '자세히' }))
     expect(screen.getByText('도구 로그')).toBeInTheDocument()
   })
 
-  it('예약된 턴이 자동으로 시작되면(재마운트 없이) 로그가 펼쳐진다 (I-1)', () => {
-    // useState의 초기값은 마운트 때 한 번만 평가된다. 예약된 턴은 pending으로
-    // 먼저 마운트되므로 open=false로 굳는다 — 앞 턴이 끝나 같은 run.id가
-    // running으로 전이해도(재마운트가 없다) 접힌 채로 남으면 이 회귀다.
+  it('예약된 턴이 자동으로 시작돼도 접힌 채로 남는다', () => {
+    // 예전에는 여기서 강제로 펼쳤다(I-1). 그 effect가 되살아나면 이 테스트가 빨개진다.
     const pending = groupConversations([
       makeRun({ id: 'a1', rootRunId: 'a1', status: 'pending', userPrompt: '예약된 말' })
     ])[0]!
@@ -77,7 +81,24 @@ describe('Transcript', () => {
     ])[0]!
     rerender(<Transcript conversation={running} onCancel={() => {}} />)
 
-    expect(useRunEventsMock).toHaveBeenCalledWith('a1')
+    expect(useRunEventsMock).not.toHaveBeenCalled()
+    expect(screen.queryByText('도구 로그')).not.toBeInTheDocument()
+  })
+
+  it('진행 중에 펼쳐 둔 턴은 끝나도 접히지 않는다', () => {
+    // 펼치고 접는 것은 사용자가 정한다 — 상태 전이가 사용자의 선택을 되돌리면
+    // 로그를 읽고 있던 자리가 눈앞에서 사라진다.
+    const running = groupConversations([
+      makeRun({ id: 'a1', rootRunId: 'a1', status: 'running' })
+    ])[0]!
+    const { rerender } = render(<Transcript conversation={running} onCancel={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: '자세히' }))
+    expect(screen.getByText('도구 로그')).toBeInTheDocument()
+
+    const done = groupConversations([
+      makeRun({ id: 'a1', rootRunId: 'a1', status: 'succeeded', resultText: '답변' })
+    ])[0]!
+    rerender(<Transcript conversation={done} onCancel={() => {}} />)
     expect(screen.getByText('도구 로그')).toBeInTheDocument()
   })
 

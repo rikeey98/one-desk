@@ -64,13 +64,15 @@ describe('핵심 한 바퀴', () => {
     await runningTab.waitFor({ state: 'visible', timeout: 5_000 })
 
     // 8. 로그가 흐른다
+    // 턴은 진행 중이어도 접힌 채로 뜬다 — 눌러야 로그가 마운트된다(useRunEvents).
+    // 즉 이 클릭은 "펼치면 그때부터 로그가 붙는다"까지 함께 검증한다.
+    await page.getByRole('button', { name: '자세히' }).click()
     await page.getByText('작업 중').waitFor({ state: 'visible', timeout: 10_000 })
 
     // 9. 완료되면 배지가 바뀌고 결과가 보인다
-    // "끝남"은 대화록의 답변(.turn-answer)과, 진행 중이라 펼쳐진 로그의 마지막
-    // result 줄(.log-result) 양쪽에 같은 텍스트로 나타난다(실측 — 이 턴은 running
-    // 상태로 처음 마운트돼 기본으로 펼쳐져 있다). page.getByText('끝남')은 그 둘에
-    // 다 걸려 strict mode 위반이 된다 — 대화록의 답변으로 범위를 좁힌다.
+    // "끝남"은 대화록의 답변(.turn-answer)과, 위에서 펼쳐 둔 로그의 마지막 result
+    // 줄(.log-result) 양쪽에 같은 텍스트로 나타난다(실측). page.getByText('끝남')은
+    // 그 둘에 다 걸려 strict mode 위반이 된다 — 대화록의 답변으로 범위를 좁힌다.
     const doneTab = page.getByRole('button', { name: new RegExp(`succeeded.*${PROMPT}`) })
     await doneTab.waitFor({ state: 'visible', timeout: 20_000 })
     await page.locator('.turn-answer').filter({ hasText: '끝남' }).waitFor({ state: 'visible', timeout: 5_000 })

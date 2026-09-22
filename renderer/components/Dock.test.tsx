@@ -157,7 +157,8 @@ describe('Dock', () => {
     expect(screen.queryByText('옛 로그')).toBeNull()
 
     await userEvent.click(screen.getByText('옛 실행'))
-    // run 상태가 running이라 마지막 턴의 로그가 처음부터 펼쳐져 있다 (Task 7).
+    // 턴은 진행 중이어도 접힌 채로 뜬다 — 로그는 눌러야 보인다.
+    await userEvent.click(screen.getByRole('button', { name: '자세히' }))
     expect(await screen.findByText('옛 로그')).toBeInTheDocument()
   })
 
@@ -285,6 +286,7 @@ describe('Dock', () => {
     renderDock([makeRun()], null, makeClient(), store)
 
     await userEvent.click(screen.getByText('토큰 버그 고쳐줘'))
+    await userEvent.click(screen.getByRole('button', { name: '자세히' }))
     expect(await screen.findByText('로그 줄')).toBeInTheDocument()
     await userEvent.click(screen.getByText('▾ 실행'))
     expect(screen.queryByText('로그 줄')).toBeNull()
