@@ -225,20 +225,55 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .dock-open { flex: 0 0 auto; min-height: 0; }
 .dock-resizer { flex: 0 0 auto; height: 7px; margin: -1px -1px 0; cursor: ns-resize; background: transparent; touch-action: none; user-select: none; }
 .dock-resizer:hover { background: var(--accent-bg-strong); }
-/* 스크롤은 .dock-tabs만 한다. 토글과 슬롯 표시기는 헤더에 고정돼 탭이 아무리
-   늘어나도 화면 밖으로 밀리지 않는다 (스펙 §7). */
+/* 헤더에는 토글·슬롯 표시기·취소만 남는다. 대화 목록이 세로로 내려가면서, 탭이
+   늘면 슬롯 표시기가 화면 밖으로 밀리던 문제(스펙 §7)가 구조적으로 사라졌다. */
 .dock-header { display: flex; align-items: center; gap: 5px; padding: 5px 7px; border-bottom: 1px solid var(--border); }
-.dock-tabs { display: flex; align-items: center; gap: 5px; flex: 1 1 auto; min-width: 0; overflow-x: auto; }
 .dock-toggle { border: 0; background: transparent; cursor: pointer; font: inherit; font-size: .6875rem; font-weight: 700; opacity: .6; flex: 0 0 auto; }
-.dock-tab { display: flex; align-items: center; gap: 5px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); cursor: pointer; font: inherit; font-size: .6875rem; padding: 3px 8px; white-space: nowrap; flex: 0 0 auto; }
-.dock-tab-selected { border-color: var(--accent-border); background: var(--accent-bg); font-weight: 600; }
 .dock-cancel { margin-left: auto; border: 1px solid var(--danger-border); border-radius: 5px; background: var(--bg); color: var(--danger-text); cursor: pointer; font: inherit; font-size: .6875rem; padding: 3px 9px; flex: 0 0 auto; }
+
+/* 도크 본문은 좌우로 갈린다 — 왼쪽 세로 목록, 오른쪽 대화 (FR-17).
+   가로 탭 스트립이던 시절에는 대화가 스무 개만 돼도 가로 스크롤 스무 칸이었다. */
+/* **목록과 대화는 따로 스크롤한다.** .dock-body가 스크롤하면 둘이 한 덩어리로
+   움직여서, 대화록을 내리면 목록도 같이 올라가 버린다(사용자 실측 보고). 그래서
+   body는 스크롤을 막고(overflow: hidden) 높이를 나눠 주기만 하며, 스크롤은
+   .dock-side와 .dock-main이 **각자** 한다. 사슬의 어느 칸이든 min-height: 0이
+   빠지면 자식이 내용만큼 늘어나 스크롤이 도로 바깥으로 새어 나간다. */
+.dock-split { display: flex; gap: 10px; align-items: stretch; flex: 1 1 auto; min-height: 0; min-width: 0; }
+.dock-side { display: flex; flex-direction: column; gap: 3px; flex: 0 0 196px; min-width: 0; min-height: 0; overflow-y: auto; border-right: 1px solid var(--border); padding-right: 8px; }
+.dock-main { flex: 1 1 auto; min-width: 0; min-height: 0; overflow-y: auto; }
+.dock-conv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.dock-conv-row { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.dock-conv { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; border: 1px solid transparent; border-radius: 6px; background: transparent; cursor: pointer; font: inherit; font-size: .6875rem; padding: 4px 7px; text-align: left; }
+.dock-conv:hover { background: var(--bg-hover); }
+.dock-conv-selected { border-color: var(--accent-border); background: var(--accent-bg); font-weight: 600; }
+.dock-conv-top { display: flex; align-items: center; gap: 4px; width: 100%; min-width: 0; }
+/* 대화 목록의 상태는 **점 하나**다. 위 .status의 "색만으로 가르지 않는다"를 뒤집는 것이
+   아니다 — role="img"+aria-label+title로 이름이 남고, 글자로 된 상태 칩은 대화록의
+   턴마다 그대로 보인다. 색은 .status::before와 같은 값을 쓴다(알약 배경색이 아니라).
+   `.status-dot.status-*`가 두 클래스라 알약 규칙(.status-*)보다 우선한다. */
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--neutral); flex: 0 0 auto; }
+.status-dot.status-running { background: var(--accent); }
+.status-dot.status-succeeded { background: var(--success); }
+.status-dot.status-failed, .status-dot.status-interrupted { background: var(--danger); }
+.status-dot.status-canceled { background: var(--warn); }
+.dock-conv-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 부제는 --text-muted다 — opacity로 흐리면 대비가 4.5:1 아래로 떨어진다. */
+.dock-conv-meta { color: var(--text-muted); font-size: .625rem; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+/* 줄 끝 아이콘은 겹치지 않고 폭 0으로 접혀 있다가 hover·포커스에 펼쳐진다
+   (.repo-actions와 같은 이유·같은 방식). 폭 0이어도 Tab으로 닿는다. */
+.dock-conv-actions { display: flex; flex: 0 0 auto; gap: 1px; width: 0; overflow: hidden; opacity: 0; transition: opacity .12s; }
+.dock-conv-row:hover .dock-conv-actions, .dock-conv-row:focus-within .dock-conv-actions { width: auto; opacity: 1; }
+.dock-new { border: 1px dashed var(--border); border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: .6875rem; padding: 4px 7px; text-align: left; flex: 0 0 auto; }
+.dock-new:hover { background: var(--bg-hover); color: var(--text); }
+.dock-new-selected { border-style: solid; border-color: var(--accent-border); background: var(--accent-bg); color: var(--text); font-weight: 600; }
+.dock-closed-toggle { display: flex; align-items: center; gap: 5px; margin-top: 4px; border: 0; border-top: 1px solid var(--border); padding: 6px 7px 0; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: .625rem; text-align: left; flex: 0 0 auto; }
+.dock-closed-toggle:hover { color: var(--text); }
 .dock-slots { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
 .dock-slots-button { border: 1px solid var(--border); border-radius: 5px; background: var(--bg); cursor: pointer; font: inherit; font-size: .6875rem; padding: 3px 8px; }
 .dock-slots-waiting { font-size: .6875rem; opacity: .6; }
 .dock-slots-input { width: 52px; border: 1px solid var(--neutral); border-radius: 5px; font: inherit; font-size: .6875rem; padding: 2px 4px; }
 .dock-empty { font-size: .6875rem; color: var(--text-muted); }
-.dock-body { flex: 1; overflow-y: auto; padding: 8px 10px; min-height: 0; }
+.dock-body { flex: 1; display: flex; flex-direction: column; gap: 6px; overflow: hidden; padding: 8px 10px; min-height: 0; }
 .run-log { font-family: ui-monospace, monospace; font-size: .6875rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .log-text { color: var(--text); }
 .log-tool { color: var(--accent-text); }
@@ -258,10 +293,12 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .status-canceled::before { background: var(--warn); }
 
 /* 대화를 이어갈 때는 작업 디렉토리 select 대신 잠긴 agent·cwd를 고정해서 보여준다
-   (RunPanel의 conversation prop, 설계 §4-1). 자물쇠 표시는 눈에 띄되 dock-tab
+   (RunPanel의 conversation prop, 설계 §4-1). 자물쇠 표시는 눈에 띄되 도크의
    톤을 벗어나지 않는다. */
-.resume-locked { display: flex; align-items: center; gap: 6px; font-size: .6875rem; opacity: .85; }
-.resume-badge { border: 1px solid var(--accent-border); border-radius: 5px; background: var(--accent-bg); font-weight: 700; padding: 2px 7px; }
+/* 대화를 이어갈 때의 작업 디렉토리. 다른 칸과 같은 모양이되 잠겨 있다는 것이 보여야
+   한다 — 옆의 비활성 agent select와 같은 톤(흐린 글자 + 무채색 배경)으로 맞춘다.
+   자물쇠 글리프를 넣지 않는 이유는 아이콘이 icons.tsx에서만 오기 때문이다. */
+.run-settings .run-locked { color: var(--text-secondary); background: var(--bg-muted); cursor: default; }
 
 .inbox { flex: 1; overflow-y: auto; padding: 10px 12px; }
 .inbox-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -305,7 +342,13 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
 .run-start:disabled { opacity: .4; cursor: default; }
 
 /* 상세는 넓게 쓰되 글줄은 끝없이 길어지지 않게 상한을 두고, 남는 폭은 좌우로 똑같이 나눈다. */
-.detail { display: flex; flex-direction: column; gap: 10px; height: 100%; min-height: 0; width: 100%; max-width: 1400px; margin: 0 auto; }
+/* **height가 아니라 min-height: 100%다.** height로 못 박으면 .detail은 칸 높이를 그대로
+   주장하는데 자식(.detail-body의 min-height: 160px)은 그 아래로 줄어들 수 없어, 넘치는
+   만큼이 **바깥으로 그려진다** — 부모(.panel-body·.panel-split-detail)는 넘쳤다는 사실을
+   모르니 스크롤도 생기지 않는다. 도크를 높이 끌어 패널이 짧아지면 본문 글자가 패널 밖으로
+   흘러나온다(실측: 칸 143px에 내용 283px). min-height면 모자랄 때 .detail이 내용만큼
+   늘어나 부모가 스크롤한다. .conversation-panel이 같은 이유로 같은 모양이다. */
+.detail { display: flex; flex-direction: column; gap: 10px; min-height: 100%; width: 100%; max-width: 1400px; margin: 0 auto; }
 .detail-title { padding: 8px 2px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; color: var(--text); font: inherit; font-size: 1.375rem; font-weight: 600; }
 /* 배경색은 .status-open/doing/done이 그대로 준다. 나머지(크기·모서리)만 덮어쓴다. */
 .detail-status { align-self: flex-start; padding: 3px 10px; border: 1px solid var(--border); border-radius: 99px; font: inherit; font-size: .75rem; cursor: pointer; }
@@ -382,8 +425,15 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
    스크롤해야 한다 — .transcript에 flex: 1과 min-height: 0을 주지 않으면 내용이
    길어질 때 입력부까지 함께 밀려 화면 밖으로 나간다. .run-panel은 원래
    height: 100%로 부모를 꽉 채우는 값인데, 여기서는 내용 높이만큼만 차지해야
-   대화록에 남는 공간을 넘겨줄 수 있어 flex: 0 0 auto로 되돌린다. */
-.conversation-panel { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
+   대화록에 남는 공간을 넘겨줄 수 있어 flex: 0 0 auto로 되돌린다.
+
+   **height가 아니라 min-height: 100%다.** 실행 패널만 284px이라 도크 기본 높이
+   (242px)에서는 대화 칸에 애초에 안 들어간다(실측). height로 못 박으면 넘치는 만큼이
+   .dock-main의 스크롤로 빠지는데, 그때 .transcript는 flex: 1로 남은 16px만 받아
+   **16px짜리 창으로 대화록을 읽게 된다.** min-height면 모자랄 때는 패널이 내용만큼
+   늘어나(대화록이 통째로 보이고 .dock-main이 스크롤한다) 넉넉할 때는 100%로 차서
+   입력부가 바닥에 고정된다 — 도크를 위로 끌면 그 모드로 넘어간다. */
+.conversation-panel { display: flex; flex-direction: column; gap: 8px; min-height: 100%; }
 .conversation-panel .transcript { flex: 1 1 auto; min-height: 0; }
 .conversation-panel .run-panel { flex: 0 0 auto; height: auto; }
 /* 이 대화가 이미 받은 것. 아래 .run-chips와 위아래로 붙어 한 쌍으로 읽힌다.
@@ -492,8 +542,8 @@ button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer
 .command-option[aria-selected="true"] { background: var(--accent-bg-strong); }
 .command-option span { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .command-warning { font-size: .75rem; color: var(--warn-text); margin: 6px 0; }
-/* 설정 화면의 탭. 도크 탭(.dock-tab)과 같은 생김새 — 앱 안에서 "탭"이 두 가지로
-   보이면 안 된다. 값은 새로 만들지 않고 그쪽 것을 그대로 쓴다. */
+/* 설정 화면의 탭. 도크에는 이제 탭이 없으므로(세로 목록이 됐다) 앱 안에서 "탭"은
+   여기 하나뿐이다. */
 /* 설정 화면. 가운데 한 열(최대 760px)에 탭은 분절 컨트롤, 탭 내용은 흰 카드다. */
 .settings { width: 100%; max-width: 760px; margin: 0 auto; padding: 4px 12px 28px; overflow-y: auto; }
 .settings h2 { margin: 6px 0 14px; font-size: 1.375rem; font-weight: 600; }

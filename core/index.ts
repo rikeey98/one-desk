@@ -423,6 +423,31 @@ export function createCore(opts: CoreOptions) {
       }
     },
 
+    /**
+     * 대화의 수명 주기 (`docs/sdlc/conversation-lifecycle/`).
+     *
+     * 저장소(`runs`)를 그대로 내보내지 않고 여기에 감싸는 이유는 **이벤트** 때문이다 —
+     * 두 동작 모두 run 행과 배지를 함께 바꾸므로 `RUN_UPDATE`와 `emitInbox()`가
+     * 짝으로 나가야 한다. `inbox.markReviewed`가 같은 이유로 여기 있다.
+     */
+    conversations: {
+      /** 대화를 끝낸다. 확인도 겸하므로 배지에서 내려간다 (spec FR-12). */
+      close(rootRunId: string): Run {
+        const closed = runs.close(rootRunId)
+        emitter.emit(RUN_UPDATE, closed)
+        emitInbox()
+        return closed
+      },
+
+      /** 대화에 이름을 붙인다. 빈 값은 파생으로 되돌린다 (spec FR-14). */
+      rename(rootRunId: string, title: string): Run {
+        const renamed = runs.rename(rootRunId, title)
+        emitter.emit(RUN_UPDATE, renamed)
+        emitInbox()
+        return renamed
+      }
+    },
+
     /** 지금 사용자의 손이 필요한 대화. 모든 workspace를 가로지른다 (설계 §4·§5). */
     inbox: {
       list: (): Run[] => runs.inbox(),

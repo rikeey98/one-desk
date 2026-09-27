@@ -118,6 +118,15 @@ export const run = sqliteTable('run', {
   // run_context_item의 cascade를 건드려 모든 맥락 기록을 지운다. 마이그레이션의
   // PRAGMA foreign_keys=OFF는 트랜잭션 안이라 무시된다. 읽는 쪽이 `?? id`로 푼다.
   rootRunId: text('root_run_id'),
+  // 대화의 이름과 끝. **뿌리 행에서만 의미가 있다** — 이어지는 턴의 행에서는 항상
+  // null이고, 타입은 그것을 지켜주지 않는다(저장소의 `rename`이 뿌리를 검증하는 것이
+  // 유일한 방어선이다). docs/sdlc/conversation-lifecycle/ spec FR-9.
+  //
+  // title이 null이면 화면이 파생한다(담긴 이슈·메모 > repo > 첫 지시).
+  // closedAt이 null이면 진행 중이다 — 끝낸 대화는 도크 목록에서 내려가되 지워지지
+  // 않는다(전체 설계 §232).
+  title: text('title'),
+  closedAt: integer('closed_at'),
   resultText: text('result_text'),
   // 모델·토큰·컨텍스트 (docs/sdlc/run-info/). 전부 nullable이고 기본값이 없다 —
   // **모르는 것과 0은 다르다.** 0으로 채우면 화면이 "안 썼다"는 거짓말을 한다.

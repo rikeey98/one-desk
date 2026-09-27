@@ -373,13 +373,24 @@ export function RunPanel({
           </label>
         )}
         {conversation ? (
-          <div className="resume-locked">
-            <span className="resume-badge">대화 이어가기</span>
-            {/* 세션은 특정 CLI가 특정 디렉토리에서 만든 것이라 둘은 바꿀 수 없다 (설계 §6).
-                대화를 벗어나는 것은 이제 도크 탭이 한다 — 여기엔 나갈 버튼이 없다. */}
-            <span>{conversation.last.agentKind}</span>
-            <span>{conversation.last.cwd}</span>
-          </div>
+          <label>
+            작업 디렉토리
+            {/* 세션은 특정 CLI가 특정 디렉토리에서 만든 것이라 둘 다 바꿀 수 없다 (설계 §6).
+                대화를 벗어나는 것은 도크의 대화 목록이 한다 — 여기엔 나갈 버튼이 없다.
+                **"대화 이어가기" 배지와 agentKind를 되풀이하지 않는다** (2026-09-23):
+                어느 대화를 이어가는지는 왼쪽 목록의 선택과 바로 위 대화록이 이미 말하고,
+                agent는 옆 칸이 비활성으로 보여준다. 그 줄에서 여기서만 알 수 있는 것은
+                경로 하나뿐이라 그것만 다른 칸과 같은 모양으로 남긴다.
+
+                disabled가 아니라 readOnly다 — 잠긴 것은 같지만 포커스가 가고 경로를
+                눌러 복사할 수 있다. */}
+            <input
+              className="run-locked"
+              value={conversation.last.cwd}
+              readOnly
+              title={conversation.last.cwd}
+            />
+          </label>
         ) : (
           <label>
             작업 디렉토리

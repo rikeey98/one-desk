@@ -32,6 +32,8 @@ function makeRun(over: Partial<Run> = {}): Run {
     parentRunId: null, rootRunId: over.id ?? 'run-1', resultText: null, needsAnswer: false, timeoutMs: null,
     exitCode: null, errorMessage: null, logPath: '/tmp/logs/run-1/stream.jsonl',
     reviewedAt: null, reviewedKind: null, startedAt: 1, endedAt: null,
+    // 대화의 이름과 끝. 뿌리 행에서만 의미가 있고 기본은 둘 다 null이다.
+    title: null, closedAt: null,
     createdAt: 1, contextItems: [], usage: null,
     ...over
   }
@@ -58,8 +60,10 @@ function makeClient(over: Partial<OneDeskClient['runs']> = {}): OneDeskClient {
       setConcurrencyLimit: vi.fn().mockResolvedValue({ running: 0, limit: 3, waiting: 0 }),
       inbox: vi.fn().mockResolvedValue([]),
       inboxCounts: vi.fn().mockResolvedValue({ total: 0, byWorkspace: {} }),
-      markReviewed: vi.fn(),
+      markReviewed: vi.fn().mockResolvedValue(undefined),
       resume: vi.fn(),
+      close: vi.fn().mockResolvedValue(undefined),
+      rename: vi.fn().mockResolvedValue(undefined),
       ...over
     },
     events: {
@@ -117,11 +121,12 @@ describe('Dock', () => {
       makeRun({ id: 'a2', rootRunId: 'a1', createdAt: 20 }),
       makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10, userPrompt: '첫 지시' })
     ])
-    expect(screen.getAllByRole('button', { name: /첫 지시/ })).toHaveLength(1)
-    // groupConversations 없이 run마다 탭을 만드는 변이라면 대화 탭이 3개(a1·a2·a3
-    // 각각) + "+ 새 대화" 탭까지 4개가 된다 — /첫 지시/ 하나만 봐서는 안 잡힌다
-    // (다른 두 run은 기본 userPrompt를 써서 다른 텍스트로 매치되므로). 총 탭 수로 잡는다.
-    expect(document.querySelectorAll('.dock-tab')).toHaveLength(2)
+    // **제목으로 세지 않는다.** 줄 끝 액션의 접근성 이름이 `<제목> 이름 바꾸기`·
+    // `<제목> 대화 끝내기`라(FR-21) /첫 지시/는 줄 하나당 세 번 걸린다.
+    expect(screen.getAllByText('첫 지시', { selector: '.dock-conv-title' })).toHaveLength(1)
+    // groupConversations 없이 run마다 줄을 만드는 변이라면 3줄이 된다.
+    // "＋ 새 대화"는 .dock-new라 여기 세지 않는다.
+    expect(document.querySelectorAll('.dock-conv')).toHaveLength(1)
   })
 
   it('탭 배지와 입력부 권한 기본값은 대화의 마지막 턴에서 온다', async () => {
@@ -138,9 +143,11 @@ describe('Dock', () => {
       })
     ])
 
-    // 탭 배지는 마지막 턴(b2, succeeded)에서 온다 — 첫 턴(running)이 아니다.
-    expect(screen.getByText('succeeded')).toBeInTheDocument()
-    expect(screen.queryByText('running')).toBeNull()
+    // 줄의 상태 점은 마지막 턴(b2, succeeded)에서 온다 — 첫 턴(running)이 아니다.
+    // 글자가 아니라 점이므로 접근성 이름으로 잡는다(2026-09-23: 좁은 레일에서
+    // 영어 상태 단어가 제목을 밀어내 글자를 뺐다).
+    expect(screen.getByRole('img', { name: 'succeeded' })).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'running' })).toBeNull()
 
     await userEvent.click(screen.getByText('첫 말'))
     // 입력부의 권한 기본값도 마지막 턴(read_only)에서 온다 — 첫 턴(edit)이 아니다.
@@ -320,11 +327,211 @@ describe('Dock', () => {
     const applied = () =>
       [...container.querySelectorAll('.applied-chip')].map((e) => e.textContent)
 
-    await userEvent.click(screen.getByText('대화 하나'))
+    // 담긴 것이 있으면 제목이 거기서 온다(FR-11) — 지시가 아니라 이슈·메모 이름으로
+    // 줄을 찾는다. 이 테스트가 `userPrompt`로 클릭하던 시절과 달라진 자리다.
+    await userEvent.click(screen.getByText('버그', { selector: '.dock-conv-title' }))
     expect(applied()).toEqual(['이슈 · 버그'])
 
-    await userEvent.click(screen.getByText('대화 둘'))
+    await userEvent.click(screen.getByText('릴리스 절차', { selector: '.dock-conv-title' }))
     expect(applied()).toEqual(['메모 · 릴리스 절차'])
+  })
+})
+
+/**
+ * 대화 수명 주기 (`docs/sdlc/conversation-lifecycle/` FR-20~FR-23).
+ *
+ * run 목록은 `useRuns`가 주는 그대로다 — 끝낸 대화도 IPC로 오고, 목록에서
+ * 내리는 것은 **여기서** 한다(spec 우려 1: 나중에 따로 조회로 바꿀 자리).
+ */
+describe('Dock 대화 수명 주기', () => {
+  function titles(): string[] {
+    return [...document.querySelectorAll('.dock-conv-title')].map((e) => e.textContent ?? '')
+  }
+
+  it('끝낸 대화는 기본 목록에서 내려간다', () => {
+    renderDock([
+      makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 20, userPrompt: '살아 있는 대화' }),
+      makeRun({ id: 'b1', rootRunId: 'b1', createdAt: 10, userPrompt: '끝낸 대화', closedAt: 5 })
+    ])
+    expect(titles()).toEqual(['살아 있는 대화'])
+  })
+
+  it('끝낸 것이 없으면 토글을 아예 그리지 않는다', () => {
+    // 늘 0이 붙어 있으면 눈이 걸러내고, 무엇을 여는 것인지도 알 수 없다 (FR-20).
+    renderDock([makeRun({ id: 'a1', rootRunId: 'a1', userPrompt: '하나' })])
+    expect(screen.queryByRole('button', { name: /끝낸 대화/ })).toBeNull()
+  })
+
+  it('토글을 펼치면 끝낸 대화가 보이고 열 수 있다', async () => {
+    renderDock([
+      makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 20, userPrompt: '살아 있는 대화' }),
+      makeRun({ id: 'b1', rootRunId: 'b1', createdAt: 10, userPrompt: '끝낸 대화', closedAt: 5 })
+    ])
+    await userEvent.click(screen.getByRole('button', { name: /끝낸 대화/ }))
+
+    expect(titles()).toEqual(['살아 있는 대화', '끝낸 대화'])
+    await userEvent.click(screen.getByText('끝낸 대화', { selector: '.dock-conv-title' }))
+    expect(screen.getByText('끝낸 대화', { selector: '.turn-user' })).toBeInTheDocument()
+  })
+
+  it('끝낸 대화 줄에는 끝내기가 없고 이름 바꾸기는 있다', async () => {
+    renderDock([makeRun({ id: 'b1', rootRunId: 'b1', userPrompt: '끝낸 대화', closedAt: 5 })])
+    await userEvent.click(screen.getByRole('button', { name: /끝낸 대화/ }))
+
+    expect(screen.queryByRole('button', { name: '끝낸 대화 대화 끝내기' })).toBeNull()
+    expect(screen.getByRole('button', { name: '끝낸 대화 이름 바꾸기' })).toBeInTheDocument()
+  })
+
+  it('끝내기를 누르면 뿌리 id로 close를 부른다', async () => {
+    const client = makeClient()
+    renderDock([
+      makeRun({ id: 'a2', rootRunId: 'a1', createdAt: 20 }),
+      makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10, userPrompt: '두 턴 대화' })
+    ], null, client)
+
+    await userEvent.click(screen.getByRole('button', { name: '두 턴 대화 대화 끝내기' }))
+
+    // **뿌리 id다.** 턴 id를 넘기면 저장소가 던지고 아무 일도 일어나지 않는다.
+    expect(client.runs.close).toHaveBeenCalledWith('a1')
+  })
+
+  it('보고 있던 대화를 끝내면 새 대화로 돌아간다', async () => {
+    // 사라진 대화를 가리킨 채로 남으면 입력부가 어디로 보낼지 모르는 상태가 된다 (FR-23).
+    const client = makeClient()
+    renderDock([makeRun({ id: 'a1', rootRunId: 'a1', userPrompt: '보던 대화' })], 'a1', client)
+    expect(screen.getByText('보던 대화', { selector: '.turn-user' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '보던 대화 대화 끝내기' }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('보던 대화', { selector: '.turn-user' })).toBeNull()
+    })
+    expect(screen.getByText('지시를 입력하면 대화가 시작됩니다')).toBeInTheDocument()
+  })
+
+  it('이름을 바꾸면 뿌리 id로 rename을 부른다', async () => {
+    const client = makeClient()
+    renderDock([makeRun({ id: 'a1', rootRunId: 'a1', userPrompt: '옛 이름' })], null, client)
+
+    await userEvent.click(screen.getByRole('button', { name: '옛 이름 이름 바꾸기' }))
+    await userEvent.type(screen.getByRole('textbox', { name: '옛 이름 새 이름' }), '인증 정리')
+    await userEvent.keyboard('{Enter}')
+
+    expect(client.runs.rename).toHaveBeenCalledWith('a1', '인증 정리')
+  })
+
+  it('close가 실패하면 배너로 보여주고 대화는 그대로 열려 있다', async () => {
+    const client = makeClient({ close: vi.fn().mockRejectedValue(new Error('못 끝냄')) })
+    renderDock([makeRun({ id: 'a1', rootRunId: 'a1', userPrompt: '보던 대화' })], 'a1', client)
+
+    await userEvent.click(screen.getByRole('button', { name: '보던 대화 대화 끝내기' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('못 끝냄')
+    expect(screen.getByText('보던 대화', { selector: '.turn-user' })).toBeInTheDocument()
+  })
+})
+
+/**
+ * 본 대화는 저절로 확인된다 (`docs/sdlc/conversation-lifecycle/` FR-5~FR-8).
+ *
+ * 인박스에 가서 "확인함"을 눌러야만 배지가 줄던 것이 이 기능이 고치려던 증상이다.
+ * 판정은 core의 배지 집계와 **같은 표**(`shared/inbox.ts`의 ACTIONABLE)에서 온다.
+ */
+describe('Dock 자동 확인', () => {
+  const done = () => makeRun({
+    id: 'a1', rootRunId: 'a1', status: 'succeeded', endedAt: 2, userPrompt: '끝난 대화'
+  })
+
+  it('완료·미확인 대화를 누르면 뿌리 id로 확인 표시를 찍는다', async () => {
+    const client = makeClient()
+    renderDock([
+      makeRun({ id: 'a2', rootRunId: 'a1', createdAt: 20, status: 'succeeded', endedAt: 2 }),
+      makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10, status: 'succeeded', endedAt: 1, userPrompt: '끝난 대화' })
+    ], null, client)
+
+    await userEvent.click(screen.getByText('끝난 대화', { selector: '.dock-conv-title' }))
+
+    // **뿌리 id다.** 턴 id에 찍으면 대화는 인박스에 그대로 남는다.
+    expect(client.runs.markReviewed).toHaveBeenCalledWith('a1', 'confirmed')
+  })
+
+  /**
+   * **마운트만으로는 찍히지 않는다** (FR-6).
+   *
+   * Dock은 `pickedId`가 null이면 `conversations[0]`을 selected로 고른다. 자동 확인을
+   * 그 경로에 걸면 **도크를 열기만 해도** 최근 대화가 조용히 내려간다 — 사용자는
+   * 그 대화를 본 적이 없다.
+   */
+  it('마운트만으로는 찍지 않는다', () => {
+    const client = makeClient()
+    renderDock([done()], null, client)
+    expect(client.runs.markReviewed).not.toHaveBeenCalled()
+  })
+
+  it('focusConversationId로 열려도 찍지 않는다', () => {
+    // 인박스의 "대화 열기"가 쓰는 경로다. 거기서는 사용자가 이미 인박스를 보고 있고
+    // 확인함/보관 버튼이 따로 있다 — 자동으로 내리면 그 선택을 가로챈다.
+    const client = makeClient()
+    renderDock([done()], 'a1', client)
+    expect(client.runs.markReviewed).not.toHaveBeenCalled()
+  })
+
+  it('답변 필요는 눌러도 찍지 않는다', async () => {
+    const client = makeClient()
+    renderDock([makeRun({
+      id: 'a1', rootRunId: 'a1', status: 'succeeded', endedAt: 2,
+      needsAnswer: true, userPrompt: '질문한 대화'
+    })], null, client)
+
+    await userEvent.click(screen.getByText('질문한 대화', { selector: '.dock-conv-title' }))
+
+    expect(client.runs.markReviewed).not.toHaveBeenCalled()
+  })
+
+  it('실패도 눌러도 찍지 않는다', async () => {
+    const client = makeClient()
+    renderDock([makeRun({
+      id: 'a1', rootRunId: 'a1', status: 'failed', endedAt: 2, userPrompt: '깨진 대화'
+    })], null, client)
+
+    await userEvent.click(screen.getByText('깨진 대화', { selector: '.dock-conv-title' }))
+
+    expect(client.runs.markReviewed).not.toHaveBeenCalled()
+  })
+
+  it('아직 도는 중인 대화는 찍지 않는다', async () => {
+    // 끝나지도 않은 것을 "봤다"고 내릴 수는 없다 — 인박스 소속 자체가 아니다.
+    const client = makeClient()
+    renderDock([makeRun({
+      id: 'a1', rootRunId: 'a1', status: 'running', userPrompt: '도는 대화'
+    })], null, client)
+
+    await userEvent.click(screen.getByText('도는 대화', { selector: '.dock-conv-title' }))
+
+    expect(client.runs.markReviewed).not.toHaveBeenCalled()
+  })
+
+  it('이미 확인한 대화는 다시 찍지 않는다', async () => {
+    const client = makeClient()
+    renderDock([makeRun({
+      id: 'a1', rootRunId: 'a1', status: 'succeeded', endedAt: 2,
+      reviewedAt: 100, reviewedKind: 'confirmed', userPrompt: '이미 본 대화'
+    })], null, client)
+
+    await userEvent.click(screen.getByText('이미 본 대화', { selector: '.dock-conv-title' }))
+
+    expect(client.runs.markReviewed).not.toHaveBeenCalled()
+  })
+
+  it('확인 표시 찍기가 실패해도 대화는 열린다', async () => {
+    // 인박스 정리가 안 됐다고 대화를 못 보게 할 이유가 없다 (FR-8).
+    const client = makeClient({ markReviewed: vi.fn().mockRejectedValue(new Error('못 찍음')) })
+    renderDock([done()], null, client)
+
+    await userEvent.click(screen.getByText('끝난 대화', { selector: '.dock-conv-title' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('못 찍음')
+    expect(screen.getByText('끝난 대화', { selector: '.turn-user' })).toBeInTheDocument()
   })
 })
 

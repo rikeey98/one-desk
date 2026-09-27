@@ -56,3 +56,12 @@ export function IconCollapse(props: SVGProps<SVGSVGElement>) {
 export function IconRefresh(props: SVGProps<SVGSVGElement>) {
   return <Icon {...props}><path d="M13 8A5 5 0 0 1 4.2 11.2M3 8a5 5 0 0 1 8.8-3.2M12 2.5v3h-3M4 13.5v-3h3" /></Icon>
 }
+
+/**
+ * 대화 끝내기 — 체크다. ×를 쓰지 않는 것은 그것이 **삭제로 읽히기** 때문이다:
+ * 대화를 끝내도 기록은 그대로 남고 "끝낸 대화"에서 다시 열 수 있다
+ * (docs/sdlc/conversation-lifecycle/ plan §2).
+ */
+export function IconCheck(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><path d="m3 8.5 3.5 3.5L13 4.5" /></Icon>
+}

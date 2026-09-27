@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState , useRef } from 'react'
 import { useClient } from '../client/ClientProvider'
 import { clampDockHeight, readDockHeight, writeDockHeight, DEFAULT_DOCK_RATIO } from '../dockHeight'
 import { ConversationPanel } from './ConversationPanel'
+import { ConversationList } from './ConversationList'
 import { SlotIndicator } from './SlotIndicator'
-import { conversationIdOf, groupConversations } from '../conversation'
+import { conversationIdOf, groupConversations, type Conversation } from '../conversation'
+import { ACTIONABLE, inboxCategory } from '@shared/inbox'
 import type { ContextChip } from '../context'
 import type { QueueSnapshot, Repo, Run, Workspace } from '@shared/models'
 
@@ -78,9 +80,21 @@ export function Dock({
   const [view, setView] = useState<'conversation' | 'new'>(focusConversationId ? 'conversation' : 'new')
   const [pickedId, setPickedId] = useState<string | null>(focusConversationId)
   const [actionError, setActionError] = useState<string | null>(null)
+  // 목록의 펼침·편집 state는 여기서 쥔다 — ConversationList에 내리면 도크를 접었다
+  // 펴는 것만으로 편집하던 이름이 사라진다.
+  const [showClosed, setShowClosed] = useState(false)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
 
-  // useRuns는 최신순 평평한 목록을 준다. 탭은 run이 아니라 대화 단위다.
+  // useRuns는 최신순 평평한 목록을 준다. 목록은 run이 아니라 대화 단위다.
   const conversations = useMemo(() => groupConversations(runs), [runs])
+  // 끝낸 대화는 기본 목록에서 내려간다 (spec FR-18·FR-20). 지우는 것이 아니라
+  // 접는 것이라, 아래 토글로 언제든 다시 열 수 있다.
+  const openConversations = useMemo(
+    () => conversations.filter((c) => c.closedAt === null), [conversations]
+  )
+  const closedConversations = useMemo(
+    () => conversations.filter((c) => c.closedAt !== null), [conversations]
+  )
 
   // 위 초기값은 "마운트 시점"만 잡는다 — Dock이 마운트된 채로 focusConversationId가
   // 나중에 바뀌는 경우(지금 배선에서는 일어나지 않지만)도 대비해 effect로도 맞춘다.
@@ -99,9 +113,11 @@ export function Dock({
   // 바뀔 때 목록을 즉시 비우지 않는다), 방금 시작한 run이 아직 목록에 없는(started()가
   // pickedId를 먼저 세운다) 그 찰나에 폴백이 다른 대화를 골라 버리면, 화면과 입력부가
   // 다른 대화를 가리키는 채로 Ctrl/⌘+Enter를 누르는 순간 턴이 엉뚱한 대화로 나간다.
+  // 폴백은 끝나지 않은 대화 중에서 고른다 — 끝낸 대화가 기본으로 열리면 방금 내린
+  // 것이 되돌아온 것처럼 보인다.
   const selected = pickedId
     ? conversations.find((c) => c.id === pickedId) ?? null
-    : conversations[0] ?? null
+    : openConversations[0] ?? null
   // 큐 조회가 실패하면 표시기가 그냥 안 보인다 — 이 기능이 메우려던 "왜 안 보이지"라는
   // 공백이 오류 상황에서 되살아난다. 새 배너를 만들지 않고 기존 경로로 흘려 보인다.
   const shown = actionError ?? error ?? queueError
@@ -120,6 +136,74 @@ export function Dock({
     setView('conversation')
     setOpen(true)
     onRunStarted(run)
+  }
+
+  /**
+   * 목록에서 대화를 **명시적으로** 골랐다.
+   *
+   * **자동 확인은 이 경로에만 걸린다** (FR-5·FR-6). `selected`나 마운트 effect에
+   * 걸면 `pickedId`가 null일 때의 폴백(`openConversations[0]`)까지 타서, 도크를
+   * 열기만 해도 최근 대화가 조용히 인박스에서 내려간다 — 사용자는 그 대화를 본
+   * 적이 없다.
+   */
+  function pick(conv: Conversation) {
+    setPickedId(conv.id)
+    setView('conversation')
+    setOpen(true)
+    void confirmSeen(conv)
+  }
+
+  /**
+   * 본 대화를 인박스에서 내린다 (FR-5).
+   *
+   * 판정은 core의 배지 집계와 **같은 표**에서 온다(`shared/inbox.ts`의 `ACTIONABLE`) —
+   * 배지가 세는 것은 열어 봤다고 내려가지 않고, 세지 않는 것은 열면 내려간다.
+   * 표를 두 곳에 적으면 어느 쪽에도 안 걸리는 카테고리가 생긴다.
+   *
+   * 되돌리는 자리는 core에 이미 있다: `create(parentRunId)`가 뿌리의 `reviewedAt`을
+   * 지우므로, 새 턴이 오면 배지에 다시 오른다(FR-7).
+   */
+  async function confirmSeen(conv: Conversation) {
+    if (ACTIONABLE[inboxCategory(conv.last)]) return
+    // 끝나지 않은 대화는 인박스 소속 자체가 아니다.
+    if (conv.last.endedAt === null) return
+    // 뿌리가 이미 확인됐으면 부를 것이 없다. core도 같은 가드가 있지만, IPC 왕복을
+    // 목록 클릭마다 하는 것이 아깝다.
+    const root = conv.runs.find((r) => r.id === conv.id) ?? conv.runs[0]!
+    if (root.reviewedAt !== null) return
+    try {
+      // **뿌리 id에 찍는다.** 턴 id에 찍으면 아무 일도 일어나지 않는다 — 대화는
+      // 인박스에 그대로 남는다(execution.cancel이 이 자리에서 한 번 걸렸다, C-1-a).
+      await client.runs.markReviewed(conv.id, 'confirmed')
+    } catch (err) {
+      // 인박스 정리가 안 됐다고 대화를 못 보게 할 이유가 없다 (FR-8).
+      setActionError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function closeConversation(conv: Conversation) {
+    setActionError(null)
+    try {
+      await client.runs.close(conv.id)
+      // 지금 보고 있던 대화를 끝냈으면 새 대화로 돌아간다 (FR-23) — 사라진 대화를
+      // 가리킨 채로 남으면 입력부가 어디로 보낼지 모르는 상태가 된다.
+      if (pickedId === conv.id) {
+        setPickedId(null)
+        setView('new')
+      }
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function renameConversation(conv: Conversation, title: string) {
+    setRenamingId(null)
+    setActionError(null)
+    try {
+      await client.runs.rename(conv.id, title)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err))
+    }
   }
 
   return (
@@ -143,66 +227,65 @@ export function Dock({
           onDoubleClick={resetHeight}
         />
       )}
-      {/* 토글과 슬롯 표시기는 스크롤되는 탭 스트립 밖에 둔다. 안에 두면 대화 탭이
-          늘어났을 때 "왜 내 run이 안 시작하지"를 설명하는 유일한 한 줄이 화면 밖으로
-          밀려난다 — 표시기를 둔 이유(스펙 §7)와 정면으로 어긋난다. */}
+      {/* 헤더에는 토글·슬롯 표시기·취소만 남는다. 대화 목록이 세로로 내려가면서
+          "대화가 늘면 슬롯 표시기가 화면 밖으로 밀려난다"는 문제(3b 스펙 §7이 탭
+          스트립 밖에 표시기를 둔 이유)가 구조적으로 사라졌다. */}
       <header className="dock-header">
         <button type="button" className="dock-toggle" onClick={() => setOpen(!open)}>
           {open ? '▾' : '▴'} 실행
         </button>
         <SlotIndicator snapshot={queue} onChangeLimit={onChangeLimit} />
-        <div className="dock-tabs">
-          <button
-            type="button"
-            className={view === 'new' ? 'dock-tab dock-tab-selected' : 'dock-tab'}
-            onClick={() => { setView('new'); setOpen(true) }}
-          >
-            + 새 대화
+        {/* 대기 중인 턴도 취소할 수 있어야 한다 — 프로세스가 없을 뿐 사용자에겐 똑같이 걸려 있다.
+            Transcript의 턴별 취소는 pending에만 있어 running을 덮지 못한다 (FR-24). */}
+        {view === 'conversation' && (selected?.last.status === 'running' || selected?.last.status === 'pending') && (
+          <button type="button" className="dock-cancel" onClick={() => void cancel(selected.last.id)}>
+            취소
           </button>
-          {conversations.map((conv) => (
-            <button
-              key={conv.id}
-              type="button"
-              className={view === 'conversation' && conv.id === selected?.id ? 'dock-tab dock-tab-selected' : 'dock-tab'}
-              onClick={() => { setPickedId(conv.id); setView('conversation'); setOpen(true) }}
-            >
-              <span className={`status status-${conv.last.status}`}>{conv.last.status}</span>
-              {/* succeeded로 끝나도 agent가 질문하고 멈춘 것일 수 있다. 배지가 없으면 구분이 안 된다. */}
-              {conv.last.needsAnswer && <span className="needs-answer">답변 필요</span>}
-              {conv.title}
-            </button>
-          ))}
-          {/* 대기 중인 턴도 취소할 수 있어야 한다 — 프로세스가 없을 뿐 사용자에겐 똑같이 걸려 있다. */}
-          {view === 'conversation' && (selected?.last.status === 'running' || selected?.last.status === 'pending') && (
-            <button type="button" className="dock-cancel" onClick={() => void cancel(selected.last.id)}>
-              취소
-            </button>
-          )}
-        </div>
+        )}
       </header>
 
       {open && (
         <div className="dock-body">
           {shown && <div role="alert" className="form-error">{shown}</div>}
-          {/* key로 대화가 바뀔 때마다 언마운트→재마운트시킨다. key가 없으면 탭만 옮겨도
-              RunPanel 인스턴스가 그대로 남아 입력 중이던 프롬프트·모델이 다른 대화로
-              따라간다 — 예전에는 로그 뷰로 가면 RunPanel 자체가 안 그려져 저절로
-              초기화됐지만, 지금은 대화마다 같은 RunPanel이 계속 떠 있어 그 안전장치가
-              사라졌다. */}
-          <ConversationPanel
-            key={view === 'new' ? 'new' : selected?.id ?? 'new'}
-            conversation={view === 'new' ? null : selected}
-            workspaceId={workspaceId}
-            workspaces={workspaces}
-            repos={repos}
-            reposError={reposError}
-            chips={chips}
-            onRemoveChip={onRemoveChip}
-            onStarted={started}
-            onCancel={cancel}
-            draftPrompt={draftPrompt}
-            draftCwd={draftCwd}
-          />
+          <div className="dock-split">
+            <ConversationList
+              open={openConversations}
+              closed={closedConversations}
+              selectedId={selected?.id ?? null}
+              isNew={view === 'new'}
+              repos={repos}
+              showClosed={showClosed}
+              renamingId={renamingId}
+              onPickNew={() => { setView('new'); setPickedId(null); setOpen(true) }}
+              onPick={pick}
+              onRename={(conv, title) => void renameConversation(conv, title)}
+              onClose={(conv) => void closeConversation(conv)}
+              onToggleClosed={() => setShowClosed(!showClosed)}
+              onStartRename={setRenamingId}
+              onCancelRename={() => setRenamingId(null)}
+            />
+            {/* key로 대화가 바뀔 때마다 언마운트→재마운트시킨다. key가 없으면 목록에서
+                다른 대화를 골라도 RunPanel 인스턴스가 그대로 남아 입력 중이던
+                프롬프트·모델이 다른 대화로 따라간다 — 예전에는 로그 뷰로 가면 RunPanel
+                자체가 안 그려져 저절로 초기화됐지만, 지금은 대화마다 같은 RunPanel이
+                계속 떠 있어 그 안전장치가 사라졌다. */}
+            <div className="dock-main">
+              <ConversationPanel
+                key={view === 'new' ? 'new' : selected?.id ?? 'new'}
+                conversation={view === 'new' ? null : selected}
+                workspaceId={workspaceId}
+                workspaces={workspaces}
+                repos={repos}
+                reposError={reposError}
+                chips={chips}
+                onRemoveChip={onRemoveChip}
+                onStarted={started}
+                onCancel={cancel}
+                draftPrompt={draftPrompt}
+                draftCwd={draftCwd}
+              />
+            </div>
+          </div>
         </div>
       )}
     </section>

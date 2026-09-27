@@ -31,14 +31,18 @@ describe('결과 인박스', () => {
     await page.getByRole('button', { name: new RegExp(`succeeded.*${PROMPT}`) })
       .waitFor({ state: 'visible', timeout: 20_000 })
 
-    // 3. 사이드바 배지가 붙는다 — 아직 아무것도 확인하지 않았다
+    // 3. **배지는 붙지 않는다.** 완료·미확인은 "지금 손이 필요한 것"이 아니므로
+    //    빨간 숫자를 올리지 않는다(conversation-lifecycle FR-4). 예전에는 여기서
+    //    '1'을 기다렸고, 그래서 대화 수만큼 숫자가 단조 증가했다 — 그것이 이 변경이
+    //    고친 증상이다. 목록에는 여전히 남는다(아래 4단계).
+    //
     // 브리프의 page.getByRole('button', { name: /인박스/ })는 그대로 두 요소에 걸린다:
     // 사이드바의 인박스 링크와, PROMPT 자체에 "인박스"라는 글자가 들어 있어 방금 끝난
-    // run의 Dock 탭 버튼("succeeded 인박스 확인용 지시")도 같은 정규식에 걸려
+    // run의 도크 줄 버튼("succeeded 인박스 확인용 지시")도 같은 정규식에 걸려
     // strict mode violation으로 던진다(실측). 사이드바는 <nav>가 이 화면에 하나뿐이라
     // 그 landmark로 스코프를 좁혀 사이드바의 인박스 링크만 가리키게 한다.
     const inboxLink = page.getByRole('navigation').getByRole('button', { name: /인박스/ })
-    await inboxLink.getByText('1').waitFor({ state: 'visible', timeout: 10_000 })
+    expect(await inboxLink.locator('.badge').count()).toBe(0)
 
     // 4. 인박스에 그 run이 있다
     await inboxLink.click()
@@ -51,9 +55,56 @@ describe('결과 인박스', () => {
     await inboxItem.waitFor({ state: 'visible', timeout: 5_000 })
     await inboxItem.getByText('e2e-inbox').waitFor({ state: 'visible', timeout: 5_000 })
 
-    // 5. 확인함을 누르면 목록과 배지에서 함께 사라진다
+    // 5. 확인함을 누르면 목록에서 사라진다
     await page.getByRole('button', { name: '확인함' }).click()
     await page.getByText('처리할 결과가 없습니다').waitFor({ state: 'visible', timeout: 10_000 })
-    expect(await inboxLink.textContent()).not.toContain('1')
+    expect(await inboxLink.locator('.badge').count()).toBe(0)
+  })
+
+  /**
+   * **본 대화는 저절로 확인된다** (conversation-lifecycle FR-5).
+   *
+   * 이 기능이 고치려던 증상이 바로 "인박스에 가서 확인함을 눌러야만 내려간다"였다.
+   * 여기서는 인박스 화면에 **가지 않고** 도크 목록에서 대화를 열기만 한다.
+   *
+   * e2e로 검증할 수 있는 것은 driver가 `ONE_DESK_AGENT_LAUNCHER`로 node를 물려
+   * 가짜 CLI가 **양쪽 플랫폼에서 똑같이 성공**하기 때문이다(단위 테스트의
+   * `ONE_DESK_AGENT_PATH`만 쓰는 경로와 다르다 — 그쪽은 Windows에서 spawn이 실패해
+   * run이 failed로 끝난다).
+   */
+  it('완료된 대화를 도크에서 열면 인박스에서 저절로 내려간다', async () => {
+    const app = await launchApp()
+    const page = app.page
+
+    await page.getByPlaceholder('새 workspace 이름…').fill('seen-ws')
+    await page.getByPlaceholder('새 workspace 이름…').press('Enter')
+    const wsButton = page.getByRole('button', { name: /^seen-ws$/ })
+    await wsButton.waitFor({ state: 'visible', timeout: 10_000 })
+    await wsButton.click()
+
+    await page.getByRole('button', { name: 'repo 등록' }).click()
+    await page.getByPlaceholder('repo 이름').fill('샘플')
+    await page.getByPlaceholder('/절대/경로').fill(app.repoDir)
+    await page.getByRole('button', { name: '추가' }).click()
+    await page.getByRole('button', { name: '샘플 맥락에 담기' })
+      .waitFor({ state: 'visible', timeout: 10_000 })
+
+    await page.getByPlaceholder(/무엇을 시킬지/).fill('저절로 내려갈 대화')
+    await page.getByRole('button', { name: '실행', exact: true }).click()
+    await page.locator('.dock-conv .status-succeeded')
+      .waitFor({ state: 'visible', timeout: 20_000 })
+
+    // 인박스 목록에 올라와 있다 — 아직 아무것도 확인하지 않았다.
+    const inboxLink = page.getByRole('navigation').getByRole('button', { name: /인박스/ })
+    await inboxLink.click()
+    await expect.poll(() => page.locator('.inbox-list > li').count(), { timeout: 10_000 }).toBe(1)
+
+    // workspace로 돌아가 **도크 목록에서 그 대화를 누른다.** 인박스의 "확인함"을
+    // 누르지 않는다.
+    await wsButton.click()
+    await page.locator('.dock-conv-title', { hasText: '저절로 내려갈 대화' }).click()
+
+    await inboxLink.click()
+    await page.getByText('처리할 결과가 없습니다').waitFor({ state: 'visible', timeout: 10_000 })
   })
 })

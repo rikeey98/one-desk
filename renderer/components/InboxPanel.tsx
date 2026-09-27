@@ -1,4 +1,4 @@
-import { inboxCategory, CATEGORY_LABELS, type InboxCategory } from '../inbox'
+import { inboxCategory, CATEGORY_LABELS, type InboxCategory } from '@shared/inbox'
 import type { Run, Workspace } from '@shared/models'
 
 /** 지시의 첫 줄만. 목록에서는 그것으로 충분하다. */

@@ -32,6 +32,8 @@ function makeRun(over: Partial<Run> = {}): Run {
     // id만 넘기고 rootRunId를 따로 넘기지 않으면 그 id가 뿌리다 — 부모 없는
     // run의 기본 모양. 체인을 만드는 테스트는 rootRunId를 직접 넘긴다.
     rootRunId: over.id ?? 'run-1',
+    // 대화의 이름과 끝. 뿌리 행에서만 의미가 있고 기본은 둘 다 null이다.
+    title: null, closedAt: null,
     resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
     errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
     startedAt: 1, endedAt: 2, createdAt: 1, contextItems: [], usage: null,

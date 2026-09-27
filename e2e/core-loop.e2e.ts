@@ -60,7 +60,9 @@ describe('핵심 한 바퀴', () => {
     //    기다리는 회귀가 생겨도) 이 위치에서는 잡히지 않는다 — 실제로 manager.start()를
     //    그대로 await하도록 고쳐놓고 돌려봐도 이 단언은 그대로 통과했다(커밋 40f7f93).
     //    그 계약은 core 단위 테스트가 잡아야 할 자리다.
-    const runningTab = page.getByRole('button', { name: new RegExp(`running.*${PROMPT}`) })
+    // **줄의 제목은 지시가 아니라 담은 맥락에서 온다** (conversation-lifecycle FR-11).
+    // 이 대화는 이슈를 담았으므로 2단(첫 이슈 이름)이다 — PROMPT로 찾으면 못 찾는다.
+    const runningTab = page.getByRole('button', { name: new RegExp(`running.*${ISSUE}`) })
     await runningTab.waitFor({ state: 'visible', timeout: 5_000 })
 
     // 8. 로그가 흐른다
@@ -73,7 +75,7 @@ describe('핵심 한 바퀴', () => {
     // "끝남"은 대화록의 답변(.turn-answer)과, 위에서 펼쳐 둔 로그의 마지막 result
     // 줄(.log-result) 양쪽에 같은 텍스트로 나타난다(실측). page.getByText('끝남')은
     // 그 둘에 다 걸려 strict mode 위반이 된다 — 대화록의 답변으로 범위를 좁힌다.
-    const doneTab = page.getByRole('button', { name: new RegExp(`succeeded.*${PROMPT}`) })
+    const doneTab = page.getByRole('button', { name: new RegExp(`succeeded.*${ISSUE}`) })
     await doneTab.waitFor({ state: 'visible', timeout: 20_000 })
     await page.locator('.turn-answer').filter({ hasText: '끝남' }).waitFor({ state: 'visible', timeout: 5_000 })
   })

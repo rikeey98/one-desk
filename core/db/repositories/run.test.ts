@@ -295,14 +295,59 @@ describe('RunRepository', () => {
 
     it('전체와 workspace별 건수를 센다', () => {
       const other = createWorkspaceRepository(db).create({ name: 'ws2' }).id
-      finished('succeeded')
+      // 셋 다 ACTIONABLE인 것으로 고른다 — 완료·미확인은 배지가 세지 않으므로
+      // (spec FR-4) 그것으로 채우면 이 테스트가 workspace별 집계가 아니라
+      // 카테고리 필터를 재확인하는 것이 된다.
       finished('failed')
-      finished('succeeded', { workspaceId: other })
+      finished('interrupted')
+      finished('failed', { workspaceId: other })
 
       const counts = runs.inboxCounts()
       expect(counts.total).toBe(3)
       expect(counts.byWorkspace[workspaceId]).toBe(2)
       expect(counts.byWorkspace[other]).toBe(1)
+    })
+
+    /**
+     * **배지는 "지금 손이 필요한가"이고 목록은 "아직 안 내린 것"이다** (spec FR-4).
+     *
+     * 완료·미확인까지 배지가 세면 숫자가 대화 수만큼 단조 증가해 빨간 원의 의미가
+     * 사라진다 — 이 기능이 고치려던 증상 그 자체다. 목록에서까지 빼지는 않는다:
+     * 인박스는 여전히 "아직 내리지 않은 것"을 전부 보여준다.
+     */
+    it('완료·미확인 대화는 배지가 세지 않지만 목록에는 남는다', () => {
+      const done = finished('succeeded')
+
+      expect(runs.inbox().map((r) => r.id)).toContain(done.id)
+      expect(runs.inboxCounts().total).toBe(0)
+      expect(runs.inboxCounts().byWorkspace[workspaceId]).toBeUndefined()
+    })
+
+    it('대기 중 취소됨도 배지가 세지 않는다', () => {
+      // 사용자가 스스로 내린 것이다.
+      const dropped = finished('canceled')
+
+      expect(runs.inbox().map((r) => r.id)).toContain(dropped.id)
+      expect(runs.inboxCounts().total).toBe(0)
+    })
+
+    it('답변 필요·실패·중단됨은 배지가 센다', () => {
+      finished('succeeded', { needsAnswer: true })
+      finished('failed')
+      finished('interrupted')
+      // 세지 않는 것 둘을 섞어 두어 필터가 실제로 갈라내는지 본다.
+      finished('succeeded')
+      finished('canceled')
+
+      expect(runs.inbox()).toHaveLength(5)
+      expect(runs.inboxCounts().total).toBe(3)
+    })
+
+    it('succeeded여도 needsAnswer면 배지가 센다', () => {
+      // 카테고리 판정이 status보다 needsAnswer를 먼저 본다(shared/inbox.ts).
+      // 여기서 status만 보면 agent의 질문이 배지에서 통째로 사라진다.
+      finished('succeeded', { needsAnswer: true })
+      expect(runs.inboxCounts().total).toBe(1)
     })
 
     it('미처리가 없는 workspace는 키가 없다 (회귀 가드가 아니라 계약 진술)', () => {
@@ -314,7 +359,9 @@ describe('RunRepository', () => {
       // 구조적으로 항상 성립한다. 이 테스트가 실제로 잡는 것은 나중에 누군가
       // "모든 workspace를 미리 훑어 0으로 채우는" 식으로 구현을 다시 쓸 때뿐이다.
       const other = createWorkspaceRepository(db).create({ name: 'ws2' }).id
-      finished('succeeded')
+      // 배지가 세는 카테고리로 만든다 — 완료·미확인은 애초에 세지 않아(FR-4)
+      // 이 단언이 아무것도 말하지 않게 된다.
+      finished('failed')
       expect(runs.inboxCounts().byWorkspace[other]).toBeUndefined()
     })
   })
@@ -324,6 +371,15 @@ describe('RunRepository', () => {
       runs.markFinished(id, {
         status: 'succeeded', resultText: null, externalSessionId: sessionId,
         needsAnswer: false, exitCode: 0, errorMessage: null,
+        usage: null
+      })
+    }
+
+    /** 배지가 세는 카테고리로 끝낸다 (shared/inbox.ts의 ACTIONABLE). */
+    function fail(id: string, sessionId = 'sess') {
+      runs.markFinished(id, {
+        status: 'failed', resultText: null, externalSessionId: sessionId,
+        needsAnswer: false, exitCode: 1, errorMessage: '깨짐',
         usage: null
       })
     }
@@ -364,12 +420,14 @@ describe('RunRepository', () => {
     })
 
     it('건수도 대화 단위로 센다', () => {
+      // 마지막 턴을 ACTIONABLE로 끝낸다 — 완료·미확인은 배지가 세지 않으므로
+      // (FR-4) succeed로 두면 "대화 단위로 센다"가 아니라 "0이다"를 확인하게 된다.
       const a = runs.create(baseInput())
       succeed(a.id)
       const a2 = runs.create({ ...baseInput(), parentRunId: a.id })
-      succeed(a2.id)
+      fail(a2.id)
       const b = runs.create(baseInput())
-      succeed(b.id)
+      fail(b.id)
 
       expect(runs.inboxCounts().total).toBe(2)
       expect(runs.inboxCounts().byWorkspace[workspaceId]).toBe(2)
@@ -393,11 +451,141 @@ describe('RunRepository', () => {
       expect(root.reviewedAt).toBeNull()
       expect(root.reviewedKind).toBeNull()
 
-      succeed(second.id)
+      // 배지까지 되살아나는지 보려면 마지막 턴이 ACTIONABLE이어야 한다(FR-4).
+      fail(second.id)
       const items = runs.inbox()
       expect(items).toHaveLength(1)
       expect(items[0]!.id).toBe(second.id)
       expect(runs.inboxCounts().total).toBe(1)
+    })
+  })
+
+  describe('대화 종료와 이름', () => {
+    function succeed(id: string) {
+      runs.markFinished(id, {
+        status: 'succeeded', resultText: null, externalSessionId: 'sess',
+        needsAnswer: false, exitCode: 0, errorMessage: null, usage: null
+      })
+    }
+
+    it('끝내면 종료 시각이 찍힌다', () => {
+      const first = runs.create(baseInput())
+      succeed(first.id)
+      expect(runs.get(first.id).closedAt).toBeNull()
+
+      const closed = runs.close(first.id)
+
+      expect(closed.closedAt).toBeTypeOf('number')
+      expect(runs.get(first.id).closedAt).toBe(closed.closedAt)
+    })
+
+    /**
+     * **종료는 확인도 겸한다** (spec FR-12). 겸하지 않으면 끝낸 대화가 배지에 남아
+     * 종료의 의미가 사라진다 — 도크 목록에서는 사라졌는데 빨간 숫자는 그대로인
+     * 상태가 되고, 그때는 내릴 방법조차 없다(인박스의 그 줄이 가리키는 대화를
+     * 도크에서 열 수 없으므로).
+     */
+    it('끝내면 아직 미확인이던 대화가 인박스에서도 내려간다', () => {
+      const first = runs.create(baseInput())
+      runs.markFinished(first.id, {
+        status: 'failed', resultText: null, externalSessionId: null,
+        needsAnswer: false, exitCode: 1, errorMessage: '깨짐', usage: null
+      })
+      expect(runs.inboxCounts().total).toBe(1)
+
+      const closed = runs.close(first.id)
+
+      expect(closed.reviewedAt).toBeTypeOf('number')
+      expect(closed.reviewedKind).toBe('archived')
+      expect(runs.inbox()).toHaveLength(0)
+      expect(runs.inboxCounts().total).toBe(0)
+    })
+
+    it('이미 확인한 대화를 끝내도 처음 확인 시각을 덮어쓰지 않는다', () => {
+      const first = runs.create(baseInput())
+      succeed(first.id)
+      const nowSpy = vi.spyOn(Date, 'now').mockReturnValueOnce(1000)
+      runs.markReviewed(first.id, 'confirmed')
+      nowSpy.mockRestore()
+
+      const closed = runs.close(first.id)
+
+      expect(closed.reviewedAt).toBe(1000)
+      expect(closed.reviewedKind).toBe('confirmed')
+      expect(closed.closedAt).toBeTypeOf('number')
+    })
+
+    /**
+     * **찍는 자리(종료)와 지우는 자리(새 턴)는 짝이다** (spec FR-13).
+     *
+     * `create()`가 뿌리의 `reviewedAt`을 지우는 바로 그 자리에서 `closedAt`도
+     * 지운다. 한쪽만 두면 끝낸 대화에 턴을 보냈을 때 화면에서는 영영 사라진 채로
+     * 실행만 되는 상태가 된다.
+     */
+    it('끝낸 대화에 턴을 이으면 종료가 풀린다', () => {
+      const first = runs.create(baseInput())
+      succeed(first.id)
+      runs.close(first.id)
+      expect(runs.get(first.id).closedAt).toBeTypeOf('number')
+
+      runs.create({ ...baseInput(), parentRunId: first.id })
+
+      const root = runs.get(first.id)
+      expect(root.closedAt).toBeNull()
+      expect(root.reviewedAt).toBeNull()
+    })
+
+    it('새 대화를 만드는 것으로는 남의 종료가 풀리지 않는다', () => {
+      const first = runs.create(baseInput())
+      succeed(first.id)
+      runs.close(first.id)
+
+      // parentRunId 없이 만든 run은 자기 자신이 뿌리다 — 남의 행을 건드리면 안 된다.
+      runs.create(baseInput())
+
+      expect(runs.get(first.id).closedAt).toBeTypeOf('number')
+    })
+
+    it('이름을 붙이고 지운다', () => {
+      const first = runs.create(baseInput())
+      expect(first.title).toBeNull()
+
+      expect(runs.rename(first.id, '로그인 정리').title).toBe('로그인 정리')
+      expect(runs.get(first.id).title).toBe('로그인 정리')
+
+      // 빈 문자열은 null로 저장해 **파생으로 되돌린다** (spec FR-14, workspace
+      // 기본값의 "빈 모델은 null"과 같은 규칙). 빈 문자열로 저장하면 화면이
+      // 이름 없는 대화를 빈 제목으로 그린다.
+      expect(runs.rename(first.id, '   ').title).toBeNull()
+      expect(runs.get(first.id).title).toBeNull()
+    })
+
+    /**
+     * `title`·`closed_at`이 뿌리 행에서만 의미가 있다는 규칙을 **타입은 지켜주지
+     * 않는다** — 이어지는 턴의 행에도 컬럼이 있고 null일 뿐이다. 이 검증이 유일한
+     * 방어선이다 (spec 우려 6).
+     */
+    it('뿌리가 아닌 턴에는 이름을 붙일 수 없다', () => {
+      const first = runs.create(baseInput())
+      succeed(first.id)
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+
+      expect(() => runs.rename(second.id, '아무거나')).toThrow(/뿌리/)
+      expect(runs.get(second.id).title).toBeNull()
+    })
+
+    it('뿌리가 아닌 턴은 끝낼 수 없다', () => {
+      const first = runs.create(baseInput())
+      succeed(first.id)
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+
+      expect(() => runs.close(second.id)).toThrow(/뿌리/)
+      expect(runs.get(second.id).closedAt).toBeNull()
+    })
+
+    it('없는 id는 NotFound다', () => {
+      expect(() => runs.close('없음')).toThrow()
+      expect(() => runs.rename('없음', 'x')).toThrow()
     })
   })
 

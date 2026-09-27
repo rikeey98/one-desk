@@ -20,6 +20,8 @@ function run(over: Partial<Run>): Run {
     // over.id가 있으면 그것을 뿌리로 본다 — 하드코딩하면 id가 다른 두 run을
     // 넘겨도 조용히 한 대화로 접힌다(Dock.test.tsx에서 실제로 터진 결함, T2).
     rootRunId: over.id ?? 'r1',
+    // 대화의 이름과 끝. 뿌리 행에서만 의미가 있고 기본은 둘 다 null이다.
+    title: null, closedAt: null,
     resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
     errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
     startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], usage: null,

@@ -334,6 +334,17 @@ export interface Run {
   parentRunId: string | null
   /** 대화의 뿌리. 낡은 행은 null이고 그때는 자기 자신이 뿌리다 (설계 §2) */
   rootRunId: string | null
+  /**
+   * 사용자가 붙인 대화 이름 (`docs/sdlc/conversation-lifecycle/` FR-9·FR-11).
+   *
+   * **뿌리 행에서만 의미가 있다.** null이면 화면이 파생한다 — 담긴 이슈·메모의
+   * 이름, 없으면 repo 이름, 그것도 없으면 첫 지시의 첫 줄.
+   *
+   * 스프레드가 새 컬럼을 흘려보내는 것에 기대지 않고 **여기 명시한다**(FR-10).
+   */
+  title: string | null
+  /** 대화를 끝낸 시각. 뿌리 행에서만 의미가 있고 null이면 진행 중이다 */
+  closedAt: number | null
   resultText: string | null
   needsAnswer: boolean
   timeoutMs: number | null

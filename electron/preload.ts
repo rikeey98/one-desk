@@ -85,7 +85,9 @@ const client: OneDeskClient = {
     inbox: () => call<Run[]>(CHANNELS.runsInbox),
     inboxCounts: () => call<InboxCounts>(CHANNELS.runsInboxCounts),
     markReviewed: (runId, kind) => call<Run>(CHANNELS.runsMarkReviewed, runId, kind),
-    resume: (input) => call<Run>(CHANNELS.runsResume, input)
+    resume: (input) => call<Run>(CHANNELS.runsResume, input),
+    close: (rootRunId) => call<Run>(CHANNELS.runsClose, rootRunId),
+    rename: (rootRunId, title) => call<Run>(CHANNELS.runsRename, rootRunId, title)
   },
   mcp: {
     status: () => call<McpStatus>(CHANNELS.mcpStatus)

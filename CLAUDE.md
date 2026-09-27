@@ -108,6 +108,24 @@ SIGTERM 유예를 쓰면 모델 호출까지 진행할 수 있다. OpenCode에�
 `e2e/slash.e2e.ts`가 IPC부터 실제 CLI stdin까지, 선택 실행하는 `e2e/slash-real.e2e.ts`가
 실제 Claude의 첫 턴·resume 커맨드 확장을 검증한다.
 
+**대화에 수명 주기와 정체성이 생겼다** (`docs/sdlc/conversation-lifecycle/`). **첫 실행에
+마이그레이션 `0008`이 돈다** — `run.title`·`run.closed_at` 두 컬럼 추가(백필 없음). 증상은
+셋이었지만 뿌리는 하나였다: 대화가 저장되지 않는 파생값이라 "끝났다"도 "무엇에 관한
+것이다"도 어디에도 없었다.
+
+- **빨간 배지는 이제 행동을 요구하는 것만 센다** — 답변 필요·실패·중단됨. 완료·미확인은
+  세지 않는다(예전에는 대화 수만큼 단조 증가했다). 인박스 *목록*은 그대로다.
+- **본 대화는 저절로 확인된다.** 도크 목록에서 대화를 **명시적으로 누르면** 뿌리에
+  확인 표시가 찍힌다. 되돌리는 자리는 원래 있었다 — `create(parentRunId)`가 뿌리의
+  `reviewedAt`을 지우므로 새 턴이 오면 배지에 다시 오른다.
+- **대화를 끝낼 수 있다.** 줄 끝 체크(`IconCheck` — ×는 삭제로 읽힌다)가 `closed_at`을
+  찍고 **같은 트랜잭션에서 확인도 겸한다.** 끝낸 대화는 목록 아래 "끝낸 대화" 토글로
+  내려가고, 턴을 이으면 되살아난다.
+- **도크가 세로 목록이다.** 가로 탭 스트립(`.dock-tabs`)이 사라지고 본문이 좌우로
+  갈렸다(`.dock-side`/`.dock-main`). 줄마다 제목·상태·repo·턴 수·시각이 보인다.
+- **제목은 폴백 사다리다** — 사용자가 붙인 이름 > 담긴 첫 이슈·메모(`이름 +N`) >
+  첫 repo 이름 > 첫 지시의 첫 줄.
+
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
 한동안 "5단계 착수 전에 정할 것"으로 잡아두고 **평문 SQLite에 자격 증명을 넣을지**를 막힌 결정으로 남겼던 항목이다. 대상 환경을 실측해 보니 **배관 자체가 불필요했다.**
@@ -256,6 +274,18 @@ opencode는 `--variant`를 받지만 `init`에도 `result`에도 그 값이 없�
 **`createWriteStream`의 open은 비동기다 — `error` 리스너가 없으면 앱이 죽는다.** `mkdirSync`가 방금 만든 디렉토리라도 그 사이에 사라질 수 있고, 디스크가 차거나 권한이 막혀도 실패한다. 리스너가 없으면 처리되지 않은 예외가 되어 Electron 메인 프로세스가 통째로 내려간다. `core/runner/logWriter.ts`가 이를 `ErrorSink`로 흘려보내고, 실패한 뒤 `close()`가 매달리지 않게 한다(매달리면 run이 안 끝나 동시 실행 슬롯이 영영 점유된다).
 
 **Windows에서 가짜 CLI는 spawn조차 되지 않는다 — run은 `start()`가 resolve되기도 전에 끝난다.** 픽스처가 `.mjs`라 Windows가 직접 실행하지 못해 spawn이 즉시 실패하고, `markFinished`와 그에 딸린 `onRunUpdate`(인박스 push, asset 재스캔)가 **`await core.execution.start(...)` 안에서 이미 다 지나간다.** 그래서 두 가지가 따라온다. 첫째, run 상태는 항상 `failed`다 — `core/index.test.ts`의 run 테스트들이 `succeeded`가 아니라 `endedAt`만 보는 이유다. 둘째, **`start()` 뒤에 만든 파일은 그 run의 재스캔이 영영 못 본다** — "실행 중에 생긴 파일"을 흉내내려면 run을 띄우기 **전에** 써 둬야 한다. macOS에서는 가짜 CLI가 실제로 100ms쯤 돌아 순서가 늘 맞아떨어지므로 **로컬은 초록인데 릴리스 CI만 깨진다**(v0.7.0·v0.7.1 릴리스 빌드가 이것으로 연속해서 깨졌다). 로컬에서 재현하려면 `ONE_DESK_AGENT_PATH`를 없는 경로로 주면 된다.
+
+**그 함정은 e2e에는 해당하지 않는다 — `e2e/driver.ts`가 `ONE_DESK_AGENT_LAUNCHER`로 node를 물린다.** 그래서 **e2e의 run은 두 플랫폼에서 똑같이 성공한다.** 위 항목이 말하는 "항상 `failed`"는 `ONE_DESK_AGENT_PATH`만 세우는 **단위 테스트**(`core/index.test.ts`)의 이야기다. 둘을 섞으면 반대 방향으로 두 번 틀린다: 단위 테스트에 `succeeded`를 못 박으면 macOS에서만 초록이고, e2e에서 "어차피 실패하니까"로 판단을 건너뛰면 실제로는 성공하는 경로를 검증하지 못한다. **단위 테스트에서 run 결과에 기대는 단언은 카테고리를 실제 행에서 다시 계산해 쓴다**(`core/index.test.ts`의 "run이 끝나면 인박스 카운트를 push한다"가 그 모양이다).
+
+**배지가 세는 것과 열었을 때 자동 확인되는 것은 `ACTIONABLE` 한 표의 양면이다** (`shared/inbox.ts`). core의 `inboxCounts()`와 renderer의 `Dock`이 같은 상수를 본다 — 표를 두 곳에 적으면 **어느 쪽에도 안 걸리는 카테고리**가 생겨 그 대화는 인박스 목록에만 영원히 남는다. `shared/`에 둔 이유가 이것뿐이다. `inboxCategory`가 `Run`이 아니라 `{ status, needsAnswer }`만 받는 것도 의도다 — `inboxCounts`의 슬림한 select가 그대로 들어가야 `assembled_prompt`를 나르지 않는다.
+
+**자동 확인을 `Dock`의 `selected`나 마운트 effect에 걸지 말 것.** `pickedId`가 null이면 `selected`는 `openConversations[0]`으로 떨어지므로, **도크를 열기만 해도** 최근 대화가 조용히 인박스에서 내려간다 — 사용자는 그 대화를 본 적이 없다. 목록 줄의 클릭 핸들러(`pick`)에만 건다. 되살리면 `Dock.test`의 "마운트만으로는 찍지 않는다"·"focusConversationId로 열려도 찍지 않는다"가 빨개진다.
+
+**`run.title`·`run.closed_at`은 뿌리 행에서만 의미가 있고 타입은 그것을 지켜주지 않는다.** 이어지는 턴의 행에도 컬럼이 있고 null일 뿐이다. 저장소의 `close`/`rename`이 `assertRoot`로 던지는 것이 유일한 방어선이다 — 조용히 엉뚱한 행에 찍히면 화면에서 영영 드러나지 않는다. 읽는 쪽도 같다: `groupConversations`는 뿌리를 **id로 찾는다**(`ordered[0]`이 아니다). 가장 오래된 행이 뿌리라는 것은 "목록이 그 대화의 모든 턴을 담고 있다"에 얹힌 가정이고, `runs.list`에 개수 제한이 붙는 날 조용히 null이 된다.
+
+**도크 줄의 제목은 지시가 아니라 담은 맥락에서 온다.** e2e가 프롬프트 문자열로 줄을 찾으면 못 찾는다 — 이슈를 담은 대화의 제목은 그 이슈 이름이다(`core-loop.e2e.ts`·`conversation.e2e.ts`가 이것으로 한 번 깨졌다). 그리고 **제목으로 개수를 세지 말 것**: 줄 끝 액션의 접근성 이름이 `<제목> 이름 바꾸기`·`<제목> 대화 끝내기`라 제목 문자열은 줄 하나당 세 번 걸린다. 개수는 `.dock-conv`로, 제목 확인은 `.dock-conv-title`로 한다.
+
+**`shared/`의 테스트는 `vitest.config.ts`의 include에 넣어야 돈다.** 프로젝트가 core(`core/**`)와 renderer(`renderer/**`) 둘뿐이라, `shared/x.test.ts`를 만들면 **어느 쪽에도 안 걸려 실행되지 않은 채로 통과한 것처럼 보인다.** 같은 파일의 renderer include 주석이 경고하던 그 함정이다 — 지금은 core 프로젝트가 `shared/**/*.test.ts`도 함께 잡는다.
 
 **Windows는 열린 핸들이 있는 파일을 지우지 못한다 — 테스트가 연 DB는 반드시 닫아야 한다.** POSIX는 열려 있는 파일도 unlink되므로 macOS·Linux에서는 핸들을 흘려도 `rmSync`가 조용히 성공한다. Windows에서만 `EBUSY: resource busy or locked`로 죽고, **그래서 로컬은 전부 초록인데 릴리스 CI의 Windows 잡에서만 터진다**(v0.2.0 릴리스가 실제로 이렇게 한 번 깨졌다). `openDb`는 핸들을 돌려주지 않는 것처럼 보이지만 반환한 drizzle 인스턴스의 `$client`가 그것이다 — `core/db/open.test.ts`의 기존 테스트들이 이미 `db.$client.close()`를 쓰고 있으니 그 패턴을 따를 것.
 
@@ -430,6 +460,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/run-info/` | 대화에 실행 정보 표시 — intent·spec·plan. 두 CLI가 주는 것의 실측 표, 합계와 컨텍스트 점유를 가르는 근거(spec §3-2), 필드마다 다른 병합 규칙(§3-3) |
 | `docs/sdlc/agent-setup/` | agent 준비 상태와 실행 조건 — intent·spec·plan. 세 칸이 쌓이는 판정(FR-1), init이 인증·모델을 보지 않는 실측, 자유 입력을 남긴 근거(FR-8), effort/variant를 가른 이유(FR-13) |
 | `docs/sdlc/repo-instructions/` | repo의 지시 파일 보기 — intent·spec·plan. discovered 본문 읽기 통로(`readBody`, id로만), `instructions` 종류가 맥락에 담기지 않는 이유(FR-9) |
+| `docs/sdlc/conversation-lifecycle/` | 대화의 수명 주기와 정체성 — intent·spec·plan. 배지가 세는 것과 자동 확인이 한 표의 양면인 근거(spec FR-3), 종료가 확인을 겸하는 이유(FR-12), 찍는 자리와 지우는 자리의 짝(FR-13), 제목 폴백 사다리(FR-11) |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |
 | `docs/diagrams/` | 아키텍처 다이어그램 — `one-desk-architecture.html`(단독 실행 가능)과 그것을 만든 archify 사양 `one-desk.architecture.json`. `main`에 들어가면 `.github/workflows/pages.yml`이 GitHub Pages로 올린다 |
 

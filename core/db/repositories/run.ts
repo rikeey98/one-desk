@@ -9,6 +9,7 @@ import type {
   Permission, InboxCounts
 } from '@shared/models'
 import type { RunEvent, RunUsage } from '@shared/events'
+import { ACTIONABLE, inboxCategory } from '@shared/inbox'
 
 /** db.transaction()의 콜백이 받는 runner. db와 같은 쿼리 빌더 API를 갖는다. */
 type Runner = Parameters<Parameters<Database['transaction']>[0]>[0]
@@ -199,6 +200,18 @@ export function createRunRepository(db: Database) {
     return parent.rootRunId ?? parent.id
   }
 
+  /**
+   * `title`·`closed_at`은 **뿌리 행에서만 의미가 있다**(스키마 주석). 이어지는 턴의
+   * 행에도 컬럼이 있고 null일 뿐이라 **타입은 이 규칙을 지켜주지 않는다** — 여기가
+   * 유일한 방어선이다. 조용히 엉뚱한 행에 찍히면 화면에서 영영 드러나지 않는다.
+   */
+  function assertRoot(id: string, what: string): void {
+    const row = get(id)
+    if ((row.rootRunId ?? row.id) !== row.id) {
+      throw new Error(`대화의 뿌리만 ${what} 수 있습니다`)
+    }
+  }
+
   /** 미확인인 뿌리 run의 id들. 낡은 행은 root_run_id가 null이고 그때는 자기 자신이 뿌리다. */
   function unreviewedRootIds(): string[] {
     const roots = db.select({ id: run.id }).from(run)
@@ -320,8 +333,12 @@ export function createRunRepository(db: Database) {
         // 대화는 그 뒤로 needs_answer가 다시 떠도 영원히 인박스에 안 뜬다.
         // rootRunId가 새로 만드는 이 run 자신을 가리키는 경우(부모 행이 이미
         // 사라진 경우)도 안전하다 — 방금 만든 행이라 reviewedAt이 어차피 null이다.
+        // 같은 자리에서 **종료도 푼다** (conversation-lifecycle spec FR-13).
+        // 끝낸 대화에 턴을 보내면 되살아난다 — 찍는 자리(close)와 지우는 자리가
+        // 짝이어야 한다. 새 자리를 만들지 말 것: 갈라놓으면 한쪽만 고쳐져
+        // "화면에서는 사라진 채로 실행만 되는" 대화가 생긴다.
         if (input.parentRunId) {
-          tx.update(run).set({ reviewedAt: null, reviewedKind: null })
+          tx.update(run).set({ reviewedAt: null, reviewedKind: null, closedAt: null })
             .where(eq(run.id, rootRunId)).run()
         }
       })
@@ -416,7 +433,10 @@ export function createRunRepository(db: Database) {
     inboxCounts(): InboxCounts {
       const rootIds = unreviewedRootIds()
       const items = lastTurnsOf(rootIds, (ids) => db.select({
-        id: run.id, workspaceId: run.workspaceId, rootRunId: run.rootRunId, status: run.status
+        id: run.id, workspaceId: run.workspaceId, rootRunId: run.rootRunId,
+        // 카테고리 판정에 needs_answer가 필요하다. 컬럼 하나가 늘 뿐
+        // assembled_prompt는 여전히 읽지 않는다 (spec NFR-1).
+        status: run.status, needsAnswer: run.needsAnswer
       }).from(run)
         .where(or(inArray(run.rootRunId, ids), inArray(run.id, ids)))
         .orderBy(...byLatest).all())
@@ -424,6 +444,11 @@ export function createRunRepository(db: Database) {
       const byWorkspace: Record<string, number> = {}
       let total = 0
       for (const item of items) {
+        // **목록과 달리 배지는 "지금 손이 필요한 것"만 센다** (spec FR-4).
+        // 완료·미확인까지 세면 숫자가 대화 수만큼 단조 증가해 빨간 원이 무의미해진다.
+        // 이 판정은 renderer의 자동 확인과 **같은 표**(shared/inbox.ts)에서 온다 —
+        // 따로 적으면 어느 쪽에도 안 걸리는 카테고리가 생긴다.
+        if (!ACTIONABLE[inboxCategory(item)]) continue
         byWorkspace[item.workspaceId] = (byWorkspace[item.workspaceId] ?? 0) + 1
         total += 1
       }
@@ -448,6 +473,42 @@ export function createRunRepository(db: Database) {
         .set({ reviewedAt: Date.now(), reviewedKind: kind })
         .where(and(eq(run.id, id), isNull(run.reviewedAt))).run()
       return get(id)
+    },
+
+    /**
+     * 대화를 끝낸다 (`docs/sdlc/conversation-lifecycle/` FR-12).
+     *
+     * **확인도 겸한다.** 같은 트랜잭션에서 아직 미확인이면 `reviewedAt`도 찍는다 —
+     * 겸하지 않으면 끝낸 대화가 도크 목록에서는 사라졌는데 배지에는 남아, 그때는
+     * 내릴 방법조차 없다. 이미 확인된 것은 처음 시각을 덮어쓰지 않는다
+     * (`markReviewed`와 같은 규칙).
+     *
+     * **기록을 지우지 않는다** — 화면에서 내릴 뿐이다(전체 설계 §232).
+     */
+    close(rootRunId: string): Run {
+      assertRoot(rootRunId, '끝낼')
+      db.transaction((tx) => {
+        const now = Date.now()
+        tx.update(run).set({ closedAt: now }).where(eq(run.id, rootRunId)).run()
+        tx.update(run)
+          .set({ reviewedAt: now, reviewedKind: 'archived' })
+          .where(and(eq(run.id, rootRunId), isNull(run.reviewedAt))).run()
+      })
+      return get(rootRunId)
+    },
+
+    /**
+     * 대화에 이름을 붙인다 (FR-14).
+     *
+     * **빈 값은 null로 저장해 파생으로 되돌린다** — workspace 기본값의 "빈 모델은
+     * null"과 같은 규칙이다. 빈 문자열로 두면 화면이 제목 없는 줄을 그린다.
+     */
+    rename(rootRunId: string, title: string): Run {
+      assertRoot(rootRunId, '이름을 붙일')
+      const trimmed = title.trim()
+      db.update(run).set({ title: trimmed === '' ? null : trimmed })
+        .where(eq(run.id, rootRunId)).run()
+      return get(rootRunId)
     }
   }
 }

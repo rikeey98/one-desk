@@ -120,11 +120,46 @@ describe('대화', () => {
     const secondTurn = page.locator('.turn').filter({ hasText: '둘째 지시' })
     await secondTurn.locator('.status-succeeded').waitFor({ state: 'visible', timeout: 20_000 })
 
-    // 도크 탭 개수로 "탭은 하나"를 문자 그대로 지킨다("+ 새 대화" 탭까지 둘) —
-    // /첫 지시/ 탭이 "존재"하는 것만 보면 2·3턴이 별개 대화로 새서 "둘째 지시"
-    // 제목의 탭이 하나 더 생겨도 이 매칭에는 안 잡혀 그대로 통과해버린다.
-    expect(await page.getByRole('button', { name: /첫 지시/ }).count()).toBe(1)
-    await expect.poll(() => page.locator('.dock-tab').count(), { timeout: 5_000 }).toBe(2)
+    // 목록 줄 개수로 "대화는 하나"를 문자 그대로 지킨다 — /첫 지시/ 줄이 "존재"하는
+    // 것만 보면 2·3턴이 별개 대화로 새서 "둘째 지시" 제목의 줄이 하나 더 생겨도
+    // 이 매칭에는 안 잡혀 그대로 통과해버린다. "＋ 새 대화"는 .dock-new라 안 세인다.
+    //
+    // 제목으로 세지 않는다: 줄 끝 액션의 접근성 이름이 `<제목> 이름 바꾸기`·
+    // `<제목> 대화 끝내기`라(FR-21) 제목 문자열은 줄 하나당 세 번 걸린다.
+    //
+    // **제목은 지시가 아니라 담은 맥락에서 온다** (FR-11). 이 대화는 repo '샘플'을
+    // 담았고 이슈·메모는 없으므로 3단(첫 repo 이름)까지 내려온다 — '첫 지시'가
+    // 아니다. 예전에는 첫 지시의 첫 줄이 곧 제목이었다.
+    expect(await page.locator('.dock-conv-title', { hasText: '샘플' }).count()).toBe(1)
+    await expect.poll(() => page.locator('.dock-conv').count(), { timeout: 5_000 }).toBe(1)
+
+    // **목록과 대화는 따로 스크롤한다.** .dock-body가 스크롤러가 되면 둘이 한 덩어리로
+    // 움직여 대화록을 내릴 때 목록도 함께 올라간다(사용자 실측 보고). jsdom은 레이아웃을
+    // 계산하지 않아 단위 테스트로는 잡을 수 없다 — 여기서만 답할 수 있는 질문이다.
+    //
+    // 본문을 **문자열로** 넘긴다. 함수로 쓰면 TS가 이 파일을 node 프로젝트
+    // (`tsconfig.node.json`)로 검사하는데 거기엔 DOM lib이 없어서 `document`를 못 찾는다.
+    // lib에 "DOM"을 더하면 같은 프로젝트에 묶인 `core/`가 브라우저 타입을 알게 되어
+    // 경계 1("core는 electron/브라우저를 모른다")이 흐려진다 — 그쪽을 건드리지 않는다.
+    const scroll = await page.evaluate(`(() => {
+      const pick = (sel) => document.querySelector(sel)
+      const body = pick('.dock-body')
+      const side = pick('.dock-side')
+      const main = pick('.dock-main')
+      // 대화 칸을 끝까지 내려 본다 — 목록이 따라 움직이는지가 이 단언의 핵심이다.
+      main.scrollTop = main.scrollHeight
+      return {
+        // 소수점 반올림으로 1px 차이가 나는 경우가 있어 여유를 둔다.
+        bodyOverflows: body.scrollHeight > body.clientHeight + 1,
+        // 실행 패널만 284px이라 도크 기본 높이에서는 대화 칸이 반드시 넘친다.
+        mainScrolled: main.scrollTop > 0,
+        sideScrollTop: side.scrollTop
+      }
+    })()`) as { bodyOverflows: boolean; mainScrolled: boolean; sideScrollTop: number }
+    // .dock-body가 스크롤러면 둘이 한 덩어리로 움직인다.
+    expect(scroll.bodyOverflows).toBe(false)
+    expect(scroll.mainScrolled).toBe(true)
+    expect(scroll.sideScrollTop).toBe(0)
 
     // 인박스에는 대화가 한 줄이다 — 여기서부터만 화면을 벗어난다. 위 1~5번은
     // 인박스로 갔다 오지 않고 확인했다: 다른 화면에 갔다 오면 도크가 재마운트돼
@@ -139,5 +174,75 @@ describe('대화', () => {
     // 확인하면 내려간다.
     await page.getByRole('button', { name: '확인함' }).click()
     await expect.poll(() => page.locator('.inbox-list > li').count(), { timeout: 5_000 }).toBe(0)
+  })
+
+  /**
+   * 대화 종료와 되살아남 (`docs/sdlc/conversation-lifecycle/` FR-12·FR-13·FR-20·FR-23).
+   *
+   * IPC 왕복을 실제로 태운다: `client.runs.close` → preload → `ipcMain.handle` →
+   * 저장소의 트랜잭션. `create(parentRunId)`가 `closedAt`을 지우는 반대쪽 절반까지
+   * 한 시나리오 안에서 확인한다.
+   *
+   * **자동 확인은 여기서 검증하지 않는다.** 가짜 CLI는 Windows에서 spawn조차 되지
+   * 않아 run이 항상 failed(=ACTIONABLE)로 끝나고, macOS에서는 succeeded(=자동 확인
+   * 대상)로 끝난다 — 플랫폼마다 정답이 반대인 e2e가 된다(CLAUDE.md). 그 규칙은
+   * `Dock.test.tsx`가 status를 직접 세워 양쪽 다 고정한다.
+   */
+  it('대화를 끝내면 목록에서 내려가고, 턴을 이으면 되살아난다', async () => {
+    const app = await launchApp()
+    const page = app.page
+
+    await page.getByPlaceholder('새 workspace 이름…').fill('close-ws')
+    await page.getByPlaceholder('새 workspace 이름…').press('Enter')
+    const wsButton = page.getByRole('button', { name: 'close-ws', exact: true })
+    await wsButton.waitFor({ state: 'visible', timeout: 10_000 })
+    await wsButton.click()
+
+    await page.getByRole('button', { name: 'repo 등록' }).click()
+    await page.getByPlaceholder('repo 이름').fill('샘플')
+    await page.getByPlaceholder('/절대/경로').fill(app.repoDir)
+    await page.getByRole('button', { name: '추가' }).click()
+    await page.getByRole('button', { name: '샘플 맥락에 담기' })
+      .waitFor({ state: 'visible', timeout: 10_000 })
+
+    const prompt = page.getByRole('textbox', { name: '지시' })
+    const send = page.getByRole('button', { name: '실행', exact: true })
+
+    await prompt.fill('끝낼 대화')
+    await send.click()
+    // 목록 텍스트가 아니라 대화록으로 기다린다 — RunPanel이 재마운트되기 전에 다음
+    // 입력을 채우면 빈 프롬프트로 전송이 막힌다(CLAUDE.md).
+    await page.locator('.turn-user', { hasText: '끝낼 대화' })
+      .waitFor({ state: 'visible', timeout: 20_000 })
+    await expect.poll(() => page.locator('.dock-conv').count(), { timeout: 10_000 }).toBe(1)
+
+    // 줄 끝 아이콘은 폭 0으로 접혀 있다 — 줄을 먼저 hover해야 누를 수 있다.
+    const row = page.locator('.dock-conv-row').first()
+    await row.hover()
+    await row.getByRole('button', { name: /대화 끝내기/ }).click()
+
+    // 기본 목록에서 내려가고, 보고 있던 대화였으므로 새 대화로 돌아온다(FR-23).
+    await expect.poll(() => page.locator('.dock-conv').count(), { timeout: 10_000 }).toBe(0)
+    await page.getByText('지시를 입력하면 대화가 시작됩니다')
+      .waitFor({ state: 'visible', timeout: 10_000 })
+
+    // 토글을 펼치면 다시 보이고 열 수 있다 (FR-20).
+    const toggle = page.getByRole('button', { name: /끝낸 대화/ })
+    await toggle.waitFor({ state: 'visible', timeout: 10_000 })
+    await toggle.click()
+    await expect.poll(() => page.locator('.dock-conv').count(), { timeout: 5_000 }).toBe(1)
+    await page.locator('.dock-conv-title', { hasText: '끝낼 대화' }).click()
+    await page.locator('.turn-user', { hasText: '끝낼 대화' })
+      .waitFor({ state: 'visible', timeout: 10_000 })
+
+    // 턴을 이으면 종료가 풀려 기본 목록으로 돌아온다 (FR-13).
+    await prompt.fill('이어서')
+    await send.click()
+    await page.locator('.turn-user', { hasText: '이어서' })
+      .waitFor({ state: 'visible', timeout: 20_000 })
+    await expect.poll(() => page.locator('.dock-conv').count(), { timeout: 10_000 }).toBe(1)
+    await expect.poll(
+      () => page.getByRole('button', { name: /끝낸 대화/ }).count(), { timeout: 10_000 }
+    ).toBe(0)
   })
 })

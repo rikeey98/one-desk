@@ -247,6 +247,7 @@ describe('RunPanel', () => {
     status: 'succeeded', externalSessionId: 'sess-1', parentRunId: null, rootRunId: 'p1',
     resultText: null, needsAnswer: true, timeoutMs: null, exitCode: 0,
     errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
+    title: null, closedAt: null,
     startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], usage: null,
   }
   const conversation = groupConversations([parent])[0]!
@@ -260,6 +261,7 @@ describe('RunPanel', () => {
     status: 'succeeded', externalSessionId: 'sess-2', parentRunId: null, rootRunId: 'p2',
     resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
     errorMessage: null, logPath: '/tmp/y', reviewedAt: null, reviewedKind: null,
+    title: null, closedAt: null,
     startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], usage: null,
   }
   const otherConversation = groupConversations([otherParent])[0]!
@@ -277,12 +279,23 @@ describe('RunPanel', () => {
     expect(screen.queryByRole('option', { name: '/wrong-repo' })).not.toBeInTheDocument()
   })
 
-  it('대화를 이어갈 때는 작업 디렉토리를 바꿀 수 없다', () => {
+  it('대화를 이어갈 때는 작업 디렉토리가 잠기고 그 대화의 경로를 보여준다', () => {
     // 세션은 특정 CLI가 특정 디렉토리에서 만든 것이라 다른 조합으로 이어받을 수 없다.
+    //
+    // 칸을 없애지 않고 **잠근다** (2026-09-23). 예전에는 "대화 이어가기" 배지 +
+    // agentKind + 경로를 칸 없이 늘어놓았는데, 어느 대화인지는 도크 목록과 대화록이
+    // 이미 말하고 agent는 옆 칸이 비활성으로 보여줘 둘 다 중복이었다.
     renderPanel(makeClient(), repos, [], vi.fn(), { conversation })
-    expect(screen.queryByLabelText('작업 디렉토리')).toBeNull()
-    expect(screen.getByText('/tmp/api')).toBeInTheDocument()
-    // "새 실행으로" 버튼은 지워졌다 — 대화를 벗어나는 것은 이제 도크 탭이 한다.
+    const field = screen.getByLabelText('작업 디렉토리')
+    expect(field).toHaveValue('/tmp/api')
+    // disabled가 아니라 readOnly다 — 경로를 눌러 복사할 수 있어야 한다.
+    expect(field).toHaveAttribute('readonly')
+    // 고를 수 있는 칸이 아니다. select로 남아 있으면 다른 repo로 바꿔 보낼 수 있다.
+    expect(field.tagName).toBe('INPUT')
+    // agentKind를 되풀이하지 않는다 — 옆의 agent 칸이 이미 보여준다.
+    expect(screen.queryByText('claude-code')).toBeNull()
+    expect(screen.queryByText('대화 이어가기')).toBeNull()
+    // "새 실행으로" 버튼은 지워졌다 — 대화를 벗어나는 것은 이제 도크의 대화 목록이 한다.
     expect(screen.queryByRole('button', { name: '새 실행으로' })).toBeNull()
   })
 
@@ -537,6 +550,7 @@ describe('RunPanel — agent 선택', () => {
       status: 'succeeded', externalSessionId: 'ses_1', parentRunId: null, rootRunId: 'p9',
       resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
       errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
+      title: null, closedAt: null,
       startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], usage: null,
     }
     const opencodeConversation = groupConversations([opencodeParent])[0]!
@@ -690,6 +704,7 @@ describe('RunPanel — 모델 기본값', () => {
       status: 'succeeded', externalSessionId: 'sess-3', parentRunId: null, rootRunId: 'p3',
       resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
       errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
+      title: null, closedAt: null,
       startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], usage: null,
     }
     const resume = vi.fn().mockResolvedValue({ id: 'run-2' })
@@ -716,6 +731,7 @@ describe('RunPanel — 모델 기본값', () => {
       status: 'succeeded', externalSessionId: 'sess-4', parentRunId: null, rootRunId: 'p4',
       resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
       errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
+      title: null, closedAt: null,
       startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], usage: null,
     }
     const client = makeClient()

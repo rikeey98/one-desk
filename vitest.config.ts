@@ -13,7 +13,10 @@ export default defineConfig({
     projects: [
       {
         extends: true,
-        test: { name: 'core', environment: 'node', include: ['core/**/*.test.ts'] }
+        // shared/도 여기서 돈다. 어느 프로젝트에도 넣지 않으면 파일이 **실행되지
+        // 않은 채로** 통과한 것처럼 보인다(아래 렌더러 include의 주석과 같은 함정).
+        // 환경 의존이 없는 순수 모듈이라 node로 충분하다.
+        test: { name: 'core', environment: 'node', include: ['core/**/*.test.ts', 'shared/**/*.test.ts'] }
       },
       {
         extends: true,

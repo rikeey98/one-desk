@@ -50,8 +50,10 @@ describe('동시 실행 상한', () => {
     const runningTab = page.getByRole('button', { name: new RegExp(`running.*${FIRST}`) })
     await runningTab.waitFor({ state: 'visible', timeout: 10_000 })
 
-    // 도크 탭은 이제 run이 아니라 대화 단위다 — "+ 새 실행"이 "+ 새 대화"로 바뀌었다.
-    await page.getByRole('button', { name: '+ 새 대화' }).click()
+    // 도크는 이제 가로 탭이 아니라 세로 목록이고, 그 맨 위가 "＋ 새 대화"다
+    // (conversation-lifecycle FR-18). 글자는 전각 ＋다 — RunPanel의 맥락 안내와
+    // 같은 글리프를 쓴다.
+    await page.getByRole('button', { name: '＋ 새 대화' }).click()
     await page.getByPlaceholder(/무엇을 시킬지/).fill(SECOND)
     await send.click()
 

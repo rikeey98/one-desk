@@ -5,7 +5,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { createAdapters, createCore, type Core } from './index'
 import { DEFAULT_CONCURRENCY_LIMIT } from './db/repositories/setting'
-import type { InboxCounts, McpStatus } from '@shared/models'
+import type { InboxCounts, McpStatus, Run } from '@shared/models'
+import { ACTIONABLE, inboxCategory } from '@shared/inbox'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const MIGRATIONS_DIR = resolve(HERE, '../drizzle')
@@ -142,10 +143,24 @@ describe('createCore', () => {
       })
       await vi.waitFor(() => expect(core.runs.get(run.id).endedAt).toBeTypeOf('number'))
 
+      // **숫자를 직접 못 박지 않는다.** 가짜 CLI는 macOS에서 실제로 돌아 succeeded
+      // (=완료·미확인, 배지가 세지 않음)로 끝나고, Windows에서는 .mjs라 spawn조차
+      // 되지 않아 failed(=배지가 셈)로 끝난다(CLAUDE.md). `toBe(1)`로 박으면
+      // **한쪽 플랫폼에서만 초록인 테스트**가 된다.
+      //
+      // 이 테스트가 지키는 것은 카테고리 규칙이 아니라 **배선**이다: run이 끝나면
+      // emitInbox가 불려 지금 집계가 push되는가. 그래서 (a) push가 한 번이라도
+      // 일어났고 (b) 마지막 push가 지금 집계와 같은지를 본다 — onRunUpdate에서
+      // emitInbox() 한 줄을 지우면 seen이 비어 (a)가 빨개진다.
       await vi.waitFor(() => {
-        expect(seen.at(-1)?.total).toBe(1)
-        expect(seen.at(-1)?.byWorkspace[ws]).toBe(1)
+        expect(seen.length).toBeGreaterThan(0)
+        expect(seen.at(-1)).toEqual(core.inbox.counts())
       })
+      // 어느 플랫폼이든 그 run이 유일한 대화이므로, 집계는 그 대화의 카테고리가
+      // 정하는 값과 정확히 같다.
+      const finished = core.runs.get(run.id)
+      const expected = ACTIONABLE[inboxCategory(finished)] ? 1 : 0
+      expect(core.inbox.counts().total).toBe(expected)
     } finally {
       // 전역을 건드렸으니 반드시 되돌린다. 남기면 뒤 테스트가 가짜 CLI를 쓴다.
       if (previous === undefined) delete process.env['ONE_DESK_AGENT_PATH']
@@ -197,15 +212,71 @@ describe('createCore', () => {
     }
   })
 
+  describe('대화 종료와 이름', () => {
+    /**
+     * 배선 테스트다 — 저장소의 동작은 `run.test.ts`가 본다. 여기서 지키는 것은
+     * **core가 두 이벤트를 내보내는가**뿐이다 (spec FR-15). 빠뜨리면 화면이
+     * 조용히 낡는다: 종료해도 배지가 안 줄고, 이름을 바꿔도 도크가 그대로다.
+     */
+    function finishedRun(core: Core, dataDir: string) {
+      const seeded = seedRun(core, dataDir, '대상')
+      core.runs.markFinished(seeded.id, {
+        status: 'failed', resultText: null, externalSessionId: null,
+        needsAnswer: false, exitCode: 1, errorMessage: '깨짐', usage: null
+      })
+      return seeded
+    }
+
+    it('끝내면 run 갱신과 인박스 카운트를 모두 push한다', () => {
+      const dataDir = makeDataDir()
+      const core = open(dataDir)
+      const seeded = finishedRun(core, dataDir)
+      expect(core.inbox.counts().total).toBe(1)
+
+      const runsSeen: Run[] = []
+      const countsSeen: InboxCounts[] = []
+      core.onRunUpdate((r) => runsSeen.push(r))
+      core.onInboxUpdate((c) => countsSeen.push(c))
+
+      const closed = core.conversations.close(seeded.id)
+
+      expect(closed.closedAt).toBeTypeOf('number')
+      expect(runsSeen.at(-1)?.id).toBe(seeded.id)
+      expect(countsSeen.at(-1)).toEqual({ total: 0, byWorkspace: {} })
+    })
+
+    it('이름을 바꾸면 run 갱신을 push한다', () => {
+      const dataDir = makeDataDir()
+      const core = open(dataDir)
+      const seeded = finishedRun(core, dataDir)
+
+      const runsSeen: Run[] = []
+      const countsSeen: InboxCounts[] = []
+      core.onRunUpdate((r) => runsSeen.push(r))
+      core.onInboxUpdate((c) => countsSeen.push(c))
+
+      const renamed = core.conversations.rename(seeded.id, '로그인 정리')
+
+      expect(renamed.title).toBe('로그인 정리')
+      expect(runsSeen.at(-1)?.title).toBe('로그인 정리')
+      // 이름은 인박스 소속을 바꾸지 않지만 같은 경로로 흘려보낸다 — 목록의 제목이
+      // 인박스 항목에도 쓰일 수 있고, 한쪽만 보내면 어느 화면이 낡는지가 배선에
+      // 따라 달라진다.
+      expect(countsSeen.at(-1)).toEqual(core.inbox.counts())
+    })
+  })
+
   it('확인함을 누르면 카운트가 줄어든 것을 push한다', () => {
     // 여기서는 프로세스를 띄울 필요가 없다. seedRun으로 행을 만들고 끝난 상태로
     // 바꾼 뒤, inbox.markReviewed가 스스로 push하는지만 본다.
     const dataDir = makeDataDir()
     const core = open(dataDir)
     const seeded = seedRun(core, dataDir, '확인 대상')
+    // 배지가 세는 카테고리로 끝낸다 — 완료·미확인은 애초에 0이라(shared/inbox.ts의
+    // ACTIONABLE, spec FR-4) succeeded로 두면 "줄어든 것을 push한다"를 확인할 수 없다.
     core.runs.markFinished(seeded.id, {
-      status: 'succeeded', resultText: null, externalSessionId: null,
-      needsAnswer: false, exitCode: 0, errorMessage: null,
+      status: 'failed', resultText: null, externalSessionId: null,
+      needsAnswer: false, exitCode: 1, errorMessage: '깨짐',
       usage: null
     })
     expect(core.inbox.counts().total).toBe(1)

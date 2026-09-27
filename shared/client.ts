@@ -144,6 +144,13 @@ export interface OneDeskClient {
     markReviewed(runId: string, kind: 'confirmed' | 'archived'): Promise<Run>
     /** 원본의 세션을 이어받아 실행한다. agentKind와 cwd는 원본에서 온다. */
     resume(input: ResumeRunInput): Promise<Run>
+    /**
+     * 대화를 끝낸다 (`docs/sdlc/conversation-lifecycle/` FR-12). 도크 목록에서
+     * 내려가고 배지에서도 빠진다 — 기록은 지우지 않는다. 뿌리 run의 id를 받는다.
+     */
+    close(rootRunId: string): Promise<Run>
+    /** 대화에 이름을 붙인다. 빈 값을 주면 파생 제목으로 되돌린다 (FR-14). */
+    rename(rootRunId: string, title: string): Promise<Run>
   }
   mcp: {
     /** 지금 상태를 한 번 읽는다. 창이 기동보다 늦게 떴을 때 필요하다. */

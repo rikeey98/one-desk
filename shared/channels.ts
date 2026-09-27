@@ -50,7 +50,9 @@ export const CHANNELS = {
   /** repo 등록 — OS의 폴더 선택 대화상자를 띄운다 */
   appPickDirectory: 'app:pickDirectory',
   runsMarkReviewed: 'runs:markReviewed',
-  runsResume: 'runs:resume'
+  runsResume: 'runs:resume',
+  runsClose: 'runs:close',
+  runsRename: 'runs:rename'
 } as const
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS]

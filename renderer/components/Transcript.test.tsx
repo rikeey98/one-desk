@@ -24,6 +24,8 @@ function makeRun(over: Partial<Run> & { id: string }): Run {
     workspaceId: 'ws', agentKind: 'claude-code', model: null, effort: null, cwd: '/tmp',
     permission: 'edit', userPrompt: '지시', assembledPrompt: '지시', status: 'succeeded',
     externalSessionId: null, parentRunId: null, rootRunId: over.id, resultText: null,
+    // 대화의 이름과 끝. 뿌리 행에서만 의미가 있고 기본은 둘 다 null이다.
+    title: null, closedAt: null,
     needsAnswer: false, timeoutMs: null, exitCode: null, errorMessage: null,
     logPath: '/tmp/x.log', reviewedAt: null, reviewedKind: null, startedAt: null,
     endedAt: null, createdAt: 0, contextItems: [], usage: null, ...over
