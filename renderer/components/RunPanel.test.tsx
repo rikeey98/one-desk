@@ -1,7 +1,10 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { createRef, useState, type RefObject } from 'react'
 import { ClientProvider } from '../client/ClientProvider'
+import { DraftProvider } from '../store/DraftContext'
+import { createDraftStore, type DraftStore } from '../store/drafts'
 import { RunPanel } from './RunPanel'
 import { groupConversations } from '../conversation'
 import type { OneDeskClient } from '@shared/client'
@@ -63,14 +66,40 @@ function makeClient(opts: {
   } as unknown as OneDeskClient
 }
 
-/** 인박스가 세우는 props(대화 이어가기와 "다시 실행"의 초기값)만 선택적으로 넘긴다.
- *  나머지 호출부는 그대로다. */
+/** 대화의 한 턴. 입력부가 보는 것은 상태·지시·id 정도라 나머지는 평범한 값이다. */
+function makeRun(over: Partial<Run> & { id: string }): Run {
+  return {
+    workspaceId: 'w1', agentKind: 'claude-code', model: null, effort: null,
+    cwd: '/tmp/api', permission: 'edit', userPrompt: '지시', assembledPrompt: 'x',
+    status: 'succeeded', externalSessionId: 'sess-1', parentRunId: null, rootRunId: over.id,
+    resultText: null, needsAnswer: false, timeoutMs: null, exitCode: null,
+    errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
+    title: null, closedAt: null,
+    startedAt: null, endedAt: null, createdAt: 0, contextItems: [], usage: null,
+    ...over
+  }
+}
+
+/** 인박스가 세우는 props(대화 이어가기와 "다시 실행"의 초기값)와 대화의 지금 상태(도는 턴·
+ *  예약)만 선택적으로 넘긴다. 나머지 호출부는 그대로다. */
 interface ResumeOpts {
   conversation?: Conversation | null
   draftPrompt?: string
   draftCwd?: string | null
   reserved?: boolean
+  running?: Run | null
+  reservation?: Run | null
+  waitingFirst?: boolean
+  onCancel?: (runId: string) => void
+  inputRef?: RefObject<HTMLTextAreaElement | null>
+  /** 초안 스토어 — 다시 마운트해도 같은 것을 넘기면 쓰던 지시가 남는다 (FR-31) */
+  drafts?: DraftStore
 }
+
+// 테스트마다 새 스토어다 — 앞 테스트의 초안이 새지 않는다. 다시 마운트를 흉내 내는
+// 테스트는 같은 스토어를 명시적으로 넘긴다.
+let drafts: DraftStore = createDraftStore()
+beforeEach(() => { drafts = createDraftStore() })
 
 // workspace를 바꾸는 테스트는 rerender로 같은 엘리먼트를 다시 그려야 하므로
 // 엘리먼트 생성과 render를 나눠 둔다.
@@ -78,26 +107,33 @@ function panel(
   client: OneDeskClient,
   panelRepos: Repo[],
   chips: ContextChip[],
-  onStarted: () => void,
+  onStarted: (run: Run) => void,
   workspaceId = 'w1',
   resumeOpts: ResumeOpts = {},
   workspaces: Workspace[] = [makeWorkspace('edit')]
 ) {
   return (
     <ClientProvider client={client}>
-      <RunPanel
-        workspaceId={workspaceId}
-        workspaces={workspaces}
-        repos={panelRepos}
-        reposError={null}
-        chips={chips}
-        onRemoveChip={vi.fn()}
-        onStarted={onStarted}
-        conversation={resumeOpts.conversation ?? null}
-        draftPrompt={resumeOpts.draftPrompt ?? ''}
-        draftCwd={resumeOpts.draftCwd ?? null}
-        reserved={resumeOpts.reserved ?? false}
-      />
+      <DraftProvider store={resumeOpts.drafts ?? drafts}>
+        <RunPanel
+          workspaceId={workspaceId}
+          workspaces={workspaces}
+          repos={panelRepos}
+          reposError={null}
+          chips={chips}
+          onRemoveChip={vi.fn()}
+          onStarted={onStarted}
+          conversation={resumeOpts.conversation ?? null}
+          draftPrompt={resumeOpts.draftPrompt ?? ''}
+          draftCwd={resumeOpts.draftCwd ?? null}
+          reserved={resumeOpts.reserved ?? false}
+          running={resumeOpts.running ?? null}
+          reservation={resumeOpts.reservation ?? null}
+          waitingFirst={resumeOpts.waitingFirst ?? false}
+          onCancel={resumeOpts.onCancel ?? vi.fn()}
+          inputRef={resumeOpts.inputRef ?? createRef<HTMLTextAreaElement>()}
+        />
+      </DraftProvider>
     </ClientProvider>
   )
 }
@@ -226,7 +262,12 @@ describe('RunPanel', () => {
     const start = vi.fn()
     renderPanel(makeClient({ start }), repos, [], vi.fn(), { draftCwd: '/tmp/gone' })
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('/tmp/gone')
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('/tmp/gone')
+    // 경로는 모노로 그린다 — 한국어 Windows의 UI 글꼴은 `\`를 `₩`로 그린다(spec §8의 7). 문장은
+    // UI 글꼴 그대로이고 경로만이다. 알약도 이때만 경로를 보이므로 같다.
+    expect(within(alert).getByText('/tmp/gone')).toHaveClass('path-text')
+    expect(screen.getByLabelText('작업 디렉토리')).toHaveClass('path-text')
     await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '다시 해줘')
     expect(screen.getByRole('button', { name: '실행' })).toBeDisabled()
     expect(start).not.toHaveBeenCalled()
@@ -279,16 +320,20 @@ describe('RunPanel', () => {
     expect(screen.queryByRole('option', { name: '/wrong-repo' })).not.toBeInTheDocument()
   })
 
-  it('대화를 이어갈 때는 작업 디렉토리가 잠기고 그 대화의 경로를 보여준다', () => {
+  it('대화를 이어갈 때는 작업 디렉토리가 잠기고 그 대화의 repo 이름을 보여준다 — 경로는 title로', () => {
     // 세션은 특정 CLI가 특정 디렉토리에서 만든 것이라 다른 조합으로 이어받을 수 없다.
     //
     // 칸을 없애지 않고 **잠근다** (2026-09-23). 예전에는 "대화 이어가기" 배지 +
     // agentKind + 경로를 칸 없이 늘어놓았는데, 어느 대화인지는 도크 목록과 대화록이
     // 이미 말하고 agent는 옆 칸이 비활성으로 보여줘 둘 다 중복이었다.
+    //
+    // 알약의 글자는 **repo 이름**이다 (spec §8의 1, 결정 2026-09-27 — 안 (다)). 경로를 값으로 두면
+    // 좁은 알약이 끝을 말줄임해 `C:\Users\<이름>\App…`만 보이고 구별되는 repo 폴더가 잘렸다.
     renderPanel(makeClient(), repos, [], vi.fn(), { conversation })
     const field = screen.getByLabelText('작업 디렉토리')
-    expect(field).toHaveValue('/tmp/api')
-    // disabled가 아니라 readOnly다 — 경로를 눌러 복사할 수 있어야 한다.
+    expect(field).toHaveValue('api')
+    expect(field).toHaveAttribute('title', '/tmp/api')
+    // disabled가 아니라 readOnly다 — 잠겼어도 포커스가 가고 title을 읽을 수 있다.
     expect(field).toHaveAttribute('readonly')
     // 고를 수 있는 칸이 아니다. select로 남아 있으면 다른 repo로 바꿔 보낼 수 있다.
     expect(field.tagName).toBe('INPUT')
@@ -297,6 +342,42 @@ describe('RunPanel', () => {
     expect(screen.queryByText('대화 이어가기')).toBeNull()
     // "새 실행으로" 버튼은 지워졌다 — 대화를 벗어나는 것은 이제 도크의 대화 목록이 한다.
     expect(screen.queryByRole('button', { name: '새 실행으로' })).toBeNull()
+  })
+
+  describe('작업 디렉토리 경로 복사 (spec §8의 1)', () => {
+    let writeText: ReturnType<typeof vi.fn>
+
+    beforeEach(() => {
+      // jsdom에는 navigator.clipboard가 없다 — 테스트가 세운다(Markdown.test와 같다).
+      writeText = vi.fn(() => Promise.resolve())
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    })
+
+    afterEach(() => {
+      Reflect.deleteProperty(navigator, 'clipboard')
+    })
+
+    it('잠긴 알약 곁의 버튼이 전체 경로를 복사한다 — 알약이 이름을 보여도 경로를 잃지 않는다', async () => {
+      // 2026-09-23 결정("경로를 눌러 복사할 수 있어야 한다")이 값을 경로로 둔 이유였다. 이름 알약으로
+      // 바꾸면서 그 일은 곁의 복사 버튼이 맡는다.
+      renderPanel(makeClient(), repos, [], vi.fn(), { conversation })
+      await userEvent.click(screen.getByRole('button', { name: '작업 디렉토리 경로 복사' }))
+      expect(writeText).toHaveBeenCalledWith('/tmp/api')
+    })
+
+    it('등록되지 않은 디렉토리는 경로의 마지막 폴더 이름이다 — 대화 목록 줄과 같은 이름이다', async () => {
+      renderPanel(makeClient(), repos, [], vi.fn(), { conversation: otherConversation })
+      const field = screen.getByLabelText('작업 디렉토리')
+      expect(field).toHaveValue('web')
+      expect(field).toHaveAttribute('title', '/tmp/web')
+      await userEvent.click(screen.getByRole('button', { name: '작업 디렉토리 경로 복사' }))
+      expect(writeText).toHaveBeenCalledWith('/tmp/web')
+    })
+
+    it('새 대화에는 복사 버튼이 없다 — 고르는 드롭다운의 옵션 글자가 이미 repo 이름이다', () => {
+      renderPanel(makeClient())
+      expect(screen.queryByRole('button', { name: '작업 디렉토리 경로 복사' })).toBeNull()
+    })
   })
 
   it('대화를 이어갈 때의 권한 기본값은 마지막 턴의 권한이다', () => {
@@ -421,9 +502,13 @@ describe('RunPanel — 접근성', () => {
     const onRemoveChip = vi.fn()
     render(
       <ClientProvider client={makeClient()}>
-        <RunPanel workspaceId="w1" workspaces={[makeWorkspace('edit')]} repos={repos} reposError={null}
-          chips={chips} onRemoveChip={onRemoveChip} onStarted={vi.fn()}
-          conversation={null} draftPrompt="" draftCwd={null} reserved={false} />
+        <DraftProvider store={drafts}>
+          <RunPanel workspaceId="w1" workspaces={[makeWorkspace('edit')]} repos={repos} reposError={null}
+            chips={chips} onRemoveChip={onRemoveChip} onStarted={vi.fn()}
+            conversation={null} draftPrompt="" draftCwd={null} reserved={false}
+            running={null} reservation={null} waitingFirst={false} onCancel={vi.fn()}
+            inputRef={createRef<HTMLTextAreaElement>()} />
+        </DraftProvider>
       </ClientProvider>
     )
     // 보이는 글자는 이름만이고, 동작(빼기)은 접근성 이름이 말한다 — 글리프 "✕"는 이름에 들어가지 않는다.
@@ -433,9 +518,13 @@ describe('RunPanel — 접근성', () => {
     expect(onRemoveChip).toHaveBeenCalledWith(chips[0])
   })
 
-  it('예약으로 잠겼을 때 그 이유를 보여준다', () => {
-    renderPanel(makeClient(), repos, [], vi.fn(), { reserved: true })
-    expect(screen.getByRole('status')).toHaveTextContent(/예약된 지시/)
+  it('예약으로 잠겼을 때 그 이유를 입력칸 위 칩으로 보여준다', () => {
+    // 전송 버튼만 조용히 꺼지면 왜 막혔는지 알 수 없다. 대화록에는 예약이 없으므로(FR-30)
+    // 입력부만 보는 사람에게도 칩이 이유를 말해야 한다 — 그래서 live region이다.
+    renderPanel(makeClient(), repos, [], vi.fn(), {
+      reserved: true, reservation: makeRun({ id: 'b2', rootRunId: 'b1', status: 'pending' })
+    })
+    expect(screen.getByRole('status')).toHaveTextContent(/대기 중/)
   })
 
   it('피커가 열리면 입력창이 목록과 고른 항목을 ARIA로 가리킨다', async () => {
@@ -475,9 +564,13 @@ describe('RunPanel — 접근성', () => {
     const onRemoveChip = vi.fn()
     render(
       <ClientProvider client={makeClient()}>
-        <RunPanel workspaceId="w1" workspaces={[makeWorkspace('edit')]} repos={repos} reposError={null}
-          chips={chips} onRemoveChip={onRemoveChip} onStarted={vi.fn()}
-          conversation={null} draftPrompt="" draftCwd={null} reserved={false} />
+        <DraftProvider store={drafts}>
+          <RunPanel workspaceId="w1" workspaces={[makeWorkspace('edit')]} repos={repos} reposError={null}
+            chips={chips} onRemoveChip={onRemoveChip} onStarted={vi.fn()}
+            conversation={null} draftPrompt="" draftCwd={null} reserved={false}
+            running={null} reservation={null} waitingFirst={false} onCancel={vi.fn()}
+            inputRef={createRef<HTMLTextAreaElement>()} />
+        </DraftProvider>
       </ClientProvider>
     )
     // 보이는 글자는 이름만이고, 동작(빼기)은 접근성 이름이 말한다 — 글리프는 이름에 들어가지 않는다.
@@ -487,9 +580,13 @@ describe('RunPanel — 접근성', () => {
     expect(onRemoveChip).toHaveBeenCalledWith(chips[0])
   })
 
-  it('예약으로 잠겼을 때 그 이유를 보여준다', () => {
-    renderPanel(makeClient(), repos, [], vi.fn(), { reserved: true })
-    expect(screen.getByRole('status')).toHaveTextContent(/예약된 지시/)
+  it('예약으로 잠겼을 때 그 이유를 입력칸 위 칩으로 보여준다', () => {
+    // 전송 버튼만 조용히 꺼지면 왜 막혔는지 알 수 없다. 대화록에는 예약이 없으므로(FR-30)
+    // 입력부만 보는 사람에게도 칩이 이유를 말해야 한다 — 그래서 live region이다.
+    renderPanel(makeClient(), repos, [], vi.fn(), {
+      reserved: true, reservation: makeRun({ id: 'b2', rootRunId: 'b1', status: 'pending' })
+    })
+    expect(screen.getByRole('status')).toHaveTextContent(/대기 중/)
   })
 
   it('피커가 열리면 입력창이 목록과 고른 항목을 ARIA로 가리킨다', async () => {
@@ -890,4 +987,287 @@ describe('RunPanel 슬래시 커맨드', () => {
     expect(box).toHaveValue('/review ')
   })
 
+})
+
+/**
+ * 입력 카드 (`docs/sdlc/conversation-timeline/` spec FR-27~31·44) — 카드 하나, 알약 다섯,
+ * 전송/중지, 입력칸 위 예약 칩, 대화마다 남는 초안.
+ */
+describe('RunPanel — 입력 카드', () => {
+  const doing = makeRun({ id: 'c1', status: 'running', startedAt: 1, userPrompt: '도는 지시' })
+  const conv = groupConversations([doing])[0]!
+  const other = groupConversations([makeRun({ id: 'd1', userPrompt: '다른 대화' })])[0]!
+
+  describe('모양 (FR-27)', () => {
+    it('맥락 칩 · 입력칸 · 알약 다섯과 전송 버튼이 카드 하나 안에 있다 — 이름은 그대로다', () => {
+      renderPanel(makeClient(), repos, [{ type: 'issue', id: 'i1', label: '토큰 만료' }])
+      const card = document.querySelector<HTMLElement>('.composer-card')!
+      expect(card.firstElementChild).toHaveClass('run-chips')
+      expect(within(card).getByRole('button', { name: '토큰 만료 맥락에서 빼기' })).toBeInTheDocument()
+      expect(within(card).getByRole('textbox', { name: '지시' })).toBeInTheDocument()
+      const controls = card.querySelector<HTMLElement>('.composer-controls')!
+      for (const name of ['agent', '모델', 'effort', '권한', '작업 디렉토리']) {
+        expect(within(controls).getByLabelText(name)).toBeInTheDocument()
+      }
+      expect(within(controls).getByRole('button', { name: '실행' })).toBeInTheDocument()
+    })
+
+    it('select를 <label>로 감싸지 않는다 — 감싸면 옵션 글자가 이름에 빨려 들어간다', () => {
+      renderPanel(makeClient())
+      for (const name of ['agent', 'effort', '권한', '작업 디렉토리']) {
+        const field = screen.getByLabelText(name)
+        expect(field.tagName).toBe('SELECT')
+        expect(field.closest('label')).toBeNull()
+      }
+    })
+
+    it('작업 디렉토리 알약의 글자는 repo 이름뿐이고 경로는 title로 읽는다', () => {
+      renderPanel(makeClient())
+      const select = screen.getByLabelText('작업 디렉토리')
+      const option = within(select).getByRole('option', { name: 'api' })
+      expect(option).toHaveValue('/tmp/api')
+      expect(option).toHaveAttribute('title', '/tmp/api')
+      // 이름을 보이는 알약은 UI 글꼴이다 — 모노는 경로를 보일 때만이다(spec §8의 7).
+      expect(select).not.toHaveClass('path-text')
+    })
+
+    it('맥락이 비었으면 칩 줄이 없다 — 안내 문장도 없다 (spec §8의 4)', () => {
+      // 기본 도크에서 입력 카드가 대화록보다 컸다(결정 2026-09-27). 빈 칩 줄의 안내가 한 줄을 늘 먹었다 —
+      // 담는 법은 항목 줄의 ＋ 버튼 이름(`맥락에 담기`)이 말한다.
+      renderPanel(makeClient(), repos, [])
+      const card = document.querySelector<HTMLElement>('.composer-card')!
+      expect(card.querySelector('.run-chips')).toBeNull()
+      expect(card.firstElementChild).toHaveClass('run-prompt')
+      expect(screen.queryByText(/맥락을 담으세요/)).toBeNull()
+    })
+
+    it('오류와 예약 칩은 카드 밖, 위에 선다', async () => {
+      const start = vi.fn().mockRejectedValue(new Error('거부됨'))
+      renderPanel(makeClient({ start }), repos, [], vi.fn(), {
+        reservation: makeRun({ id: 'c2', rootRunId: 'c1', status: 'pending' })
+      })
+      await userEvent.type(screen.getByRole('textbox', { name: '지시' }), 'x')
+      await userEvent.click(screen.getByRole('button', { name: '실행' }))
+      const alert = await screen.findByRole('alert')
+      const chip = screen.getByRole('status')
+      const card = document.querySelector<HTMLElement>('.composer-card')!
+      for (const above of [alert, chip]) {
+        expect(card.contains(above)).toBe(false)
+        expect(above.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      }
+    })
+  })
+
+  describe('중지 (FR-28)', () => {
+    it('도는 턴이 있고 입력이 비었으면 전송 버튼이 중지다 — 누르면 그 턴을 멈춘다', async () => {
+      const onCancel = vi.fn()
+      renderPanel(makeClient(), repos, [], vi.fn(), { conversation: conv, running: doing, onCancel })
+      expect(screen.queryByRole('button', { name: '실행' })).toBeNull()
+      await userEvent.click(screen.getByRole('button', { name: '중지' }))
+      expect(onCancel).toHaveBeenCalledWith('c1')
+    })
+
+    it('치기 시작하면 실행으로 돌아간다 — 공백만으로는 아니다', async () => {
+      renderPanel(makeClient(), repos, [], vi.fn(), { conversation: conv, running: doing })
+      const box = screen.getByRole('textbox', { name: '지시' })
+      await userEvent.type(box, '   ')
+      expect(screen.getByRole('button', { name: '중지' })).toBeInTheDocument()
+      await userEvent.type(box, '다음 말')
+      expect(screen.queryByRole('button', { name: '중지' })).toBeNull()
+      expect(screen.getByRole('button', { name: '실행' })).toBeEnabled()
+    })
+
+    it('중지는 예약을 건드리지 않는다 — 예약은 이어서 뜬다', async () => {
+      const onCancel = vi.fn()
+      renderPanel(makeClient(), repos, [], vi.fn(), {
+        conversation: conv, running: doing, onCancel, reserved: true,
+        reservation: makeRun({ id: 'c2', rootRunId: 'c1', status: 'pending' })
+      })
+      await userEvent.click(screen.getByRole('button', { name: '중지' }))
+      expect(onCancel).toHaveBeenCalledTimes(1)
+      expect(onCancel).toHaveBeenCalledWith('c1')
+    })
+
+    it('도는 턴이 없으면 빈 입력에서도 실행이다 — 비활성일 뿐이다', () => {
+      renderPanel(makeClient(), repos, [], vi.fn(), { conversation: conv })
+      expect(screen.queryByRole('button', { name: '중지' })).toBeNull()
+      expect(screen.getByRole('button', { name: '실행' })).toBeDisabled()
+    })
+
+    it('단축키와 Esc는 멈추지 않는다 — 멈춤은 되돌릴 수 없다', async () => {
+      const onCancel = vi.fn()
+      renderPanel(makeClient(), repos, [], vi.fn(), { conversation: conv, running: doing, onCancel })
+      screen.getByRole('textbox', { name: '지시' }).focus()
+      await userEvent.keyboard('{Control>}{Enter}{/Control}{Meta>}{Enter}{/Meta}{Escape}')
+      expect(onCancel).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('예약 칩 (FR-30)', () => {
+    const reservation = makeRun({
+      id: 'c2', rootRunId: 'c1', status: 'pending', userPrompt: '린트도 돌려줘\n그리고 커밋까지'
+    })
+
+    it('대기 중 · 지시 첫 줄 · 이유 · 예약 취소 — 앞 턴이 돌면 그것을 기다린다', async () => {
+      const onCancel = vi.fn()
+      renderPanel(makeClient(), repos, [], vi.fn(), {
+        conversation: conv, running: doing, reservation, reserved: true, onCancel
+      })
+      const chip = screen.getByRole('status')
+      expect(chip).toHaveClass('composer-queue')
+      // e2e가 `getByText('대기 중')`으로 잡는다 — 단독 span이어야 그것 하나에만 걸린다.
+      expect(within(chip).getByText('대기 중')).toHaveClass('composer-queue-label')
+      expect(chip).toHaveTextContent('린트도 돌려줘')
+      expect(chip).not.toHaveTextContent('그리고 커밋까지')
+      expect(chip).toHaveTextContent('앞 턴이 끝나면 보냅니다')
+      await userEvent.click(within(chip).getByRole('button', { name: '예약 취소' }))
+      expect(onCancel).toHaveBeenCalledWith('c2')
+    })
+
+    it('도는 턴이 없으면 실행 슬롯을 기다린다', () => {
+      renderPanel(makeClient(), repos, [], vi.fn(), { conversation: conv, reservation, reserved: true })
+      expect(screen.getByRole('status')).toHaveTextContent('실행 슬롯이 비면 보냅니다')
+    })
+
+    it('지시 전체는 title로 읽는다', () => {
+      renderPanel(makeClient(), repos, [], vi.fn(), { conversation: conv, reservation, reserved: true })
+      expect(screen.getByText('린트도 돌려줘')).toHaveAttribute('title', '린트도 돌려줘\n그리고 커밋까지')
+    })
+
+    it('예약이 없으면 칩이 없다', () => {
+      renderPanel(makeClient(), repos, [], vi.fn(), { conversation: conv, running: doing })
+      expect(screen.queryByRole('status')).toBeNull()
+      expect(screen.queryByRole('button', { name: '예약 취소' })).toBeNull()
+    })
+
+    it('첫 지시가 슬롯을 기다리면 칩이 아니라 안내다 — 그 턴은 대화록에 남는다', () => {
+      const waiting = groupConversations([makeRun({ id: 'e1', status: 'pending' })])[0]!
+      renderPanel(makeClient(), repos, [], vi.fn(), { conversation: waiting, reserved: true, waitingFirst: true })
+      expect(screen.getByRole('status')).toHaveTextContent(
+        '첫 지시가 실행을 기다리는 중입니다 — 시작된 뒤에 다음 지시를 보낼 수 있습니다'
+      )
+      expect(screen.queryByRole('button', { name: '예약 취소' })).toBeNull()
+    })
+  })
+
+  describe('초안 (FR-31)', () => {
+    const box = () => screen.getByRole('textbox', { name: '지시' })
+
+    it('다시 마운트해도 쓰던 지시가 남는다', async () => {
+      const store = createDraftStore()
+      const first = render(panel(makeClient(), repos, [], vi.fn(), 'w1', { conversation: conv, drafts: store }))
+      await userEvent.type(box(), '쓰다 만 지시')
+      first.unmount()
+
+      render(panel(makeClient(), repos, [], vi.fn(), 'w1', { conversation: conv, drafts: store }))
+      expect(box()).toHaveValue('쓰다 만 지시')
+    })
+
+    it('다른 대화의 초안이 섞이지 않는다', async () => {
+      const store = createDraftStore()
+      const a = render(panel(makeClient(), repos, [], vi.fn(), 'w1', { conversation: conv, drafts: store }))
+      await userEvent.type(box(), 'A에 쓰던 것')
+      a.unmount()
+
+      const b = render(panel(makeClient(), repos, [], vi.fn(), 'w1', { conversation: other, drafts: store }))
+      expect(box()).toHaveValue('')
+      await userEvent.type(box(), 'B에 쓰던 것')
+      b.unmount()
+
+      render(panel(makeClient(), repos, [], vi.fn(), 'w1', { conversation: conv, drafts: store }))
+      expect(box()).toHaveValue('A에 쓰던 것')
+    })
+
+    it('새 대화의 초안은 workspace마다 따로다', async () => {
+      const store = createDraftStore()
+      const w1 = render(panel(makeClient(), repos, [], vi.fn(), 'w1', { drafts: store }))
+      await userEvent.type(box(), 'w1에 쓰던 것')
+      w1.unmount()
+
+      const w2 = render(panel(makeClient(), repos, [], vi.fn(), 'w2', { drafts: store }))
+      expect(box()).toHaveValue('')
+      w2.unmount()
+
+      render(panel(makeClient(), repos, [], vi.fn(), 'w1', { drafts: store }))
+      expect(box()).toHaveValue('w1에 쓰던 것')
+    })
+
+    it('마운트된 채로 대화가 바뀌어도 그 대화의 초안을 읽는다 — 앞 대화의 글을 들고 가지 않는다', async () => {
+      // 도크는 대화마다 key로 입력부를 다시 마운트하지만, 그 약속 하나에 기대지 않는다.
+      const store = createDraftStore()
+      store.set('d1', 'B에 쓰던 것')
+      const client = makeClient()
+      const { rerender } = render(panel(client, repos, [], vi.fn(), 'w1', { conversation: conv, drafts: store }))
+      await userEvent.type(box(), 'A에 쓰던 것')
+
+      rerender(panel(client, repos, [], vi.fn(), 'w1', { conversation: other, drafts: store }))
+      expect(box()).toHaveValue('B에 쓰던 것')
+      expect(store.get('c1')).toBe('A에 쓰던 것')
+      expect(store.get('d1')).toBe('B에 쓰던 것')
+    })
+
+    it('전송이 성공하면 그 초안을 비운다', async () => {
+      const store = createDraftStore()
+      const client = makeClient()
+      const first = render(panel(client, repos, [], vi.fn(), 'w1', { conversation: conv, drafts: store }))
+      await userEvent.type(box(), '보낼 지시')
+      await userEvent.click(screen.getByRole('button', { name: '실행' }))
+      await waitFor(() => expect(client.runs.resume).toHaveBeenCalled())
+      first.unmount()
+
+      render(panel(client, repos, [], vi.fn(), 'w1', { conversation: conv, drafts: store }))
+      expect(box()).toHaveValue('')
+    })
+
+    it('전송이 거부되면 초안을 남긴다 — 고쳐서 다시 보낼 것이다', async () => {
+      const store = createDraftStore()
+      const resume = vi.fn().mockRejectedValue(new Error('세션이 없습니다'))
+      const first = render(panel(makeClient({ resume }), repos, [], vi.fn(), 'w1', { conversation: conv, drafts: store }))
+      await userEvent.type(box(), '보낼 지시')
+      await userEvent.click(screen.getByRole('button', { name: '실행' }))
+      await screen.findByRole('alert')
+      first.unmount()
+
+      render(panel(makeClient(), repos, [], vi.fn(), 'w1', { conversation: conv, drafts: store }))
+      expect(box()).toHaveValue('보낼 지시')
+    })
+
+    it('전송이 성공한 그 순간 입력부가 갈아끼워져도 초안이 비워진다', async () => {
+      // 새 대화의 첫 턴이 나가면 도크가 그 대화로 넘어가며 입력부를 다시 마운트한다. 성공
+      // 처리와 onStarted가 한 번에 그려지면 옛 인스턴스는 빈 입력을 그려 보지도 못하고 사라진다
+      // — 비우는 일을 렌더 뒤(effect)에만 맡기면 방금 보낸 지시가 새 대화 칸에 되살아난다.
+      const store = createDraftStore()
+      const client = makeClient()
+      function Host() {
+        const [generation, setGeneration] = useState(0)
+        return (
+          <div key={generation}>
+            {panel(client, repos, [], () => setGeneration((g) => g + 1), 'w1', { drafts: store })}
+          </div>
+        )
+      }
+      render(<Host />)
+      await userEvent.type(box(), '첫 지시')
+      await userEvent.click(screen.getByRole('button', { name: '실행' }))
+      await waitFor(() => expect(client.runs.start).toHaveBeenCalled())
+      await waitFor(() => expect(box()).toHaveValue(''))
+      expect(store.get('new:w1')).toBe('')
+    })
+
+    it('"다시 실행"이 채운 지시는 그 키의 초안을 덮는다', () => {
+      const store = createDraftStore()
+      store.set('new:w1', '예전 초안')
+      render(panel(makeClient(), repos, [], vi.fn(), 'w1', { draftPrompt: '원래 지시', drafts: store }))
+      expect(box()).toHaveValue('원래 지시')
+      expect(store.get('new:w1')).toBe('원래 지시')
+    })
+  })
+
+  describe('입력칸 ref (FR-44)', () => {
+    it('밖에서 받은 ref가 입력칸을 가리킨다 — 대화록의 답하기가 여기에 포커스를 준다', () => {
+      const inputRef = createRef<HTMLTextAreaElement>()
+      renderPanel(makeClient(), repos, [], vi.fn(), { inputRef })
+      expect(inputRef.current).toBe(screen.getByRole('textbox', { name: '지시' }))
+    })
+  })
 })

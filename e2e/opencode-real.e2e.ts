@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { launchApp } from './driver'
+import { waitConvStatus } from './dock'
 
 // 실제 OpenCode CLI로 한 턴을 끝까지 돌린다. 합성 지시만 쓰고 도구 호출은 시키지 않는다.
 //
@@ -22,9 +23,10 @@ describe.skipIf(process.env['ONE_DESK_REAL_CLI'] !== '1')('실제 OpenCode 실�
     await page.getByPlaceholder('/절대/경로').fill(app.repoDir)
     await page.getByRole('button', { name: '추가', exact: true }).click()
 
-    // getByLabel('agent')는 'Skills / Agents' 패널까지 걸려 strict mode 위반이다.
-    await page.locator('.run-settings select').first().selectOption('opencode')
-    await page.locator('.run-settings input').fill('opencode/big-pickle')
+    // getByLabel('agent')는 'Skills / Agents' 패널까지 걸려 strict mode 위반이다 — exact로 잡는다.
+    // 입력부의 칸은 알약이고 이름은 aria-label이다(docs/sdlc/conversation-timeline/ spec FR-27).
+    await page.getByLabel('agent', { exact: true }).selectOption('opencode')
+    await page.getByLabel('모델', { exact: true }).fill('opencode/big-pickle')
     // 전체 허용이어야 한다 — opencode 무료 티어(opencode/big-pickle)는 OPENCODE_PERMISSION에
     // deny가 하나라도 있으면 403 FreeTierError로 거부한다(실측). read_only/edit로 바꾸면
     // 자격 증명 없이는 통과하지 못한다.
@@ -43,6 +45,6 @@ describe.skipIf(process.env['ONE_DESK_REAL_CLI'] !== '1')('실제 OpenCode 실�
         { timeout: 120_000 }
       )
       .toBe(true)
-    await page.getByRole('button', { name: /succeeded/ }).waitFor({ timeout: 120_000 })
+    await waitConvStatus(page, null, 'succeeded', 120_000)
   }, 300_000)
 })

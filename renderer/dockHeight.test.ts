@@ -4,6 +4,24 @@ import {
   clampDockHeight, readDockHeight, writeDockHeight
 } from './dockHeight'
 
+describe('기본값 (docs/sdlc/conversation-timeline/ spec FR-40)', () => {
+  beforeEach(() => { localStorage.clear() })
+
+  it('기본 높이는 창의 절반이다 — 입력 카드와 대화 헤더가 기본 높이에 들어가야 한다', () => {
+    expect(DEFAULT_DOCK_RATIO).toBe(0.5)
+  })
+
+  it('하한은 280px이다 — 입력부가 고정되면(FR-41) 그보다 짧은 도크에서는 입력 카드가 잘린다', () => {
+    expect(MIN_DOCK_PX).toBe(280)
+    expect(clampDockHeight(200, 1000)).toBe(280)
+  })
+
+  it('저장된 옛 높이가 새 하한보다 작으면 읽을 때 올라간다 — 따로 옮길 것이 없다', () => {
+    localStorage.setItem(DOCK_HEIGHT_KEY, '150')
+    expect(readDockHeight(1000)).toBe(280)
+  })
+})
+
 describe('clampDockHeight', () => {
   it('범위 안의 값은 그대로 둔다', () => {
     expect(clampDockHeight(400, 1000)).toBe(400)
@@ -24,8 +42,8 @@ describe('clampDockHeight', () => {
   })
 
   it('창이 최소값보다도 작으면 최대 비율이 이긴다', () => {
-    // 100px 창에서 최소값(120)을 지키면 도크가 창을 넘는다. 넘지 않는 쪽을 택한다.
-    expect(clampDockHeight(500, 100)).toBe(100 * MAX_DOCK_RATIO)
+    // 200px 창에서 최소값(280)을 지키면 도크가 창을 넘는다. 넘지 않는 쪽을 택한다.
+    expect(clampDockHeight(500, 200)).toBe(200 * MAX_DOCK_RATIO)
   })
 })
 

@@ -1,5 +1,6 @@
 import { RenameField } from './RenameField'
-import { IconCheck, IconPencil } from './icons'
+import { IconCheck, IconChevronRight, IconPencil, IconPlus } from './icons'
+import { RUN_STATUS_LABELS } from '../runStatus'
 import type { Conversation } from '../conversation'
 import type { Repo } from '@shared/models'
 
@@ -12,8 +13,10 @@ function when(conv: Conversation): string {
 /**
  * 그 대화가 어느 repo에서 돌았는지. 등록된 repo면 이름을, 아니면 경로의 마지막
  * 칸을 보여준다 — 임의 디렉토리에서도 실행할 수 있으므로 "없음"으로 비우지 않는다.
+ * 대화 헤더의 부제도 같은 이름을 쓴다(`docs/sdlc/conversation-timeline/` spec FR-33) —
+ * 목록 줄과 헤더가 같은 대화의 repo를 다른 말로 부르면 안 된다.
  */
-function repoLabel(conv: Conversation, repos: Repo[]): string {
+export function repoLabel(conv: Conversation, repos: Repo[]): string {
   const matched = repos.find((r) => r.path === conv.last.cwd)
   if (matched) return matched.name
   const parts = conv.last.cwd.split(/[\\/]/).filter(Boolean)
@@ -53,7 +56,13 @@ function Row({ conv, selected, repos, onPick, onRename, onClose, renaming, onSta
   }
 
   // 점의 색·이름·툴팁이 **한 값**에서 나온다 — 따로 적으면 색만 다른 턴을 볼 수 있다.
-  const status = conv.state.status
+  //
+  // **도는 턴이 먼저다**(`conv.active ?? conv.state`, 2026-09-27 결정 —
+  // docs/sdlc/conversation-timeline/ spec FR-45 다듬음). 대표 턴(`state`)만 그리면 앞 턴이
+  // 도는 동안 이어 보낸 예약이 점을 "대기 중"으로 만든다 — 대화 헤더와 대화록은 실행 중이라고
+  // 말하는데 목록만 기다린다고 한다. **표시만 그렇다**: 답변 필요 표시와 자동 확인은 계속
+  // 대표 턴을 본다(conversation-fixes FR-3) — 배지(core)가 세는 턴과 같아야 한다.
+  const status = (conv.active ?? conv.state).status
 
   return (
     <li className="dock-conv-row">
@@ -63,18 +72,18 @@ function Row({ conv, selected, repos, onPick, onRename, onClose, renaming, onSta
         onClick={() => onPick(conv)}
       >
         <span className="dock-conv-top">
-          {/* **글자 없이 점만.** 좁은 레일에서 'succeeded' 같은 영어 단어가 제목을
-              밀어낸다 — 여기서 중요한 것은 제목이다(2026-09-23 사용자 결정). 이름은
-              role="img"+aria-label로 남고, 글자로 된 상태 칩은 대화록의 턴마다 그대로
-              보인다.
-              **마지막 턴이 아니라 대표 턴(`conv.state`)이다** — 시작도 못 하고 취소된
-              예약이 앞 턴의 실패·답변 필요를 가리면 배지(core)와 줄이 다른 것을 말한다
-              (docs/sdlc/conversation-fixes/ spec FR-3). */}
+          {/* **글자 없이 점만.** 좁은 레일에서 상태 단어가 제목을 밀어낸다 — 여기서
+              중요한 것은 제목이다(2026-09-23 사용자 결정). 이름은 role="img"+aria-label로
+              남고, 글자로 된 상태 알약은 대화록의 턴마다 그대로 보인다. 이름은 한국어 한
+              표에서 온다(docs/sdlc/conversation-timeline/ spec FR-45) — 클래스는 enum
+              그대로다: 색과 e2e(`e2e/dock.ts`)가 거기 걸려 있다.
+              **마지막 턴이 아니다** — 시작도 못 하고 취소된 예약이 앞 턴의 실패·답변 필요를
+              가리면 배지(core)와 줄이 다른 것을 말한다(docs/sdlc/conversation-fixes/ spec FR-3). */}
           <span
             className={`status-dot status-${status}`}
             role="img"
-            aria-label={status}
-            title={status}
+            aria-label={RUN_STATUS_LABELS[status]}
+            title={RUN_STATUS_LABELS[status]}
           />
           {/* succeeded로 끝나도 agent가 질문하고 멈춘 것일 수 있다. 배지가 없으면
               구분이 안 된다 — 이것만은 글자로 남긴다. */}
@@ -159,20 +168,30 @@ export function ConversationList({
 
   return (
     <div className="dock-side">
+      {/* 글리프(전각 ＋) 대신 아이콘이다 (`docs/sdlc/conversation-timeline/` spec FR-48) — 이름은
+          정확히 "새 대화"다(e2e가 `{ name: '새 대화', exact: true }`로 잡는다). */}
       <button
         type="button"
         className={isNew ? 'dock-new dock-new-selected' : 'dock-new'}
         onClick={onPickNew}
       >
-        ＋ 새 대화
+        <IconPlus width="12" height="12" />
+        새 대화
       </button>
       <ul className="dock-conv-list">{open.map(row)}</ul>
       {/* 끝낸 것이 없으면 토글 자체를 그리지 않는다 (FR-20) — 늘 0이 붙어 있으면
           눈이 걸러내고, 처음 쓰는 사람에게는 무엇을 여는 것인지도 알 수 없다. */}
       {closed.length > 0 && (
         <>
-          <button type="button" className="dock-closed-toggle" onClick={onToggleClosed}>
-            {showClosed ? '▾' : '▸'} 끝낸 대화
+          <button
+            type="button"
+            className="dock-closed-toggle"
+            aria-expanded={showClosed}
+            onClick={onToggleClosed}
+          >
+            {/* 펼치면 CSS가 돌려 아래를 향하게 한다 — 움직이지 않고 돌아가 있을 뿐이다. */}
+            <IconChevronRight className="dock-closed-chevron" width="12" height="12" />
+            끝낸 대화
             <span className="group-count">{closed.length}</span>
           </button>
           {showClosed && <ul className="dock-conv-list">{closed.map(row)}</ul>}

@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { launchApp } from './driver'
+import { waitConvStatus } from './dock'
 
 /**
  * agent 준비 상태와 실행 조건의 IPC 왕복 (docs/sdlc/agent-setup/).
@@ -100,8 +101,7 @@ describe('effort', () => {
     await page.getByPlaceholder(/무엇을 시킬지/).fill('아무거나')
     await page.getByRole('button', { name: '실행', exact: true }).click()
 
-    await page.getByRole('button', { name: /succeeded|failed/ })
-      .waitFor({ timeout: 30_000 })
+    await waitConvStatus(page, null, ['succeeded', 'failed'], 30_000)
 
     const args = JSON.parse(readFileSync(capture, 'utf8')) as string[]
     const i = args.indexOf('--effort')
@@ -132,8 +132,7 @@ describe('effort', () => {
 
     await page.getByPlaceholder(/무엇을 시킬지/).fill('아무거나')
     await page.getByRole('button', { name: '실행', exact: true }).click()
-    await page.getByRole('button', { name: /succeeded|failed/ })
-      .waitFor({ timeout: 30_000 })
+    await waitConvStatus(page, null, ['succeeded', 'failed'], 30_000)
 
     const args = JSON.parse(readFileSync(capture, 'utf8')) as string[]
     expect(args).not.toContain('--effort')

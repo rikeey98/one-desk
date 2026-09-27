@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { launchApp } from './driver'
+import { waitConvStatus } from './dock'
 
 describe('asset 스캔', () => {
   it('repo를 등록하면 발견되고, 담아서 실행하면 한 바퀴가 돈다', async () => {
@@ -57,8 +58,7 @@ describe('asset 스캔', () => {
     await page.getByRole('button', { name: '실행', exact: true }).click()
 
     // 담긴 asset 때문에 조립이나 실행이 깨지지 않는다.
-    await page.getByRole('button', { name: /succeeded/ })
-      .waitFor({ state: 'visible', timeout: 30_000 })
+    await waitConvStatus(page, null, 'succeeded', 30_000)
 
     // 새로고침이 실제로 다시 훑는다 — 등록 뒤에 생긴 파일이 뜬다.
     const secondDir = join(app.repoDir, '.claude', 'skills', '베타')

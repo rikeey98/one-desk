@@ -2,6 +2,7 @@
 // 인자로 받은 시나리오대로 stream-json을 흉내낸다.
 // --scenario success | fail | hang | slow
 import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 const scenario = process.argv[process.argv.indexOf('--scenario') + 1] ?? 'success'
 
@@ -62,6 +63,8 @@ if (scenario === 'hang') {
 } else if (scenario === 'fail') {
   emit({ type: 'result', subtype: 'error', is_error: true, result: '실패함', session_id: 'fake-session' })
   finish(1)
+} else if (process.env.ONE_DESK_FAKE_SCRIPT === 'timeline') {
+  runTimeline()
 } else {
   // e2e가 running 상태를 관찰할 수 있도록 결과를 늦출 수 있다. 기본은 0(즉시).
   // 값이 이상하면 Number()가 NaN을 내고 setTimeout(fn, NaN)은 즉시 실행된다 —
@@ -87,4 +90,89 @@ if (scenario === 'hang') {
     })
     finish(0)
   }, delayMs)
+}
+
+/**
+ * 대화록의 타임라인을 흉내 내는 시나리오 (docs/sdlc/conversation-timeline/ plan 다듬은 것 7).
+ *
+ * e2e 드라이버는 --scenario를 못 넘기므로(위 주석) 환경변수 `ONE_DESK_FAKE_SCRIPT=timeline`으로
+ * 켠다. 기본 시나리오("작업 중" → "끝남")는 **건드리지 않는다** — 기존 e2e 전부가 그것에 기댄다.
+ *
+ * 줄 사이마다 `ONE_DESK_FAKE_STEP_MS`(기본 300ms)를 쉰다 — 도구 호출과 그 결과 사이가 곧
+ * "지금 도는 도구"가 상태 줄에 보이는 창이다. 모양은 claude stream-json 그대로다: 도구 호출은
+ * assistant의 `tool_use` 블록, 결과는 user의 `tool_result` 블록이고 성공이면 `is_error`가 없다.
+ *
+ * 마지막 답에는 **적대적인 마크다운**을 섞는다(spec §7 e2e) — 원시 HTML·원격 이미지·
+ * `javascript:` 링크가 아무것도 실행·로드·탐색하지 않는지 빌드된 앱에서 본다. 이미지 주소의
+ * 포트 9(discard)는 곧바로 연결이 거부된다 — 막는 데 실패해도 바깥으로 나가지 않는다.
+ */
+function runTimeline() {
+  const parsedStep = Number(process.env.ONE_DESK_FAKE_STEP_MS ?? 300)
+  const stepMs = Number.isFinite(parsedStep) ? parsedStep : 300
+  // 작업 디렉토리 기준으로 만든다 — 화면의 상대 경로가 두 OS에서 같게 `src/auth.ts`(Windows는
+  // `src\auth.ts`)로 떨어진다.
+  const file = join(process.cwd(), 'src', 'auth.ts')
+
+  const assistant = (block) => ({ type: 'assistant', message: { content: [block] } })
+  const toolUse = (id, name, input) => assistant({ type: 'tool_use', id, name, input })
+  const toolResult = (id, content, isError = false) => ({
+    type: 'user',
+    message: {
+      content: [{ type: 'tool_result', tool_use_id: id, content, ...(isError ? { is_error: true } : {}) }]
+    }
+  })
+
+  // 200자를 넘는다 — 어댑터의 요약이 잘려 "출력 앞부분만 기록됩니다"가 붙어야 한다.
+  const testOutput = Array.from({ length: 12 }, (_, i) => ` ✓ src/auth${i}.test.ts (3 tests)`).join('\n')
+
+  const answer = [
+    '원인은 토큰 만료 검사가 `<`가 아니라 `<=`여야 하는 것이었습니다.',
+    '',
+    '```ts',
+    'if (now >= expiresAt) return refresh()',
+    '```',
+    '',
+    '- 만료 경계를 고쳤습니다',
+    '- 린트 오류는 남아 있습니다',
+    '',
+    '| 파일 | 변경 |',
+    '| --- | --- |',
+    '| src/auth.ts | +1 −1 |',
+    '',
+    '자세한 것은 [문서](https://example.com)를 보세요. [x](javascript:alert(1))',
+    '',
+    '![p](http://127.0.0.1:9/p.png)',
+    '',
+    '<img src="http://127.0.0.1:9/q.png">',
+    '',
+    '<script>window.__pwned=1</script>'
+  ].join('\n')
+
+  const steps = [
+    assistant({ type: 'text', text: '먼저 인증 모듈을 봅니다.' }),
+    toolUse('toolu_read', 'Read', { file_path: file }),
+    toolResult('toolu_read', 'export function isExpired(now, expiresAt) { return now > expiresAt }'),
+    toolUse('toolu_grep', 'Grep', { pattern: 'expiresAt', output_mode: 'files_with_matches' }),
+    toolResult('toolu_grep', 'Found 3 files\nsrc/auth.ts\nsrc/session.ts\nsrc/token.ts'),
+    toolUse('toolu_test', 'Bash', { command: 'pnpm test', description: '테스트 실행' }),
+    toolResult('toolu_test', testOutput),
+    toolUse('toolu_lint', 'Bash', { command: 'pnpm lint' }),
+    toolResult('toolu_lint', 'src/auth.ts:1:1  error  세미콜론이 없습니다', true),
+    toolUse('toolu_edit', 'Edit', { file_path: file, old_string: 'a < b', new_string: 'a <= b' }),
+    toolResult('toolu_edit', 'The file has been updated.'),
+    // 이름은 화면에 보일 글자일 뿐이다 — 이 픽스처는 MCP 서버에 붙지 않는다.
+    toolUse('toolu_mcp', 'mcp__onedesk__list_issues', {}),
+    toolResult('toolu_mcp', '[]'),
+    assistant({ type: 'text', text: answer }),
+    // claude는 마지막 assistant 텍스트를 result에 다시 담는다 — 화면이 두 번 그리면 안 된다.
+    { type: 'result', subtype: 'success', is_error: false, result: answer, session_id: 'fake-session' }
+  ]
+
+  let index = 0
+  const next = () => {
+    emit(steps[index++])
+    if (index < steps.length) setTimeout(next, stepMs)
+    else finish(0)
+  }
+  next()
 }

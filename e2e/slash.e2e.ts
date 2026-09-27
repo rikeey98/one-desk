@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { launchApp } from './driver'
+import { convRow, waitConvStatus } from './dock'
 
 describe('슬래시 커맨드', () => {
   it('피커에서 삽입한 커맨드가 맥락보다 앞서 실제 CLI stdin으로 전달된다', async () => {
@@ -39,13 +40,14 @@ describe('슬래시 커맨드', () => {
     await prompt.press('Enter')
     await expect.poll(() => prompt.inputValue()).toBe('  /pinetest ')
     await page.getByText('이 커맨드는 뒤에 오는 글을 인자로 씁니다 — 담은 맥락이 인자로 전달됩니다').waitFor()
-    expect(await page.getByRole('button', { name: /running|succeeded/ }).count()).toBe(0)
+    // 커맨드를 넣기만 했다 — 아직 아무 대화도 시작되지 않았다.
+    expect(await convRow(page).count()).toBe(0)
 
     const artifacts = resolve('e2e/artifacts')
     mkdirSync(artifacts, { recursive: true })
     await page.screenshot({ path: join(artifacts, 'slash-inserted.png') })
     await page.getByRole('button', { name: '실행', exact: true }).click()
-    await page.getByRole('button', { name: /succeeded/ }).waitFor({ timeout: 30_000 })
+    await waitConvStatus(page, null, 'succeeded', 30_000)
     const received = readFileSync(capture, 'utf8')
     expect(received.startsWith('/pinetest ')).toBe(true)
     expect(received.indexOf('<context>')).toBeGreaterThan(0)

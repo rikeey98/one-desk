@@ -12,11 +12,18 @@
 
 export const DOCK_HEIGHT_KEY = 'one-desk.dockHeight'
 
-/** 저장된 값이 없을 때의 비율. 원래 CSS에 박혀 있던 34%다. */
-export const DEFAULT_DOCK_RATIO = 0.34
+/**
+ * 저장된 값이 없을 때의 비율 — 창의 절반 (`docs/sdlc/conversation-timeline/` spec FR-40).
+ * 원래 CSS에 박혀 있던 34%였는데, 그 높이에는 입력 카드조차 다 들어가지 않았다.
+ */
+export const DEFAULT_DOCK_RATIO = 0.5
 
-/** 헤더와 입력만 남아 대화록이 사라지는 것을 막는 하한 */
-export const MIN_DOCK_PX = 120
+/**
+ * 도크 헤더 + 대화 헤더 + 입력 카드 + 대화록 두어 줄이 들어가는 하한 (FR-40).
+ * **입력부는 고정이다**(FR-41) — 도크가 이보다 짧으면 입력 카드가 스크롤로 빠질 곳 없이
+ * 잘린다. 저장된 옛 높이(하한 120px 시절)는 읽을 때 클램프되므로 옮길 것이 없다.
+ */
+export const MIN_DOCK_PX = 280
 
 /** 위의 이슈·메모 영역이 완전히 사라지는 것을 막는 상한 */
 export const MAX_DOCK_RATIO = 0.85

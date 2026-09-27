@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState , useRef } from 'react'
+import { useEffect, useMemo, useState, useRef, type KeyboardEvent } from 'react'
 import { useClient } from '../client/ClientProvider'
 import { clampDockHeight, readDockHeight, writeDockHeight, DEFAULT_DOCK_RATIO } from '../dockHeight'
 import { ConversationPanel } from './ConversationPanel'
-import { STOP_RUNNING_TURN } from './Transcript'
+import { ConversationHeader } from './ConversationHeader'
 import { ConversationList } from './ConversationList'
+import { draftKeyOf } from '../store/drafts'
+import { useDraftFilled } from '../store/DraftContext'
 import { SlotIndicator } from './SlotIndicator'
+import { IconChevronDown, IconCollapse, IconMaximize } from './icons'
 import { conversationIdOf, groupConversations, type Conversation } from '../conversation'
 import { INBOX_RULES, inboxCategory } from '@shared/inbox'
 import type { ContextChip } from '../context'
@@ -42,6 +45,10 @@ export function Dock({
 }) {
   const client = useClient()
   const [open, setOpen] = useState(true)
+  // 최대화 (`docs/sdlc/conversation-timeline/` spec FR-38) — 도크가 본문 전체 높이를 쓰고 세 패널은
+  // CSS로 **숨는다**(언마운트하지 않는다 — 입력 중이던 이슈 본문이 지워지지 않는다). 보기 방식이라
+  // 저장하지 않고, workspace를 바꿔도 남긴다(spec §3).
+  const [maximized, setMaximized] = useState(false)
   // 도크 높이. 원래 CSS에 34%로 박혀 있어 대화창을 넓힐 방법이 없었다.
   // 창 크기는 마운트 시점에만 읽는다 — 리사이즈 추적은 이 변경의 범위가 아니고,
   // 값은 아래 드래그에서 매번 지금 창 크기로 다시 클램프된다.
@@ -91,7 +98,9 @@ export function Dock({
   // 목록의 펼침·편집 state는 여기서 쥔다 — ConversationList에 내리면 도크를 접었다
   // 펴는 것만으로 편집하던 이름이 사라진다.
   const [showClosed, setShowClosed] = useState(false)
-  const [renamingId, setRenamingId] = useState<string | null>(null)
+  // 이름 편집은 목록 줄과 대화 헤더가 **한 state**를 나눠 쓴다 (spec FR-34) — 두 자리에서 같은
+  // 대화를 동시에 고치는 상태가 생기지 않는다. `where`가 어느 자리의 입력칸인지를 가른다.
+  const [renaming, setRenaming] = useState<{ id: string; where: 'list' | 'header' } | null>(null)
 
   // workspace가 바뀌면 고른 대화·보기·이름 편집을 처음으로 돌린다 (spec FR-22). App은
   // Dock에 key를 주지 않아 workspace를 바꿔도 다시 마운트되지 않는다 — 남겨 두면 새
@@ -101,14 +110,14 @@ export function Dock({
   //
   // **effect가 아니라 렌더 중에 맞춘다**(React의 "prop이 바뀌면 state 조정" 패턴). effect면
   // 옛 선택과 새 workspaceId가 함께 그려지는 한 프레임이 생긴다. 아래 포커스 effect는
-  // 커밋 뒤에 도므로, 둘이 같이 바뀌어도 포커스가 이긴다. 끝낸 대화 펼침(`showClosed`)은
-  // 선택이 아니라 보기 취향이라 두고 간다.
+  // 커밋 뒤에 도므로, 둘이 같이 바뀌어도 포커스가 이긴다. 끝낸 대화 펼침(`showClosed`)과
+  // 최대화(`maximized`)는 선택이 아니라 보기 취향이라 두고 간다.
   const [shownWorkspaceId, setShownWorkspaceId] = useState(workspaceId)
   if (shownWorkspaceId !== workspaceId) {
     setShownWorkspaceId(workspaceId)
     setView('new')
     setPickedId(null)
-    setRenamingId(null)
+    setRenaming(null)
     setActionError(null)
   }
 
@@ -235,7 +244,7 @@ export function Dock({
   }
 
   async function renameConversation(conv: Conversation, title: string) {
-    setRenamingId(null)
+    setRenaming(null)
     setActionError(null)
     try {
       await client.runs.rename(conv.id, title)
@@ -244,13 +253,51 @@ export function Dock({
     }
   }
 
+  function toggleOpen() {
+    // 접으면 최대화도 푼다 — 접힌 도크가 최대화로 남으면 세 패널이 숨은 채 도크 헤더만 남는다.
+    if (open) setMaximized(false)
+    setOpen(!open)
+  }
+
+  function toggleMaximized() {
+    if (open && maximized) {
+      setMaximized(false)
+      return
+    }
+    // 접힌 도크에서 누르면 펼치면서 최대화한다 (FR-38).
+    setOpen(true)
+    setMaximized(true)
+  }
+
+  /**
+   * Esc로 최대화를 푼다 (spec FR-39). **안쪽부터 푼다** — 피커·이름 편집·메뉴가 먼저 Esc를
+   * 삼키므로(`stopPropagation`이면 여기까지 오지 않고, `preventDefault`만 했으면 아래에서
+   * 거른다) 그쪽이 열려 있으면 최대화는 그대로다. 푼 Esc는 여기서 멈춘다 — React의
+   * `stopPropagation`은 document까지 닿지 않으므로 App의 "열린 항목 닫기"가 같은 Esc에 같이
+   * 돌지 않는다(RenameField가 기대는 것과 같은 성질). 최대화가 아니면 아무것도 삼키지 않는다.
+   */
+  function onKeyDown(e: KeyboardEvent<HTMLElement>) {
+    if (e.key !== 'Escape' || e.defaultPrevented || !(open && maximized)) return
+    e.preventDefault()
+    e.stopPropagation()
+    setMaximized(false)
+  }
+
+  const isMax = open && maximized
+  const shownConversation = view === 'new' ? null : selected
+  // 보는 대화의 입력칸에 보낼 것이 있는가 — 대화 헤더의 `멈추기`는 그때만 선다(spec §8의 3, 결정
+  // 2026-09-27). 입력칸이 비면 같은 자리의 전송 버튼이 이미 중지다. 키는 입력부의 초안 키와 같다.
+  const hasDraft = useDraftFilled(draftKeyOf(shownConversation?.id ?? null, workspaceId))
+
   return (
     <section
-      className={open ? 'dock dock-open' : 'dock'}
-      {...(open ? { style: { height } } : {})}
+      className={['dock', open && 'dock-open', isMax && 'dock-max'].filter(Boolean).join(' ')}
+      // 최대화하면 인라인 높이를 쓰지 않는다 — 본문 전체를 CSS(`.dock-max`)가 준다.
+      {...(open && !isMax ? { style: { height } } : {})}
+      onKeyDown={onKeyDown}
     >
-      {/* 접힌 도크는 헤더뿐이라 조절할 것이 없다. */}
-      {open && (
+      {/* 접힌 도크는 헤더뿐이라, 최대화한 도크는 본문 전체라 조절할 것이 없다. */}
+      {open && !isMax && (
         <div
           role="separator"
           aria-label="대화창 크기 조절"
@@ -265,31 +312,41 @@ export function Dock({
           onDoubleClick={resetHeight}
         />
       )}
-      {/* 헤더에는 토글·슬롯 표시기·취소만 남는다. 대화 목록이 세로로 내려가면서
-          "대화가 늘면 슬롯 표시기가 화면 밖으로 밀려난다"는 문제(3b 스펙 §7이 탭
-          스트립 밖에 표시기를 둔 이유)가 구조적으로 사라졌다. */}
+      {/* 헤더는 토글 · 슬롯 표시기 · 최대화다 (`docs/sdlc/conversation-timeline/` spec FR-37).
+          대화 목록이 세로로 내려가면서 "대화가 늘면 슬롯 표시기가 화면 밖으로 밀려난다"는
+          문제(3b 스펙 §7이 탭 스트립 밖에 표시기를 둔 이유)가 구조적으로 사라졌다.
+
+          **취소는 여기 없다** (FR-29). 도는 턴은 대화 헤더의 `멈추기`, 입력부의 `중지`, 대화록 상태
+          줄의 `실행 중인 턴 멈추기`가, 예약은 입력칸 위 칩의 `예약 취소`가, 슬롯을 기다리는 첫
+          지시는 상태 줄의 `대기 취소`가 멈춘다 — 전부 아래 `cancel`을 탄다. lifecycle FR-24가 여기
+          취소를 남긴 이유("대화록의 턴별 취소는 pending에만 있다")는 fixes FR-11로 사라졌다. */}
       <header className="dock-header">
-        <button type="button" className="dock-toggle" onClick={() => setOpen(!open)}>
-          {open ? '▾' : '▴'} 실행
+        {/* 토글의 이름에 "실행"·"접기"를 넣지 않는다 (FR-37). 아이콘이 aria-hidden이라 글자가
+            "실행"이면 이름이 정확히 "실행"이 되어 전송 버튼의 `{ name: '실행', exact: true }`와
+            부딪히고, "접기"는 턴의 `접기`와 부분 일치로 부딪힌다. */}
+        <button
+          type="button"
+          className="dock-toggle"
+          aria-label={open ? '대화창 숨기기' : '대화창 보이기'}
+          aria-expanded={open}
+          onClick={toggleOpen}
+        >
+          <IconChevronDown className="dock-toggle-icon" width="12" height="12" />
+          대화
         </button>
         <SlotIndicator snapshot={queue} onChangeLimit={onChangeLimit} />
-        {/* **대화의 활성 턴을 겨눈다 — 실행 중인 턴이 먼저다** (`docs/sdlc/conversation-fixes/`
-            spec FR-11). 마지막 턴(`last`)을 겨누면 예약이 있을 때 예약을 취소하고 실행 중인
-            턴은 멈출 수 없으며, 예약을 취소하고 나면 마지막 턴이 끝나 버튼 자체가 사라진다.
-            대기 중인 턴도 겨눌 수 있다 — 프로세스가 없을 뿐 사용자에겐 똑같이 걸려 있다.
-            **이름이 겨누는 턴을 말한다** — 대화록에서 같은 턴을 겨누는 버튼과 같은 이름이다.
-            실행 중이면 "실행 중인 턴 멈추기", 예약이면 예약 버블과 같은 "취소". 늘 "취소"로
-            두면 예약이 걸린 대화에서 헤더와 예약 버블이 같은 이름으로 다른 턴을 멈춘다. */}
-        {view === 'conversation' && selected?.active && (
-          <button
-            type="button"
-            className="dock-cancel"
-            aria-label={selected.active.status === 'running' ? STOP_RUNNING_TURN : undefined}
-            onClick={() => { if (selected.active) void cancel(selected.active.id) }}
-          >
-            {selected.active.status === 'running' ? '멈추기' : '취소'}
-          </button>
-        )}
+        {/* 한 단추가 번갈아 선다 — 누른 뒤에도 포커스가 같은 자리에 남아 Esc가 도크에 닿는다.
+            되돌리는 이름을 "축소"라 하지 않는다: 패널의 `축소`(e2e가 exact로 잡는다)와 부분
+            일치로 부딪힌다(FR-38). */}
+        <button
+          type="button"
+          className="row-action dock-max-toggle"
+          aria-label={isMax ? '대화창 원래 크기로' : '대화창 최대화'}
+          title={isMax ? '대화창 원래 크기로 (Esc)' : '대화창 최대화'}
+          onClick={toggleMaximized}
+        >
+          {isMax ? <IconCollapse /> : <IconMaximize />}
+        </button>
       </header>
 
       {open && (
@@ -303,24 +360,49 @@ export function Dock({
               isNew={view === 'new'}
               repos={repos}
               showClosed={showClosed}
-              renamingId={renamingId}
+              renamingId={renaming?.where === 'list' ? renaming.id : null}
               onPickNew={() => { setView('new'); setPickedId(null); setOpen(true) }}
               onPick={pick}
               onRename={(conv, title) => void renameConversation(conv, title)}
               onClose={(conv) => void closeConversation(conv)}
               onToggleClosed={() => setShowClosed(!showClosed)}
-              onStartRename={setRenamingId}
-              onCancelRename={() => setRenamingId(null)}
+              onStartRename={(id) => setRenaming({ id, where: 'list' })}
+              onCancelRename={() => setRenaming(null)}
             />
             {/* key로 대화가 바뀔 때마다 언마운트→재마운트시킨다. key가 없으면 목록에서
                 다른 대화를 골라도 RunPanel 인스턴스가 그대로 남아 입력 중이던
                 프롬프트·모델이 다른 대화로 따라간다 — 예전에는 로그 뷰로 가면 RunPanel
                 자체가 안 그려져 저절로 초기화됐지만, 지금은 대화마다 같은 RunPanel이
-                계속 떠 있어 그 안전장치가 사라졌다. */}
+                계속 떠 있어 그 안전장치가 사라졌다.
+
+                **key는 초안의 키와 같다** — 대화 id, 새 대화면 `new:<workspaceId>`
+                (`docs/sdlc/conversation-timeline/` spec FR-31). 늘 'new'면 새 대화 칸이
+                workspace를 넘어 같은 인스턴스로 남아 옛 workspace의 오류·고른 값을 들고 간다.
+                쓰던 지시는 인스턴스가 아니라 초안 스토어가 쥐므로 다시 마운트돼도 남는다.
+
+                **대화 칸은 헤더 · 대화록 · 입력부이고 스크롤은 대화록만 한다** (FR-41) —
+                `.dock-main`은 넘치지 않는다. 헤더는 여기서 그린다(plan 다듬은 것 5): 필요한 것
+                (대화·이름 바꾸기·끝내기·멈추기)이 전부 여기 있어 prop을 한 겹 덜 내린다. */}
             <div className="dock-main">
+              <ConversationHeader
+                conversation={shownConversation}
+                repos={repos}
+                renaming={shownConversation !== null
+                  && renaming?.where === 'header' && renaming.id === shownConversation.id}
+                onStartRename={() => {
+                  if (shownConversation) setRenaming({ id: shownConversation.id, where: 'header' })
+                }}
+                onRename={(title) => {
+                  if (shownConversation) void renameConversation(shownConversation, title)
+                }}
+                onCancelRename={() => setRenaming(null)}
+                onClose={() => { if (shownConversation) void closeConversation(shownConversation) }}
+                onCancel={cancel}
+                hasDraft={hasDraft}
+              />
               <ConversationPanel
-                key={view === 'new' ? 'new' : selected?.id ?? 'new'}
-                conversation={view === 'new' ? null : selected}
+                key={draftKeyOf(shownConversation?.id ?? null, workspaceId)}
+                conversation={shownConversation}
                 workspaceId={workspaceId}
                 workspaces={workspaces}
                 repos={repos}

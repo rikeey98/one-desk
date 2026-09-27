@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { launchApp } from './driver'
+import { waitConvStatus } from './dock'
 
 const PROMPT = '인박스 확인용 지시'
 
@@ -24,12 +25,11 @@ describe('결과 인박스', () => {
 
     // 2. 실행하고 끝나기를 기다린다
     // run-start 버튼의 접근성 이름은 정확히 "실행"뿐이다. exact 없이 substring으로
-    // 잡으면 도크 토글("▾ 실행")과 슬롯 표시기("실행 슬롯" aria-label)까지 걸려
+    // 잡으면 슬롯 표시기("실행 슬롯")·멈추기("이 대화의 실행 멈추기") 같은 aria-label까지 걸려
     // strict mode 위반이 된다(실측).
     await page.getByPlaceholder(/무엇을 시킬지/).fill(PROMPT)
     await page.getByRole('button', { name: '실행', exact: true }).click()
-    await page.getByRole('button', { name: new RegExp(`succeeded.*${PROMPT}`) })
-      .waitFor({ state: 'visible', timeout: 20_000 })
+    await waitConvStatus(page, PROMPT, 'succeeded')
 
     // 3. **배지는 붙지 않는다.** 완료·미확인은 "지금 손이 필요한 것"이 아니므로
     //    빨간 숫자를 올리지 않는다(conversation-lifecycle FR-4). 예전에는 여기서

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { launchApp } from './driver'
 import { clickRowAction } from './rowAction'
+import { dragDockToMin } from './dock'
 
 describe('대화', () => {
   it('한 세션에서 세 턴을 주고받고 인박스에는 한 줄만 남는다', async () => {
@@ -27,10 +28,13 @@ describe('대화', () => {
     // 이 대화가 무엇을 받았는지 보여주는 줄을 함께 본다
     // (docs/sdlc/conversation-context/). 담아 두고 1턴을 보낸다.
     await attach.click()
+    // 담은 것이 있으면 칩 줄이 선다 — 아래에서 "비면 칩 줄이 없다"를 볼 때 그 판정이 헛돌지 않게.
+    await page.locator('.composer-card .run-chips').getByRole('button', { name: '샘플 맥락에서 빼기' })
+      .waitFor({ state: 'visible', timeout: 5_000 })
 
     const prompt = page.getByRole('textbox', { name: '지시' })
     // run-start 버튼의 접근성 이름은 정확히 "실행"뿐이다. exact 없이 substring으로
-    // 잡으면 도크 토글("▾ 실행")과 슬롯 표시기("실행 슬롯" aria-label)까지 걸려
+    // 잡으면 슬롯 표시기("실행 슬롯")·멈추기("이 대화의 실행 멈추기") 같은 aria-label까지 걸려
     // strict mode 위반이 된다(실측) — 그래서 exact: true가 필수다.
     const send = page.getByRole('button', { name: '실행', exact: true })
     // 대화록의 사용자 지시 줄로 범위를 좁힌다. 도크 탭도 첫 턴의 제목을 항상 그리고
@@ -55,13 +59,17 @@ describe('대화', () => {
     // 담아 보낸 것이 대화에 남아 보인다.
     await applied.filter({ hasText: 'repo · 샘플' })
       .waitFor({ state: 'visible', timeout: 5_000 })
-    // 그리고 입력부의 칩은 비었다 — 두 줄이 서로 다른 것을 말한다(설계 §4-1, FR-8).
-    await page.getByText('왼쪽 항목의 ＋를 눌러 맥락을 담으세요')
-      .waitFor({ state: 'visible', timeout: 5_000 })
+    // 그리고 입력부의 칩은 비었다 — 두 줄이 서로 다른 것을 말한다(설계 §4-1, FR-8). 빈 칩 줄은
+    // 아예 서지 않는다 — 안내 문장도 없다(docs/sdlc/conversation-timeline/ spec §8의 4).
+    await page.locator('.composer-card .run-chips').waitFor({ state: 'detached', timeout: 5_000 })
 
-    // 2턴 — 1턴이 도는 중에 보낸다. 대화당 예약은 하나뿐이라(설계 §3-2) 예약 버블이
+    // 2턴 — 1턴이 도는 중에 보낸다. 대화당 예약은 하나뿐이라(설계 §3-2) 예약이
     // 생기고 전송이 잠긴다. RunQueue의 groupKey가 같은 대화의 두 턴을 동시에 띄우지
     // 않으므로, 전체 동시 실행 상한과 무관하게 항상 대기 상태를 관찰할 수 있다.
+    //
+    // **예약은 대화록이 아니라 입력칸 위 칩이다** (docs/sdlc/conversation-timeline/ spec FR-30).
+    // "대기 중"은 그 칩의 단독 span(`.composer-queue-label`) 하나에만 걸린다 — 대화록의 상태
+    // 알약 "대기 중"은 슬롯을 기다리는 첫 지시에만 나오고 이 시나리오에는 없다.
     //
     // "대기 중"이 뜬 뒤에야 확인하는 게 아니라, 클릭 직후 바로 waitFor를 걸어
     // Playwright의 자동 대기(폴링)에 맡긴다 — 고정 sleep 뒤에 스냅샷을 찍으면
@@ -69,6 +77,8 @@ describe('대화', () => {
     await prompt.fill('둘째 지시')
     await send.click()
     await page.getByText('대기 중').waitFor({ state: 'visible', timeout: 5_000 })
+    // 예약은 시작되기 전까지 대화록에 없다.
+    expect(await turnPrompt('둘째 지시').count()).toBe(0)
 
     // 전송 성공 직후 RunPanel이 프롬프트를 비운다(RunPanel.tsx:137) — 그래서 빈
     // 프롬프트에서 disabled를 확인하면 "예약 중이라 잠김"과 "쓸 지시가 없어 원래
@@ -82,39 +92,61 @@ describe('대화', () => {
     // 쓰고 @playwright/test는 의존성에 없다) — expect.poll로 같은 재시도 의미를 살린다.
     await expect.poll(() => send.isDisabled(), { timeout: 5_000 }).toBe(true)
 
-    // 1턴이 끝나면 2턴이 자동으로 뜬다 — 이 계획 전체의 핵심 약속이다.
+    // 1턴이 끝나면 2턴이 자동으로 뜬다 — 이 계획 전체의 핵심 약속이다. 뜨면 칩이 사라지고
+    // 대화록에 나타난다.
     await page.getByText('대기 중').waitFor({ state: 'hidden', timeout: 20_000 })
+    await turnPrompt('둘째 지시').waitFor({ state: 'visible', timeout: 5_000 })
     await expect.poll(() => send.isDisabled(), { timeout: 20_000 }).toBe(false)
 
-    // 3턴 — 프롬프트는 이미 채워져 있다.
+    // 3턴 — 프롬프트는 이미 채워져 있다. 2턴이 도는 중이라(가짜 CLI 4초) 3턴도 예약이다 —
+    // 칩으로 먼저 뜨고, 2턴이 끝나 시작된 뒤에야 대화록에 나타난다.
     await send.click()
-    await turnPrompt('셋째 지시').waitFor({ state: 'visible', timeout: 5_000 })
+    await page.locator('.composer-queue', { hasText: '셋째 지시' })
+      .waitFor({ state: 'visible', timeout: 5_000 })
+    await turnPrompt('셋째 지시').waitFor({ state: 'visible', timeout: 20_000 })
 
     // 대화록에 턴이 셋, 도크 탭은 하나다 — 세 턴이 별개의 대화로 흩어지지 않았다.
     await expect.poll(() => page.locator('.turn').count(), { timeout: 20_000 }).toBe(3)
 
     // 그 턴이 무엇으로 돌았고 얼마나 썼는지 (docs/sdlc/run-info/). 어댑터 →
     // manager 병합 → DB 아홉 컬럼 → IPC → 화면까지가 이 한 줄에 걸려 있다.
+    // 턴 끝줄의 메타 조각이다(docs/sdlc/conversation-timeline/ spec FR-11) — 예전의
+    // `.turn-info`가 여기로 옮겨 왔다.
     //
-    // **끝난 턴에만 붙는다** — 사용량은 result와 함께 오므로, 이 줄을 기다리는
-    // 것은 곧 그 턴이 끝나기를 기다리는 것이다. 위쪽(2턴 예약을 관찰하는 구간)에
-    // 두면 1턴을 끝내버려 예약 버블이 영영 뜨지 않는다.
-    const info = page.locator('.turn-info').first()
+    // **관측 모델은 끝난 턴에만 붙는다** — 사용량은 result와 함께 오므로, 이 조각을
+    // 기다리는 것은 곧 그 턴이 끝나기를 기다리는 것이다. 위쪽(2턴 예약을 관찰하는
+    // 구간)에 두면 1턴을 끝내버려 예약 칩이 영영 뜨지 않는다.
+    //
+    // 컨텍스트 점유(2+15428+37917 = 53,347 → "컨텍스트 5%")는 턴이 아니라 대화 헤더의 링이다
+    // (spec FR-36). 링의 이름은 무엇을 여는지와 지금 값을 함께 말한다.
+    const info = page.locator('.turn-meta').first()
     await info.waitFor({ state: 'visible', timeout: 10_000 })
     await expect.poll(() => info.textContent(), { timeout: 10_000 })
       .toContain('claude-fake-5[1m]')
-    // 캐시를 포함한 마지막 요청의 프롬프트 크기로 잰다 — 2+15428+37917 = 53,347.
-    expect(await info.textContent()).toContain('컨텍스트 5%')
-    // 비용은 화면이 아니라 호버로만 읽는다 (FR-4).
+    // 비용은 화면이 아니라 호버로만 읽는다 (FR-4). 캐시 두 칸도 끝까지 실려 왔다.
     expect(await info.textContent()).not.toContain('$')
     expect(await info.getAttribute('title')).toContain('$0.3870')
+    expect(await info.getAttribute('title')).toContain('캐시 읽기 15,428')
+    expect(await info.getAttribute('title')).toContain('캐시 쓰기 37,917')
+    const ring = page.locator('.conv-header').getByRole('button', { name: '사용량, 컨텍스트 5%' })
+    await ring.waitFor({ state: 'visible', timeout: 10_000 })
+    // 링 곁에 같은 수의 퍼센트 글자가 선다 — 5%의 링은 짧은 호라 값을 읽기 어렵다(spec §8의 2).
+    expect(await ring.textContent()).toBe('5%')
+    // 누적 비용은 링을 눌러야 보인다 — 화면에 돈을 상시 띄우지 않는다(run-info FR-4).
+    expect(await page.getByText(/\$\d/).count()).toBe(0)
+    await ring.click()
+    const usage = page.getByRole('dialog', { name: '이 대화의 누적 사용량' })
+    await usage.waitFor({ state: 'visible', timeout: 5_000 })
+    expect(await usage.textContent()).toContain('53,347 / 1,000,000')
+    await page.keyboard.press('Escape')
+    await usage.waitFor({ state: 'hidden', timeout: 5_000 })
 
     // 2·3턴은 아무것도 담지 않았다 — 줄은 1턴의 것 하나 그대로다(FR-2).
     await expect.poll(() => applied.count(), { timeout: 5_000 }).toBe(1)
 
     // 2턴이 pending을 벗어났다는 사실만으로는 부족하다 — resume spec이 잘못된
     // session id나 cwd를 만들어 즉시 실패·취소돼도 위 단언들은 전부 그대로
-    // 만족된다(대기 버블이 사라지고, .turn 개수는 실패·취소 턴에도 붙는다). 특정
+    // 만족된다(예약 칩이 사라지고, .turn 개수는 실패·취소 턴에도 붙는다). 특정
     // 턴(둘째 지시)에 .status-succeeded가 실제로 붙는지까지 확인해야 이 기능의
     // 심장부 — 이어받은 세션이 정말로 성공한다 — 를 검증한다. 가짜 CLI는 매 턴
     // 성공 시나리오라(fake-claude.mjs) 시간이 지나면 반드시 붙는다.
@@ -123,7 +155,7 @@ describe('대화', () => {
 
     // 목록 줄 개수로 "대화는 하나"를 문자 그대로 지킨다 — /첫 지시/ 줄이 "존재"하는
     // 것만 보면 2·3턴이 별개 대화로 새서 "둘째 지시" 제목의 줄이 하나 더 생겨도
-    // 이 매칭에는 안 잡혀 그대로 통과해버린다. "＋ 새 대화"는 .dock-new라 안 세인다.
+    // 이 매칭에는 안 잡혀 그대로 통과해버린다. "새 대화" 단추는 .dock-new라 안 세인다.
     //
     // 제목으로 세지 않는다: 줄 끝 액션의 접근성 이름이 `<제목> 이름 바꾸기`·
     // `<제목> 대화 끝내기`라(FR-21) 제목 문자열은 줄 하나당 세 번 걸린다.
@@ -134,33 +166,58 @@ describe('대화', () => {
     expect(await page.locator('.dock-conv-title', { hasText: '샘플' }).count()).toBe(1)
     await expect.poll(() => page.locator('.dock-conv').count(), { timeout: 5_000 }).toBe(1)
 
-    // **목록과 대화는 따로 스크롤한다.** .dock-body가 스크롤러가 되면 둘이 한 덩어리로
-    // 움직여 대화록을 내릴 때 목록도 함께 올라간다(사용자 실측 보고). jsdom은 레이아웃을
-    // 계산하지 않아 단위 테스트로는 잡을 수 없다 — 여기서만 답할 수 있는 질문이다.
-    //
+    // **스크롤은 대화록만 한다** (docs/sdlc/conversation-timeline/ spec FR-41, D7의 핵심 약속).
+    // 도크를 하한까지 끌어내려도 입력 카드는 도크 안에 온전히 남고, 대화록이 바닥에 붙어 있다.
+    // 목록과 대화도 따로 스크롤한다 — .dock-body가 스크롤러가 되면 둘이 한 덩어리로 움직여
+    // 대화록을 내릴 때 목록도 함께 올라간다(사용자 실측 보고). jsdom은 레이아웃을 계산하지 않아
+    // 단위 테스트로는 잡을 수 없다 — 여기서만 답할 수 있는 질문이다.
+    await dragDockToMin(page)
+
     // 본문을 **문자열로** 넘긴다. 함수로 쓰면 TS가 이 파일을 node 프로젝트
     // (`tsconfig.node.json`)로 검사하는데 거기엔 DOM lib이 없어서 `document`를 못 찾는다.
     // lib에 "DOM"을 더하면 같은 프로젝트에 묶인 `core/`가 브라우저 타입을 알게 되어
     // 경계 1("core는 electron/브라우저를 모른다")이 흐려진다 — 그쪽을 건드리지 않는다.
-    const scroll = await page.evaluate(`(() => {
+    const measure = `(() => {
       const pick = (sel) => document.querySelector(sel)
       const body = pick('.dock-body')
       const side = pick('.dock-side')
       const main = pick('.dock-main')
-      // 대화 칸을 끝까지 내려 본다 — 목록이 따라 움직이는지가 이 단언의 핵심이다.
-      main.scrollTop = main.scrollHeight
+      const transcript = pick('.transcript')
       return {
         // 소수점 반올림으로 1px 차이가 나는 경우가 있어 여유를 둔다.
         bodyOverflows: body.scrollHeight > body.clientHeight + 1,
-        // 실행 패널만 284px이라 도크 기본 높이에서는 대화 칸이 반드시 넘친다.
-        mainScrolled: main.scrollTop > 0,
+        // 대화 칸 자체는 넘치지 않는다 — 넘치면 입력부가 같이 스크롤로 빠진다.
+        mainOverflows: main.scrollHeight > main.clientHeight + 1,
+        transcriptOverflows: transcript.scrollHeight > transcript.clientHeight + 1,
+        transcriptAtBottom: transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight <= 24,
+        cardInside: pick('.composer-card').getBoundingClientRect().bottom
+          <= pick('.dock').getBoundingClientRect().bottom + 1,
+        // 대화록이 넘쳐 스크롤바가 선 뒤에도 턴 열과 입력 카드의 좌우 끝이 맞는다(spec §4 — 입력
+        // 카드도 같은 폭·같은 들여쓰기). 예전에는 스크롤바 폭만큼 턴 열이 밀렸다(리뷰가 찾은 것).
+        columnGap: (() => {
+          const turn = pick('.turn').getBoundingClientRect()
+          const card = pick('.composer-card').getBoundingClientRect()
+          return Math.max(Math.abs(turn.left - card.left), Math.abs(turn.right - card.right))
+        })(),
         sideScrollTop: side.scrollTop
       }
-    })()`) as { bodyOverflows: boolean; mainScrolled: boolean; sideScrollTop: number }
-    // .dock-body가 스크롤러면 둘이 한 덩어리로 움직인다.
-    expect(scroll.bodyOverflows).toBe(false)
-    expect(scroll.mainScrolled).toBe(true)
-    expect(scroll.sideScrollTop).toBe(0)
+    })()`
+    type Layout = {
+      bodyOverflows: boolean; mainOverflows: boolean; transcriptOverflows: boolean
+      transcriptAtBottom: boolean; cardInside: boolean; columnGap: number; sideScrollTop: number
+    }
+    // 대화록 칸이 줄어도 바닥에 붙어 있던 대화록은 바닥을 지킨다(FR-42 다듬음 — 칸 자신의 높이
+    // 변화). 상자가 줄면 scrollTop이 위를 기준으로 남아 바닥이 가려지는 것이 브라우저 기본이다.
+    await expect.poll(async () => (await page.evaluate(measure) as Layout).transcriptAtBottom, { timeout: 5_000 })
+      .toBe(true)
+    const layout = await page.evaluate(measure) as Layout
+    expect(layout.bodyOverflows).toBe(false)
+    expect(layout.mainOverflows).toBe(false)
+    // 하한(280px)에서는 세 턴이 대화록에 다 들어가지 않는다 — 넘쳐야 위 단언이 의미가 있다.
+    expect(layout.transcriptOverflows).toBe(true)
+    expect(layout.cardInside).toBe(true)
+    expect(layout.columnGap).toBeLessThanOrEqual(1)
+    expect(layout.sideScrollTop).toBe(0)
 
     // 인박스에는 대화가 한 줄이다 — 여기서부터만 화면을 벗어난다. 위 1~5번은
     // 인박스로 갔다 오지 않고 확인했다: 다른 화면에 갔다 오면 도크가 재마운트돼

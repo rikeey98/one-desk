@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { launchApp } from './driver'
+import { waitConvStatus } from './dock'
 
 const ISSUE = '토큰 만료 버그'
 const PROMPT = '파일 목록 알려줘'
@@ -9,7 +10,11 @@ describe('핵심 한 바퀴', () => {
     // 여기서 try/finally { await app.close() }로 직접 닫지 않는다. smoke.e2e.ts와 같은
     // 이유다 — launchApp()이 onTestFinished로 정리(스크린샷 → 종료 → 임시 디렉토리
     // 삭제)를 스스로 예약하므로 테스트는 아무것도 닫지 않는다.
-    const app = await launchApp()
+    //
+    // 가짜 CLI를 늦춘다 — 8단계는 "작업 중"이 답 칸에 흐르는 **진행 중의 순간**을 봐야 하고,
+    // 끝나면 답 칸이 최종 답("끝남")으로 바뀌어 그 순간이 사라진다. driver의 기본값(1500ms)은
+    // 느린 기계에서 창이 좁다(conversation.e2e.ts와 같은 이유).
+    const app = await launchApp({ env: { ONE_DESK_FAKE_DELAY_MS: '4000' } })
     const page = app.page
 
     // 1. workspace 만들고 고른다
@@ -46,7 +51,7 @@ describe('핵심 한 바퀴', () => {
 
     // 6. 지시를 넣고 실행
     // run-start 버튼의 접근성 이름은 정확히 "실행"뿐이다. exact 없이 substring으로
-    // 잡으면 도크 토글("▾ 실행")과 슬롯 표시기("실행 슬롯" aria-label)까지 걸려
+    // 잡으면 슬롯 표시기("실행 슬롯")·멈추기("이 대화의 실행 멈추기") 같은 aria-label까지 걸려
     // strict mode 위반이 된다(실측).
     await page.getByPlaceholder(/무엇을 시킬지/).fill(PROMPT)
     await page.getByRole('button', { name: '실행', exact: true }).click()
@@ -62,21 +67,29 @@ describe('핵심 한 바퀴', () => {
     //    그 계약은 core 단위 테스트가 잡아야 할 자리다.
     // **줄의 제목은 지시가 아니라 담은 맥락에서 온다** (conversation-lifecycle FR-11).
     // 이 대화는 이슈를 담았으므로 2단(첫 이슈 이름)이다 — PROMPT로 찾으면 못 찾는다.
-    const runningTab = page.getByRole('button', { name: new RegExp(`running.*${ISSUE}`) })
-    await runningTab.waitFor({ state: 'visible', timeout: 5_000 })
+    // 상태는 점의 클래스로 본다 — 이름은 한국어 표라 문구가 바뀌면 깨진다(e2e/dock.ts).
+    await waitConvStatus(page, ISSUE, 'running', 5_000)
 
     // 8. 로그가 흐른다
-    // 턴은 진행 중이어도 접힌 채로 뜬다 — 눌러야 로그가 마운트된다(useRunEvents).
-    // 즉 이 클릭은 "펼치면 그때부터 로그가 붙는다"까지 함께 검증한다.
-    await page.getByRole('button', { name: '자세히' }).click()
-    await page.getByText('작업 중').waitFor({ state: 'visible', timeout: 10_000 })
+    // **접힌 채로 흐른다** (docs/sdlc/conversation-timeline/ spec FR-12, 성공 기준 1) —
+    // 진행 중인 턴의 답 칸이 지금까지의 마지막 텍스트를 보인다. 가짜 CLI의 텍스트
+    // "작업 중"이 상태 줄의 "작업 중"과 겹치므로(spec §6 우려 10) 답 칸으로 좁힌다.
+    await page.locator('.turn-answer').filter({ hasText: '작업 중' })
+      .waitFor({ state: 'visible', timeout: 10_000 })
+    // 펼치면 그때부터 로그 파일까지 되살리는 훅이 붙는다(useRunEvents). 진행 중의 흐르는
+    // 텍스트는 펼친 턴에서 답 칸이 아니라 블록(.tl-text) 안에 제자리로 있다(FR-13).
+    // `자세히`는 턴마다 하나라 **턴으로 좁혀** 잡는다(spec NFR-6) — 페이지 범위면 턴이 하나 더
+    // 붙는 순간 부분 일치가 둘을 잡아 strict 위반이 난다(리뷰가 찾은 것).
+    const turn = page.locator('.turn').filter({ hasText: PROMPT })
+    await turn.getByRole('button', { name: '자세히' }).click()
+    await turn.locator('.tl-text').getByText('작업 중')
+      .waitFor({ state: 'visible', timeout: 10_000 })
 
     // 9. 완료되면 배지가 바뀌고 결과가 보인다
-    // "끝남"은 대화록의 답변(.turn-answer)과, 위에서 펼쳐 둔 로그의 마지막 result
-    // 줄(.log-result) 양쪽에 같은 텍스트로 나타난다(실측). page.getByText('끝남')은
-    // 그 둘에 다 걸려 strict mode 위반이 된다 — 대화록의 답변으로 범위를 좁힌다.
-    const doneTab = page.getByRole('button', { name: new RegExp(`succeeded.*${ISSUE}`) })
-    await doneTab.waitFor({ state: 'visible', timeout: 20_000 })
+    // 답은 대화록의 답 칸(.turn-answer)에 선다. 펼친 턴의 블록은 result를 그리지 않으므로
+    // (spec FR-2 — 답은 run 행에서 온다) "끝남"이 블록에 한 번 더 나오지는 않는다. 그래도
+    // 답 칸으로 좁혀 둔다 — 목록 줄의 부제 같은 다른 칸에 같은 글자가 생겨도 흔들리지 않게.
+    await waitConvStatus(page, ISSUE, 'succeeded')
     await page.locator('.turn-answer').filter({ hasText: '끝남' }).waitFor({ state: 'visible', timeout: 5_000 })
   })
 })

@@ -12,7 +12,7 @@ workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 
 
 같은 작업에서 **Windows 실행 경로**가 처음으로 열렸다. 실행 파일 탐색이 `core/runner/executable.ts`로 떨어져 나와 `PATHEXT`와 폴백 디렉토리를 다루고, `.cmd` 설치본은 preflight가 명확한 메시지로 거부한다. 그 과정에서 로그 스트림의 미처리 오류가 메인 프로세스를 죽이던 결함도 잡혔다.
 
-**대화(세션을 이어가는 대화)**가 10개 태스크로 완성돼 `main`에 병합됐다(`79a612e`, 설계 `2026-08-18-conversation-design.md`, 계획 `2026-08-18-conversation.md`). v0.2.0으로 릴리스됐다 — **첫 실행에 마이그레이션이 돈다**(`run.root_run_id` 추가 + 기존 행 백필). run은 더 이상 일회용이 아니라 전부 대화다: `run.rootRunId`가 턴을 한 대화로 묶고(승계 규칙은 "부모의 rootRunId, 부모가 없으면 자기 id"), 도크는 run이 아니라 대화 단위 탭이며(`Dock.tsx`의 `groupConversations`), 인박스 항목도 대화 하나당 한 줄로 그 대화의 마지막 턴을 보여준다 — "로그 보기"·"이어서 실행" 두 버튼이 "대화 열기" 하나로 합쳐졌다. **대화당 예약은 하나뿐이다**(설계 §3-2): 앞 턴이 도는 중에 다음 지시를 보내면 그 턴은 `pending`으로 대기 버블만 만들고 전송이 잠긴다 — `RunQueue`의 `groupKey`(대화의 root run id)가 같은 대화의 두 턴이 동시에 뜨는 것을 막는다(`claude --resume`은 이전 프로세스가 끝나야 한다). 대화록의 각 턴은 **전부 접힌 채로 시작한다 — 진행 중이어도 마찬가지다**(2026-09-22, 사용자가 설계 §4-1을 뒤집었다: 도구 호출이 흐르면 대화록이 그것으로 가득 차 지시와 답변이 밀려난다). "자세히"를 눌러야 도구 호출 같은 세부가 보이고, 최종 답변과 상태 배지는 항상 보인다. **펼치고 접는 것은 전부 사용자가 정한다** — 상태 전이가 그 선택을 되돌리지 않으므로 `Turn`에는 `open`을 강제하는 effect가 없다(되살리면 `Transcript.test`의 "예약된 턴이 자동으로 시작돼도 접힌 채로 남는다"가 빨개진다). `e2e/conversation.e2e.ts`가 화면을 벗어나지 않고 3턴을 실제로 주고받아 이 핵심 약속 — 특히 "앞 턴이 끝나면 예약된 턴이 자동으로 뜬다" — 을 검증한다.
+**대화(세션을 이어가는 대화)**가 10개 태스크로 완성돼 `main`에 병합됐다(`79a612e`, 설계 `2026-08-18-conversation-design.md`, 계획 `2026-08-18-conversation.md`). v0.2.0으로 릴리스됐다 — **첫 실행에 마이그레이션이 돈다**(`run.root_run_id` 추가 + 기존 행 백필). run은 더 이상 일회용이 아니라 전부 대화다: `run.rootRunId`가 턴을 한 대화로 묶고(승계 규칙은 "부모의 rootRunId, 부모가 없으면 자기 id"), 도크는 run이 아니라 대화 단위이며(`renderer/conversation.ts`의 `groupConversations` — 가로 탭이던 것이 지금은 세로 목록이다, 아래 수명 주기 절), 인박스 항목도 대화 하나당 한 줄로 그 대화의 마지막 턴을 보여준다 — "로그 보기"·"이어서 실행" 두 버튼이 "대화 열기" 하나로 합쳐졌다. **대화당 예약은 하나뿐이다**(설계 §3-2): 앞 턴이 도는 중에 다음 지시를 보내면 그 턴은 `pending`으로 걸리고(대화록이 아니라 입력칸 위 예약 칩 — 아래 대화 화면 절) 전송이 잠긴다 — `RunQueue`의 `groupKey`(대화의 root run id)가 같은 대화의 두 턴이 동시에 뜨는 것을 막는다(`claude --resume`은 이전 프로세스가 끝나야 한다). 대화록의 각 턴은 **전부 접힌 채로 시작한다 — 진행 중이어도 마찬가지다**(2026-09-22, 사용자가 설계 §4-1을 뒤집었다: 도구 호출이 흐르면 대화록이 그것으로 가득 차 지시와 답변이 밀려난다). 접힌 턴도 진행은 보여준다 — 상태 줄(경과 시간·지금 도는 도구)·활동 요약 한 줄·답 칸(진행 중이면 지금까지의 마지막 텍스트, 끝났으면 최종 답)·끝줄이고, "자세히"를 눌러야 중간 텍스트·도구 호출·diff가 보인다(아래 대화 화면 절). **펼치고 접는 것은 전부 사용자가 정한다** — 상태 전이가 그 선택을 되돌리지 않으므로 `Turn`에는 `open`을 강제하는 effect가 없다(되살리면 `Transcript.test`의 "예약된 턴이 자동으로 시작돼도 접힌 채로 남는다"가 빨개진다). `e2e/conversation.e2e.ts`가 화면을 벗어나지 않고 3턴을 실제로 주고받아 이 핵심 약속 — 특히 "앞 턴이 끝나면 예약된 턴이 자동으로 뜬다" — 을 검증한다.
 
 **5단계의 첫 하위 과제인 OpenCode 어댑터가 붙었다**(설계 `2026-09-06-opencode-adapter-design.md`, 계획 `2026-09-06-opencode-adapter.md`). 마이그레이션은 없다 — 스키마에 이미 `defaultAgentKind`·`defaultModelOpencode`·`opencodePath`가 있었다. 실행 패널의 agent 드롭다운이 열렸고(그전까지 `disabled`였다), 대화를 이어갈 때만 잠긴다. 5단계는 세 하위 시스템이 서로 독립이라 **하나의 스펙으로 묶지 않고 각각 spec → plan → 구현 사이클을 따로 돈다.**
 
@@ -78,7 +78,7 @@ MCP 상태와 포트 · DB 파일 · 로그 디렉토리 · 앱 버전을 보여
 
 **문서 체계가 하나 늘었다.** 이 작업부터 `docs/sdlc/<기능>/`에 intent → spec → plan 세 artifact를 두고 각각 사람의 승인을 받는다. 기존 `docs/superpowers/{specs,plans}/`는 그대로 두고 새 작업만 이쪽을 쓴다.
 
-남은 5단계 과제는 diff 뷰어 하나다. **착수를 막던 환경변수 결정은 해소됐다**(아래 절). 본문 작업이 넷으로 쪼갠 것 중 첫째였으므로 나머지 셋(마크다운 렌더링 · 검색/필터/정렬 · run 완료 구독)도 후보로 남아 있다. 대화 기능은 이 목록과 별개로 진행돼 완료·병합됐다(위 절). 그중 **run 완료 구독은 이미 해소됐으므로** 남은 것은 마크다운 렌더링과 검색/필터/정렬 둘이다.
+남은 5단계 과제는 diff 뷰어 하나다. **착수를 막던 환경변수 결정은 해소됐다**(아래 절). 본문 작업이 넷으로 쪼갠 것 중 첫째였으므로 나머지 셋(마크다운 렌더링 · 검색/필터/정렬 · run 완료 구독)도 후보로 남아 있다. 대화 기능은 이 목록과 별개로 진행돼 완료·병합됐다(위 절). 그중 **run 완료 구독은 이미 해소됐고** 마크다운 렌더링은 agent 답에만 붙었으므로(아래 대화 화면 절) 남은 것은 검색/필터/정렬과, 이슈·메모·asset 본문의 마크다운이다.
 
 **이슈 훑기**가 붙었다(설계 `2026-08-27-issue-triage-design.md`, 계획 `2026-08-27-issue-triage.md`). **첫 실행에 마이그레이션 `0003`이 돈다** — 컬럼 다섯 추가 + 기존 이슈의 `triaged_at` 백필. 이슈를 제목 한 줄로 던져 넣고 분류는 나중에 훑기로 몰아서 한다. 목록은 축(급함·출처·성격·repo)으로 묶고 접되 **접혀도 개수는 보이며**, 그룹 안은 `seenAt` 오래된 순이다. MCP `create_issue`가 축을 받으므로 agent가 회의 메모를 이슈로 쪼개며 분류까지 끝낼 수 있다.
 
@@ -137,8 +137,9 @@ SIGTERM 유예를 쓰면 모델 호출까지 진행할 수 있다. OpenCode에�
 - **대화의 상태는 대표 턴이다** — 가장 최근 턴이 아니라 `representativeTurn`(아래 함정 절).
   도크 목록의 점·답변 필요·자동 확인과 인박스·배지가 같은 턴을 본다.
 - **취소는 누른 그 턴을 누른 순간에 멈춘다.** launch 중(행은 있고 큐에는 아직 없다)에
-  온 취소도 표식으로 잡는다. 실행 중인 턴은 대화록과 도크 헤더의 "실행 중인 턴 멈추기"로
-  멈춘다 — 헤더는 대화의 활성 턴(running 우선)을 겨누고, 이름이 곧 겨누는 턴이다.
+  온 취소도 표식으로 잡는다. 실행 중인 턴은 대화록 상태 줄의 "실행 중인 턴 멈추기"로
+  멈춘다. 이 작업이 도크 헤더에 둔 같은 버튼은 `conversation-timeline`이 걷었다 — 지금
+  멈추는 자리는 셋이다(아래 함정 절의 "멈추는 자리는 셋이고").
 - **취소가 뿌리에 찍는 것은 그 대화에 다른 활성 턴이 없을 때만이다.** 실행 중에 멈춘
   턴은 그 프로세스가 취소로 끝날 때 한 번 더 판정하고(두 취소가 겹쳐도 찍힌다), 이미
   끝난 턴에 온 취소는 아무것도 하지 않는다. **타임아웃은 failed다.**
@@ -156,9 +157,51 @@ SIGTERM 유예를 쓰면 모델 호출까지 진행할 수 있다. OpenCode에�
   id에 맞는 응답을 고른다, 대화 이름을 비우면 파생 제목으로 돌아간다, workspace를 바꾸면
   도크의 선택·이름 칸·오류 배너가 처음 상태로 돌아간다.
 - **화면에 새로 생긴 것은 "실행 중인 턴 멈추기" 버튼 하나다** — 대화록 재구성은 다음
-  기능(`conversation-timeline`)이다. 리뷰가 재현했지만 이 spec의 결정을 뒤집어야 해서
-  코드로 고치지 않은 셋(답을 보낸 뒤 시작 전 취소, `reapStale`이 내린 예약 건너뛰기,
-  도크 점과 헤더의 불일치)은 spec §7에 있다.
+  기능(`conversation-timeline`, 바로 아래 절)이 했다. 리뷰가 재현했지만 이 spec의 결정을
+  뒤집어야 해서 코드로 고치지 않은 셋(답을 보낸 뒤 시작 전 취소, `reapStale`이 내린 예약
+  건너뛰기, 도크 점과 헤더의 불일치)은 spec §7에 있다 — 마지막 것은 그 기능이 풀었다(목록
+  점이 도는 턴을 먼저 그린다, 2026-09-27 결정 — 아래 함정 절의 `Conversation` 항목).
+
+**대화 화면이 OpenCode처럼 읽힌다** (`docs/sdlc/conversation-timeline/`). 마이그레이션·IPC·
+스키마 변경 없음 — 이미 렌더러에 push로 와 있던 text·tool_use·tool_result를 화면이 쓰기 시작한
+것이다. 의존성 둘(`react-markdown` 10.1.0 · `remark-gfm` 4.0.1, devDependencies)이 늘었고 렌더러
+번들이 726,814 B → 1,164,390 B(+60%, electron-vite 기본대로 압축하지 않은 크기)다.
+
+- **턴은 여전히 전부 접힌 채 시작하지만 접힌 턴이 보여주는 것이 늘었다** — 진행 중이면 상태
+  줄(스피너 · 작업 중 · 경과 시간 · 지금 도는 도구 · 멈추기)과 지금까지의 마지막 텍스트, 끝났으면
+  최종 답, 그리고 활동 요약 한 줄("도구 7회 · 실패 1")과 끝줄(상태 알약 · `agent · 모델 · 22초 ·
+  effort · 권한` · 응답 복사 · 자세히). "자세히"는 OpenCode "컴팩트" 타임라인이다 — 중간 텍스트 ·
+  한 줄 활동 묶음("4 읽기, Grep, 셸 사용됨") · 묶음 밖에 따로 선 실패 · 파일별 편집 diff.
+  `RunLog.tsx`는 없어졌다. 턴 사이에 요청한 모델·effort가 바뀌면 가운데 공지선이 선다.
+- **답은 마크다운이다** — 원시 HTML은 글자, 링크는 http(s)만, 이미지는 그리지 않고, main도 새 창·
+  창 안 탐색·다운로드를 막는다(아래 함정 절).
+- **입력부는 도크 바닥에 고정된 카드 하나다** — 맥락 칩 · 입력칸 · 알약 다섯(agent · 모델 ·
+  effort/variant · 권한 · 작업 디렉토리) · 전송. 도는 턴이 있고 입력이 비었으면 전송이 **중지**가
+  된다. 예약(이어 보낸 지시)은 대화록의 버블이 아니라 입력칸 위 칩이다. 대화마다 쓰던 지시가
+  남는다 — 대화를 바꾸거나 인박스에 다녀와도.
+- **대화 헤더가 생겼다** — 제목(누르면 이름 바꾸기) · `⋯` 메뉴(이름 바꾸기 · 대화 끝내기) · 부제 ·
+  멈추기 · 컨텍스트 링(누르면 누적 토큰과 추정 비용). "이 대화에 담긴 것" 줄도 헤더로 올라왔다.
+  lifecycle의 남은 일("끝내기가 hover에만 있다")이 이것으로 풀렸다.
+- **도크 헤더는 토글 · 슬롯 표시기 · 최대화다** — 취소가 없어졌다. 최대화는 세 패널을 숨기고
+  Esc로 푼다. 기본 높이가 창의 34% → 50%, 하한이 120 → 280px이다. **스크롤은 대화록만 한다** —
+  헤더와 입력부가 고정이고, 바닥에 붙어 있으면 새 내용을 따라 내려가며 위로 올려 두면
+  `최신으로 이동`이 뜬다.
+- 실패·중단된 마지막 턴에는 **"다시 보내기"**(같은 대화에 같은 지시·맥락·조건 — `runs.resume`),
+  답변 필요면 **"답하기"**(입력칸 포커스)가 붙는다. 인박스의 "다시 실행"(새 대화)은 그대로다.
+- 상태 이름은 한국어 표(`renderer/runStatus.ts`) 하나, agent 이름도 표(`renderer/agents.ts`)
+  하나다 — 영어 enum이 화면에 나가지 않는다. 대화 영역의 글자 `opacity`와 유니코드 글리프가
+  토큰·SVG 아이콘으로 바뀌었다.
+- `e2e/timeline.e2e.ts`가 가짜 CLI의 도구·마크다운 시나리오로 접힌 진행·펼친 블록·답의 보안을,
+  `e2e/composer.e2e.ts`가 중지·초안·최대화·헤더 메뉴·최신으로 이동을, `e2e/nav-guard.e2e.ts`가
+  main의 가드를 렌더러를 거치지 않고 검증한다.
+- spec §8의 과제는 2026-09-27에 정해졌다(사용자 위임, 각 항목의 "결정") — 이어 가는 대화의 작업
+  디렉토리 알약은 repo 이름이고 경로는 `title`과 곁의 `작업 디렉토리 경로 복사`다, 컨텍스트 링 곁에
+  퍼센트 글자가 서고 링은 짧은 호로 그린다, 도는 턴의 끝줄 메타에는 시간이 없고(상태 줄이 말한다)
+  헤더의 멈추기는 입력칸에 초안이 있을 때만 선다, 빈 입력칸은 한 줄에서 시작하고 맥락이 비면 칩 줄이
+  없다(1440×900 기본 도크, 담긴 것 줄이 없는 헤더에서 입력 카드 71px · 대화록 268px), mcp 도구 이름은 백틱 없이 모노(`1 list_issues 사용됨`)이고
+  꺾쇠는 글자 바로 뒤(파일 줄만 오른쪽 끝), 경로는 모노(`.path-text`)라 `₩`로 보이지 않는다, 점유를
+  모르는 마지막 턴의 링은 앞 턴의 짝을 그대로 보인다(FR-36 문장을 그 동작대로 고쳤다). **여전히 남은
+  것은 마크다운 예산의 대가 하나다** — 지금대로 두기로 했다.
 
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
@@ -242,7 +285,7 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **better-sqlite3는 외래키를 기본으로 끄고 시작한다.** `openDb`의 `pragma('foreign_keys = ON')`이 없으면 스키마의 `onDelete: 'cascade'`가 전부 무효가 된다.
 
-**`pnpm test:e2e`와 `pnpm dev`를 동시에 돌리지 말 것.** `test:e2e`는 `electron-vite build`로 시작하는데, 그 산출물 디렉토리가 `electron-vite dev --watch`가 감시하는 `out/`과 같아서 실행 중인 dev 앱의 main/preload가 e2e용 빌드로 갈아끼워진다. 반대 방향(dev가 떠 있어도 e2e는 정상 동작)은 검증돼 있으니, 손해를 보는 쪽은 항상 dev다.
+**`pnpm test:e2e`와 `pnpm dev`를 동시에 돌리지 말 것.** `test:e2e`는 `electron-vite build`로 시작하는데, 그 산출물 디렉토리가 `electron-vite dev --watch`가 감시하는 `out/`과 같아서 실행 중인 dev 앱의 main/preload가 e2e용 빌드로 갈아끼워진다. 반대 방향(dev가 떠 있어도 e2e는 정상 동작)은 검증돼 있으니, 손해를 보는 쪽은 항상 dev다. **dev를 끌 수 없으면 작업 트리를 복사한 곳에서 돌린다** — 추적 파일과 새 파일(`git ls-files -co --exclude-standard`)을 다른 디렉토리로 복사하고 `node_modules`만 저장소의 것으로 잇는 접합점(`mklink /J`)을 둔 뒤 거기서 `pnpm test:e2e`를 부른다. 드라이버가 앱 루트를 제 파일 위치에서 뽑으므로(`e2e/driver.ts`의 `APP_ROOT`) 복사본의 `out/`을 쓴다. 치울 때 접합점은 링크만 지운다(`cmd /c rmdir`) — 도구에 따라 재귀 삭제가 접합점을 따라 들어가 저장소의 `node_modules` 내용까지 지운다(Windows PowerShell 5.1의 `Remove-Item -Recurse`가 그렇다). `conversation-timeline`의 리뷰 반영과 마지막 검증이 이렇게 돌았다.
 
 **`dev` 스크립트의 `--watch`를 지우지 말 것.** `electron-vite dev`는 `--watch` 없이는 **main과 preload를 시작할 때 딱 한 번만 빌드한다.** 렌더러는 HMR로 즉시 반영되므로 화면은 멀쩡해 보이는데, `core/`나 `electron/`을 고쳐도 앱은 낡은 코드를 계속 돌린다. 2단계에서 어댑터를 고치고도 반영이 안 돼 한참 헤맸다 — `out/main/index.js`의 mtime이 소스보다 오래됐는지 보면 바로 드러난다.
 
@@ -335,13 +378,13 @@ succeeded가 exit 1을 이겼다** — 중간 답을 내고 죽은 run이 성공
 
 **자동 확인을 `Dock`의 `selected`나 마운트 effect에 걸지 말 것.** `pickedId`가 null이면 `selected`는 `openConversations[0]`으로 떨어지므로, **도크를 열기만 해도** 최근 대화가 조용히 인박스에서 내려간다 — 사용자는 그 대화를 본 적이 없다. 목록 줄의 클릭 핸들러(`pick`)에만 건다. 되살리면 `Dock.test`의 "마운트만으로는 찍지 않는다"·"focusConversationId로 열려도 찍지 않는다"가 빨개진다.
 
-**`Conversation`의 턴 셋은 서로 다른 질문의 답이다 — `last`를 상태로 쓰지 말 것** (`renderer/conversation.ts`, `docs/sdlc/conversation-fixes/` FR-3·FR-11). `last`는 가장 최근에 **만든** 턴(목록 줄의 시각·repo), `state`는 대표 턴(`representativeTurn` — 줄의 상태 점·답변 필요·자동 확인), `active`는 멈출 턴(running, 없으면 pending, 없으면 null — 도크 헤더의 취소). 예전에는 전부 `last`였다: 예약이 있으면 헤더 취소가 예약을 겨눠 **실행 중인 턴을 멈출 버튼이 없었고**, 예약을 취소하면 마지막 턴이 canceled가 되어 헤더 버튼이 사라졌다. 헤더 버튼의 접근성 이름이 겨누는 턴을 말한다 — 실행 중이면 "실행 중인 턴 멈추기"(보이는 글자 "멈추기"), 예약이면 "취소". **이름이 같으면 같은 턴이다** — 헤더가 실행 중인 턴을 겨누면서 "취소"라 부르면 예약 버블의 "취소"와 이름이 같아 다른 턴을 멈춘다. `Dock.test`의 "헤더 취소는 예약이 아니라 실행 중인 턴을 겨눈다"·"헤더 버튼의 이름이 겨누는 턴을 말한다"가 고정한다. 자동 확인은 `INBOX_RULES[inboxCategory(conv.state)].clearsOnView`와 `conv.state.endedAt`을 본다 — 예약이 기다리거나 도는 턴이 있으면 끝난 대화가 아니다.
+**`Conversation`의 턴 셋은 서로 다른 질문의 답이다 — `last`를 상태로 쓰지 말 것** (`renderer/conversation.ts`, `docs/sdlc/conversation-fixes/` FR-3·FR-11). `last`는 가장 최근에 **만든** 턴(목록 줄의 시각·repo), `state`는 대표 턴(`representativeTurn` — 답변 필요·자동 확인), `active`는 멈출 턴(running, 없으면 pending, 없으면 null)이다. **목록 줄의 상태 점은 표시용으로 `conv.active ?? conv.state`를 그린다**(2026-09-27 결정 — conversation-fixes spec §7-3을 `conversation-timeline` spec FR-45 다듬음이 풀었다) — 대표 턴만 그리면 앞 턴이 도는 동안 이어 보낸 예약이 점을 "대기 중"으로 만들어, 대화록·헤더는 실행 중이라는데 목록만 기다린다고 한다. **표시만 그렇다** — 답변 필요 표시와 자동 확인은 계속 `state`다(배지를 세는 core와 같은 턴이어야 한다). 되돌리면 `Dock.test`의 "도는 턴이 있으면 예약이 걸려 있어도 점은 실행 중이다"가 빨개진다. 예전에는 전부 `last`였다: 예약이 있으면 도크 헤더의 취소가 예약을 겨눠 **실행 중인 턴을 멈출 버튼이 없었고**, 예약을 취소하면 마지막 턴이 canceled가 되어 버튼이 사라졌다. 지금 멈추는 자리 셋(입력부 `중지`·대화 헤더 `이 대화의 실행 멈추기`·상태 줄 `실행 중인 턴 멈추기`)은 **running일 때의 `active`만** 겨누고, 예약은 입력칸 위 칩의 `예약 취소`, 슬롯을 기다리는 첫 지시는 상태 줄의 `대기 취소`다. **이름이 같으면 같은 턴이다** — 멈추는 셋의 이름에 "취소"를 넣지 않은 것은 예약·대기의 "취소"와 부분 일치로도 갈리게 하려는 것이다. `Dock.test`의 "예약이 걸린 대화에서 중지·멈추기는 도는 턴을, 예약 취소는 예약을 겨눈다"·"예약을 취소해 마지막 턴이 끝났어도 도는 턴이 있으면 중지가 남는다"가 고정한다. 자동 확인은 `INBOX_RULES[inboxCategory(conv.state)].clearsOnView`와 `conv.state.endedAt`을 본다 — 예약이 기다리거나 도는 턴이 있으면 끝난 대화가 아니다.
 
-**workspace가 바뀌면 도크의 선택은 렌더 중에 처음으로 돌린다 — effect가 아니다** (FR-22). `view`·`pickedId`·`renamingId`·`actionError`를 이전 `workspaceId`와 비교해 렌더 중에 맞춘다(React의 "prop이 바뀌면 state 조정" 패턴). effect면 옛 선택과 새 workspace가 함께 그려지는 한 프레임이 생긴다. 끝낸 대화 펼침(`showClosed`)은 선택이 아니라 보기 취향이라 두고 간다. `App`의 `focusConversationId`는 **한 번 쓰면 치운다** — Dock의 필수 prop `onFocusConsumed`가 그 배선이다. 선택 prop이면 `App`의 한 줄을 지워도 조용히 컴파일되고, 그러면 다른 화면에 갔다 올 때마다 그 대화로 끌려간다(`App.test`의 "\"대화 열기\"는 한 번만 연다"). 의존성 배열에 `onFocusConsumed`를 넣지 말 것 — `App`이 매 렌더 새 함수를 넘겨 치워지기 전 렌더마다 다시 연다.
+**workspace가 바뀌면 도크의 선택은 렌더 중에 처음으로 돌린다 — effect가 아니다** (FR-22). `view`·`pickedId`·`renaming`·`actionError`를 이전 `workspaceId`와 비교해 렌더 중에 맞춘다(React의 "prop이 바뀌면 state 조정" 패턴). effect면 옛 선택과 새 workspace가 함께 그려지는 한 프레임이 생긴다. 끝낸 대화 펼침(`showClosed`)과 도크 최대화(`maximized`)는 선택이 아니라 보기 취향이라 두고 간다(`Dock.test`의 "workspace가 바뀌어도 최대화는 남는다"). `App`의 `focusConversationId`는 **한 번 쓰면 치운다** — Dock의 필수 prop `onFocusConsumed`가 그 배선이다. 선택 prop이면 `App`의 한 줄을 지워도 조용히 컴파일되고, 그러면 다른 화면에 갔다 올 때마다 그 대화로 끌려간다(`App.test`의 "\"대화 열기\"는 한 번만 연다"). 의존성 배열에 `onFocusConsumed`를 넣지 말 것 — `App`이 매 렌더 새 함수를 넘겨 치워지기 전 렌더마다 다시 연다.
 
-**로그 되살리기는 교체가 아니라 seq 병합이다 — 그리고 `readLog`는 비동기다** (FR-19). `useRunEvents`는 대화를 열 때 `runs.readLog`를 부르는데, 그 응답이 오는 사이 `onRunEvent` push가 계속 들어온다. 스토어의 `hydrate`가 목록을 통째로 바꾸면 그 사이 도착한 이벤트가 지워진다. 그래서 seq로 합치고 중복 seq는 하나만 남긴다(`runEvents.test`의 "로그를 읽는 사이에 push된 이벤트를 지우지 않는다"). 병합에는 `maxPerRun` 상한을 걸지 않는다(되살린 로그를 전부 보여주던 동작). `readLog`는 `fs/promises`로 읽는다 — 메인 프로세스에 MCP 서버가 같이 있어 긴 로그를 동기로 읽는 동안 IPC와 agent의 MCP 호출이 전부 멈춘다(위 `execFileSync` 함정과 같은 뿌리). 파일이 없으면(ENOENT) 빈 배열이고 그 밖의 읽기 실패는 던진다 — 삼키면 로그가 원래 없던 run처럼 보인다.
+**로그 되살리기는 교체가 아니라 seq 병합이다 — 그리고 `readLog`는 비동기다** (FR-19). `useRunEvents`는 턴을 펼칠 때(`Transcript`의 펼친 몸통 — 접힌 턴은 로그를 읽지 않는다, 아래 항목) `runs.readLog`를 부르는데, 그 응답이 오는 사이 `onRunEvent` push가 계속 들어온다. 스토어의 `hydrate`가 목록을 통째로 바꾸면 그 사이 도착한 이벤트가 지워진다. 그래서 seq로 합치고 중복 seq는 하나만 남긴다(`runEvents.test`의 "로그를 읽는 사이에 push된 이벤트를 지우지 않는다"). 병합에는 `maxPerRun` 상한을 걸지 않는다(되살린 로그를 전부 보여주던 동작). `readLog`는 `fs/promises`로 읽는다 — 메인 프로세스에 MCP 서버가 같이 있어 긴 로그를 동기로 읽는 동안 IPC와 agent의 MCP 호출이 전부 멈춘다(위 `execFileSync` 함정과 같은 뿌리). 파일이 없으면(ENOENT) 빈 배열이고 그 밖의 읽기 실패는 던진다 — 삼키면 로그가 원래 없던 run처럼 보인다.
 
-**대화 이름을 비우고 저장하면 파생 제목으로 돌아간다** (FR-21, lifecycle FR-14). `RenameField`는 기본이 "빈 이름 = 취소"라 붙인 이름을 지울 길이 없었다. `allowEmpty`를 대화 목록에서만 켜 `rename(root, '')`를 부른다 — IPC 시그니처가 string이고 저장소가 빈 문자열을 null로 저장한다. 이름이 없던 칸을 그대로 닫으면 여전히 취소다. 같은 컴포넌트를 쓰는 workspace(`Sidebar`)·repo(`RepoStrip`) 이름에는 켜지 않는다 — 비우면 되돌아갈 파생 이름이 없다.
+**대화 이름을 비우고 저장하면 파생 제목으로 돌아간다** (FR-21, lifecycle FR-14). `RenameField`는 기본이 "빈 이름 = 취소"라 붙인 이름을 지울 길이 없었다. `allowEmpty`를 대화 이름 칸(목록 줄과 대화 헤더 — 편집 state는 Dock의 `renaming: { id, where }` 하나라 한 번에 한 자리뿐이다)에서만 켜 `rename(root, '')`를 부른다 — IPC 시그니처가 string이고 저장소가 빈 문자열을 null로 저장한다. 이름이 없던 칸을 그대로 닫으면 여전히 취소다. 같은 컴포넌트를 쓰는 workspace(`Sidebar`)·repo(`RepoStrip`) 이름에는 켜지 않는다 — 비우면 되돌아갈 파생 이름이 없다.
 
 **`run.title`·`run.closed_at`은 뿌리 행에서만 의미가 있고 타입은 그것을 지켜주지 않는다.** 이어지는 턴의 행에도 컬럼이 있고 null일 뿐이다. 저장소의 `close`/`rename`이 `assertRoot`로 던지는 것이 유일한 방어선이다 — 조용히 엉뚱한 행에 찍히면 화면에서 영영 드러나지 않는다. 읽는 쪽도 같다: `groupConversations`는 뿌리를 **id로 찾는다**(`ordered[0]`이 아니다). 가장 오래된 행이 뿌리라는 것은 "목록이 그 대화의 모든 턴을 담고 있다"에 얹힌 가정이고, `runs.list`에 개수 제한이 붙는 날 조용히 null이 된다.
 
@@ -384,7 +427,7 @@ succeeded가 exit 1을 이겼다** — 중간 답을 내고 죽은 run이 성공
 
 **asset 목록은 repo 목록이 바뀌면 다시 읽어야 한다.** `useAssets`가 `repoKey`(repo id를 이어붙인 문자열)를 의존성으로 받는 이유다. 이것이 빠지면 repo를 등록해도 asset이 화면에 나타나지 않는다 — 실제로 e2e가 여기서 걸렸다.
 
-**asset 본문은 신뢰할 수 없는 입력이다.** 외부 repo의 SKILL.md를 그대로 화면에 그리고 프롬프트에 싣는다. 조립기는 반드시 이스케이프하고, 화면은 평문으로 그린다. 나중에 마크다운 렌더링을 붙일 때 이 자리를 먼저 다뤄야 한다 — 렌더링에 구멍이 있으면 그 스크립트가 `window.oneDesk`로 `runs.start({ permission: 'full' })`을 부를 수 있다.
+**asset 본문은 신뢰할 수 없는 입력이다.** 외부 repo의 SKILL.md를 그대로 화면에 그리고 프롬프트에 싣는다. 조립기는 반드시 이스케이프하고, 화면은 평문으로 그린다. 마크다운은 agent 답에만 붙었다(`renderer/components/Markdown.tsx`, 아래 마크다운 항목) — asset 본문에 붙일 때는 그 컴포넌트를 쓰고 규칙을 우회하지 말 것. 렌더링에 구멍이 있으면 그 스크립트가 preload의 앱 API로 `runs.start({ permission: 'full' })`을 부를 수 있다.
 
 **OpenCode는 설정을 병합하고, 우리가 이길 수 없는 자리가 있다.** 우선순위는 `OPENCODE_PERMISSION` 환경변수 > 프로젝트 `opencode.json` > `OPENCODE_CONFIG`가 가리키는 파일 > 전역 설정이고, `permission` 안에서 키 단위로 합쳐진다. **`"*"`는 구체 키를 이기지 못한다** — 소스 우선순위와 무관하게 구체적인 키가 와일드카드를 이긴다. 그래서 권한은 파일이 아니라 환경변수로 넘기고 알려진 키 15개를 전부 명시한다. 이름을 대지 않은 키는 남의 설정 값이 그대로 산다.
 
@@ -400,7 +443,7 @@ succeeded가 exit 1을 이겼다** — 중간 답을 내고 죽은 run이 성공
 
 **`root_run_id`를 NOT NULL로 "고치지" 말 것** — SQLite에서 그러려면 테이블을 다시 만들어야 하고, 그 `DROP TABLE run`이 `run_context_item`의 cascade를 태워 모든 맥락 기록을 지운다. 마이그레이션의 `PRAGMA foreign_keys=OFF`는 트랜잭션 안이라 무시된다.
 
-**e2e에서 `getByRole('button', { name: '실행' })`은 exact 없이 쓰면 강제로 실패한다.** substring 매칭이 기본이라 도크 토글("▾ 실행"/"▴ 실행")과 슬롯 표시기(`aria-label="실행 슬롯"`)까지 같이 걸려 strict mode 위반이 된다 — run-start 버튼을 잡으려면 `{ name: '실행', exact: true }`가 필수다(태스크 8이 라벨을 "▶ 실행"에서 "실행"으로 줄이면서 처음 생긴 충돌). **"실행 중인 턴 멈추기"(대화록·도크 헤더, `Transcript.tsx`의 `STOP_RUNNING_TURN`)도 "실행"을 품는다** — 대화가 도는 동안에는 exact 없는 셀렉터에 하나 더 걸린다.
+**e2e에서 `getByRole('button', { name: '실행' })`은 exact 없이 쓰면 강제로 실패한다.** substring 매칭이 기본이라 슬롯 표시기(`aria-label="실행 슬롯"`)까지 같이 걸려 strict mode 위반이 된다 — 전송 버튼(`.run-start`, 이름 `실행`)을 잡으려면 `{ name: '실행', exact: true }`가 필수다(태스크 8이 라벨을 "▶ 실행"에서 "실행"으로 줄이면서 처음 생긴 충돌). **대화가 도는 동안에는 셋이 더 걸린다** — 상태 줄의 `실행 중인 턴 멈추기`(`Transcript.tsx`의 `STOP_RUNNING_TURN`), 대화 헤더의 `이 대화의 실행 멈추기`(입력칸에 초안이 있을 때만 선다), 그리고 **목록 줄 버튼 자체**다(상태 점의 이름 `실행 중`이 줄 버튼의 이름에 들어간다). 예전에는 도크 토글("▾ 실행")도 걸렸다 — 토글이 글자 "실행"을 버린 이유다(아래 "새 이름" 항목).
 
 **이 함정은 "실행"만의 것이 아니다 — 짧은 라벨을 새로 붙일 때마다 기존 e2e가 깨진다.** 설정 화면에 "기본값 저장"을 더하자 글로벌 경로의 `{ name: '저장' }`이 둘을 잡아 `asset.e2e.ts`가 깨졌다. `getByLabel`도 같다 — "Skills / Agents" 패널이 `getByLabel('agent')`에 걸린다. **Vitest/RTL의 `getByLabelText`는 전체 일치라 단위 테스트는 전부 초록인 채로 넘어간다.** 새 라벨이 기존 라벨의 부분 문자열이면 e2e를 먼저 돌려볼 것. 그리고 `<label>`이 `<select>`를 감싸고 있으면 Playwright가 계산하는 접근성 이름에 `<option>` 텍스트까지 빨려 들어가므로(`"agentClaude CodeOpenCode"`), 그런 컨트롤에는 `aria-label`을 명시한다.
 
@@ -418,7 +461,42 @@ hover하고 바로 누르면 가끔 깨진다 — 눌리지 않은 click이 스�
 `<제목> 삭제`라 상세의 `삭제`와 갈린다 — RTL의 이름 매칭은 전체 일치라 단위 테스트는 안
 부딪히지만, Playwright는 부분 일치이므로 `{ name: '삭제' }`로 잡으면 둘 다 걸린다.
 
-**대화의 첫 턴을 시작한 직후 도크 탭 텍스트로 "떴다"고 판단하지 말 것.** Dock의 `view`/`pickedId` 전환(RunPanel의 `onStarted` 콜백, 동기)과 `runs` 목록 갱신(`useRuns`의 `onRunUpdate` IPC push, 비동기)이 서로 다른 경로로 온다. 도크 탭(`conversations.map(...)`)은 `runs`가 갱신되는 즉시 그려지지만, 그 순간 `ConversationPanel`은 아직 `key='new'`인 옛 인스턴스일 수 있다 — 탭 텍스트가 보인다고 바로 다음 입력을 채우면 곧 재마운트될 RunPanel에 채워 넣어 버려 전송이 빈 프롬프트로 막힌다(실행 버튼이 계속 disabled). 대화록 안의 `.turn-user` 텍스트로 기다려야 재마운트가 끝난 안정된 인스턴스를 보장한다(`e2e/conversation.e2e.ts`).
+**대화의 첫 턴을 시작한 직후 도크 목록 줄 텍스트로 "떴다"고 판단하지 말 것.** Dock의 `view`/`pickedId` 전환(RunPanel의 `onStarted` 콜백, 동기)과 `runs` 목록 갱신(`useRuns`의 `onRunUpdate` IPC push, 비동기)이 서로 다른 경로로 온다. 목록 줄은 `runs`가 갱신되는 즉시 그려지지만, 그 순간 `ConversationPanel`은 아직 `key='new:<workspaceId>'`인 옛 인스턴스일 수 있다 — 줄 텍스트가 보인다고 바로 다음 입력을 채우면 곧 재마운트될 RunPanel에 채워 넣어 버려 전송이 빈 프롬프트로 막힌다(실행 버튼이 계속 disabled). 대화록 안의 `.turn-user` 텍스트로 기다려야 재마운트가 끝난 안정된 인스턴스를 보장한다(`e2e/conversation.e2e.ts`).
+
+**대화록의 규칙은 순수 함수 `projectTurn` 하나에 있다 — 컴포넌트에 두지 말 것** (`renderer/timeline.ts`, `docs/sdlc/conversation-timeline/` spec FR-1~FR-11). 이벤트에서 블록(text·activity·edit·tool-error·error·notice)·답 칸·활동 요약·지금 도는 도구가 전부 여기서 나오고 `Transcript`·`TimelineBlocks`는 그리기만 한다 — 렌더링 없이 경계값을 고정하려는 것이다(`timeline.test.ts`). 조용히 깨지는 셋: **끝난 턴의 답은 `resultText`뿐이다** — 스토어에 텍스트가 있어도 쓰지 않는다. 앱을 다시 켜면 스토어가 비므로 스토어에 기대면 같은 턴이 재시작 전후로 달라 보인다("끝났는데 resultText가 없으면 스토어에 text가 있어도 답이 없다"). **마지막 text 블록이 답과 같으면 뺀다** — claude는 마지막 텍스트를 흘린 뒤 result에 같은 글을 다시 담는다("마지막 text가 답과 같으면 블록에서 빠진다"). **tool_use와 tool_result는 두 번 훑어 id로 짝짓는다** — 실패 여부를 use 자리에서 알아야 실패한 도구를 묶음 밖에 세운다(한 번 훑기로 바꾸면 "실패한 도구는 묶음을 끊고 제자리에 따로 선다"를 포함해 여섯이 빨개졌다). `result` 이벤트는 그리지 않는다 — opencode가 text마다 합성하므로 같은 글이 두 번 나온다. 셸 출력은 200자 요약뿐이라 `…`로 끝나면 "출력 앞부분만 기록됩니다"를 붙이고, 검색의 "(N개 일치)"는 claude Grep의 `Found N ` 한 형식에서만 읽는다 — 요약에서 줄을 세면 잘린 수라 거짓이다.
+
+**접힌 턴은 로그 파일을 읽지 않는다 — 펼친 턴만 읽는다** (spec FR-14). `Turn`의 몸통이 둘로 갈린다: 접힌 몸통은 스토어 스냅샷(`useRunEventSnapshot`)만 보고, 펼친 몸통만 `useRunEvents`로 스토어가 비었을 때 `readLog`한다. 접힌 턴까지 `useRunEvents`를 걸면 대화를 열 때마다 모든 턴의 로그 파일을 읽는다(설계 §4-1). 대가로 **앱을 다시 켠 뒤의 끝난 턴은 한 번 펼치기 전까지 활동 요약이 없다**(spec §6 우려 4). 되살리면 `Transcript.test`의 "접힌 턴은 스토어만 보고 로그 파일을 읽는 훅을 걸지 않는다 — 펼친 턴만 건다"가 빨개진다. **블록의 펼침 state는 몸통이 아니라 `Turn`이 쥔다** — 몸통은 접고 펼 때마다 갈아끼워지므로 거기 두면 열어 둔 묶음이 전부 닫힌다("턴을 접었다 다시 펼쳐도 열어 둔 묶음은 그대로다"). 그리고 **열림은 블록 key가 아니라 도구 id에 매단다**(`group:<id>`·`file:<id>`·`tool:<id>`, FR-15 다듬음) — 블록 key(첫 이벤트의 seq)는 claude가 한꺼번에 낸 도구의 첫 결과가 뒤늦게 실패로 와 묶음 밖으로 빠지면 바뀐다. 블록 key로 되돌리면 "병렬 도구의 첫 항목이 실패로 빠져도 열어 둔 묶음은 닫히지 않는다"가 빨개진다. 위 대화 절의 "턴을 여는 effect가 없다"는 이 층까지 넓어졌다 — 묶음·도구 한 줄·편집 파일도 상태 전이나 새 이벤트로 열리거나 닫히지 않는다.
+
+**agent의 답은 마크다운이지만 HTML은 아니다 — 네 가지를 되살리지 말 것** (`renderer/components/Markdown.tsx`, spec FR-20~FR-26). agent 출력은 신뢰할 수 없는 입력이다 — 렌더링에 구멍이 있으면 그 스크립트가 preload의 앱 API로 `runs.start({ permission: 'full' })`을 부른다. (1) 원시 HTML을 요소로 되살리는 rehype의 raw 플러그인도, React의 innerHTML 주입 prop도 쓰지 않는다 — HTML은 글자로 보인다(`skipHtml`도 켜지 않는다: HTML 조각을 설명하는 답에서 조각이 사라지면 답이 거짓말이 된다). (2) 링크는 `shared/links.ts`의 `externalLinkOf`를 통과한 http(s)만 `<a target="_blank">`이고 나머지(`javascript:`·`file:`·상대 경로·`#조각`·`mailto:`·사용자 정보가 붙은 `github.com@evil.com`)는 글자다 — react-markdown의 기본 `urlTransform`은 끄고 `a`·`img` 컴포넌트에서 거른다. 통과한 링크의 `title`은 agent가 적은 제목이 아니라 실제 목적지다. (3) 이미지는 그리지 않는다(`[이미지: alt]` 글자). (4) 마크다운을 쓰는 곳은 답 칸과 펼친 턴의 text 블록 둘뿐이다 — 사용자 버블·도구 입력/출력·오류 카드는 평문이다. `Markdown.test`의 "적대적인 문서 전체에서 로드·실행·앱 안 탐색이 가능한 속성이 하나도 없다"가 DOM 전체를 훑어 고정한다(raw 플러그인을 끼우면 넷, `a`의 검사를 빼면 열셋이 빨개졌다). **완료 증명의 grep은 주석에도 걸린다** — `renderer/`의 주석에 그 두 이름이나 `window.oneDesk`를 그대로 적으면 `grep -rn "dangerouslySetInnerHTML\|rehype-raw" renderer/`와 위 경계 grep이 출력을 낸다(실제로 걸렸다 — `Markdown.tsx`의 설명이 이름을 풀어 쓰는 이유다).
+
+**main도 막는다 — 렌더러 한 겹에 기대지 않는다** (`electron/main.ts`, spec FR-24). 앱 창이 원격 문서로 넘어가면 preload가 그 문서에도 붙는다. 새 창 요청(`setWindowOpenHandler`)은 `externalLinkOf`를 통과한 것만 `shell.openExternal`하고 창은 어느 쪽이든 만들지 않는다. 창 안 탐색(`will-navigate`)은 `isAppNavigation(target, appUrl)`이 통과시킨 것만이다 — 개발 서버면 같은 origin(Vite의 전체 새로고침), `file:`이면 **같은 문서**. `file:`의 origin은 전부 불투명한 `"null"`이라 origin을 비교하면 디스크의 아무 파일로나 넘어간다(`links.test`의 "file: 앱에서 다른 file: 문서는 막는다"). **다운로드도 막는다**(`session.defaultSession`의 `will-download`) — Chromium은 Windows·Linux에서 Alt+클릭한 링크를 새 창도 탐색도 아닌 다운로드로 처리해 위 두 가드를 비켜 간다(`nav-guard.e2e`의 "Alt+클릭한 링크는 내려받지 않는다"). 판정을 `shared/links.ts`에 두는 이유는 `core/app/reveal.ts`와 같다 — main에는 단위 테스트가 없고, 렌더러와 main이 같은 함수를 써야 한다. 실제 창 동작은 `e2e/nav-guard.e2e.ts`가 렌더러의 거름을 거치지 않고 `window.open`·`location`을 직접 불러 본다.
+
+**답의 마크다운은 파싱 전에 예산을 잰다 — 파서가 던지면 앱 창 전체가 빈다** (`renderer/markdownBudget.ts`, spec FR-20 다듬음). `- ` 1,000번(2KB)이나 `>` 3,000번이면 mdast → hast 재귀가 스택을 넘기고, 렌더 중에 던진 오류를 받을 경계가 없으면 React 19가 루트를 통째로 내린다 — 답은 DB에 남으므로 그 대화를 열 때마다 빈 화면이다. 시간도 흔한 모양에서 제곱으로 는다(여는 기호 없는 `a_ ` × 33,000 = 15초). 그래서 `fitsMarkdownBudget`이 선형으로 재 넘으면 평문(`.md-plain`)이고, 그것을 빠져나간 오류는 `Markdown`의 오류 경계가 그 답만 평문으로 떨어뜨린다. **예산은 코드 울타리를 쫓지 않는다** — 울타리 판정이 파서와 한 번이라도 어긋나면(HTML 블록 안의 ```, 목록 항목과 같이 닫히는 울타리) 그 뒤를 세지 않아 판정 전체가 뚫린다. 대가로 빈 줄 없이 수백 줄 이어지는 코드와 서식 있는 수백 행의 표는 평문으로 떨어진다(spec §8의 6). `markdownBudget.test`·`Markdown.test`의 "무너뜨리는 입력"·`Markdown.boundary.test`가 고정한다.
+
+**초안은 `main.tsx`의 스토어가 쥔다 — RunPanel의 `useState`로 되돌리지 말 것** (`renderer/store/drafts.ts`·`DraftContext.tsx`, spec FR-31). Dock은 인박스·설정에 가면 언마운트되고 `ConversationPanel`은 대화를 바꿀 때마다 key로 재마운트된다 — 그 아래 어디에 두든 쓰던 지시가 사라진다(설정 화면 FR-11과 같은 이유). App state에 두면 한 글자마다 App 전체가 다시 그려진다. 키는 대화 id, 새 대화면 `new:<workspaceId>`이고 도크의 `ConversationPanel` key도 같은 값이다 — `'new'`로 두면 새 대화 칸이 workspace를 넘어 옛 인스턴스로 남는다(`Dock.test`의 "workspace가 바뀌면 새 대화 칸도 새로 시작한다"). **전송이 성공하면 effect를 기다리지 않고 그 자리에서 비운다** — 새 대화의 첫 턴이면 `onStarted`가 입력부를 갈아끼우는데, 두 갱신이 한 번에 그려지면 방금 보낸 지시가 새 대화 칸에 되살아난다(`RunPanel.test`의 "전송이 성공한 그 순간 입력부가 갈아끼워져도 초안이 비워진다"). `useDraftStore()`는 Provider가 없으면 던진다 — 모듈 전역 기본값을 두면 Provider 한 줄을 빠뜨려도 조용히 돌고 테스트끼리 초안이 샌다. `main.tsx`의 그 한 줄은 단위 테스트가 못 잡으므로(각 테스트가 제 Provider를 세운다) `e2e/composer.e2e.ts`의 인박스 왕복이 맡는다. `useState`로 되돌리면 `RunPanel.test`의 "다시 마운트해도 쓰던 지시가 남는다"와 `App.test`의 "쓰던 지시는 인박스에 다녀와도 남는다"가 빨개진다. 남은 틈 하나: "다시 실행" 뒤 그 지시를 고치다 인박스에 다녀오면 고친 글이 원래 지시로 되돌아간다(App이 `draftPrompt`를 쥐고 있고 RunPanel의 그 effect가 마운트마다 돈다 — spec FR-31 다듬음).
+
+**예약은 "뿌리가 아닌 pending"이다 — 대화록이 아니라 입력칸 위 칩이 그린다** (`Transcript.tsx`의 `isReservation`·`reservationOf`, spec FR-30). 대화록의 거름과 입력부의 칩이 같은 함수를 쓴다 — 따로 적으면 예약이 두 곳에 그려지거나 어디에도 없다. **뿌리 pending은 예약이 아니다** — 새 대화의 첫 지시가 슬롯을 기다리는 것까지 빼면 대화록이 비어 무엇이 걸려 있는지 보이지 않는다. 그 턴은 대화록에 **같은 `Turn`**으로 남고 상태 줄만 대기 모양(`대기 중 · 실행 슬롯이 비면 시작합니다 · 대기 취소`)이다 — 따로 그리면 시작하는 순간 다른 컴포넌트로 갈아끼워져 펼쳐 둔 것이 풀린다. 그때 입력부는 칩이 아니라 안내(`role="status"`)다. 칩의 이유는 도는 턴이 있으면 "앞 턴이 끝나면 보냅니다", 없으면 "실행 슬롯이 비면 보냅니다"다. "다시 보내기·답하기"가 붙는 "마지막 턴"도 예약을 빼고 세고, 예약이 있으면 둘 다 잠긴다(대화당 예약은 하나다). 대화록이 예약을 거르지 않으면 `Transcript.test`의 "이어 보낸 지시(뿌리가 아닌 pending)는 대화록에 없다"를 포함해 다섯, 뿌리 pending까지 거르면 셋이 빨개진다.
+
+**멈추는 자리는 셋이고 도크 헤더에는 없다** (spec FR-28·FR-29). 입력부의 `중지`(도는 턴이 있고 입력이 비었을 때 전송 버튼 자리), 대화 헤더의 `멈추기`(이름 `이 대화의 실행 멈추기`), 대화록 상태 줄의 `멈추기`(이름 `실행 중인 턴 멈추기`)다. **입력부 중지와 헤더 멈추기는 번갈아 선다** — 헤더의 것은 입력칸에 초안이 있을 때만이다(spec §8의 3). 판정은 한 함수(`isBlankDraft`)이고 헤더는 초안 스토어를 듣는다(`useDraftFilled` — 스토어의 `subscribe`). 그래서 도는 턴 하나에 한 화면의 멈추기는 늘 둘이다. 셋 다 running일 때의 `conversation.active`만 겨누고 예약은 건드리지 않는다(예약은 이어서 뜬다 — conversation-fixes FR-9). 헤더의 것이 있어야 하는 이유: 입력칸에 초안이 있으면 전송 버튼이 실행(예약)이 되고, 대화록을 위로 올려 두면 상태 줄이 화면 밖이다. 실패는 전부 도크의 `cancel`을 타 도크 배너로 보인다. 도크 헤더에 되살리지 말 것 — `Dock.test`의 "도크 헤더에는 취소가 없다 — 토글과 슬롯 표시기뿐이다". **Esc로는 멈추지 않는다** — 이 앱의 Esc는 "안쪽부터 푼다"(아래)이고 멈춤은 되돌릴 수 없다.
+
+**도크의 Esc는 안쪽부터 푼다 — 안쪽의 Esc는 `preventDefault`와 `stopPropagation`을 같이 한다** (spec FR-39). 순서는 피커 · 이름 편집 · 헤더 메뉴 · 사용량 팝오버 · 슬롯 상한 편집 → 도크 최대화 → App의 "열린 항목 닫기"다. 도크 `<section>`은 `e.defaultPrevented`가 아닐 때만 최대화를 풀고 자기도 둘을 한다. 안쪽 하나가 전파를 막지 않으면 같은 Esc가 최대화까지 푼다 — 슬롯 상한 편집이 실제로 그랬다(`Dock.test`의 "슬롯 상한을 고치다 누른 Esc는 편집만 닫는다"). React의 `stopPropagation`은 document까지 닿지 않으므로 App의 Esc도 같이 돌지 않는다. 메뉴의 `stopPropagation`을 빼면 "안쪽의 Esc가 먼저다 — 메뉴를 닫는 Esc는 최대화를 풀지 않는다"가 빨개진다. 최대화는 세 패널을 **숨긴다**(`.main:has(> .dock-max) > .columns { display: none }`) — 언마운트하지 않으므로 입력 중이던 이슈 본문이 남지만, **최대화한 동안은 패널의 버튼을 Playwright가 못 누른다**(맥락도 못 담는다 — 입력부 안내가 "원래 크기로 돌아가 맥락을 담으세요"로 바뀐다). 최대화한 도크를 접으면 최대화도 풀린다.
+
+**바닥 따라가기의 계기는 내용 버전이다 — 내용의 높이 변화가 아니다** (`renderer/hooks/useFollowBottom.ts`, spec FR-42). 대화록이 바닥에서 24px 안이면 붙어 있고, 붙어 있을 때 **내용 버전**(보이는 턴마다 `id:상태:답 길이:오류 길이`와 활성 턴 이벤트의 `수:마지막 seq`)이 바뀌면 내려간다. 사용자가 턴을 펼치거나 접은 것은 버전이 아니다 — 지난 턴의 `자세히`를 눌렀는데 바닥으로 튀면 방금 누른 것이 사라진다. 그래서 ResizeObserver는 **스크롤러 자신의 상자 높이(`clientHeight`)만** 본다: 도크를 끌거나 예약 칩이 떠 칸이 줄면 scrollTop이 위를 기준으로 남아 바닥이 가려지므로(실측: 하한까지 끌면 72px 떨어졌다) 붙어 있을 때 바닥을 지키되, 칸 높이가 같으면 아무것도 하지 않는다. 내용 높이를 계기로 쓰면 `ConversationPanel.test`의 "펼쳐도 바닥으로 가지 않는다"가 빨개진다. 이벤트 수만 보면 스토어 상한(run당 2,000개)에 닿은 뒤 오는 줄을 못 본다("스토어 상한에 닿은 뒤에 오는 줄도 따라간다"). 펼침에는 스크롤 이벤트가 없으므로 대화록 안을 누르면 한 프레임 뒤에 "붙어 있다"를 다시 잰다.
+
+**대화록과 입력부는 같은 방식으로 잰다 — 폭만 맞추지 말 것** (`renderer/index.css`의 `.transcript`·`.conversation-panel .run-panel`, spec §4). 둘 다 좌우 24px 안쪽 여백 + `scrollbar-gutter: stable both-edges` + 가운데 선 최대 `--conversation-width`(1280px) 열이다. 폭만 같게 계산하던 때는 대화록에 스크롤바(Windows 15px)가 서면 턴 열만 밀리고, 예약 칩이 떠 넘치기 시작하는 순간 대화록이 옆으로 튀었다. 입력부는 그 속성이 걸리도록 `overflow: hidden`이다(피커는 최상위 레이어, 드롭다운은 네이티브라 잘릴 것이 없다). `conversation.e2e`가 하한 도크에서 턴 열과 입력 카드의 좌우 끝이 1px 안인지 본다. **모노 글꼴은 `--font-mono` 토큰이다** — generic `monospace`는 한국어 Windows에서 GulimChe라 `.`이 `,`처럼, 경로의 `\`가 `₩`로 보인다(`timeline.e2e`가 CDP로 실제 글꼴을 묻는다). UI 글꼴(`system-ui` = Malgun Gothic) 자리의 `₩`는 아직 그대로다(spec §8의 7).
+
+**상태 이름은 한국어 표이고, e2e는 목록 줄을 문구가 아니라 클래스로 잡는다** (`renderer/runStatus.ts`·`e2e/dock.ts`, spec FR-45·§6 우려 9). 대화록의 상태 알약과 목록 점의 `aria-label`·`title`이 `RUN_STATUS_LABELS`(`대기 중`·`실행 중`·`완료`·`실패`·`취소됨`·`중단됨`)를 쓴다. agent 이름도 `renderer/agents.ts`의 `AGENT_LABELS` 한 표다(권한 이름의 `permission.ts`와 같은 이유 — 실행 패널·설정 화면·`AgentStatusList`·헤더 부제·메타 줄이 같이 쓴다). **클래스는 enum 그대로다**(`.status-<enum>`) — 색과 e2e가 거기 걸려 있다. 예전 e2e 아홉 파일은 줄 버튼의 영어 이름(`/succeeded.*제목/`)으로 잡다가 한꺼번에 깨졌다 — 지금은 `convRow(page, text)`(`.dock-conv` + `hasText`)와 `waitConvStatus(page, text, status)`(그 줄의 `.status-dot.status-<enum>`)를 쓴다. 한국어 정규식으로 옮기지 말 것 — 문구가 바뀔 때마다 또 깨진다. `e2e/dock.ts`는 `RunStatus`를 옮겨 적는다(eslint가 e2e의 `@shared` import를 막는다).
+
+**e2e 셀렉터가 이렇게 바뀌었다** (`docs/sdlc/conversation-timeline/`).
+
+- 가짜 CLI의 텍스트 "작업 중"이 상태 줄의 "작업 중"과 겹친다 — `page.getByText('작업 중')`은 strict 위반이다. 접힌 턴은 `.turn-answer`, 펼친 턴은 `.tl-text`로 좁힌다(core-loop는 흐르는 답을 볼 창을 벌려고 `ONE_DESK_FAKE_DELAY_MS=4000`이다 — 끝나면 최종 답으로 바뀌어 사라진다).
+- 예약은 대화록에 없다 — 이어 보낸 턴은 칩(`.composer-queue`)을 먼저 기다리고, 시작된 뒤 대화록의 `.turn-user`를 기다린다. `page.getByText('대기 중')`은 칩의 단독 span(`.composer-queue-label`) 하나에 걸린다(상태 알약의 `대기 중`은 뿌리 pending에서만 대화록에 나온다).
+- 새 대화는 `{ name: '새 대화', exact: true }`(옛 `＋ 새 대화`), 도크 토글은 `대화창 숨기기`/`대화창 보이기`, 옛 `.turn-info`는 `.turn-meta`다. 컨텍스트 점유는 턴이 아니라 헤더 링의 이름(`사용량, 컨텍스트 5%`)으로 잡는다. `.run-settings`·`.run-log`·`.log-*`·`.dock-cancel`·`.turn-pending`은 없어졌다. 작업 디렉토리 옵션의 글자는 repo 이름뿐이라 경로는 옵션의 `title`로 본다(settings·triage가 이것으로 한 번 깨졌다).
+- 도크를 하한까지 끌 때는 `e2e/dock.ts`의 `dragDockToMin`을 쓴다 — 창 밖까지 끌면 그쪽 pointermove가 전달되지 않거나 합쳐져, 멈추는 높이가 실행마다 280px과 306px 사이에서 흔들렸다.
+- `ONE_DESK_FAKE_SCRIPT=timeline`이면 가짜 CLI가 기본 시나리오 대신 도구·편집·mcp와 적대적인 마크다운 답을 낸다(줄 사이 `ONE_DESK_FAKE_STEP_MS`, 기본 300ms). **기본 시나리오를 건드리지 말 것** — 기존 e2e 전부가 거기 기댄다.
+- `https` 링크를 누르는 e2e는 `app.electron.evaluate`로 main의 `shell.openExternal`을 기록만 하게 바꿔 세운다 — e2e가 사용자의 브라우저를 열면 안 된다. 코드 복사를 보는 e2e는 사용자의 클립보드를 덮으므로 `finally`에서 되돌린다.
+
+**새 이름이 늘었다 — 부분 일치로 부딪히지 않게 고른 것들이다** (spec NFR-6). `중지`·`실행 중인 턴 멈추기`·`이 대화의 실행 멈추기`·`예약 취소`·`대기 취소`·`다시 보내기`·`답하기`·`응답 복사`·`코드 복사`·`명령 복사`·`대화 메뉴`·`이름 바꾸기`(menuitem)·`대화 끝내기`(menuitem)·`사용량, 컨텍스트 …`·`최신으로 이동`·`대화창 최대화`·`대화창 원래 크기로`·`대화창 숨기기`·`대화창 보이기`·`새 대화`·`작업 디렉토리 경로 복사`. **`작업 디렉토리 경로 복사`는 알약의 이름 `작업 디렉토리`를 부분 문자열로 품는다** — 이어 가는 대화에서 `getByLabel('작업 디렉토리')`는 반드시 `{ exact: true }`로 쓴다. 피한 충돌: **도크 토글에서 글자 "실행"을 버렸다** — 아이콘이 `aria-hidden`이면 토글 이름이 정확히 "실행"이 되어 전송 버튼의 exact와도 부딪힌다. **"접기"/"펼치기"도 쓰지 않는다**(턴의 `접기`). **최대화의 반대는 "축소"가 아니라 "원래 크기로"다**(패널의 `축소`를 e2e가 exact로 잡는다). **대화 제목은 버튼이 아니다** — 접근성 이름이 제목과 같은 버튼이 생기면 이슈 줄(`{ name: <이슈 이름>, exact: true }`)과 부딪힌다(대화 제목이 곧 담은 이슈 이름이다). 키보드 경로는 `⋯` 메뉴다. `자세히`·`응답 복사`는 턴마다 하나라 e2e는 턴으로 좁혀 잡는다. 이름 편집 칸은 목록 줄과 헤더가 같은 이름(`<제목> 새 이름`)이지만 편집 state가 하나(`renaming: { id, where }`)라 한 번에 한 자리뿐이다.
 
 **인박스 소속은 뿌리의 `reviewedAt`으로 판정한다.** 확인·보관·취소 같은 "인박스에서 내리는" 동작은 전부 **뿌리(root run) id**에 찍어야 한다. 턴 id에 찍으면 아무 일도 일어나지 않는다 — 대화는 인박스에 그대로 남는다. 실제로 `execution.cancel()`이 이 자리에서 걸렸다: 예약된 뒤 턴을 취소하면서 그 턴의 id에 확인 표시를 찍었더니, 뿌리는 계속 미확인으로 남아 대화 전체가 "대기 중 취소됨"으로 인박스에 다시 떴다(C-1-a). 반대로 뿌리에 찍는 것만으로는 새 문제가 생긴다 — `markReviewed`는 한 번 찍히면 스스로 지워지지 않으므로, 뿌리(=첫 턴)를 실행 중에 취소하면 그 대화는 세션이 살아 있어 계속 이어갈 수 있는데도 이후 어떤 턴도(`needs_answer`로 멈춘 턴을 포함해) 인박스에도 배지에도 다시 나타나지 않는다(C-1-b). 그래서 반대쪽 절반이 반드시 같이 있어야 한다: **`create()`가 `parentRunId`를 받으면(=기존 대화에 새 턴을 잇는 것이면) 뿌리의 `reviewedAt`/`reviewedKind`를 지운다.** 확인 표시를 찍는 자리(취소·확인함·보관)와 지우는 자리(새 턴 생성)가 항상 짝을 이뤄야 한다 — 한쪽만 고치면 반대 방향으로 조용히 깨진다.
 
@@ -454,7 +532,9 @@ placeholder에 ⌘를 직접 쓰면 Windows 사용자에게 없는 키를 가리
 **아이콘은 `renderer/components/icons.tsx`에서만 온다.** 유니코드 글리프(✎ 🗑 ⧉ ▾)를 버튼에
 직접 넣지 않는다 — 글꼴마다 굵기가 달라 한 줄에서 어긋난다. 아이콘은 전부 `aria-hidden`이라
 버튼의 이름은 반드시 `aria-label`이 준다. 예외는 담기 토글의 `✓`와 훑기 배너의 `⚠`인데,
-테스트가 그 글자를 텍스트로 잡고 있어서 남겨 두었다.
+테스트가 그 글자를 텍스트로 잡고 있어서 남겨 두었다. 입력부의 빈 맥락 안내문("왼쪽 항목의 ＋를
+눌러…")은 없어졌다 — 칩 줄은 담은 것이 있을 때만 선다(conversation-timeline spec §8의 4). 도크의 `▾`·
+`＋ 새 대화`·끝낸 대화 토글의 `▸`는 `conversation-timeline`이 아이콘으로 바꿨다.
 
 **그룹 헤더의 개수는 괄호가 아니라 알약이다.** 접근성 이름이 `"긴급 (2)"`가 아니라 `"긴급 2"`다 —
 `IssuePanel.test`의 정규식이 그것을 본다. `Panel`의 `count` prop과 asset 절 제목의 개수도
@@ -539,6 +619,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/repo-instructions/` | repo의 지시 파일 보기 — intent·spec·plan. discovered 본문 읽기 통로(`readBody`, id로만), `instructions` 종류가 맥락에 담기지 않는 이유(FR-9) |
 | `docs/sdlc/conversation-lifecycle/` | 대화의 수명 주기와 정체성 — intent·spec·plan. 배지가 세는 것과 자동 확인이 한 표의 양면인 근거(spec FR-3), 종료가 확인을 겸하는 이유(FR-12), 찍는 자리와 지우는 자리의 짝(FR-13), 제목 폴백 사다리(FR-11) |
 | `docs/sdlc/conversation-fixes/` | 대화의 확인된 결함 묶음 — intent·spec·plan. 대표 턴(spec FR-1), 두 칸짜리 인박스 표(FR-4), 취소가 뿌리에 찍는 조건(FR-8), 종료 코드가 이기는 판정(FR-12), OpenCode 버전 게이트(FR-17), Windows 트리 종료(FR-18) |
+| `docs/sdlc/conversation-timeline/` | OpenCode처럼 읽히는 대화 화면 — intent·spec·plan. 턴 투영이 순수 함수인 이유(spec FR-1), 접힌 턴의 여섯 칸(FR-12)과 로그를 읽지 않는 이유(FR-14), 열림을 도구 id에 매다는 이유(FR-15 다듬음), 마크다운 보안·파싱 예산과 main의 탐색 가드(FR-20~24), 멈추는 자리 셋(FR-29)·예약 칩(FR-30)·초안 스토어(FR-31), 대화 헤더와 컨텍스트 링(FR-33~36), 최대화와 Esc(FR-38·39), 바닥 따라가기(FR-42), 상태 이름 표(FR-45), 치수(§4), 리뷰가 남긴 과제(§8). plan의 완료 증명에 단계별 변이 결과와 번들 크기 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |
 | `docs/diagrams/` | 아키텍처 다이어그램 — `one-desk-architecture.html`(단독 실행 가능)과 그것을 만든 archify 사양 `one-desk.architecture.json`. `main`에 들어가면 `.github/workflows/pages.yml`이 GitHub Pages로 올린다 |
 

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { launchApp } from './driver'
+import { waitConvStatus } from './dock'
 
 // 실제 CLI로 커맨드 확장을 확인한다. 별도 임시 repo의 합성 지시만 사용한다.
 describe.skipIf(process.env['ONE_DESK_REAL_CLI'] !== '1')('실제 CLI 슬래시 커맨드', () => {
@@ -30,7 +31,7 @@ describe.skipIf(process.env['ONE_DESK_REAL_CLI'] !== '1')('실제 CLI 슬래시 
     await prompt.press('Enter')
     await page.getByRole('button', { name: '실행', exact: true }).click()
     await expect.poll(async () => (await page.locator('.turn-answer').allTextContents()).some((text) => text.includes('SLASH_EXPANDED_73BD29')), { timeout: 90_000 }).toBe(true)
-    await page.getByRole('button', { name: /succeeded/ }).waitFor({ timeout: 90_000 })
+    await waitConvStatus(page, null, 'succeeded', 90_000)
     // 첫 대화가 마운트된 후에만 두 번째 턴을 채운다.
     await page.locator('.turn-user').first().waitFor()
     await prompt.fill('/onedesk-smoke')

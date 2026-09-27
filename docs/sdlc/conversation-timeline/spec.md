@@ -95,10 +95,16 @@
   | `todowrite`, `todoread`, `taskcreate`, `taskupdate`, `taskget`, `tasklist` | 할 일 | todo |
   | `task`, `agent` | 하위 에이전트 | subagent |
   | `skill` | 스킬 | other |
-  | `mcp__<서버>__<도구>` | `` `<도구>` 호출 `` | mcp |
+  | `mcp__<서버>__<도구>` | `<도구>` (화면은 모노) | mcp |
   | 그 밖 | 이름 그대로 | other |
 
   **표에 없는 이름을 버리지 않는다.** 새 도구가 나와도 화면에서 사라지지 않고 원래 이름으로 보인다.
+  *(다듬음 2026-09-27: 어댑터가 이름을 못 읽은 빈 이름만 "도구"다 — 빈 라벨은 묶음 라벨을
+  "2 , 읽기 사용됨"으로 만든다.)*
+  *(다듬음 2026-09-27, §8의 5 결정: **mcp 라벨은 도구 이름만이다** — 백틱도 "호출"도 없다(`list_issues`).
+  처음 표의 `` `<도구>` 호출 ``은 백틱을 글자로 담아 "1 \`list_issues\` 호출 사용됨"이 렌더되지 않은
+  마크다운처럼 읽혔다. 이름이 코드라는 것은 모양이 말한다 — 화면이 mcp 이름을 모노 글자(`.tool-name`)로
+  그린다: 묶음 라벨·도구 한 줄·상태 줄의 지금 도는 도구. 묶음 라벨은 `1 list_issues 사용됨`이다.)*
   **할 일 도구는 숨기지 않는다** — OpenCode 2.0.18은 todowrite를 타임라인에서 지우지만 one-desk에는
   할 일 패널이 없어, 숨기면 agent가 계획을 세운 흔적이 어디에도 남지 않는다.
 
@@ -110,12 +116,23 @@
   - search 종류이고 결과 요약이 `Found N `으로 시작하면 `matches = N`이다(claude Grep의
     files_with_matches 출력 — **구현 전에 실제 로그로 형식을 확인한다**). 못 읽으면 null이고
     화면은 개수를 그리지 않는다. 200자 요약에서 줄을 세지 않는다 — 잘린 수를 세면 거짓이다.
+    *(다듬음 2026-09-27, plan 1단계: 이 장비의 실제 run 로그로 확인했다 — files_with_matches의
+    요약이 `Found 7 files\n…`·`Found 1 file\n…`이다. content 모드와 Glob(`No files found`, 파일
+    목록)에는 이 줄이 없어 null이다. 파서는 `/^Found (\d+) /` 그대로다.)*
   - 상대 경로는 `cwd`로 시작하면 그 뒤만, 아니면 전체다. `\`와 `/`를 같게 본다(Windows 경로).
+    *(다듬음 2026-09-27: 드라이브 글자의 대소문자도 같게 보고, 경로 경계에서만 자른다 —
+    `/repo`가 `/repo2/a.ts`를 자르지 않는다. 남는 부분은 원문의 구분자 그대로다.)*
+  - *(다듬음 2026-09-27, §8의 7 결정: 부제가 파일 경로에서 왔는지를 `ToolItem.subtitlePath`로 함께 준다
+    (§3) — 화면이 경로만 모노로 그린다. 명령·검색어·URL·설명·할 일 요약은 경로가 아니다.)*
 
 - **FR-6.** **활동 묶음**은 연속된 비편집·비실패 도구 호출이다. 라벨은
   `${개수} ${라벨들} 사용됨`이고, 라벨들은 처음 나온 순서의 **고유** 라벨을 `, `로 잇는다
   (intent D1의 "4 읽기, Grep, 셸 사용됨", OpenCode `{{count}} {{tools}} 사용됨`). 안에 `running`인
   항목이 있으면 묶음도 `running`이다. 묶음을 끊는 것은 text·edit·tool-error·error·notice다.
+  *(다듬음 2026-09-27, §8의 5 결정: 블록은 한 줄 글자 `label`과 함께 그 고유 라벨 조각
+  `labels: ToolLabel[]`(라벨과 종류, 처음 나온 순서)을 준다 — 화면이 mcp 이름만 모노로 그리려면 조각의
+  종류를 알아야 한다. 둘은 `activityLabel`의 한 규칙에서 나온다. 묶음 머리 단추의 접근성 이름은 `label`
+  그대로다(`aria-label`) — 조각으로 그린 글자에서 이름을 계산하면 조각 경계에 틈이 끼기도 한다.)*
 
 - **FR-7.** **편집 블록**은 연속된 편집 계열 호출이고, 같은 파일은 한 줄로 합친다(hunk 여럿).
   diff는 `renderer/diff.ts`가 **입력만으로** 만든다 — 렌더러는 파일에 닿지 않는다(경계 2).
@@ -131,7 +148,12 @@
     한계다.
   - 줄 diff는 LCS다. 두 쪽 줄 수의 곱이 1,000,000을 넘으면 "전부 지우고 전부 추가"로 떨어진다 —
     렌더러의 한 프레임을 diff 계산이 먹으면 안 된다.
+    *(다듬음 2026-09-27, plan 1단계: 곱은 앞뒤 공통 줄을 걷어 낸 **가운데**에서 재고, 떨어질 때도
+    걷어 낸 공통 줄은 문맥으로 남는다 — LCS가 실제로 도는 것이 그 가운데라 비용 상한은 같다.)*
   - 한 파일에 그리는 줄은 400줄까지이고 나머지는 "… N줄 더"다. `+N −M`은 자르기 전 diff에서 센다.
+    *(다듬음: 자르기는 `diff.ts`의 `truncateHunks`가 한다 — §3에 없던 export다.)*
+  - *(다듬음: 경로를 모르는 편집(`patch {patchText}` 등)은 파일 줄에 도구의 부제, 그것도 없으면
+    라벨로 보이고(`EditFile.path`는 빈 문자열), 서로 합치지 않는다 — 같은 파일이라는 근거가 없다.)*
 
 - **FR-8.** **답(answer)과 중복 방지.** 턴 하나에는 "답 칸"이 하나 있다.
   - `running`이면 답은 **스토어의 마지막 text 블록**이다(`final: false`). 없으면 null.
@@ -166,6 +188,13 @@
     같은 `::before` 방식).
   - **대기 시간(createdAt → startedAt)은 넣지 않는다.** 슬롯을 기다린 시간은 agent가 쓴 시간이
     아니다. OpenCode는 사용자 메시지 시각부터 재지만 거기에는 슬롯이 없다.
+    *(다듬음 2026-09-27, 리뷰 반영: **중단된 턴(`interrupted`)도 시간 조각을 뺀다.** 그 상태는 도는
+    중에 앱이 꺼진 턴에만 붙고(core `reapStale`), `endedAt`은 다음 부팅 시각이다 — 20초 돌다 꺼져 다음
+    날 켜면 "14시간 3분"이 agent가 쓴 시간처럼 보였다. 언제 멈췄는지는 어디에도 남지 않는다.)*
+    *(다듬음 2026-09-27, §8의 3 결정: **도는 턴(`running`)도 시간 조각을 뺀다** — 경과 시간은 상태 줄이
+    말한다(FR-12). 둘 다 보이면 한 턴이 "작업 중 · 2초"와 "… · 2초 · …"로 시간을 두 번 말했다. 그래서
+    메타의 시간은 끝난 시각까지의 것뿐이고 흐르는 시계를 받지 않는다 — 인자 `now`를 뺐다:
+    `metaPieces(run)`(§3). 끝난 시각이 없으면 조각이 없다.)*
 
 ### (B) 턴 화면 (D1·D8)
 
@@ -182,6 +211,9 @@
 
   **도구 한 줄·중간 텍스트·diff는 접힌 턴에 없다.** 2026-09-22 결정의 이유("도구 호출이 흐르면
   대화록이 그것으로 가득 찬다")가 그대로 남아 있다 — 접힌 턴은 OpenCode의 "텍스트만"에 가깝다.
+  *(다듬음 2026-09-27, §8의 3 결정: 진행 중 턴의 시간은 **상태 줄 하나가** 말한다 — 끝줄의 메타 조각은
+  도는 동안 시간을 빼고(FR-11), 끝나 상태 줄이 사라진 뒤에 걸린 시간을 보인다. 상태 줄의 도는 도구는
+  펼친 도구 한 줄과 같은 모양이다 — mcp 이름은 모노, 경로 부제도 모노(§8의 5·7).)*
 
 - **FR-13.** **펼친 턴(`자세히`)은** 사용자 버블 → 상태 줄(running) → 블록들(FR-2, 순서대로) →
   최종 답(**끝났을 때만** — 진행 중에는 마지막 text가 블록 안에 제자리로 있다) → 오류 카드 →
@@ -189,6 +221,11 @@
   "기록된 활동이 없습니다". OpenCode의 "컴팩트"다.
   진행 중 마지막 text가 블록에 있다가 턴이 끝나면 답 칸으로 옮겨 가는데, 둘 다 맨 아래라 눈에는
   제자리다(FR-8의 중복 제거가 그 블록을 뺀다).
+  *(다듬음 2026-09-27, plan 4단계: 블록은 `.turn`의 직계 자식으로 선다 — 턴 안의 칸 순서가 곧 블록
+  순서다(`Transcript.test`가 그 순서를 클래스로 고정한다). 빈 안내는 `.tl-empty`다. 로그를 되살리지
+  못하면 그 이유를 블록 위에 `role="alert"`로 둔다(옛 로그 뷰와 같다). 턴의 몸통은 접힌 몸통(스냅샷)과
+  펼친 몸통(`useRunEvents`)으로 갈리고 투영은 몸통마다 한 번이다 — 두 몸통이 한 번에 뜨지 않으므로
+  한 턴의 투영은 늘 하나다(NFR-3).)*
 
 - **FR-14.** **접힌 턴은 로그 파일을 읽지 않는다.** 스토어 스냅샷만 구독한다
   (`useRunEventSnapshot`). 펼친 턴만 스토어가 비었을 때 `readLog`로 되살린다(`useRunEvents`).
@@ -199,6 +236,15 @@
   묶음·도구 한 줄·편집 파일 넷 다 접힌 채 시작하고, 상태 전이나 새 이벤트로 열리거나 닫히지
   않는다. 열림 state는 **블록 key**(첫 이벤트의 seq로 만든다)에 매달아, 이벤트가 붙어 블록이
   길어져도 풀리지 않는다. `open`을 강제하는 effect를 두지 않는다.
+  *(다듬음 2026-09-27, 리뷰 반영: **열림은 블록 key가 아니라 도구 id에 매단다.** 블록 key(첫 이벤트의
+  seq)는 결과가 뒤늦게 실패로 와서 **첫** 도구가 묶음 밖으로 빠지면(FR-2) 바뀐다 — claude는 도구 여럿을
+  한꺼번에 내고 결과를 몰아 보내므로 진행 중 펼친 턴에서 실제로 난다. 그래서 묶음은 안의 도구마다
+  `group:<id>`, 편집 파일 줄은 그 파일을 고친 도구마다 `file:<id>`(`EditFile.ids`, §3), 도구 한 줄은
+  `tool:<id>`이고, 하나라도 열려 있으면 열린 것이다. 도구가 어느 블록으로 옮겨 가도 id는 그대로라 —
+  붙어서 길어지든 실패로 갈라지든 — 열린 것은 열린 채, 닫힌 것은 닫힌 채다. 묶음이 가운데서 갈라지면
+  둘 다 열려 있고, 열어 둔 도구 한 줄이 실패로 따로 서도 열린 채다(같은 `tool:` 키). 원문 줄 공지는
+  갈라지지 않으므로 블록 key 그대로다. `Transcript.test`의 "병렬 도구의 첫 항목이 실패로 빠져도…" 넷이
+  고정한다.)*
 
 - **FR-16.** **도구 한 줄**(묶음을 펼쳤을 때).
   - 공통: 라벨(굵게) · 부제(한 줄, 말줄임, 전체는 `title`) · 상태(running 스피너 / unknown
@@ -210,14 +256,34 @@
   - mcp·그 밖: 펼치면 `input`을 들여쓴 JSON으로(2,000자까지).
   - 읽기·검색·웹·할 일: 펼칠 것이 없다 — 한 줄로 끝난다(OpenCode의 컴팩트 행).
   - **도구의 입력·출력은 평문이다.** 마크다운으로 그리지 않는다(FR-26).
+  *(다듬음 2026-09-27, plan 4단계: 종류마다 무엇을 펼쳐 보일지도 규칙이라 `timeline.ts`의
+  `toolDetailOf(item)`이 정한다(§3에 없던 export, FR-1) — 셸 `{command, output, truncated}`,
+  하위 에이전트 `{agentType, prompt}`, mcp·그 밖 `{json}`(`MAX_INPUT_JSON` = 2,000자), 나머지는 null.
+  명령이 없는 셸 도구(`BashOutput`)는 결과만, 명령도 결과도 없으면 펼칠 것이 없다. 하위 에이전트는
+  `prompt`가 문자열이 아니면 한 줄로 끝나되 `subagent_type`은 그대로 오른쪽에 둔다. 펼칠 것이 없는
+  줄은 버튼이 아니라 글자 한 줄이다 — 누를 수 있는데 아무 일도 없는 버튼을 두지 않는다. 펼칠 수
+  있는 줄·묶음 라벨·파일 줄·공지는 `aria-expanded`를 단 버튼이고, 조각 사이에 공백 글자를 두어
+  접근성 이름이 `셸 pnpm test`처럼 읽힌다. 도는 도구의 스피너는 상태 줄과 같은 `.turn-spinner`다.)*
+  *(다듬음 2026-09-27, §8의 5·7 결정: **펼침 꺾쇠는 글자 바로 뒤다** — 묶음 라벨·도구 한 줄·실패 줄이
+  한 자리를 쓴다(파일 줄만 오른쪽 끝, FR-18). 오른쪽으로 민 곁 글자(하위 에이전트의 `subagent_type`)는
+  꺾쇠 **뒤**에 선다 — 순서는 라벨 · 부제 · (N개 일치) · 상태 · 꺾쇠 · 곁 글자. mcp 도구의 라벨은
+  모노(FR-4), 부제가 파일 경로면(`subtitlePath`, FR-5) 부제가 모노(`.path-text`)다.)*
 
 - **FR-17.** **실패한 도구**(`tool-error`)는 묶음 밖에 따로, `--danger-bg-soft` 바탕 한 줄이다 —
   라벨 · 부제 · "실패". 펼치면 결과 요약(오류 문구). 편집 계열이 실패해도 edit 블록이 아니라 여기로
   온다 — 실패한 편집의 diff는 일어나지 않은 변경이다.
+  *(다듬음 2026-09-27, §8의 5 결정: "실패"는 오른쪽 끝으로 밀지 않고 부제 바로 뒤에 선다 — 그래서
+  꺾쇠가 글자 바로 뒤, 묶음·도구 줄과 같은 자리다. 전에는 "실패"와 꺾쇠가 오른쪽 끝이었다.)*
 
 - **FR-18.** **편집 블록**은 머리 "편집 · 파일 N개" 아래 파일 줄들이다 — 상대 경로 · "새로 씀"
   (Write) · `+N −M`. 파일 줄을 펼치면 diff: 줄마다 부호 칸(`+`/`−`/공백)과 본문, 추가는
   `--success-bg`, 삭제는 `--danger-bg-soft` 바탕. hunk 사이에는 가는 구분선.
+  *(다듬음 2026-09-27, plan 4단계: diff가 없는 파일(모양을 모르는 편집, FR-7)은 `+N −M`도 없다 —
+  `+0 −0`은 "아무것도 안 바뀌었다"로 읽힌다. 지운 줄의 부호는 글자 `-`가 아니라 빼기 기호 `−`로
+  그려 `+N −M`과 같은 글자를 쓴다. 자른 나머지는 diff 아래 `… N줄 더`다.)*
+  *(다듬음 2026-09-27, §8의 5·7 결정: 파일 줄의 꺾쇠는 **오른쪽 끝**, `+N −M` 곁이다 — 수와 함께 읽히는
+  줄이라 다른 줄과 자리가 다르다. 경로는 모노(`.path-text`)다 — 경로를 아는 줄만이고, 경로 대신 부제나
+  라벨이 선 줄(FR-7 다듬음)은 글자 그대로다.)*
 
 - **FR-19.** **턴 사이 공지**(FR-10)는 그 턴의 사용자 버블 위에 가운데 정렬 한 줄로 선다 —
   양옆 가는 선, `--text-muted`, 보기 전용.
@@ -227,10 +293,32 @@
 - **FR-20.** **`react-markdown` + `remark-gfm`을 쓴다.** 버전은 설치 시점의 것을 정확히 고정한다
   (이 저장소는 전부 정확한 버전이다). **`rehype-raw`를 쓰지 않는다. `dangerouslySetInnerHTML`을
   쓰지 않는다.** 둘 다 grep 0건을 완료 증명에 넣는다.
+  *(다듬음 2026-09-27, 리뷰 반영: **파서를 무너뜨리는 글은 평문(`.md.md-plain`, pre-wrap)으로 그린다.**
+  실측(Node 22): `- ` 1,000번(2KB)·`>` 3,000번은 mdast → hast 재귀가 스택을 넘기고, 렌더 중에 던진 오류를
+  받을 경계가 없으면 React 19가 **루트를 통째로 내려** 앱 창 전체가 빈 화면이 됐다(답은 DB에 남아 그
+  대화를 열 때마다). 시간도 흔한 모양에서 제곱으로 는다 — 여는 기호 없는 닫는 기호(`a_ ` × 33,000 =
+  100KB) 15초, 중첩된 강조 1,000겹(6KB) 0.3초. 파싱을 시작하면 멈출 수 없으므로 **파싱 전에**
+  `renderer/markdownBudget.ts`의 `fitsMarkdownBudget`이 선형으로 잰다 — 글자 수 100,000 · 컨테이너
+  깊이의 위 한계(줄마다 들여쓰기 칸 ÷ 2 + 줄머리 표지 수) 64 · 문단(빈 줄 사이)마다 인라인 기호
+  (`*_~[]<` 백틱) 수의 제곱의 문서 합 2,000,000 · 같은 방식의 `|` 합 100,000,000. 상한에 닿는 적대적
+  입력은 0.3초 안팎에 그려지고, 이 저장소의 spec·plan·CLAUDE.md는 인라인 비용 36만 아래다. 판정을
+  빠져나간 오류는 `Markdown`의 오류 경계가 받아 그 답만 평문으로 떨어뜨린다 — 같은 글이면 다시 파싱하지
+  않고, 글이 바뀌면 다시 그려 본다. **코드 울타리는 쫓지 않는다**: 울타리 판정이 파서와 한 번이라도
+  어긋나면(HTML 블록 안의 ```, 목록 항목과 같이 닫히는 울타리) 그 뒤 문단을 세지 않아 판정 전체가
+  뚫린다. 대가로 빈 줄 없이 수백 줄 이어지는 코드나 수백 행의 서식 있는 표는 평문으로 떨어진다(§8).
+  `markdownBudget.test`가 경계값을, `Markdown.test`가 평문 경로를, `Markdown.boundary.test`가 경계를
+  고정한다.)*
+  *(§8의 6 결정 2026-09-27: **유지** — 예산과 그 대가(울타리를 쫓지 않아 긴 코드·표가 평문으로 떨어짐)를
+  지금대로 둔다.)*
 
 - **FR-21.** **원시 HTML은 글자 그대로 보인다.** react-markdown은 `rehype-raw` 없이 HTML 노드를
   텍스트로 바꾼다(`skipHtml`을 켜지 않는다) — `<script>`는 실행되지 않고 화면에 "<script>…"로
   남는다. 지우지 않는 이유: agent가 HTML 조각을 설명하는 답에서 그 조각이 사라지면 답이 거짓말이 된다.
+  *(다듬음 2026-09-27, 리뷰 반영: **HTML 블록은 줄을 지킨 글자 블록(`.md-raw`)이다.** react-markdown은 raw
+  노드를 감싸는 요소 없이 뿌리의 맨 글자로 두어, 여러 줄 조각이 한 줄로 뭉개지고 블록 여백 없이 다음
+  문단에 붙었다. remark 단계(`Markdown.tsx`의 `remarkRawBlocks`)가 블록을 담는 노드(뿌리·인용·목록
+  항목·각주)의 자식인 `html`만 `div.md-raw` + 글자 노드 하나로 바꾼다 — 요소로 되살리지 않는다.
+  문단 안의 인라인 HTML은 그대로 문단 안의 글자다. 모노 `.75rem` `--text-secondary`, pre-wrap.)*
 
 - **FR-22.** **링크는 `http:`·`https:`만 링크다.** 판정은 `shared/links.ts`의 `externalLinkOf(href)`
   하나다(FR-24가 main에서 같은 함수를 쓴다).
@@ -240,10 +328,23 @@
     글자**다(`.md-link-inert`, 원래 주소는 `title`). 상대 경로와 `#`도 막는 것은 **앱 안 탐색
     금지** 때문이다 — 앱 창이 다른 문서로 넘어가는 경로를 렌더러에 하나도 두지 않는다.
   - GFM 자동 링크(맨 URL)도 같은 규칙을 탄다.
+  *(다듬음 2026-09-27, plan 2단계: 거르는 자리는 `Markdown`의 `a` 컴포넌트이고 react-markdown의
+  기본 `urlTransform`은 끈다(주소를 그대로 넘긴다) — 기본 변환은 위험한 주소를 빈 문자열로 지워
+  글자로 남긴 링크의 `title`에 원래 주소를 보일 수 없다. 원시 HTML이 글자로 떨어지므로 마크다운에서
+  주소를 싣는 요소는 `a`·`img` 둘뿐이고 둘 다 다시 그린다. 이 가정은 `Markdown.test`가 적대적인 문서의
+  DOM 전체를 훑어(`on*`·`src`·`action`·http(s) 아닌 `href` 0건) 고정한다. 결과로 GFM 각주의 참조·되돌아가기
+  링크(`#user-content-…`)와 맨 이메일(`mailto:`)도 글자다.)*
+  *(다듬음 2026-09-27, 리뷰 반영: **통과한 링크의 `title`은 실제 목적지(`externalLinkOf`의 결과)다** —
+  마크다운 링크 제목(`[a](url "제목")`)은 agent가 정하는데, Electron에는 상태 표시줄이 없어 누르기 전에
+  목적지를 볼 곳이 툴팁뿐이다. 글자로 남긴 링크가 원래 주소를 `title`로 보이는 것과 같다. **사용자
+  정보(`user@`·`user:pass@`)가 붙은 주소는 링크가 아니다** — `https://github.com@evil.com/`의 목적지는
+  evil.com인데 맨 URL로 쓰면 화면에도 github처럼 보인다. 판정이 `shared/links.ts`에 있으므로 main의 새 창
+  핸들러도 같이 거부한다.)*
 
 - **FR-23.** **이미지는 그리지 않는다.** `img` 자리에 `[이미지: alt]` 글자를 둔다 — `<img>` 요소가
   DOM에 생기지 않는다. CSP(`img-src 'self' data:`)가 원격 로드를 이미 막지만, `data:`는 통과하고
   "막혔다"는 깨진 아이콘을 보여줄 이유도 없다.
+  *(다듬음 2026-09-27, plan 2단계: alt가 비면 `[이미지]`다. 글자는 `.md-image`.)*
 
 - **FR-24.** **main도 막는다(심층 방어).** `electron/main.ts`에서
   - `will-navigate`: 앱 자신의 URL(개발 서버 주소 또는 `index.html`)이 아니면 `preventDefault`.
@@ -253,10 +354,31 @@
   **렌더러 규칙 하나에 기대지 않는 이유**: 앱 창이 원격 문서로 넘어가면 preload가 그 문서에도
   붙어 `window.oneDesk`가 노출된다 — CLAUDE.md가 경고한 `runs.start({ permission: 'full' })`가
   그 문서의 것이 된다. 막는 자리가 한 곳이면 그 한 곳의 실수가 곧 사고다.
+  *(다듬음 2026-09-27, plan 2단계: `will-navigate`의 판정도 `shared/links.ts`에 둔다 —
+  `isAppNavigation(target, appUrl)`. 개발 서버면 같은 origin(Vite의 전체 새로고침), `file:`이면 **같은
+  문서**(쿼리·조각 무시)만 통과한다. `file:`의 origin은 전부 불투명한 `"null"`이라 origin을 비교하면
+  디스크의 아무 파일로나 넘어간다. 앱 주소를 해석하지 못하면 막는다. `appUrl`은 main이
+  `pathToFileURL(index.html)`로 만들고, 그것이 창의 실제 주소와 같은지는 e2e가 본다. 실제 창 동작 —
+  새 창은 http(s)만 `shell.openExternal`로 가고 창이 늘지 않는다, 원격·다른 `file:` 문서로 넘어가지
+  않는다, 같은 문서는 통과한다, 개발 서버 분기(`out/renderer`를 정적 서버로 내줘 흉내)에서 같은 origin
+  새로고침은 통과하고 다른 origin은 막는다 — 은 `e2e/nav-guard.e2e.ts`가 **렌더러의 거름을 거치지 않고**
+  `window.open`·`location`을 직접 불러 고정한다. 실측: `window.open('javascript:…')`은 Chromium이 핸들러에
+  넘기지도 않는다. `shell.openExternal`의 거부는 삼키지 않고 main 로그로 남긴다.)*
+  *(다듬음 2026-09-27, 리뷰 반영: **다운로드도 막는다** — `session.defaultSession`의 `will-download`에서
+  `preventDefault`. Chromium은 Windows·Linux에서 Alt+클릭한 링크를 새 창도 탐색도 아닌 다운로드로 처리해,
+  `target="_blank"` 링크라도 위 두 가드를 거치지 않고 저장 대화상자를 띄웠다(`nav-guard.e2e`로 실측 — 가드
+  없이 `will-download`가 막히지 않은 채 왔다). 이 앱이 스스로 내려받는 것은 없다. `nav-guard.e2e`의
+  "Alt+클릭한 링크는 내려받지 않는다"가 고정한다.)*
 
 - **FR-25.** **코드 블록**은 머리(언어 이름 · `코드 복사`)와 본문(모노, 가로 스크롤은 블록 안에서만)
   이다. 인라인 코드는 모노 알약. 표는 가로 스크롤 상자 안에 그린다 — 넓은 표가 대화록 전체를
   가로로 밀면 안 된다. GFM 작업 목록의 체크박스는 `disabled`다.
+  *(다듬음 2026-09-27, plan 2단계: 복사 버튼은 `renderer/components/CopyButton.tsx` 하나다 — 3·4단계의
+  `응답 복사`·`명령 복사`도 이것을 쓴다. 성공하면 1.5초 동안 `IconCheck`, 거부되면(클립보드 API가 없어도)
+  옆에 `복사하지 못했습니다`를 `role="status"`로 둔다 — 조용히 실패하지 않는다. 복사하는 것은 원문이다
+  (mdast → hast가 덧붙인 끝 줄바꿈을 뺀다). 언어를 적지 않은 블록은 머리에 버튼만 있다. `IconCopy`는
+  FR-48의 목록에 있던 것을 이 단계에서 먼저 더했다. 새 클래스: 표 상자 `.md-table`, 언어 이름
+  `.md-code-lang`, 실패 안내 `.copy-failed`.)*
 
 - **FR-26.** **마크다운을 쓰는 곳은 답 칸과 펼친 턴의 text 블록 둘뿐이다.** 사용자 버블·도구
   입력/출력·오류 카드·공지는 평문이다. 사용자 버블은 사람이 친 글이라 `*`나 `#`이 뜻을 바꾸면
@@ -280,6 +402,38 @@
   글자가 이름에 빨려 들어간다(CLAUDE.md). 잠김 규칙(이어가면 agent 비활성, 작업 디렉토리
   readOnly)과 기본값 규칙은 **바꾸지 않는다** — RunPanel의 effect들을 그대로 두고 모양만 바꾼다.
   작업 디렉토리 알약의 옵션 글자는 repo 이름만이고 경로는 `title`로 읽는다.
+  *(다듬음 2026-09-27, plan 5단계: 값이 비면 "기본값"만 보여 무엇의 기본값인지 모르므로 effort/variant
+  알약은 칸 이름을 머리(`.pill-name`)로 단다 — effort는 `<select>`를 감싸지 않는 `<span>`이고 머리는
+  `aria-hidden`, variant는 `<input>`이라 `<label>`로 감싼다(감싸면 안 되는 것은 select뿐이다). 모델
+  알약은 `ModelField`를 고치지 않고 그것이 그리는 `<label class="settings-field">`에 CSS로 알약 모양을
+  입힌다 — 그 글자 "모델"이 머리다. 이어가는 대화의 작업 디렉토리는 잠김 규칙 그대로 readOnly
+  `<input>`이라 알약에 경로가 보이고(말줄임, 전체는 `title`) repo 이름이 아니다. 슬래시 커맨드의
+  인자 경고(`command-warning`)도 경고라 카드 밖 위에 선다. 입력칸은 `field-sizing: content`로 쓰는
+  만큼 늘되 160px에서 멈춘다. 새 클래스: `.composer-note`(뿌리 pending 안내)·`.pill-field`·`.pill-name`.)*
+  *(다듬음 2026-09-27, 리뷰 반영 셋: (1) 모델·variant 칸의 **placeholder는 `--text-muted`다** — UA 기본색
+  #757575는 `--bg-muted` 위에서 라이트 4.2:1·다크 3.1:1이었다(NFR-5). (2) 칸 이름 머리는 `--text-secondary`
+  600, 값과 placeholder는 400이다 — 같은 회색이면 "모델 기본값 (예: sonnet)"이 한 구절로 읽힌다. (3) 잠긴
+  agent 알약은 `opacity: 1`로 **UA의 흐림을 걷는다** — Chromium은 disabled select를 통째로 반투명(≈0.7)으로
+  그려 글자가 3.4:1이었다. 흐림은 토큰(`--text-secondary`)이 한다(FR-47). 또 **도크가 최대화돼 있으면 빈
+  맥락 안내는 "원래 크기로 돌아가 맥락을 담으세요"다** — 최대화는 세 패널을 숨기므로(§6 우려 11) "왼쪽
+  항목의 ＋"가 화면에 없다. Dock이 `maximized`를 ConversationPanel → RunPanel로 내리고(둘 다 필수 prop),
+  `Dock.test`가 배선을 고정한다. 평소 문장은 e2e가 잡으므로 그대로다.)*
+  *(다듬음 2026-09-27, §8의 1·4·7 결정 — 위 두 다듬음의 일부를 뒤집는다:
+  (1) **이어 가는 대화의 작업 디렉토리 알약은 repo 이름이다**(안 (다)) — 본문 첫 문장("글자는 repo 이름,
+  경로는 `title`")으로 돌아간다. 글자는 `repoLabel`(등록된 repo면 이름, 아니면 경로의 마지막 폴더 이름 —
+  대화 목록 줄·헤더 부제와 같은 함수)이고 전체 경로는 `title`, 곁에 복사 버튼 `작업 디렉토리 경로 복사`
+  (`CopyButton`)가 선다. 5단계가 경로를 값으로 둔 이유(2026-09-23 "경로를 눌러 복사할 수 있어야 한다")는
+  그 버튼이 맡는다 — 경로를 값으로 두면 좁은 알약이 끝을 말줄임해 `C:\Users\<이름>\App…`만 보이고
+  구별되는 repo 폴더가 잘렸다. readOnly `<input>`은 그대로이고(포커스·`title`), 이름에 맞춰 좁아진다
+  (`field-sizing: content`). 새 대화에서 고르는 드롭다운은 옵션 글자가 이미 repo 이름이라 그대로다.
+  (2) **빈 입력칸은 한 줄 높이에서 시작한다**(`min-height: 1.5em`, 처음 값 56px) — 쓰는 만큼 늘고 160px에서
+  멈추는 것은 그대로다. (3) **맥락이 비면 칩 줄이 서지 않는다** — 본문 3의 안내 줄("왼쪽 항목의 ＋를
+  눌러…")을 placeholder나 `title`로 옮기지 않고 없앴다. 담는 법은 항목 줄의 ＋ 버튼(`맥락에 담기`)이
+  말한다. 최대화 때의 안내("원래 크기로 돌아가…")도 함께 없어졌고, 그것 하나를 위해 내리던 `maximized`
+  prop(Dock → ConversationPanel → RunPanel)도 걷었다. 1440×900 기본 도크(450px)의 이어 가는 대화에서 입력
+  카드 71px · 대화록 칸 245px이다(전: 135px · 181px). 둘 다 헤더에 담긴 것 줄이 선 조건(헤더 68px)이고, 담긴
+  것 줄이 없는 대화(헤더 46px)에서는 대화록 칸이 268px이다. (4) 알약이 경로를 보이는 것은 목록에 없는 경로가
+  골라진 드롭다운뿐이라 그때만 모노(`.path-text`)이고, 없는 경로 경고 문장의 경로도 모노다.)*
 
 - **FR-28.** **전송 버튼은 둘 중 하나다.**
   - 대화에 `running` 턴이 있고 입력칸이 비었으면(앞뒤 공백 무시) **중지**다 — `IconStop`,
@@ -289,6 +443,10 @@
     이 이름을 잡는다). 활성 조건은 지금의 `ready` 그대로다.
   - 실행 단축키는 지금(Ctrl/⌘+Enter)을 유지한다. **Esc로 멈추지 않는다** — 이 앱에서 Esc는 "안쪽부터
     푼다"(피커 → 이름 편집 → 최대화 → 열린 항목)의 약속이 이미 있고, 멈춤은 되돌릴 수 없다.
+  *(다듬음 2026-09-27, plan 5단계: 두 버튼은 한 자리를 번갈아 서는 같은 모양이다 — 둘 다 `.run-start`,
+  중지는 `.run-stop`을 더한다. 도는 턴은 `reserved`처럼 ConversationPanel이 계산해 `running` prop으로
+  내린다(`conversation.active`가 running일 때만 — 예약은 겨누지 않는다). 누르면 도크의 `cancel`을 타
+  실패가 도크 배너로 보인다.)*
 
 - **FR-29.** **도크 헤더의 `취소`를 없애고, 멈추기를 대화 헤더로 올린다.** 멈추는 자리는 셋이다 —
   입력부의 중지(FR-28), 대화록 상태 줄의 `실행 중인 턴 멈추기`(FR-12, fixes FR-11), 그리고 대화
@@ -298,6 +456,22 @@
   있어야 한다(2026-09-27 초안 검토에서 Claude가 결정, 초안의 "최신으로 이동 한 번 뒤" 공백을 메움).
   대기 턴은 예약 칩(FR-30)과 상태 줄의 `대기 취소`다. lifecycle FR-24가 도크 헤더 취소를 남긴 이유
   ("대화록의 턴별 취소는 pending에만 있어 running을 덮지 못한다")는 fixes FR-11로 사라졌다(§6 우려 2).
+  *(다듬음 2026-09-27, plan 5단계: 도크 헤더의 취소는 5단계에서 걷었고, 대화 헤더의 `멈추기`는 헤더가
+  생기는 6단계에서 붙는다 — 그 사이에는 입력부의 중지와 상태 줄의 멈추기 둘이다.
+  `STOP_RUNNING_TURN`은 도크가 더는 쓰지 않아 `Transcript.tsx` 안으로 들어갔다.)*
+  *(다듬음 2026-09-27, plan 6단계: 대화 헤더의 `멈추기`(`.conv-stop`)가 붙어 멈추는 자리가 셋이 됐다.
+  겨누는 턴은 입력부 중지와 같은 규칙 — `conversation.active`가 running일 때 그 턴이고 예약은 겨누지
+  않는다. 도는 턴이 없으면(끝났거나 첫 지시가 슬롯을 기다리면) 없다. 누르면 도크의 `cancel`을 타
+  실패가 도크 배너로 보인다. `ConversationHeader.test`·`Dock.test`가 겨누는 턴과 배너를 고정한다.)*
+  *(다듬음 2026-09-27, §8의 3 결정: **헤더의 `멈추기`는 입력칸에 초안이 있을 때만 선다** — 입력칸이 비어
+  전송 버튼이 중지(FR-28)일 때는 숨는다. 이 FR이 그 버튼의 존재 이유로 든 것("입력칸에 초안이 있으면
+  전송 버튼이 실행이 되고…")이 초안이 있을 때뿐이라서다. 그래서 도는 턴 하나에 멈추기는 늘 둘이다 —
+  상태 줄의 `실행 중인 턴 멈추기`(그대로)와, 입력부의 중지 **또는** 헤더의 멈추기. 판정은 입력부 중지와
+  같은 함수(`isBlankDraft` — 앞뒤 공백을 걷어 비었나)이고, 헤더는 입력부 밖이라 초안 스토어를 듣는다
+  (`useDraftFilled`, 스토어의 `subscribe` — §3). Dock이 보는 대화의 초안 키로 읽어 헤더의 필수 prop
+  `hasDraft`로 내린다. 알림은 값이 바뀔 때만 가고 듣는 값은 "비었나" 하나라 한 글자마다 다시 그리지
+  않는다. `Dock.test`의 "헤더의 멈추기는 초안을 쓰면 서고 지우면 사라진다"가 배선을, `composer.e2e`가
+  빌드된 앱에서 번갈아 서는 것을 본다.)*
 
 - **FR-30.** **예약은 입력칸 위 칩이다(D3).** 규칙은 **뿌리가 아닌 pending 턴**이다.
   - 뿌리가 아닌 pending 턴(= 이어 보낸 지시)은 **대화록에 그리지 않고** 입력부 위 칩으로 그린다:
@@ -310,6 +484,13 @@
     `role="status"`로 보인다.
   - 턴이 시작되면 칩이 사라지고 대화록에 나타난다. **대화당 예약은 하나** — `reserved`의 판정과
     잠금은 지금 그대로다.
+  *(다듬음 2026-09-27, plan 5단계: "뿌리가 아닌 pending" 판정은 `Transcript.tsx` 한 곳(`isReservation`,
+  밖으로는 `reservationOf(conversation)`)이고, 대화록의 거름과 ConversationPanel이 입력부에 내리는
+  `reservation`이 같은 함수를 쓴다 — `renderer/conversation.ts`는 건드리지 않는다. 뿌리 pending 여부도
+  ConversationPanel이 `waitingFirst`로 내린다. 대화록의 뿌리 pending은 **같은 `Turn`**이다 — 따로 그리면
+  시작하는 순간 다른 컴포넌트로 갈아끼워져 펼쳐 둔 것이 풀린다. 상태 줄만 대기 모양(`WaitingLine`, 스피너
+  없음 — FR-49)이고 끝줄은 상태 알약 `대기 중`·메타 조각(시작 전이라 시간은 빠진다)·`자세히` 그대로다.
+  옛 `.turn-pending`(글자 흐림)은 없어졌다. 칩의 조각 사이 `·`는 `::before`라 글자에 들지 않는다.)*
 
 - **FR-31.** **초안은 대화마다 보존한다(D10).** 초안은 `renderer/store/drafts.ts`의 스토어가 쥔다.
   스토어는 `main.tsx`에서 하나 만들어 Context로 내린다(`RunEventStore`와 같은 자리·같은 모양).
@@ -322,6 +503,16 @@
     App 전체가 다시 그려진다.
   - "다시 실행"의 `draftPrompt`는 지금처럼 새 대화에서만 반영되고, 반영하면 그 키의 초안을 덮는다.
   - 앱을 끄면 사라진다. 저장하지 않는다(localStorage도 쓰지 않는다 — 대화 id가 남는 곳이 늘 뿐이다).
+  *(다듬음 2026-09-27, plan 5단계: `useDraftStore()`는 Provider가 없으면 던진다 — 모듈 전역 기본값을 두면
+  Provider 한 줄을 빠뜨려도 조용히 돌고 테스트끼리 초안이 샌다. RunPanel은 마운트할 때 읽고, 입력이
+  바뀔 때마다 effect 하나로 쓴다(치기·커맨드 넣기·"다시 실행" 반영이 전부 그 한 자리를 지난다).
+  **전송이 성공하면 effect를 기다리지 않고 그 자리에서 비운다** — 새 대화의 첫 턴이면 `onStarted`가
+  입력부를 갈아끼우는데, 두 갱신이 한 번에 그려지면 옛 인스턴스는 빈 입력을 그려 보지도 못하고 사라져
+  방금 보낸 지시가 새 대화 칸에 되살아난다. 마운트된 채로 키가 바뀌면(도크의 key에 기대지 않는다)
+  렌더 중에 그 키의 초안으로 다시 시작한다. 남는 틈: App은 "다시 실행"의 `draftPrompt`를 턴이 나갈
+  때까지 쥐고 있고 RunPanel의 draftPrompt effect는 마운트마다 돈다 — "다시 실행" 뒤 그 지시를 고쳐
+  쓰다가 인박스에 다녀오면 고친 글이 원래 지시로 되돌아간다. effect와 App을 고치지 않는 단계라 그대로
+  두었다.)*
 
 - **FR-32.** **슬래시 피커는 그대로다.** 입력칸의 `anchor-name: --run-prompt`, popover, ARIA 연결,
   키 규칙을 바꾸지 않는다. 카드가 바닥에 붙으므로 피커는 늘 입력칸 위로 열린다.
@@ -332,6 +523,11 @@
   제목과 `⋯`, 그 아래 부제(agent 이름 · repo 이름, 끝낸 대화면 · "끝낸 대화"), 오른쪽은 컨텍스트
   링. 둘째 줄은 "이 대화에 담긴 것"이다 — 지금 대화록과 입력부 사이에 있던 `.applied-context`를
   그대로 옮긴다(한 줄, 넘치면 잘리고 전체는 `title`). 새 대화는 제목 "새 대화"만 있고 메뉴·링이 없다.
+  *(다듬음 2026-09-27, plan 6단계: 오른쪽은 `멈추기`(FR-29) · 링 순서다. 부제는 **한 덩어리 글자**다 —
+  조각을 따로 그리면 repo 이름만 담은 요소가 생겨 repo 이름을 exact로 찾는 셀렉터(목록 카드·옵션)와
+  부딪힌다. repo 이름은 목록 줄과 같은 함수(`ConversationList`의 `repoLabel`)에서 온다. 담긴 것 줄의
+  `title`은 항목 글자를 `, `로 이은 것이다. 도크 본문에 이미 위 여백이 있어 헤더의 안쪽 여백은
+  `0 12px 6px`다(§4의 `6px 12px`에서 위를 뺐다).)*
 
 - **FR-34.** **이름 바꾸기**: 제목을 누르거나 `⋯` → `이름 바꾸기`. 제목 자리가 `RenameField`로
   바뀐다. 편집 state는 목록 줄의 것과 **하나로** Dock이 쥔다(`renaming: { id, where }`) — 두 자리에서
@@ -339,6 +535,11 @@
   제목 자체는 버튼이 아니다(`title="눌러서 이름 바꾸기"`인 제목 요소) — 키보드 경로는 메뉴다.
   **제목을 버튼으로 만들지 않는 이유**: 접근성 이름이 제목과 같은 버튼이 생기면 이슈 줄
   (`{ name: <이슈 이름>, exact: true }`)과 부딪힌다 — 대화 제목은 담은 이슈의 이름이다.
+  *(다듬음 2026-09-27, plan 6단계: 저장·취소는 어느 자리의 것이든 `renaming`을 null로 되돌린다. 자리를
+  가려 닫는 가드(`where`가 같을 때만 닫기)는 두지 않았다 — 한 자리에서 다른 자리로 옮겨 가는 길은 늘
+  앞 입력칸의 blur(pointerdown)가 click보다 먼저라, 앞 자리의 취소가 새로 연 편집을 닫는 순서가 생기지
+  않는다(가드를 넣고 빼도 어떤 테스트도 달라지지 않았다). 입력칸의 접근성 이름은 두 자리가 같다
+  (`<제목> 새 이름`) — 한 번에 하나뿐이라 부딪히지 않는다.)*
 
 - **FR-35.** **`⋯` 메뉴**(`aria-label="대화 메뉴"`, `aria-haspopup="menu"`)는 `role="menu"` 안의
   `menuitem` 둘이다: `이름 바꾸기`·`대화 끝내기`(끝낸 대화에는 없다 — lifecycle FR-22). popover +
@@ -346,11 +547,25 @@
   **Esc는 `preventDefault`와 `stopPropagation`을 한다** — 안쪽부터 푼다(FR-39의 최대화가 같은 Esc에
   같이 풀리면 안 된다). `대화 끝내기`는 지금의 `closeConversation`이다 — 보고 있던 대화면 새
   대화로 돌아간다(lifecycle FR-23).
+  *(다듬음 2026-09-27, plan 6단계: 열면 첫 항목으로 포커스가 가고(항목은 `tabIndex=-1`, ↑↓가 돈다),
+  Esc로 닫으면 포커스가 `⋯` 단추로 돌아온다. Tab으로 벗어나면 닫는다. 메뉴·팝오버는 열렸을 때만
+  마운트하고 레이아웃 effect에서 `togglePopover`로 올린다 — 닫힌 popover는 UA가 숨기므로 effect면 한
+  프레임 늦게 뜬다. 그래서 `.conv-menu`의 `display: flex`는 `:popover-open`에만 건다(작성자 규칙이
+  UA의 `display: none`을 덮으면 닫힌 채로 인라인에 그려진다). 바깥 누르기는 document의 pointerdown이고
+  `⋯` 단추는 안쪽이다. 두 오버레이의 그림자는 새 토큰 `--shadow-overlay`(다크 값 따로)이고 슬래시
+  피커도 같은 토큰으로 옮겼다 — §4의 "새 색 토큰이 필요 없다"에서 이것 하나가 늘었다: 다크에서
+  `.12` 그림자는 보이지 않는다.)*
 
 - **FR-36.** **컨텍스트 링과 사용량.**
-  - 링은 **`usage`가 있는 가장 최근 턴**의 `contextTokens ÷ contextWindow`다 — CLAUDE.md의 "점유는
-    마지막 요청의 프롬프트 크기"다. **OpenCode 공식(마지막 assistant tokens에 output까지 더함)을
-    베끼지 않는다.** 80%를 넘으면 `--warn` 색.
+  - 링은 **점유(`contextTokens`)를 아는 가장 최근 턴**의 `contextTokens ÷ contextWindow`다 — 두 값은
+    **그 한 턴의 짝**이고, 사용량은 있어도 점유를 모르는 턴은 건너뛴다(앞에서 안 점유를 지우지 않는다).
+    CLAUDE.md의 "점유는 마지막 요청의 프롬프트 크기"다. **OpenCode 공식(마지막 assistant tokens에 output까지
+    더함)을 베끼지 않는다.** 80%를 넘으면 `--warn` 색.
+    *(다듬음 2026-09-27, §8의 8 결정: 처음 문장은 "**`usage`가 있는** 가장 최근 턴"이었다 — 그대로 읽으면
+    사용량만 있고 점유를 모르는 마지막 턴에서 링이 `사용량` 글자로 바뀌어야 했다. 구현(6단계 `usage.test`의
+    "모르는 턴이 앞의 값을 지우지 않는다", 리뷰 반영의 "점유를 아는 마지막 턴의 한 쌍")을 지키고 문장을
+    그 동작대로 고쳤다 — 한 턴이 점유를 못 보고했다고 대화의 점유가 사라진 것은 아니다.
+    `ConversationHeader.test`의 "마지막 턴이 점유를 모르면 점유를 아는 앞 턴의 짝을 보인다"가 고정한다.)*
   - 창 크기를 모르면(OpenCode) 링 대신 `컨텍스트 53.3k` 글자다. 사용량이 하나도 없으면 아무것도 없다.
   - 링(또는 그 글자)은 버튼이고 이름은 `사용량, ` + `formatContext`의 결과다(`사용량, 컨텍스트 5%`)
     — 무엇을 여는지와 지금 값을 함께 말한다. 누르면 팝오버: 누적 입력 · 출력 · 캐시 읽기 · 캐시 쓰기 토큰, 추정 비용
@@ -358,6 +573,25 @@
     `conversationUsage(runs)`가 계산한다 — 토큰·비용은 더하고(아는 것만), 컨텍스트는 마지막 non-null
     (`mergeUsage`와 같은 규칙).
   - **비용은 누를 때만 보인다.** run-info FR-4("화면에 돈을 상시 띄우지 않는다")를 지킨다.
+  - *(다듬음 2026-09-27, plan 6단계: 팝오버는 `role="dialog"`, 이름 `이 대화의 누적 사용량`이다. 포커스는
+    단추에 남고 Esc는 메뉴와 같이 안쪽에서 멈춘다. 모르는 값은 줄째 뺀다(0으로 채우지 않는다 —
+    run-info FR-2), 창을 모르면 마지막 컨텍스트는 분모 없이 토큰 수만이다. 사용량은 있는데 점유를
+    모르면(`contextTokens` null) 링도 토큰 수도 그릴 수 없어 글자 `사용량`, 이름도 `사용량`이다. 링은
+    아이콘이 아니라 값을 그리는 계기라 `icons.tsx`가 아니라 `ConversationHeader.tsx` 안의 SVG다.)*
+  - *(다듬음 2026-09-27, 리뷰 반영: 링의 점유와 창은 **점유를 아는 마지막 턴의 한 쌍**이다 — 첫 줄의
+    "usage가 있는 가장 최근 턴의 contextTokens ÷ contextWindow". 두 칸을 따로 "마지막 non-null"로 고르면
+    창을 모르는 턴(모델을 바꾸고 창 없이 끝난 턴)의 점유를 앞 턴의 창으로 나눠, 창 200k에서 75%인 것을
+    1M로 나눠 15%로 그린다. 그때는 창을 지어내지 않고 토큰 수 글자다. 점유를 모르는 턴(사용량만 있는
+    턴)은 건너뛴다 — 앞에서 안 점유를 지우지 않는다(기존 `usage.test`의 "컨텍스트를 모르는 턴이 앞의 값을
+    지우지 않는다"를 지킨다).)* 그래서 글자 `사용량`은 점유를 아는 턴이 **하나도 없을** 때뿐이다(§8의 8).
+  - *(다듬음 2026-09-27, §8의 2 결정: **링 곁에 퍼센트 글자**(`.conv-usage-text`, `.6875rem`
+    `--text-secondary`)를 둔다 — `5%`·`<1%`·`>99%`. 글자는 `usage.ts`의 `contextPercent`이고 이름의
+    `formatContext`도 같은 함수를 거친다(화면과 스크린리더가 같은 수를 말한다). 이름은 그대로다
+    (`사용량, 컨텍스트 5%`). 링은 트랙 `--border-strong`, 채움 끝이 둥글고(`stroke-linecap: round`) 채움
+    호가 3px(둥근 끝을 더해 약 5px, 원둘레의 11%)보다 짧아지지 않는다 — 5%를 그대로 그리면 2px 점 하나라
+    스피너와 구별되지 않았다. 정확한 값은 곁의 글자가 말하므로 낮은 점유의 과장은 모양뿐이다. 트랙은
+    `--border-strong`도 흰 바탕에서 1.48:1(다크 2.0:1)로 비텍스트 3:1에 못 미친다 — 값은 글자와 채움
+    (`--accent` 5.2:1)이 전하고 트랙은 자리 표시다.)*
 
 ### (F) 도크와 스크롤 (D6·D7)
 
@@ -374,11 +608,19 @@
   도크에서 누르면 펼치면서 최대화한다. 최대화 state는 Dock이 쥐고 저장하지 않는다.
   **"원래 크기로"라고 부르고 "축소"라고 부르지 않는다** — 패널의 `축소` 버튼(e2e가 exact로 잡는다)과
   부분 일치로 부딪힌다.
+  *(다듬음 2026-09-27, plan 6단계: 최대화 단추는 도크 헤더 오른쪽 끝의 **한 단추**다 — 이름·아이콘만
+  바뀐다(`IconMaximize` ↔ 패널 축소와 같은 `IconCollapse`). 다른 요소로 갈아끼우면 누른 뒤 포커스가
+  사라져 Esc가 도크에 닿지 않는다. **최대화한 도크를 접으면 최대화도 풀린다** — 접힌 도크가 최대화로
+  남으면 세 패널이 숨은 채 도크 헤더만 남는다. 토글에는 `aria-expanded`가 있고 접힌 도크에서는 꺾쇠가
+  돌아 위를 향한다.)*
 
 - **FR-39.** **Esc로 최대화를 푼다.** 도크 `<section>`의 `onKeyDown`에서, `e.defaultPrevented`가
   아니면 풀고 `preventDefault`·`stopPropagation`한다. 안쪽(피커·이름 편집·메뉴)이 먼저 Esc를
   삼키므로 그쪽이 열려 있으면 최대화는 그대로다. React의 `stopPropagation`은 document까지 닿지
   않으므로 App의 "열린 항목 닫기"도 같은 Esc에 같이 돌지 않는다(RenameField가 기대는 것과 같은 성질).
+  *(다듬음 2026-09-27, 리뷰 반영: 도크 헤더 안의 **슬롯 상한 편집칸도 "안쪽"이다** — 그 Esc는 편집만 닫고
+  `preventDefault`·`stopPropagation`한다. 전에는 퍼져서 같은 Esc가 최대화까지 풀었다. `Dock.test`의 "슬롯
+  상한을 고치다 누른 Esc는 편집만 닫는다"가 고정한다.)*
 
 - **FR-40.** **기본 도크 높이를 올린다.** `DEFAULT_DOCK_RATIO` 0.34 → **0.5**,
   `MIN_DOCK_PX` 120 → **280**(도크 헤더 + 대화 헤더 + 입력 카드 + 대화록 두어 줄). 저장된 높이가
@@ -390,6 +632,12 @@
   `.conversation-panel { min-height: 100% }`와 `.dock-main`의 스크롤은 걷어낸다 — 그 모양은 "실행
   패널이 기본 높이에 안 들어간다"를 우회한 것이었고, FR-40이 그 원인을 없앤다. 목록(`.dock-side`)은
   지금처럼 따로 스크롤한다.
+  *(다듬음 2026-09-27, plan 6단계: 스크롤러(`.transcript`)와 `최신으로 이동`을 `.transcript-wrap`
+  (스크롤하지 않는 상자)이 형제로 묶는다. 새 대화의 빈 안내(`.panel-empty`)는 대화록 자리를 채워 입력부가
+  바닥에 붙는다. 대화록 열(§4의 가운데 정렬·최대 폭 `--conversation-width`·좌우 24px·위 12px)도 이
+  단계에서 붙었다 — `.turn`이 가운데에 선다. *(리뷰 반영: 처음 적은 "최대 800px·좌우 16px"는 §4 표의
+  다듬음(1280px·24px)과 어긋난 채 남아 있었다 — §4와 CSS가 기준이다.)* e2e는 도크를 하한(280px)까지 끌어 입력 카드의 아래 끝이 도크 안이고 대화 칸
+  (`.dock-main`)이 넘치지 않으며 대화록이 바닥에 붙어 있음을 본다(`conversation.e2e`·`composer.e2e`).)*
 
 - **FR-42.** **바닥 따라가기.**
   - 대화록이 바닥에서 24px 안이면 "붙어 있다". 붙어 있을 때 **내용 버전**이 바뀌면 바닥으로 내린다.
@@ -400,6 +648,21 @@
   - 붙어 있지 않으면 대화록 아래 가운데에 `최신으로 이동` 버튼이 뜬다. 누르면 바닥으로 가고 다시
     붙는다. 버튼은 스크롤러 **밖**(형제)에 있어 스크롤되지도 잘리지도 않는다.
   - 대화를 바꾸면(재마운트) 바닥에서 시작한다.
+  - *(다듬음 2026-09-27, plan 6단계 — 셋이다. **(1) 내용 버전**은 보이는 턴(예약 제외)마다
+    `id:상태:답 길이:오류 길이`와 활성 턴 이벤트의 `수:마지막 seq`다 — 스토어가 run당 2,000개에서 앞을
+    자르므로 수만으로는 상한에 닿은 뒤 더 오는 줄을 못 본다. **(2) 대화록 안을 누르면 한 프레임 뒤에
+    "붙어 있다"를 다시 잰다.** 펼침은 scrollTop을 바꾸지 않아 스크롤 이벤트가 없다 — 바닥에서 턴을 펼쳐
+    내용이 아래로 길어졌는데 판정이 낡은 채면 다음 이벤트가 펼쳐 둔 것을 두고 바닥으로 끌고 간다. 다시
+    재는 것은 움직임이 아니라 판정이라 위 규칙과 어긋나지 않는다(그때부터 `최신으로 이동`이 뜬다).
+    **(3) 대화록 칸 자신의 높이가 바뀌면**(도크를 끌거나 최대화를 풀거나 입력부에 예약 칩이 떠 칸이
+    줄면) 붙어 있을 때 바닥을 지킨다 — 상자가 줄면 scrollTop이 위를 기준으로 남아 바닥이 가려지고 스크롤
+    이벤트도 없다(실측: 도크를 하한까지 끌면 바닥에서 72px 떨어져 멈췄다). ResizeObserver로 **스크롤러의
+    상자**만 보고, 그 높이(`clientHeight`)가 그대로면 아무것도 하지 않는다 — 안의 턴을 펼치거나 새 줄이
+    붙어도 스크롤러의 상자는 그대로라, "내용의 높이 변화를 계기로 쓰지 않는다"는 위 규칙을 지킨다. 칸이
+    줄 때의 스크롤 이벤트는 프레임의 레이아웃 앞에서 관찰자보다 먼저 오므로, 관찰자가 아직 처리하지 않은
+    높이에서는 스크롤로 재지 않는다(재면 줄어든 만큼 떨어진 것으로 보여 따라가기가 풀린다).
+    `ConversationPanel.test`의 "펼쳐도 바닥으로 가지 않는다"는 관찰자를 전부 불러도 칸 높이가 같으면
+    움직이지 않음을 본다.)*
 
 ### (G) 다시 보내기·답하기 (D9)
 
@@ -412,9 +675,18 @@
     resume은 그때 "이어받을 세션이 없습니다"로 실패하는 턴을 하나 더 쌓는다(core `beginRun`).
     그런 턴(대개 첫 턴의 preflight 실패)은 인박스의 `다시 실행`이 맡는다(§6 우려 7).
   - 인박스의 `다시 실행`은 그대로다(새 대화를 연다). 이름을 다르게 둔 것은 하는 일이 달라서다.
+  - *(다듬음 2026-09-27, plan 3단계: "마지막 턴"은 **예약(뿌리가 아닌 pending)을 빼고** 센다 —
+    예약은 대화록이 아니라 입력부의 몫이다(FR-30). 그래서 앞 턴이 실패했는데 이어 보낸 지시가
+    슬롯을 기다리면 버튼은 그 앞 턴에 붙되 `reserved`로 잠긴다 — "reserved면 비활성"이 실제로
+    생기는 경우가 이것이다. 누른 뒤에는 새 턴이 목록에 닿을 때까지 다시 눌리지 않는다(나간 뒤에도
+    풀지 않는다 — 한 번 더 누르면 같은 지시가 예약으로 하나 더 걸린다). 실패하면 이유를
+    `role="alert"`로 보이고 버튼을 푼다. `답하기`(FR-44)도 같은 "마지막 턴"을 쓰고 `reserved`면
+    잠긴다 — 보낸 답이 이미 예약으로 걸려 있다.)*
 
 - **FR-44.** **답하기**: 마지막 턴이 답변 필요(`needsAnswer`)면 끝줄에 `답하기`가 붙고, 누르면
   입력칸에 포커스를 준다(보낼 대상은 이미 이 대화다). RunPanel은 입력칸 ref를 밖으로 받는다.
+  *(다듬음 2026-09-27, plan 5단계: ref는 ConversationPanel이 쥐고 입력부(`inputRef`, 필수 prop — 빠뜨리면
+  컴파일이 막는다)와 대화록의 `onAnswer`에 같이 준다. 피커의 커서 복원도 같은 ref를 쓴다.)*
 
 ### (H) 이름과 모양 (D11)
 
@@ -433,6 +705,13 @@
   '대기'`)는 RunLog와 함께 사라진다. **클래스(`status-succeeded` 등)는 enum 그대로 둔다** — 색과
   e2e 셀렉터가 거기 걸려 있다. `shared/`가 아니라 `renderer/`에 두는 것은 core가 이 이름을 쓰지
   않아서다(인박스 카테고리 이름은 `shared/inbox.ts`에 따로 있다 — 다른 개념이다).
+  *(다듬음 2026-09-27, plan 3단계 — 오케스트레이터 결정, conversation-fixes spec §7-3을 푼다:
+  **도크 목록 줄의 상태 점은 표시용으로 `conv.active ?? conv.state`를 그린다** — 색·`aria-label`·
+  `title`이 이 한 값에서 나온다. 대표 턴(`state`)만 그리면 앞 턴이 도는 동안 이어 보낸 예약이 점을
+  "대기 중"으로 만들어, 대화록·헤더는 실행 중이라는데 목록만 기다린다고 한다. **표시만 그렇다** —
+  답변 필요 표시와 자동 확인(`pick`의 `clearsOnView` 판정)은 계속 `conv.state`를 본다(fixes FR-3):
+  배지(core)가 세는 턴과 같아야 한다. `Dock.test`의 "도는 턴이 있으면 예약이 걸려 있어도 점은 실행
+  중이다"가 고정한다.)*
 
 - **FR-46.** **agent 이름도 한 표다**(`renderer/agents.ts`의 `AGENT_LABELS`). 헤더 부제·메타 줄·
   실행 패널의 옵션·설정 화면·`AgentStatusList`가 같이 쓴다 — 지금은 세 곳에 따로 적혀 있다
@@ -448,10 +727,23 @@
   `IconStop`, `IconSend`, `IconCopy`, `IconMaximize`, `IconArrowDown`, `IconClose`(`IconCheck`는
   복사 완료에 재사용). 아이콘은 전부 `aria-hidden`이고 이름은 버튼의 `aria-label`이 준다.
   **예외는 그대로 둔다** — 입력부 안내문의 `＋`는 문장 속 글자이고 e2e가 그 문장을 잡는다.
+  *(다듬음 2026-09-27, plan 5단계: 입력 카드가 쓰는 `IconSend`·`IconStop`·`IconClose`(칩의 빼기)는 이
+  단계에서 먼저 더했다 — `IconStop`만 선이 아니라 채운 면이다(선 네모는 체크박스로 읽힌다). 같은
+  단계에서 FR-47의 `.chip-remove`·`.run-settings label`·`.turn-pending`의 opacity도 사라졌다 — 앞의
+  것은 `--text-muted`로 바꿨고 뒤의 둘은 규칙째 없어졌다.)*
+  *(다듬음 2026-09-27, plan 6단계: 남은 넷 — `IconChevronDown`(도크 토글)·`IconMore`(`⋯`, 점 셋이라 면)·
+  `IconMaximize`·`IconArrowDown`(최신으로 이동)을 더했다. 원래 크기로는 패널 축소와 같은 `IconCollapse`,
+  `새 대화`의 ＋는 `IconPlus`, 끝낸 대화 토글은 `IconChevronRight`를 펼치면 90° 돌린다(움직이지 않고
+  돌아가 있을 뿐이다). 토글에는 `aria-expanded`가 붙었다. FR-47의 남은 넷(`.applied-label`·`.applied-chip`·
+  `.dock-toggle`·`.dock-slots-waiting`)의 opacity도 토큰으로 바꿨다 — `.turn-info`·`.log-meta`는 규칙째
+  없어졌으므로 대화 영역에 글자 opacity는 0건이다.)*
 
 - **FR-49.** **움직임은 상태를 전하는 것만.** 상태 줄과 running 도구 한 줄의 스피너 하나뿐이다
   (12px 원, 0.8초 회전). `prefers-reduced-motion: reduce`면 회전하지 않는 점이다. 그 밖의 전환은
   120ms 색·테두리 변화까지(DESIGN.md).
+  *(리뷰 반영 2026-09-27: 4단계 구현이 활동 묶음 머리와 편집 머리에도 스피너를 달아, 펼친 진행 중 턴에서
+  셋이 한꺼번에 돌았다. 이 FR대로 걷었다 — 무엇이 도는지는 상태 줄이 말한다. `Transcript.test`의 "스피너는
+  상태 줄과 도는 도구 한 줄뿐이다"가 고정한다. 블록의 `running` 칸은 §3 그대로 남는다.)*
 
 ## 3. 인터페이스
 
@@ -460,7 +752,8 @@
 export type ToolCategory =
   'read' | 'edit' | 'shell' | 'search' | 'web' | 'todo' | 'subagent' | 'mcp' | 'other'
 export const TOOL_LABELS: Record<string, { label: string; category: ToolCategory }>  // 키는 소문자
-export function toolLabelOf(name: string): { label: string; category: ToolCategory }
+export interface ToolLabel { label: string; category: ToolCategory }  // (다듬음: §8의 5)
+export function toolLabelOf(name: string): ToolLabel
 export function toolSubtitleOf(input: unknown, cwd: string): string
 
 export interface ToolItem {
@@ -470,6 +763,8 @@ export interface ToolItem {
   label: string
   category: ToolCategory
   subtitle: string
+  /** 부제가 파일 경로인가 — 화면이 경로만 모노로 그린다 (다듬음: §8의 7) */
+  subtitlePath: boolean
   input: unknown
   state: 'running' | 'done' | 'failed' | 'unknown'
   /** tool_result.summary — 200자 요약이다 */
@@ -488,11 +783,14 @@ export interface EditFile {
   hunks: DiffHunk[]
   /** 400줄에서 자른 나머지 줄 수 */
   truncated: number
+  /** 이 파일을 고친 도구의 id — 파일 줄의 열림을 여기 매단다 (다듬음: 리뷰 반영, FR-15) */
+  ids: string[]
 }
 
 export type TimelineBlock =
   | { kind: 'text'; key: string; text: string }
-  | { kind: 'activity'; key: string; label: string; items: ToolItem[]; running: boolean }
+  /** `labels`는 `label`의 고유 라벨 조각과 종류 — 화면이 mcp 이름만 모노로 (다듬음: §8의 5) */
+  | { kind: 'activity'; key: string; label: string; labels: ToolLabel[]; items: ToolItem[]; running: boolean }
   | { kind: 'edit'; key: string; files: EditFile[]; running: boolean }
   | { kind: 'tool-error'; key: string; item: ToolItem }
   | { kind: 'error'; key: string; message: string }
@@ -514,7 +812,14 @@ export function switchNotice(
   next: Pick<Run, 'model' | 'effort' | 'agentKind'>
 ): string | null
 export function formatDuration(ms: number): string
-export function metaPieces(run: Run, now: number): string[]
+/** 흐르는 시계를 받지 않는다 — 도는 턴은 시간 조각이 없다 (다듬음: §8의 3, 처음은 `(run, now)`) */
+export function metaPieces(run: Run): string[]
+/** 도구 한 줄을 펼쳤을 때 보일 것. 펼칠 것이 없으면 null (다듬음: plan 4단계, FR-16) */
+export type ToolDetail =
+  | { kind: 'shell'; command: string; output: string | null; truncated: boolean }
+  | { kind: 'subagent'; agentType: string | null; prompt: string | null }
+  | { kind: 'input'; json: string }
+export function toolDetailOf(item: ToolItem): ToolDetail | null
 
 // renderer/diff.ts
 export interface DiffLine { sign: '+' | '-' | ' '; text: string }
@@ -522,9 +827,16 @@ export interface DiffHunk { lines: DiffLine[] }
 export function lineDiff(before: string, after: string): DiffHunk
 export function diffStats(hunks: DiffHunk[]): { added: number; removed: number }
 
+// renderer/markdownBudget.ts — 파싱 전에 재는 상한 (다듬음: 리뷰 반영, FR-20)
+export const MARKDOWN_BUDGET: { chars: number; depth: number; inline: number; pipes: number }
+/** 마크다운으로 그려도 되는가. 아니면 호출자가 평문으로 그린다 */
+export function fitsMarkdownBudget(text: string): boolean
+
 // shared/links.ts — 렌더러와 main이 같은 판정을 쓴다 (FR-22·FR-24)
 /** http/https 절대 URL이면 정규화한 문자열, 아니면 null */
 export function externalLinkOf(href: string): string | null
+/** 앱 창이 이 주소로 넘어가도 되는가 — main의 will-navigate (다듬음: plan 2단계, FR-24) */
+export function isAppNavigation(target: string, appUrl: string): boolean
 
 // renderer/runStatus.ts (FR-45) · renderer/agents.ts (FR-46)
 export const RUN_STATUS_LABELS: Record<RunStatus, string>
@@ -537,14 +849,22 @@ export function conversationUsage(runs: readonly Run[]): {
   costUsd: number | null
   contextTokens: number | null; contextWindow: number | null
 } | null
+/** 링 곁의 퍼센트 글자 — `5%`·`<1%`·`>99%`, 창·점유를 모르면 null (다듬음: §8의 2) */
+export function contextPercent(tokens: number | null, window: number | null): string | null
 
 // renderer/store/drafts.ts (FR-31)
 export function createDraftStore(): {
   get(key: string): string
+  /** 값이 바뀌었을 때만 듣는 쪽에 알린다 */
   set(key: string, value: string): void
+  /** 대화 헤더의 멈추기가 초안의 유무를 듣는다 (다듬음: §8의 3) */
+  subscribe(listener: () => void): () => void
 }
+/** 앞뒤 공백을 걷어 비었나 — 입력부 중지와 헤더 멈추기가 같이 쓴다 (다듬음: §8의 3) */
+export function isBlankDraft(text: string): boolean
 export function draftKeyOf(conversationId: string | null, workspaceId: string): string
-// renderer/store/DraftContext.tsx — DraftProvider, useDraftStore()
+// renderer/store/DraftContext.tsx — DraftProvider, useDraftStore(),
+//   useDraftFilled(key): boolean (다듬음: §8의 3 — 그 키에 보낼 것이 있는 초안이 있나)
 
 // renderer/hooks/useRunEvents.ts — 추가 (FR-14)
 /** 스토어만 본다. 로그 파일을 읽지 않는다 — 접힌 턴용 */
@@ -568,6 +888,7 @@ export function useNow(active: boolean): number
 | 컴포넌트 | 하는 일 | state |
 |---|---|---|
 | `Markdown` † | FR-20~26 | 없음 |
+| `CopyButton` † | 코드·응답·명령 복사 (다듬음: plan 2단계, FR-25) | 복사됨/실패 표시만 |
 | `Transcript` | 턴 목록, 공지, 따라가기 | 없음 |
 | `Turn` (Transcript 안) | FR-12~13 | 펼침(턴·블록별) |
 | `TimelineBlocks` † | 블록 여섯 종류 | 블록별 펼침은 `Turn`이 준다 |
@@ -636,25 +957,25 @@ export function useNow(active: boolean): number
 
 | 요소 | 값 |
 |---|---|
-| 대화록 열 | 가운데 정렬, `max-width: 800px`, 좌우 16px, 위 12px |
+| 대화록 열 | 가운데 정렬, `max-width: var(--conversation-width)`(1280px, `.dock-main`에 정의), 좌우 24px, 위 12px — **입력 카드도 같은 폭·같은 들여쓰기** *(다듬음 2026-09-27: 처음 값 800px는 창을 최대화하면 넓은 칸 가운데 좁은 열만 남고 입력 카드만 전체 폭이라 "꽉 안 차고 답답하다"는 사용자 보고가 있었다)* *(리뷰 반영: 대화록과 입력부를 **같은 방식으로 잰다** — 둘 다 좌우 24px 안쪽 여백 + `scrollbar-gutter: stable both-edges` + 그 안의 가운데 열. 폭만 같게 계산하던 때는 대화록에 스크롤바(Windows 15px)가 서면 턴 열만 밀리고, 예약 칩이 떠 넘치기 시작하는 순간 대화록이 옆으로 튀었다. 입력부는 그 속성이 걸리도록 `overflow: hidden`이다 — 피커는 최상위 레이어, 드롭다운은 네이티브라 잘릴 것이 없다. `conversation.e2e`가 하한 도크에서 턴 열과 입력 카드의 좌우 끝이 1px 안인지 본다.)* |
 | 턴 간격 / 턴 안 간격 | 24px (OpenCode TurnGap) / 8px |
-| 사용자 버블 | 오른쪽, `max-width: 80%`, `padding: 8px 12px`, 모서리 10px, `--accent-bg`, `.8125rem`/1.5 |
-| 답 칸 | **버블 없음**(OpenCode처럼 바탕 없이 왼쪽), `.8125rem`/1.6, 문단 간격 8px |
-| 마크다운 제목 | h1 `.9375rem` · h2 `.875rem` · h3 이하 `.8125rem`, 전부 600, 위 12px 아래 4px |
-| 코드 블록 | `--bg-muted`, 모서리 6px, 머리 `.6875rem` `--text-muted`, 본문 `.75rem` 모노/1.55, 안쪽 8px 10px |
+| 사용자 버블 | 오른쪽, `max-width: 80%`, `padding: 8px 12px`, 모서리 10px, `--accent-bg`, `.875rem`/1.55 *(다듬음)* |
+| 답 칸 | **버블 없음**(OpenCode처럼 바탕 없이 왼쪽), `.875rem`/1.65, 문단 간격 10px *(다듬음 — 넓어진 열에서 읽는 글자)* |
+| 마크다운 제목 | h1·h2 `.9375rem` · h3 이하 `.875rem`, 전부 600, 위 14px 아래 6px *(다듬음)* |
+| 코드 블록 | `--bg-muted`, 모서리 6px, 머리 `.6875rem` `--text-muted`, 본문 `.75rem` 모노/1.55, 안쪽 8px 10px *(리뷰 반영: "모노"는 토큰 `--font-mono` = `ui-monospace, "Cascadia Mono", Consolas, D2Coding, monospace`다. Chromium은 Windows에서 `ui-monospace`를 풀지 못하고 generic `monospace`가 한국어 Windows에서 GulimChe라 `.`이 `,`처럼, 경로의 구분자가 `₩`로 보였다 — `timeline.e2e`가 CDP로 실제 글꼴을 묻는다. 앱의 다른 모노 자리(설정·asset 경로)도 같은 토큰이다)* |
 | 인라인 코드 | `--bg-muted`, 모서리 4px, `1px 4px`, `.75rem` 모노 |
 | 표 | 1px `--border`, 셀 `4px 8px`, 머리 행 `--bg-panel` |
 | 상태 줄 | `.75rem` `--text-secondary`, 스피너 12px(`--accent`) |
 | 활동 요약·묶음 라벨 | `.75rem` `--text-secondary`, 묶음 라벨 hover `--text` |
-| 도구 한 줄 | 높이 24px, `.75rem`, 라벨 600 `--text`, 부제 `--text-muted`, 들여쓰기 12px |
+| 도구 한 줄 | 높이 24px, `.75rem`, 라벨 600 `--text`, 부제 `--text-muted`, 들여쓰기 12px *(다듬음 §8의 5·7: 꺾쇠는 글자 바로 뒤, 곁 글자는 그 뒤 오른쪽 끝 — 파일 줄만 꺾쇠가 오른쪽 끝. 경로 부제·mcp 이름은 `--font-mono` `.92em`)* |
 | 셸 출력·diff | `.6875rem` 모노/1.55, `--bg-muted`, 모서리 6px, `max-height: 240px` 스크롤 |
 | 실패 도구 | `--danger-bg-soft` 바탕, 글자 `--danger-text` |
 | 끝줄 | `.6875rem` `--text-muted`, 아이콘 버튼 24px(`.row-action`) |
 | 공지선 | `.6875rem` `--text-muted`, 양옆 1px `--border-faint` |
 | 대화 헤더 | `padding: 6px 12px`, 아래 1px `--border-faint`; 제목 `.875rem` 600, 부제 `.6875rem` `--text-muted` |
-| 컨텍스트 링 | 18px, 선 2px — 바탕 `--border`, 채움 `--accent`(80% 넘으면 `--warn`) |
+| 컨텍스트 링 | 18px, 선 2px — 바탕 `--border-strong`, 채움 `--accent`(80% 넘으면 `--warn`), 둥근 끝, 채움 호 최소 3px · 곁에 퍼센트 글자 `.6875rem` `--text-secondary`, 사이 4px *(다듬음 §8의 2 — 처음 바탕은 `--border`, 글자 없음)* |
 | 입력 카드 | `--bg`, 1px `--border-strong`, 모서리 10px, `padding: 8px 10px`; `:focus-within`이면 `--accent-border` |
-| 입력칸 | 테두리 없음, `.8125rem`/1.5, `min-height: 56px` |
+| 입력칸 | 테두리 없음, `.8125rem`/1.5, `min-height: 1.5em`(한 줄), 쓰는 만큼 늘어 `max-height: 160px` *(다듬음 §8의 4 — 처음 값 56px은 기본 도크에서 입력 카드를 대화록보다 크게 만들었다)* |
 | 알약 선택 | 높이 22px, 모서리 99px, 1px `--border`, `--bg-muted`, `.6875rem`, 좌우 8px |
 | 전송/중지 | 28px 원, `--accent` 면 · `--on-accent` 아이콘 14px, `disabled`면 `opacity: .4` |
 | 예약 칩 | `--bg-muted`, 모서리 7px, `.75rem`, 좌우 10px; `대기 중`은 600 |
@@ -686,6 +1007,11 @@ export function useNow(active: boolean): number
   `대화창 보이기`·`새 대화`. 검토한 충돌: `실행`(토글 글자를 버린다)·`접기`(토글 이름을 피했다,
   FR-37), `축소`(FR-38), 제목과 같은 이름의 버튼(FR-34). `자세히`·`응답 복사`는 턴마다 하나씩이라
   e2e는 턴으로 범위를 좁혀 잡는다.
+  *(다듬음 2026-09-27, §8의 1·5 결정: 새 이름 둘. `작업 디렉토리 경로 복사`는 알약의 이름
+  `작업 디렉토리`를 **부분 문자열로 품는다** — 이어 가는 대화에서 Playwright의 `getByLabel('작업 디렉토리')`를
+  exact 없이 쓰면 둘을 잡는다. 지금 e2e는 그 알약을 `{ exact: true }`로만 잡는다(settings.e2e). RTL은 전체
+  일치라 단위 테스트는 부딪히지 않는다. mcp 도구 한 줄의 이름은 도구 이름 그대로(`list_issues`)라 묶음 머리
+  (`1 list_issues 사용됨`)의 부분 문자열이다 — e2e는 묶음 머리를 `exact`로 잡는다.)*
 - **NFR-7.** 번들 증가(react-markdown·remark-gfm과 그 전이 의존성)를 빌드 산출물 크기로 재서
   완료 증명에 적는다.
 
@@ -702,7 +1028,7 @@ export function useNow(active: boolean): number
    초안이 있을 때도 보조 중지 버튼을 두는 안은 D4의 문장("입력이 비었으면")을 넘어서므로 넣지 않았다.
 3. **도구 출력은 200자 요약까지다.** 셸 출력은 잘린 채로 보이고("출력 앞부분만 기록됩니다"),
    "(N개 일치)"는 claude Grep의 `Found N` 한 형식에서만 읽는다 — 그 형식은 **구현 전에 실제
-   로그로 확인해야 한다**. glob·opencode는 개수가 없다. 전문과 종료 코드는 `conversation-events`다
+   로그로 확인해야 한다**(2026-09-27 확인됨 — FR-5의 다듬음). glob·opencode는 개수가 없다. 전문과 종료 코드는 `conversation-events`다
    — 그 intent(E2·E5)가 Grep `numFiles`·셸 원문·공지 이벤트를 실으면 `ToolItem.matches`·`output`과
    `notice` 블록을 거기서 채운다. **투영의 출력 모양(§3)은 그대로 두고 입력만 넓히는 자리다.**
 4. **접힌 턴의 활동 요약은 앱을 다시 켜면 사라진다**(FR-14). 접힌 턴이 로그를 읽지 않는다는
@@ -836,3 +1162,96 @@ export function useNow(active: boolean): number
 - 이 기능이 더한 CSS 블록에 직접 hex 0건, 대화 영역 규칙에 글자 `opacity` 0건
 
 **명령** — `pnpm test` · `pnpm typecheck` · `pnpm lint` · `pnpm test:e2e` 전부 초록.
+
+## 8. 리뷰가 남긴 과제
+
+2026-09-27 구현 리뷰(보안·화면·테스트 렌즈, 지적 30건)를 처리한 뒤 남은 것이다. 고친 것은 해당 FR의
+"다듬음 — 리뷰 반영"에 적었다. 여기 남은 것은 **spec의 결정을 뒤집거나 새로 정해야 하는 것**이라 코드에서
+임의로 고르지 않았다 — 화면 취향이 걸린 것은 캡처를 보고 고를 수 있게 안을 적는다.
+
+**결정(2026-09-27)**: 1~8은 오케스트레이터가 사용자에게서 위임받아 정했다 — 각 항목 끝의 "결정"이고,
+구현은 해당 FR의 "다듬음 — §8의 N 결정"에 적었다. 6은 지금대로 두는 결정이라 여전히 남은 과제는 6(예산의
+대가)이고, 9는 사람이 넣을 CLAUDE.md 몫이다.
+
+1. **이어 가는 대화의 작업 디렉토리 알약이 앞에서 잘린다** (FR-27). readOnly `<input>`이 전체 경로를
+   끝 말줄임으로 그려 `C:\Users\<이름>\App…`만 보이고, 구별되는 부분(repo 폴더)이 잘린다. FR-27 본문은
+   "글자는 repo 이름, 경로는 `title`"이지만 5단계 다듬음과 2026-09-23 결정("경로를 눌러 복사할 수 있어야
+   한다", `RunPanel.test`)이 경로를 값으로 두었다. 안: (가) 값을 repo 이름(`repoLabel`)으로 — 경로 복사를
+   잃는다. (나) `direction: rtl`로 앞을 자른다 — Windows 경로는 맞지만 `/`·`\`로 시작하는 경로는 bidi
+   규칙으로 앞 구분자가 끝으로 간다. (다) 이름 알약 + 곁의 경로 복사 버튼.
+   **결정(2026-09-27)**: (다). 알약의 글자는 `repoLabel`(등록된 repo면 이름, 아니면 경로의 마지막 폴더
+   이름 — 목록 줄·헤더 부제와 같은 함수), 전체 경로는 `title`, 곁에 `작업 디렉토리 경로 복사`
+   (`CopyButton`). readOnly `<input>`은 그대로이고 이름에 맞춰 좁아진다. 새 대화에서 고르는 드롭다운은
+   옵션 글자가 이미 repo 이름이라 그대로다. `RunPanel.test`의 "경로를 눌러 복사" 기대는 새 버튼으로
+   옮겼다(등록되지 않은 디렉토리의 폴더 이름까지). FR-27 다듬음, 새 이름은 NFR-6 다듬음.
+2. **컨텍스트 링이 낮은 점유에서 스피너와 구별되지 않고 트랙이 흐리다** (FR-36, §4). 5%면 채움이 2px 점
+   하나이고, 트랙 `--border`는 흰 바탕에서 1.26:1(비텍스트 3:1 미달)이다 — 6단계 캡처 메모도 같은 것을
+   남겼다. 안: 링 곁에 퍼센트 글자(이름은 이미 `사용량, 컨텍스트 5%`), round linecap과 최소 호 길이,
+   트랙을 `--border-strong`으로.
+   **결정(2026-09-27)**: 안 그대로 셋 다. 링 곁에 퍼센트 글자(`.6875rem` `--text-secondary`, 이름의 비율과
+   같은 함수 `contextPercent`), 트랙 `--border-strong`, `stroke-linecap: round`, 채움 호 최소 3px(둥근 끝을
+   더해 약 5px — 점이 아니라 짧은 호). 접근성 이름은 그대로다. `--border-strong`도 흰 바탕 1.48:1로 3:1에
+   못 미치지만 값은 글자와 채움(`--accent` 5.2:1)이 전한다. FR-36 다듬음·§4 표.
+3. **진행 중 턴이 시간을 두 번, 상태를 두 말로 보이고 멈추기가 셋 선다** (FR-11·FR-12·FR-29). 상태 줄의
+   "작업 중 · 2초"와 끝줄 메타의 "실행 중 · … · 2초"가 겹치고, 헤더 `멈추기`·상태 줄 `멈추기`·입력부
+   중지가 한 화면에 선다. 셋 다 spec대로다. 안: running 동안 메타의 시간 조각을 뺀다(시간은 상태 줄이
+   말한다), 입력칸이 비어 중지가 보이면 헤더 멈추기를 숨긴다.
+   **결정(2026-09-27)**: 안 그대로 둘 다. running 동안 끝줄 메타에서 시간 조각을 뺀다 — `metaPieces`가 흐르는
+   시계를 받지 않는다(`metaPieces(run)`). 헤더의 `이 대화의 실행 멈추기`는 입력칸에 초안이 있을 때만 서고,
+   입력부 전송이 중지일 때(입력칸이 비었을 때)는 숨는다 — FR-29가 그 버튼의 존재 이유로 든 경우가 그것뿐이다.
+   판정은 입력부 중지와 같은 `isBlankDraft`이고 헤더는 초안 스토어를 듣는다(`useDraftFilled`). 상태 줄의
+   멈추기는 그대로라 도는 턴의 멈추기는 늘 둘이다. "상태를 두 말로"(상태 줄 "작업 중" / 끝줄 알약 "실행 중")는
+   건드리지 않았다 — 결정에 들지 않았다. FR-11·FR-12·FR-29 다듬음.
+4. **기본 높이에서 입력 카드가 대화록보다 크다** (FR-27·FR-40, §4). 1440×900 기본 도크 450px 중 입력 카드
+   135px · 대화록 181px이고, `최신으로 이동`이 그 마지막 줄을 가린다. §4 수치(입력칸 `min-height: 56px`)
+   안의 품질 문제다. 안: 빈 입력칸을 한 줄로 시작해 쓰는 만큼 늘린다(`field-sizing`은 이미 있다), 맥락이
+   비었을 때의 안내 줄을 접는다.
+   **결정(2026-09-27)**: 빈 입력칸은 한 줄(`min-height: 1.5em`)에서 시작해 쓰는 만큼 늘고 160px에서 멈춘다.
+   맥락이 비었을 때의 안내 줄은 placeholder나 `title`로 옮기지 않고 **숨긴다** — 칩 줄은 담은 것이 있을
+   때만 선다(최대화 때의 안내와 그것 하나를 위해 내리던 `maximized` prop도 함께 걷었다). 캡처(사본에서
+   1440×900, 기본 도크 450px): 이어 가는 대화에서 입력 카드 71px · 대화록 칸 245px(전 135px · 181px — 둘 다
+   헤더에 담긴 것 줄이 선 68px 헤더) — 대화록 칸이 입력 카드의 3.5배다. 담긴 것 줄이 없는 대화(헤더 46px)는
+   268px(3.8배). `composer.e2e`가 기본 높이에서 "대화록 칸 > 입력 카드"와 빈 입력칸이
+   한 줄임을, 세 줄을 치면 늘고 30줄에서 160px에 멈춤을 본다. FR-27 다듬음·§4 표.
+5. **mcp 묶음 라벨의 백틱이 글자로 보이고, 펼침 꺾쇠의 자리가 제각각이다** (FR-4 다듬음·FR-16). "1
+   \`list_issues\` 호출 사용됨"이 렌더되지 않은 마크다운처럼 읽히고 "호출 사용됨"이 어색하다. 꺾쇠는
+   묶음·도구 줄은 글자 바로 뒤, 실패 줄·파일 줄은 오른쪽 끝이다. 안: 도구 이름을 모노 span으로 그리고
+   라벨은 이름만(`list_issues`), 꺾쇠는 한 자리로.
+   **결정(2026-09-27)**: 도구 이름을 모노 span(`.tool-name`)으로 그리고 라벨은 이름만(백틱·"호출" 없음) —
+   묶음 라벨은 `1 list_issues 사용됨`. `TOOL_LABELS`의 mcp 행(FR-4 표)과 `timeline.test`를 고쳤다. 모노는
+   묶음 라벨·도구 한 줄·상태 줄의 지금 도는 도구에 걸린다. 꺾쇠: 묶음·도구·실패 줄은 글자 바로 뒤, 파일 줄은
+   오른쪽 끝(`+N −M` 곁) — 실패 줄의 "실패"를 오른쪽으로 밀지 않아 꺾쇠가 글자 뒤로 왔고, 하위 에이전트
+   줄은 꺾쇠가 곁 글자(`subagent_type`, 오른쪽 끝) 앞에 선다. FR-4·FR-6·FR-16·FR-17·FR-18 다듬음.
+6. **마크다운 예산의 대가** (FR-20 다듬음). 코드 울타리를 쫓지 않으므로 빈 줄 없이 수백 줄(기호가 많은
+   줄 기준 약 470줄) 이어지는 코드 블록과 서식 있는 수백 행의 표는 평문으로 떨어진다. 넓히려면 파서와
+   같은 규칙의 표 판정(머리 행과 구분 줄의 칸 수 일치, 이스케이프한 `|`)을 더하거나, 파싱을 워커로 옮겨
+   시간 제한으로 끊어야 한다(§1이 워커를 뺀 이유와 같은 비용).
+   **결정(2026-09-27)**: 유지. 여전히 남은 과제다.
+7. **UI 글꼴에서도 `\`가 `₩`로 그려진다.** 모노는 토큰으로 고쳤지만(§4 코드 블록 행), 도구 부제·편집
+   경로·작업 디렉토리 알약 같은 UI 글꼴(`system-ui` = 한국어 Windows의 Malgun Gothic) 자리는 그대로다 —
+   앱 전체의 글꼴 문제라 이 기능 밖이다. 안: 경로를 싣는 자리를 모노로, 또는 `system-ui` 앞에 라틴 글꼴.
+   **결정(2026-09-27)**: 경로를 싣는 자리를 `--font-mono`로 — 공용 클래스 `.path-text`(글꼴과 크기 `.92em`만
+   바꾼다). 도구 부제가 경로일 때(`ToolItem.subtitlePath` — 상태 줄의 도는 도구 부제 포함), 편집 파일 경로
+   (경로를 아는 줄만), 작업 디렉토리 알약은 경로를 보일 때(목록에 없는 경로가 골라진 드롭다운)와 없는 경로
+   경고 문장의 경로. 이어 가는 대화의 알약은 이제 이름이고(1) 헤더 부제는 repo 이름·폴더 이름뿐이라 경로가
+   없다. `timeline.e2e`가 경로 부제의 실제 글꼴을 CDP로 묻는다(규칙을 빼면 "Malgun Gothic"으로 빨개진다 —
+   확인). 남는 것: 명령·검색어 부제와 앱의 다른 UI 글자는 그대로라 Windows 명령 속의 역슬래시는 여전히
+   `₩`로 보인다 — 경로만 골랐다. FR-5·FR-16·FR-18·FR-27 다듬음.
+8. **사용량만 있고 점유를 모르는 마지막 턴** (FR-36). 리뷰는 spec 문장("usage가 있는 가장 최근 턴")대로면
+   이때 링 대신 `사용량` 글자여야 한다고 봤다. 지금은 앞 턴의 (점유, 창) 짝을 그대로 보인다 — 6단계가
+   `usage.test`로 정한 "모르는 턴이 앞의 값을 지우지 않는다"를 지켰다. 어느 쪽이 맞는지 정해야 한다.
+   **결정(2026-09-27)**: 지금 동작 유지 — 링은 점유를 아는 마지막 턴의 (점유, 창) 짝이다. FR-36 첫 문장을 그
+   동작대로 고쳤다("점유를 아는 가장 최근 턴"). `ConversationHeader.test`의 "마지막 턴이 점유를 모르면
+   점유를 아는 앞 턴의 짝을 보인다"가 고정한다(`conversationUsage`가 모르는 턴에서 짝을 지우게 바꾸면
+   빨개진다 — 확인).
+9. **DESIGN.md·CLAUDE.md 갱신** (plan 7단계, §6 우려 12). *(7단계, 2026-09-27: DESIGN.md는 CSS에 맞췄다 — 모서리
+   목록, `.dock-tab` 삭제, 대화 화면 절. CLAUDE.md는 아래 후보를 전부 담은 패치까지 만들었고 넣지 않았다 — plan 완료
+   증명.)* CLAUDE.md는 프로젝트 지시문이라 사람이 보고 넣는다. 이번 리뷰가 더할 함정 후보: 답의 마크다운은 파싱 전에 예산을 재고
+   오류 경계가 받는다(`markdownBudget.ts` — 울타리를 쫓지 않는 이유), 앱 세션의 다운로드는 막는다(Alt+클릭),
+   타임라인의 열림은 도구 id에 매단다(블록 key로 되돌리지 말 것), 대화록과 입력부는 같은 방식으로 잰다
+   (`scrollbar-gutter`), 모노 글꼴은 `--font-mono` 토큰이다, `pnpm dev`가 떠 있을 때 e2e는 작업 트리를
+   복사한 곳에서 빌드해 돌린다(같은 `out/`을 쓰지 않는다 — 이번 리뷰 처리가 그렇게 돌렸다).
+   *(1~8 결정 반영, 2026-09-27: DESIGN.md의 대화 화면 절·Typography를 결정에 맞췄다. CLAUDE.md는 이번에도
+   패치까지다 — "현재 상태"의 "남은 것은 spec §8이다 …" 문장을 결정 결과로(남은 것은 6 하나), 멈추는 자리
+   셋이 번갈아 서는 것, 새 이름 `작업 디렉토리 경로 복사`의 부분 일치, 없어진 빈 맥락 안내문. 프로젝트
+   지시문이라 에이전트의 지시로는 바꾸지 않는다.)*

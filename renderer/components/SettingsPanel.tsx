@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useClient } from '../client/ClientProvider'
 import { ConfirmButton } from './ConfirmButton'
 import { PERMISSION_LABELS } from '../permission'
+import { AGENT_KINDS, AGENT_LABELS } from '../agents'
 import { RepoTab, type RepoDraft } from './settings/RepoTab'
 import { AgentStatusList } from './AgentStatusList'
 import { ModelField } from './ModelField'
@@ -423,8 +424,10 @@ export function SettingsPanel({
                     value={agentKind}
                     onChange={(e) => setAgentKind(e.target.value as AgentKind)}
                   >
-                    <option value="claude-code">Claude Code</option>
-                    <option value="opencode">OpenCode</option>
+                    {/* 실행 패널과 같은 표다 (docs/sdlc/conversation-timeline/ spec FR-46). */}
+                    {AGENT_KINDS.map((kind) => (
+                      <option key={kind} value={kind}>{AGENT_LABELS[kind]}</option>
+                    ))}
                   </select>
                 </label>
 

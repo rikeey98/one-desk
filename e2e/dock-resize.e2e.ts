@@ -22,7 +22,8 @@ describe('도크 크기 조절 (실측)', () => {
     const before = (await dock.boundingBox())!.height
     const box = (await handle.boundingBox())!
 
-    // 위로 200px 끈다
+    // 위로 200px 끈다. 기본 높이가 창의 절반이 됐어도(docs/sdlc/conversation-timeline/ spec
+    // FR-40) 상한(85%) 안이다 — 900px 창이면 약 430 → 630px.
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     await page.mouse.down()
     await page.mouse.move(box.x + box.width / 2, box.y - 200, { steps: 10 })

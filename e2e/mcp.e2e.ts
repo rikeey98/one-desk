@@ -1,6 +1,7 @@
 import { describe, it } from 'vitest'
 import { resolve } from 'node:path'
 import { launchApp } from './driver'
+import { waitConvStatus } from './dock'
 
 const FAKE_MCP = resolve(process.cwd(), 'core/runner/fixtures/fake-claude-mcp.mjs')
 
@@ -25,14 +26,13 @@ describe('MCP', () => {
       .waitFor({ state: 'visible', timeout: 10_000 })
 
     // run-start 버튼의 접근성 이름은 정확히 "실행"뿐이다. exact 없이 substring으로
-    // 잡으면 도크 토글("▾ 실행")과 슬롯 표시기("실행 슬롯" aria-label)까지 걸려
+    // 잡으면 슬롯 표시기("실행 슬롯")·멈추기("이 대화의 실행 멈추기") 같은 aria-label까지 걸려
     // strict mode 위반이 된다(실측).
     await page.getByPlaceholder(/무엇을 시킬지/).fill('이슈를 만들어줘')
     await page.getByRole('button', { name: '실행', exact: true }).click()
 
     // run이 성공했다 — 가짜 CLI는 MCP 호출이 실패하면 is_error로 끝낸다.
-    await page.getByRole('button', { name: /succeeded.*이슈를 만들어줘/ })
-      .waitFor({ state: 'visible', timeout: 30_000 })
+    await waitConvStatus(page, '이슈를 만들어줘', 'succeeded', 30_000)
 
     // **화면을 벗어나지 않는다.** 예전에는 IssuePanel이 workspace를 고를 때 한 번만
     // 목록을 읽어서, agent가 만든 이슈를 보려면 인박스에 갔다 돌아와 패널을 다시

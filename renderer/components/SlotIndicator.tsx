@@ -49,6 +49,10 @@ export function SlotIndicator({ snapshot, onChangeLimit }: {
       // 취소다 — 절대 커밋하지 않는다.
       suppressBlurRef.current = true
       setEditing(false)
+      // **이 Esc는 여기서 끝난다** — 도크 헤더 안이라, 퍼지면 같은 Esc가 도크의 최대화까지 푼다
+      // (`docs/sdlc/conversation-timeline/` spec FR-39 "안쪽부터 푼다", 리뷰가 찾은 것).
+      e.preventDefault()
+      e.stopPropagation()
     }
   }
 

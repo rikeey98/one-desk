@@ -74,12 +74,10 @@ describe('이슈 훑기', () => {
     await page.getByRole('button', { name: `${REPO_NAME} 맥락에 담기` })
       .waitFor({ state: 'visible', timeout: 10_000 })
 
-    // repo 카드를 눌러 작업 디렉토리로 고른다. 카드 버튼의 접근성 이름은
-    // "{이름}{경로}"로 이어져 있어(공백 없이 붙는다) getByRole로 이름만 잡으면
-    // "맥락에 담기" 버튼과도 겹쳐 strict mode 위반이 난다. RepoStrip.test.tsx의
-    // 단위 테스트가 쓰는 것과 같은 방법 — repo-name span의 텍스트 노드를 정확히
-    // 짚어 클릭한다. 클릭은 버블링으로 감싸는 button의 onSelect까지 닿는다.
-    await page.getByText(REPO_NAME, { exact: true }).click()
+    // repo 카드를 눌러 고른다. 카드의 접근성 이름은 "<이름> repo"다(CLAUDE.md) — 글자
+    // (`getByText(REPO_NAME, { exact: true })`)로 잡으면 입력부의 작업 디렉토리 알약도 걸린다:
+    // 그 옵션 글자가 이제 repo 이름뿐이다(docs/sdlc/conversation-timeline/ spec FR-27).
+    await page.getByRole('button', { name: `${REPO_NAME} repo`, exact: true }).click()
 
     // repo가 선택된 채로 이슈를 던지면 IssuePanel.addIssue가 그 repoId를
     // repoIds에 실어 보낸다 — 이것이 "repo가 선택된 채로 이슈를 만든다"는

@@ -50,12 +50,12 @@ describe('설정 화면 탭', () => {
     // 경로가 바뀌는 중이면 옛 대화 경고가 먼저 뜬다.
     await page.getByText(/이어가던 대화/).waitFor({ state: 'visible', timeout: 5_000 })
     await page.getByRole('button', { name: '샘플 저장', exact: true }).click()
-    // 저장이 끝나면 App이 목록을 다시 읽어 실행 패널의 작업 디렉토리가 새 경로다.
+    // 저장이 끝나면 App이 목록을 다시 읽어 실행 패널의 작업 디렉토리가 새 경로다. 알약의
+    // 옵션 글자는 repo 이름뿐이고 경로는 값·title이다(docs/sdlc/conversation-timeline/ spec FR-27).
     await ws.click()
-    await expect.poll(
-      () => page.getByRole('option', { name: `샘플 — ${movedDir}` }).count(),
-      { timeout: 10_000 }
-    ).toBe(1)
+    const cwdOption = page.getByLabel('작업 디렉토리', { exact: true })
+      .getByRole('option', { name: '샘플', exact: true })
+    await expect.poll(() => cwdOption.getAttribute('title'), { timeout: 10_000 }).toBe(movedDir)
 
     // 새로고침으로 다시 훑어도 한 벌이다 — 옛 경로의 행이 옮겨졌지 새 행이 생긴 것이 아니다.
     // 새로고침 뒤에만 생길 수 있는 것(옮긴 자리에 방금 심은 베타)을 기다려야 "새로고침의

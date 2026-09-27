@@ -32,6 +32,35 @@ export function IconChevronRight(props: SVGProps<SVGSVGElement>) {
   return <Icon {...props}><path d="M6 3.5 10.5 8 6 12.5" /></Icon>
 }
 
+/**
+ * 도크 토글 — 아래를 향한 꺾쇠(`docs/sdlc/conversation-timeline/` spec FR-37). 접힌 도크에서는
+ * CSS가 뒤집어 위를 향하게 한다. 글리프 `▾`/`▴`를 대신한다(FR-48).
+ */
+export function IconChevronDown(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><path d="M3.5 6 8 10.5 12.5 6" /></Icon>
+}
+
+/** 더 보기 — 가로 점 셋. 대화 헤더의 `⋯` 메뉴 단추다(FR-35). 점이라 선이 아니라 면이다. */
+export function IconMore(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none" />
+    </Icon>
+  )
+}
+
+/** 최대화 — 두 화살표가 바깥을 향한다(FR-38). 되돌리기는 `IconCollapse`(안쪽을 향한다)다. */
+export function IconMaximize(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><path d="M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9" /></Icon>
+}
+
+/** 최신으로 이동 — 아래를 향한 화살표(FR-42). */
+export function IconArrowDown(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><path d="M8 3v10M3.5 8.5 8 13l4.5-4.5" /></Icon>
+}
+
 export function IconFolder(props: SVGProps<SVGSVGElement>) {
   return <Icon {...props}><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 1.5h4.5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z" /></Icon>
 }
@@ -64,4 +93,30 @@ export function IconRefresh(props: SVGProps<SVGSVGElement>) {
  */
 export function IconCheck(props: SVGProps<SVGSVGElement>) {
   return <Icon {...props}><path d="m3 8.5 3.5 3.5L13 4.5" /></Icon>
+}
+
+/**
+ * 보내기 — 위를 향한 화살표. 입력 카드의 전송 버튼이다(`docs/sdlc/conversation-timeline/`
+ * spec FR-28). 원 안에 그리므로 선만 있다.
+ */
+export function IconSend(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" /></Icon>
+}
+
+/**
+ * 멈추기 — 채운 네모. 전송 버튼이 실행 중인 턴을 멈추는 버튼으로 바뀔 때 쓴다(FR-28).
+ * 선이 아니라 면이라 `fill`을 준다 — 선 네모는 체크박스로 읽힌다.
+ */
+export function IconStop(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" stroke="none" /></Icon>
+}
+
+/** 빼기·닫기 — ×. 맥락 칩의 "빼기"처럼 **지우지 않고 치우는** 자리에만 쓴다(대화 끝내기는 체크다). */
+export function IconClose(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></Icon>
+}
+
+/** 복사 — 겹친 두 장. 복사가 끝나면 IconCheck로 잠깐 바뀐다(CopyButton). */
+export function IconCopy(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5" /></Icon>
 }

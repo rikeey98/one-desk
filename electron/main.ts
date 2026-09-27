@@ -1,6 +1,8 @@
-import { app, dialog, shell, BrowserWindow } from 'electron'
+import { app, dialog, session, shell, BrowserWindow } from 'electron'
 import { isAbsolute, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { createCore, type Core } from '@core/index'
+import { externalLinkOf, isAppNavigation } from '@shared/links'
 import { registerIpc } from './ipc'
 
 let mainWindow: BrowserWindow | null = null
@@ -53,15 +55,38 @@ function createWindow(): void {
     mainWindow = null
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+  const devUrl = app.isPackaged ? undefined : process.env['ELECTRON_RENDERER_URL']
+  const indexFile = join(__dirname, '../renderer/index.html')
+  // 앱 자신의 주소. 아래 will-navigate가 이것 말고는 전부 막는다.
+  const appUrl = devUrl || pathToFileURL(indexFile).href
+
+  // 앱 창은 앱 문서 말고는 아무것도 열지 않는다 (docs/sdlc/conversation-timeline/ spec FR-24).
+  // 렌더러의 마크다운이 이미 거르지만(FR-22) 거기에만 기대지 않는다 — 앱 창이 원격 문서로
+  // 넘어가면 preload가 그 문서에도 붙어 window.oneDesk가 그 문서의 것이 된다. 판정은
+  // shared/links.ts 하나를 렌더러와 같이 쓴다(main에는 단위 테스트가 없어 거기서 고정한다).
+  //
+  // 새 창 요청: http(s)만 OS 브라우저로 넘기고 나머지(javascript:·file:·data:…)는 조용히
+  // 거부한다. 창은 어느 쪽이든 만들지 않는다.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    const link = externalLinkOf(url)
+    if (link !== null) {
+      shell.openExternal(link).catch((error: unknown) => {
+        console.error('one-desk: 외부 링크를 열지 못했습니다', link, error)
+      })
+    }
     return { action: 'deny' }
   })
 
-  if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  // 창 안 탐색: 앱 문서(개발 서버는 같은 origin — Vite의 전체 새로고침, file:은 같은
+  // index.html)가 아니면 막는다. loadURL·loadFile 같은 프로그램 탐색에는 불리지 않는다.
+  mainWindow.webContents.on('will-navigate', (event) => {
+    if (!isAppNavigation(event.url, appUrl)) event.preventDefault()
+  })
+
+  if (devUrl) {
+    mainWindow.loadURL(devUrl)
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainWindow.loadFile(indexFile)
   }
 }
 
@@ -123,6 +148,14 @@ if (dataDirError) {
     }
 
     registerIpc(core, getMainWindow)
+    // 다운로드는 막는다 (docs/sdlc/conversation-timeline/ spec FR-24 다듬음 — 리뷰가 찾은 것).
+    // Chromium은 Windows·Linux에서 Alt+클릭한 링크를 새 창도 탐색도 아닌 **다운로드**로 처리하고,
+    // 그 요청은 아래 창의 setWindowOpenHandler·will-navigate 어디에도 걸리지 않고 여기로 온다 —
+    // 막지 않으면 agent가 답에 적은 주소의 파일을 저장하는 대화상자가 뜬다. 이 앱이 스스로
+    // 내려받는 것은 없으므로 전부 막는다. 창을 여러 번 만들어도(macOS activate) 한 번만 건다.
+    session.defaultSession.on('will-download', (event) => {
+      event.preventDefault()
+    })
     createWindow()
 
     app.on('activate', () => {

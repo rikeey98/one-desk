@@ -1,10 +1,5 @@
-import type { AgentKind, AgentProbe, AgentProbes, AgentStatus, AgentStatuses } from '@shared/models'
-
-/** CLI 상태 줄의 순서와 이름. 실행 패널의 agent 드롭다운과 같은 순서다. */
-const AGENT_LABELS: ReadonlyArray<readonly [AgentKind, string]> = [
-  ['claude-code', 'Claude Code'],
-  ['opencode', 'OpenCode']
-]
+import { AGENT_KINDS, AGENT_LABELS } from '../agents'
+import type { AgentProbe, AgentProbes, AgentStatus, AgentStatuses } from '@shared/models'
 
 /**
  * "이 CLI로 지금 대화가 되는가" (docs/sdlc/agent-setup/ FR-1·FR-3·FR-7).
@@ -42,10 +37,12 @@ export function AgentStatusList({
         첫 실행에서 드러납니다.
       </p>
       <ul className="settings-status" aria-label="CLI 상태">
-        {AGENT_LABELS.map(([kind, label]) => (
+        {/* 순서와 이름은 실행 패널의 agent 드롭다운과 같은 표다
+            (docs/sdlc/conversation-timeline/ spec FR-46). */}
+        {AGENT_KINDS.map((kind) => (
           <AgentRow
             key={kind}
-            label={label}
+            label={AGENT_LABELS[kind]}
             status={statuses?.[kind] ?? null}
             probe={probes?.[kind] ?? null}
             busy={busy}

@@ -2,6 +2,7 @@
 // 일회성 expect(await …textContent())는 재시도가 없어 이 화면에서는 경합에 진다.
 import { describe, it } from 'vitest'
 import { launchApp } from './driver'
+import { waitConvStatus } from './dock'
 
 const FIRST = '첫째 지시'
 const SECOND = '둘째 지시'
@@ -41,34 +42,32 @@ describe('동시 실행 상한', () => {
 
     // 3. 두 번 연달아 실행한다. 가짜 CLI가 1500ms 지연되므로 관찰할 창이 있다.
     // run-start 버튼의 접근성 이름은 정확히 "실행"뿐이다. exact 없이 substring으로
-    // 잡으면 도크 토글("▾ 실행")과 슬롯 표시기("실행 슬롯" aria-label)까지 걸려
+    // 잡으면 슬롯 표시기("실행 슬롯")·멈추기("이 대화의 실행 멈추기") 같은 aria-label까지 걸려
     // strict mode 위반이 된다(실측).
     const send = page.getByRole('button', { name: '실행', exact: true })
     await page.getByPlaceholder(/무엇을 시킬지/).fill(FIRST)
     await send.click()
 
-    const runningTab = page.getByRole('button', { name: new RegExp(`running.*${FIRST}`) })
-    await runningTab.waitFor({ state: 'visible', timeout: 10_000 })
+    // 상태는 점의 클래스로 본다 — 이름은 한국어 표라 문구가 바뀌면 깨진다(e2e/dock.ts).
+    await waitConvStatus(page, FIRST, 'running', 10_000)
 
-    // 도크는 이제 가로 탭이 아니라 세로 목록이고, 그 맨 위가 "＋ 새 대화"다
-    // (conversation-lifecycle FR-18). 글자는 전각 ＋다 — RunPanel의 맥락 안내와
-    // 같은 글리프를 쓴다.
-    await page.getByRole('button', { name: '＋ 새 대화' }).click()
+    // 도크는 이제 가로 탭이 아니라 세로 목록이고, 그 맨 위가 "새 대화"다
+    // (conversation-lifecycle FR-18). ＋는 글리프가 아니라 aria-hidden 아이콘이라 이름은 정확히
+    // "새 대화"다(docs/sdlc/conversation-timeline/ spec FR-48) — exact로 잡는다: 대화 헤더의 제목
+    // "새 대화"는 버튼이 아니지만, 부분 일치면 이름에 그 말이 든 다른 버튼과 부딪힐 수 있다.
+    await page.getByRole('button', { name: '새 대화', exact: true }).click()
     await page.getByPlaceholder(/무엇을 시킬지/).fill(SECOND)
     await send.click()
 
     // 4. 두 번째는 대기한다 — 상한이 1이므로 슬롯이 없다
-    const pendingTab = page.getByRole('button', { name: new RegExp(`pending.*${SECOND}`) })
-    await pendingTab.waitFor({ state: 'visible', timeout: 5_000 })
+    await waitConvStatus(page, SECOND, 'pending', 5_000)
     await page.getByText('대기 1').waitFor({ state: 'visible', timeout: 5_000 })
     // 일회성 textContent()는 재시도가 없어 push가 한 박자 늦으면 그대로 깨진다.
     await slots.getByText('실행 중 1/1').waitFor({ state: 'visible', timeout: 5_000 })
 
     // 5. 앞이 끝나면 뒤가 시작해서 끝난다
-    await page.getByRole('button', { name: new RegExp(`succeeded.*${FIRST}`) })
-      .waitFor({ state: 'visible', timeout: 20_000 })
-    await page.getByRole('button', { name: new RegExp(`succeeded.*${SECOND}`) })
-      .waitFor({ state: 'visible', timeout: 20_000 })
+    await waitConvStatus(page, FIRST, 'succeeded')
+    await waitConvStatus(page, SECOND, 'succeeded')
     // 여기는 순서가 특히 아슬아슬하다. finish()는 onRunUpdate(succeeded 탭)를 먼저
     // 쏘고 finally에서야 queue.release(queueUpdate)를 부르므로, 슬롯 표시기의 갱신은
     // 방금 기다린 succeeded 탭보다 반드시 나중에 온다. 재시도가 필요하다.

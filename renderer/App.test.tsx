@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event'
 import { ClientProvider } from './client/ClientProvider'
 import { RunEventProvider } from './store/RunEventContext'
 import { createRunEventStore, type RunEventStore } from './store/runEvents'
+import { DraftProvider } from './store/DraftContext'
+import { createDraftStore } from './store/drafts'
 import { conversationIdOf } from './conversation'
 import App from './App'
 import type { OneDeskClient } from '@shared/client'
@@ -322,7 +324,11 @@ function renderApp(client: OneDeskClient, store: RunEventStore = createRunEventS
   render(
     <ClientProvider client={client}>
       <RunEventProvider store={store}>
-        <App />
+        {/* 입력부의 초안은 스토어가 쥔다 (docs/sdlc/conversation-timeline/ spec FR-31) — main.tsx와
+            같은 한 겹이다. App은 인박스·설정에 가면 도크를 언마운트하므로 그 왕복을 여기서 탄다. */}
+        <DraftProvider store={createDraftStore()}>
+          <App />
+        </DraftProvider>
       </RunEventProvider>
     </ClientProvider>
   )
@@ -350,7 +356,9 @@ describe('App', () => {
     render(
       <ClientProvider client={makeClient()}>
         <RunEventProvider store={createRunEventStore()}>
-          <App />
+          <DraftProvider store={createDraftStore()}>
+            <App />
+          </DraftProvider>
         </RunEventProvider>
       </ClientProvider>
     )
@@ -379,7 +387,9 @@ describe('App', () => {
     render(
       <ClientProvider client={client}>
         <RunEventProvider store={createRunEventStore()}>
-          <App />
+          <DraftProvider store={createDraftStore()}>
+            <App />
+          </DraftProvider>
         </RunEventProvider>
       </ClientProvider>
     )
@@ -652,6 +662,20 @@ describe('App', () => {
     await userEvent.click(within(askItem as HTMLElement).getByRole('button', { name: '대화 열기' }))
 
     expect(await screen.findByPlaceholderText(/무엇을 시킬지/)).toHaveValue('')
+  })
+
+  it('쓰던 지시는 인박스에 다녀와도 남는다 — 도크가 언마운트되는 길을 탄다', async () => {
+    // 초안은 main.tsx의 스토어가 쥔다 (docs/sdlc/conversation-timeline/ spec FR-31). App은
+    // workspace 화면일 때만 도크를 그리므로 인박스에 가면 입력부까지 통째로 사라진다 — 입력부의
+    // state였다면 여기서 지워진다.
+    renderApp(makeClient({}, { repos: [makeRepo('r1', 'api', '/tmp/api')] }))
+    await selectWorkspace()
+    await userEvent.type(await screen.findByPlaceholderText(/무엇을 시킬지/), '아직 안 보낸 지시')
+
+    await openInbox()
+    expect(screen.queryByPlaceholderText(/무엇을 시킬지/)).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: /^ws1( \d+)?$/ }))
+    expect(await screen.findByPlaceholderText(/무엇을 시킬지/)).toHaveValue('아직 안 보낸 지시')
   })
 
   it('"대화 열기"는 한 번만 연다 — 다른 화면에 갔다 오면 그 대화로 되돌아가지 않는다', async () => {
@@ -1150,7 +1174,9 @@ describe('MCP 상태 배선', () => {
     render(
       <ClientProvider client={client}>
         <RunEventProvider store={createRunEventStore()}>
-          <App />
+          <DraftProvider store={createDraftStore()}>
+            <App />
+          </DraftProvider>
         </RunEventProvider>
       </ClientProvider>
     )
@@ -1435,10 +1461,13 @@ describe('App — 설정 화면', () => {
     await waitFor(() => expect(client.repos.update).toHaveBeenCalledWith(
       { id: 'r1', name: 'api', path: '/srv/api', description: null }))
 
-    // 설정을 나가 실행 패널로 돌아오면 작업 디렉토리 목록이 새 경로다.
+    // 설정을 나가 실행 패널로 돌아오면 작업 디렉토리 목록이 새 경로다. 알약의 옵션 글자는
+    // repo 이름뿐이고 경로는 값·title에 있다 (docs/sdlc/conversation-timeline/ spec FR-27).
     await selectWorkspace()
     await waitFor(() => {
-      expect(screen.getByRole('option', { name: 'api — /srv/api' })).toBeInTheDocument()
+      const option = within(screen.getByLabelText('작업 디렉토리')).getByRole('option', { name: 'api' })
+      expect(option).toHaveValue('/srv/api')
+      expect(option).toHaveAttribute('title', '/srv/api')
     })
   })
 
