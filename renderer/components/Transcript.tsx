@@ -6,7 +6,9 @@ import { IconArrowDown } from './icons'
 import { useRunEvents, useRunEventSnapshot } from '../hooks/useRunEvents'
 import { useNow } from '../hooks/useNow'
 import { useFollowBottom } from '../hooks/useFollowBottom'
-import { formatDuration, metaPieces, projectTurn, switchNotice, type ToolItem } from '../timeline'
+import {
+  formatDuration, metaPieces, projectTurn, switchNotice, type ToolItem, type TurnSummary
+} from '../timeline'
 import { RUN_STATUS_LABELS } from '../runStatus'
 import { usageTitle } from '../usage'
 import type { Conversation } from '../conversation'
@@ -38,17 +40,59 @@ export function reservationOf(conversation: Conversation): Run | null {
 }
 
 /**
+ * 접힌 턴의 활동 요약 한 줄 (`docs/sdlc/conversation-events/` spec FR-51) —
+ * `도구 7회 · 실패 1 · 권한 거부 1 · 대화 압축됨`. 0인 조각은 빠진다 — 도구가 0이어도 압축·거부가
+ * 있으면 그 조각만이다. 도구 수는 메인 스레드의 것이다(하위 에이전트 카드는 하나로 센다, FR-39).
+ */
+function summaryText(summary: TurnSummary): string {
+  return [
+    summary.tools > 0 ? `도구 ${summary.tools}회` : null,
+    summary.failed > 0 ? `실패 ${summary.failed}` : null,
+    summary.denied > 0 ? `권한 거부 ${summary.denied}` : null,
+    summary.compacted ? '대화 압축됨' : null
+  ].filter((piece): piece is string => piece !== null).join(' · ')
+}
+
+function pieceText(item: ToolItem): string {
+  return item.subtitle ? `${item.label} ${item.subtitle}` : item.label
+}
+
+/** 도구 한 조각 — 라벨(굵게) · 부제. mcp 이름은 모노, 경로 부제도 모노다(spec §8의 5·7). */
+function ToolPiece({ item }: { item: ToolItem }) {
+  return (
+    <>
+      <strong><ToolName label={item.label} category={item.category} /></strong>
+      {item.subtitle && (
+        <>
+          {' '}
+          <span className={item.subtitlePath ? 'path-text' : undefined}>{item.subtitle}</span>
+        </>
+      )}
+    </>
+  )
+}
+
+/**
  * 진행 중인 턴의 상태 줄 (FR-12의 2) — 스피너 · 작업 중 · 경과 시간 · 지금 도는 도구 · 멈추기.
  *
  * **live region이 아니다**(NFR-4) — 경과 시간이 1초마다 읽히면 안 된다. 지금 도는 도구는
  * OpenCode에서 늘 없다(도구를 끝난 뒤에 보고한다, spec FR-9) — 그때는 시간만 남는다.
+ *
+ * 도구 자리에는 (events FR-51) API를 **재시도하는 중이면** 그 문구가 선다 — 왜 멈춰 있는지가 도는
+ * 도구보다 먼저다. 지금 도는 것이 **하위 에이전트면** 그 카드 안에서 도는 도구까지 `›`로 잇는다.
  */
-function StatusLine({ run, now, current, onCancel }: {
+function StatusLine({ run, now, current, currentChild, retrying, onCancel }: {
   run: Run
   now: number
   current: ToolItem | null
+  currentChild: ToolItem | null
+  retrying: string | null
   onCancel: (runId: string) => void
 }) {
+  // 잘려도 전체는 title로 읽는다. 하위 에이전트면 안에서 도는 도구까지다.
+  const toolTitle = current === null ? undefined
+    : currentChild === null ? current.subtitle || undefined
+    : `${pieceText(current)} › ${pieceText(currentChild)}`
   return (
     <div className="turn-status">
       <span className="turn-spinner" aria-hidden="true" />
@@ -56,16 +100,12 @@ function StatusLine({ run, now, current, onCancel }: {
       {run.startedAt !== null && (
         <span className="turn-status-piece">{formatDuration(now - run.startedAt)}</span>
       )}
-      {/* mcp 이름은 모노, 경로 부제도 모노다 — 펼친 도구 한 줄과 같은 모양이다(spec §8의 5·7). */}
-      {current && (
-        <span className="turn-status-piece turn-status-tool" title={current.subtitle || undefined}>
-          <strong><ToolName label={current.label} category={current.category} /></strong>
-          {current.subtitle && (
-            <>
-              {' '}
-              <span className={current.subtitlePath ? 'path-text' : undefined}>{current.subtitle}</span>
-            </>
-          )}
+      {retrying !== null ? (
+        <span className="turn-status-piece turn-status-tool" title={retrying}>{retrying}</span>
+      ) : current && (
+        <span className="turn-status-piece turn-status-tool" title={toolTitle}>
+          <ToolPiece item={current} />
+          {currentChild && <>{' › '}<ToolPiece item={currentChild} /></>}
         </span>
       )}
       {/* 실행 중인 턴도 그 자리에서 멈춘다 (`docs/sdlc/conversation-fixes/` spec FR-11).
@@ -150,10 +190,11 @@ function TurnBody({ run, events, logError, open, onToggleOpen, openKeys, onToggl
 }) {
   const running = run.status === 'running'
   const now = useNow(running)
-  const { status, resultText, errorMessage, cwd } = run
-  const { blocks, answer, summary, current } = useMemo(
-    () => projectTurn({ status, resultText, errorMessage, cwd }, events),
-    [status, resultText, errorMessage, cwd, events]
+  const { status, resultText, errorMessage, cwd, startedAt } = run
+  // startedAt은 생각 블록의 시간을 재는 기준이다 (`docs/sdlc/conversation-events/` spec FR-35).
+  const { blocks, answer, summary, current, currentChild, retrying, omitted } = useMemo(
+    () => projectTurn({ status, resultText, errorMessage, cwd, startedAt }, events),
+    [status, resultText, errorMessage, cwd, startedAt, events]
   )
   // 펼친 턴의 진행 중 텍스트는 블록 안에 제자리로 있다 (FR-13) — 답 칸은 끝났을 때만.
   const shownAnswer = answer && (!open || answer.final) ? answer : null
@@ -161,17 +202,30 @@ function TurnBody({ run, events, logError, open, onToggleOpen, openKeys, onToggl
 
   return (
     <>
-      {running && <StatusLine run={run} now={now} current={current} onCancel={onCancel} />}
+      {running && (
+        <StatusLine
+          run={run}
+          now={now}
+          current={current}
+          currentChild={currentChild}
+          retrying={retrying}
+          onCancel={onCancel}
+        />
+      )}
       {/* 여기까지 오는 pending은 뿌리뿐이다 — 예약은 Transcript가 걸러 입력부로 보낸다(FR-30). */}
       {run.status === 'pending' && <WaitingLine run={run} onCancel={onCancel} />}
       {/* 펼치면 묶음 라벨이 대신한다 (FR-13) — 접힌 턴에만 한 줄 요약이다. */}
-      {!open && summary && (
-        <div className="turn-summary">
-          도구 {summary.tools}회{summary.failed > 0 && ` · 실패 ${summary.failed}`}
-        </div>
-      )}
+      {!open && summary && <div className="turn-summary">{summaryText(summary)}</div>}
       {open && logError && <div role="alert" className="form-error">{logError}</div>}
-      {open && <TimelineBlocks blocks={blocks} openKeys={openKeys} onToggle={onToggleKey} />}
+      {/* 창(`RUN_EVENT_WINDOW`) 때문에 앞이 잘렸다 — 빠진 것이 "없던 일"로 보이면 안 된다
+          (`docs/sdlc/conversation-events/` spec FR-52). 첫 이벤트의 seq가 곧 빠진 수다. */}
+      {open && omitted > 0 && (
+        <div className="tl-omitted">앞의 기록 {omitted.toLocaleString('en-US')}개는 생략했습니다</div>
+      )}
+      {/* agent 종류는 하위 에이전트 카드가 본다 — OpenCode는 자식의 활동을 보내지 않는다(events FR-49). */}
+      {open && (
+        <TimelineBlocks blocks={blocks} openKeys={openKeys} onToggle={onToggleKey} agentKind={run.agentKind} />
+      )}
       {shownAnswer && (
         <div className="turn-answer">
           <Markdown text={shownAnswer.text} />

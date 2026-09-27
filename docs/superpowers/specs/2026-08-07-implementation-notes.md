@@ -4534,6 +4534,8 @@ export class ClaudeCodeAdapter implements AgentAdapter {
           }
           // block.type === 'thinking' 은 버린다.
           // signature 필드가 3~5KB라 로그를 불필요하게 키운다.
+          // (2026-09-27 이후: 본문만 reasoning 이벤트로 싣고 signature는 싣지 않는다 —
+          //  docs/sdlc/conversation-events/ spec FR-15·§7-A)
         }
         return events
       }

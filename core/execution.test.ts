@@ -1317,6 +1317,7 @@ describe('ExecutionService', () => {
       const spy = setup({
         manager: {
           logPathFor: (id: string) => resolve(tmpdir(), `one-desk-spy-${id}.jsonl`),
+          rawLogPathFor: (id: string) => resolve(tmpdir(), `one-desk-spy-${id}.raw.jsonl`),
           start: async (spec) => {
             seen.push(spec.resumeSessionId)
             return {
@@ -1364,6 +1365,7 @@ describe('ExecutionService', () => {
       const running = setup({
         manager: {
           logPathFor: (id: string) => resolve(tmpdir(), `one-desk-early-${id}.jsonl`),
+          rawLogPathFor: (id: string) => resolve(tmpdir(), `one-desk-early-${id}.raw.jsonl`),
           // 세션 id를 알린 뒤 끝나지 않는다 — 앱이 꺼질 때까지 도는 첫 턴이다.
           start: (spec) => {
             spec.onSession?.(spec.runId, 'sess-early')
@@ -1395,6 +1397,7 @@ describe('ExecutionService', () => {
           resolveExecutable: async () => ({ ok: true, executable: process.execPath }),
           manager: {
             logPathFor: (id: string) => resolve(tmpdir(), `one-desk-restart-${id}.jsonl`),
+            rawLogPathFor: (id: string) => resolve(tmpdir(), `one-desk-restart-${id}.raw.jsonl`),
             start: async (spec) => {
               seen.push(spec.resumeSessionId)
               return {
@@ -1426,6 +1429,7 @@ describe('ExecutionService', () => {
       const local = setup({
         manager: {
           logPathFor: (id: string) => resolve(tmpdir(), `one-desk-reject-${id}.jsonl`),
+          rawLogPathFor: (id: string) => resolve(tmpdir(), `one-desk-reject-${id}.raw.jsonl`),
           start: async (spec) => {
             spec.onSession?.(spec.runId, 'sess-learned')
             throw new Error('로그를 닫지 못했다')
@@ -1492,6 +1496,7 @@ describe('effort 배선 (docs/sdlc/agent-setup/)', () => {
     const ctx = setup({
       manager: {
         logPathFor: (id: string) => resolve(tmpdir(), `one-desk-effort-${id}.jsonl`),
+        rawLogPathFor: (id: string) => resolve(tmpdir(), `one-desk-effort-${id}.raw.jsonl`),
         start: async (spec) => {
           seen.push(spec.effort)
           return {
@@ -1740,6 +1745,7 @@ function createPerRunManager() {
 
   const manager: RunManager = {
     logPathFor,
+    rawLogPathFor: (runId: string) => resolve(tmpdir(), `one-desk-perrun-${runId}.raw.jsonl`),
     start: (spec) => {
       seen.add(spec.runId)
       resumeSessionIds.set(spec.runId, spec.resumeSessionId)
@@ -1805,6 +1811,7 @@ function createDeferredManager() {
 
   const manager: RunManager = {
     logPathFor: (runId) => resolve(tmpdir(), `one-desk-deferred-${runId}.jsonl`),
+    rawLogPathFor: (runId) => resolve(tmpdir(), `one-desk-deferred-${runId}.raw.jsonl`),
     start: () => { calls += 1; return pending },
     cancel: () => {},
     cancelAll: () => {},

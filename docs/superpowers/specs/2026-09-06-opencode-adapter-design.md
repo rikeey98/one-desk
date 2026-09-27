@@ -346,7 +346,22 @@ opencode run --format json -m opencode/nemotron-3.5-lightning-free \
 전체 설계 §553은 "runner가 스트림에서 파일 수정 도구 호출을 감지하면, 해당
 파일이 아직 스냅샷되지 않았을 경우 원본을 `logs/<run_id>/before/`에 복사한다"고
 정했다. **OpenCode의 `tool_use`는 이미 `status: "completed"`로 온다** — 쓰기가
-끝난 뒤다. 복사할 원본이 그 시점에 이미 없다.
+끝난 뒤다. 복사할 원본이 그 시점에 이미 없다.[^before-0927]
+
+[^before-0927]: **2026-09-27 정정: edit에 한해 줄 번호 hunk는 온다 — 원본은 여전히 없다.**
+    1.18.30의 완료된 `edit`은 `state.metadata.filediff`에 `{file, patch, additions,
+    deletions}`를 싣는다(바이너리 확인). `patch`는 unified diff(`createTwoFilesPatch`)라
+    줄 번호가 붙은 hunk를 되살릴 수 있고, `conversation-events`가 그것을
+    `tool_result.detail`에 싣기 시작했다(`core/runner/adapters/opencode.detail.ts`의
+    `parseUnifiedDiff`). `apply_patch`도 파일마다 `patch`를 싣는다. 그러나 **`before`·
+    `after`는 없다** — 바이너리의 UI 코드가 `filediff.before`를 선택적으로 읽는 것은 다른
+    버전을 위한 것으로 보인다. write는 `exists`만 준다. 그래서 이 절의 결론은 절반만
+    바뀐다: 편집 hunk는 풀렸고 파일 전체 원본은 여전히 없다(opencode 편집의 `before`는 늘
+    null — `beforeMissing: 'unavailable'`). 덧붙여 그 `patch`는 `trimDiff`가 공통 들여쓰기를
+    걷어 낸 것이라 줄 번호는 맞지만 줄 본문이 파일과 다르다 — diff 뷰어가 이 hunk를 원본
+    재료로 쓰면 들여쓰기를 잃는다. 한때 "`filediff`로 before가 풀린다"고 적었던 그 기능의
+    intent도 같은 이유로 spec에서 고쳤다. 근거와 범위는 `docs/sdlc/conversation-events/`
+    spec §2-3(정정 포함)·§7 우려 12·§9의 5.
 
 같은 §559가 경고한 실패 양상 그대로다: 이미 수정된 내용을 "원본"으로 저장하면
 diff가 비어 보이고 사용자는 "agent가 아무것도 안 바꿨다"고 잘못 읽는다.

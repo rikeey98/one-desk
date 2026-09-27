@@ -5,11 +5,11 @@
  * 여기 있는 셋은 CLI가 아니라 one-desk의 규약에 속한다.
  * - withLoopbackBypass: MCP 서버가 항상 127.0.0.1이라는 우리 쪽 사정
  * - stripNeedsAnswer: [NEEDS_ANSWER] 표식은 우리가 프롬프트로 심은 규약이다
- * - summarize: 로그 길이 정책
+ * - summarize·keepTail·keepHead·toolResultText·reasoningText·capEditFiles: 로그 길이 정책
  * - emptyUsage: RunUsage의 "전부 모름" 기준값 (아홉 필드를 매번 손으로 적지 않는다)
  */
 
-import type { RunUsage } from '@shared/events'
+import type { EditFileDetail, PatchHunk, RunUsage } from '@shared/events'
 
 /**
  * 아무것도 모르는 `RunUsage`. 아는 것만 얹어 쓴다.
@@ -36,6 +36,156 @@ export function emptyUsage(known: Partial<RunUsage> = {}): RunUsage {
 export function summarize(content: unknown): string {
   const text = typeof content === 'string' ? content : JSON.stringify(content ?? '')
   return text.length > 200 ? `${text.slice(0, 200)}…` : text
+}
+
+/*
+ * 필드마다의 상한 (`docs/sdlc/conversation-events/` spec FR-10). **어댑터가 이벤트를 만들 때 한 번
+ * 적용한다** — manager·로그·IPC·렌더러는 이미 잘린 값만 본다. 어댑터 밖에서 다시 자르지 말 것:
+ * 두 자리가 서로 다른 수로 자르면 로그와 화면이 조용히 갈린다.
+ *
+ * 글자 수는 `string.length`(UTF-16 코드 유닛)다(FR-11).
+ */
+
+/** tool_result.output — **끝부분**을 남긴다. 셸 출력은 끝(테스트 결과·오류)이 중요하다 */
+export const OUTPUT_MAX_CHARS = 65_536
+/** reasoning.text — 앞부분을 남긴다. 읽는 순서대로다 */
+export const REASONING_MAX_CHARS = 65_536
+/** detail.files[].hunks — 결과 하나의 모든 파일을 합친 줄 글자 */
+export const HUNKS_MAX_CHARS = 131_072
+/** detail.files[].before — 넘으면 **싣지 않는다**. 잘린 원본은 원본이 아니다 */
+export const BEFORE_MAX_CHARS = 131_072
+
+const isHigh = (code: number) => code >= 0xd800 && code <= 0xdbff
+const isLow = (code: number) => code >= 0xdc00 && code <= 0xdfff
+
+/** `text[at]`이 서로게이트 쌍의 아래 반쪽이라 그 앞에서 자르면 쌍이 갈리는가 */
+function splitsPair(text: string, at: number): boolean {
+  return at > 0 && at < text.length && isHigh(text.charCodeAt(at - 1)) && isLow(text.charCodeAt(at))
+}
+
+/**
+ * 끝부분 `max`자를 남긴다. 자르는 자리가 서로게이트 쌍 가운데면 한 칸 뒤로 옮겨 반쪽 글자를
+ * 남기지 않는다(그래서 `max - 1`자가 될 수 있다). `dropped`는 버린 앞부분 글자 수다.
+ */
+export function keepTail(text: string, max: number): { text: string; dropped: number } {
+  if (text.length <= max) return { text, dropped: 0 }
+  let start = text.length - max
+  if (splitsPair(text, start)) start += 1
+  return { text: text.slice(start), dropped: start }
+}
+
+/** 앞부분 `max`자를 남긴다. 쌍 가운데면 한 칸 당긴다. `dropped`는 버린 뒷부분 글자 수다. */
+export function keepHead(text: string, max: number): { text: string; dropped: number } {
+  if (text.length <= max) return { text, dropped: 0 }
+  let end = max
+  if (splitsPair(text, end)) end -= 1
+  return { text: text.slice(0, end), dropped: text.length - end }
+}
+
+/**
+ * tool_result의 `output`·`outputTruncated` 두 필드. 이벤트에 그대로 펼친다.
+ *
+ * **값이 있을 때만 싣는다**(FR-7) — 비었으면 빈 객체, 잘리지 않았으면 `outputTruncated` 키가 없다.
+ * 요약(`summary`)과 달리 CLI의 content를 글로 펴는 일은 여기서 하지 않는다 — 그 모양은 CLI마다
+ * 다르고 어댑터가 안다.
+ *
+ * **잘린 자리가 줄 가운데면 다음 줄바꿈까지 더 버린다**(리뷰 반영 2026-09-27) — 그러지 않으면 출력의
+ * 첫 줄이 앞이 날아간 조각(`se139.test.ts (3 tests)`)이라, 위의 "앞부분 N자" 안내와 함께 깨진 줄로
+ * 읽힌다. 더 버린 글자도 `outputTruncated`에 든다. 남긴 끝부분에 줄바꿈이 없으면(한 줄짜리 긴
+ * 출력) 그대로 둔다 — 다 버리면 남는 것이 없다.
+ */
+export function toolResultText(
+  text: string | null | undefined,
+  max: number = OUTPUT_MAX_CHARS
+): { output?: string; outputTruncated?: number } {
+  if (!text) return {}
+  const kept = keepTail(text, max)
+  if (kept.dropped === 0) return { output: kept.text }
+  let output = kept.text
+  let dropped = kept.dropped
+  if (text[dropped - 1] !== '\n') {
+    const newline = output.indexOf('\n')
+    if (newline >= 0 && newline < output.length - 1) {
+      output = output.slice(newline + 1)
+      dropped += newline + 1
+    }
+  }
+  return { output, outputTruncated: dropped }
+}
+
+/**
+ * reasoning의 `text`·`truncated`. **공백뿐인 본문은 빈 문자열로 접는다** — 화면이 "펼칠 것 없음"을
+ * `text === ''` 하나로 판정한다. 빈 본문으로 이벤트를 낼지는 어댑터가 정한다(spec §7-A).
+ */
+export function reasoningText(
+  text: string,
+  max: number = REASONING_MAX_CHARS
+): { text: string; truncated?: number } {
+  if (text.trim() === '') return { text: '' }
+  const kept = keepHead(text, max)
+  return kept.dropped > 0 ? { text: kept.text, truncated: kept.dropped } : { text: kept.text }
+}
+
+/** 상한을 씌우기 전의 파일 한 줄. `hunksTruncated`는 capEditFiles가 센다 */
+export type EditFileInput = Omit<EditFileDetail, 'hunksTruncated'>
+
+function countLines(hunks: PatchHunk[], sign: '+' | '-'): number {
+  let n = 0
+  for (const h of hunks) for (const line of h.lines) if (line.startsWith(sign)) n += 1
+  return n
+}
+
+/**
+ * 편집 detail의 hunk 예산과 before 상한(FR-10·12).
+ *
+ * - hunk는 **파일 순서·hunk 순서·줄 순서로** 예산을 채운다. 한 줄이 넘치면 그 줄부터 뒤는 — 다음
+ *   파일의 줄까지 — 전부 버린다(앞쪽 줄만 남긴다). 줄이 하나도 안 남은 hunk는 빠지고, 잘린 hunk는
+ *   머리(`oldStart`·`newStart`)를 그대로 둔다. 버린 줄 수는 파일마다 `hunksTruncated`다.
+ * - `added`·`removed`는 **자르기 전에** 센다 — 화면의 `+N −M`이 잘린 값이 되지 않게. CLI가 준 값이
+ *   있으면(opencode `filediff.additions`) 그것을 두고, hunk가 없으면 지어내지 않는다(null).
+ * - `before`가 상한을 넘으면 싣지 않고 `beforeMissing: 'too_large'`다.
+ */
+export function capEditFiles(
+  files: EditFileInput[],
+  budget: number = HUNKS_MAX_CHARS,
+  beforeMax: number = BEFORE_MAX_CHARS
+): EditFileDetail[] {
+  let used = 0
+  let exhausted = false
+
+  return files.map((file) => {
+    const hasHunks = file.hunks.length > 0
+    const added = file.added ?? (hasHunks ? countLines(file.hunks, '+') : null)
+    const removed = file.removed ?? (hasHunks ? countLines(file.hunks, '-') : null)
+
+    const hunks: PatchHunk[] = []
+    let dropped = 0
+    for (const hunk of file.hunks) {
+      const lines: string[] = []
+      for (const line of hunk.lines) {
+        if (!exhausted && used + line.length <= budget) {
+          lines.push(line)
+          used += line.length
+        } else {
+          exhausted = true
+          dropped += 1
+        }
+      }
+      if (lines.length > 0) hunks.push({ ...hunk, lines })
+    }
+
+    const tooLarge = file.before !== null && file.before.length > beforeMax
+    return {
+      path: file.path,
+      operation: file.operation,
+      hunks,
+      hunksTruncated: dropped,
+      added,
+      removed,
+      before: tooLarge ? null : file.before,
+      beforeMissing: tooLarge ? 'too_large' : file.beforeMissing
+    }
+  })
 }
 
 /** 우리 MCP 서버가 사는 곳. 여기로 가는 요청은 프록시를 타면 안 된다. */

@@ -21,8 +21,11 @@ vi.mock('../hooks/useRunEvents', () => ({
 const useRunEventsMock = vi.mocked(useRunEvents)
 const snapshotMock = vi.mocked(useRunEventSnapshot)
 
-/** 펼친 턴이 로그에서 되살린 것 — 모의가 기본으로 돌려주는 한 줄이다. */
-const LOG_LINE: RunEvent = { type: 'text', seq: 1, runId: 'a1', at: 0, text: '도구 로그' }
+/**
+ * 펼친 턴이 로그에서 되살린 것 — 모의가 기본으로 돌려주는 한 줄이다. seq는 0이다 — 실제 run의 첫
+ * 이벤트가 그렇고, 0보다 크면 "앞의 기록 N개는 생략했습니다"가 선다(events FR-52).
+ */
+const LOG_LINE: RunEvent = { type: 'text', seq: 0, runId: 'a1', at: 0, text: '도구 로그' }
 
 beforeEach(() => {
   // mockClear는 구현을 남긴다 — 앞 테스트가 세운 이벤트가 새지 않게 매번 되돌린다.
@@ -320,9 +323,10 @@ describe('Transcript', () => {
     }
 
     it('블록을 이벤트 순서대로 그리고, 끝났으면 최종 답을 그 아래에 둔다 (FR-13)', async () => {
+      // 첫 seq는 0이다 — 실제 run처럼 앞이 잘리지 않은 턴이다(events FR-52의 생략 안내가 없다).
       store({
         a1: [
-          text(1, '먼저 봅니다'),
+          text(0, '먼저 봅니다'),
           use(2, 't1', 'Read', { file_path: '/repo/src/a.ts' }), result(3, 't1'),
           use(4, 't2', 'Bash', { command: 'pnpm lint' }), result(5, 't2', false),
           use(6, 't3', 'Edit', EDIT), result(7, 't3'),
@@ -343,7 +347,7 @@ describe('Transcript', () => {
     it('진행 중에는 답 칸이 없고 마지막 text가 블록에 있다 — 끝나면 답 칸으로 옮겨 간다', async () => {
       store({
         a1: [
-          text(1, '먼저 봅니다'),
+          text(0, '먼저 봅니다'),
           use(2, 't1', 'Read', { file_path: '/repo/a.ts' }), result(3, 't1'),
           text(4, '고쳤습니다')
         ]
@@ -592,7 +596,7 @@ describe('Transcript', () => {
         expect(screen.queryByText('출력 앞부분만 기록됩니다')).toBeNull()
       })
 
-      it('검색은 일치 개수를 보이고, 읽기·검색은 펼칠 것이 없다', async () => {
+      it('검색은 개수를 보이고, 읽기·검색은 펼칠 것이 없다', async () => {
         store({
           a1: [
             use(1, 't1', 'Read', { file_path: '/repo/src/a.ts' }), result(2, 't1'),
@@ -602,7 +606,8 @@ describe('Transcript', () => {
         renderRuns([makeRun({ id: 'a1', resultText: '답' })])
         await openBundle(/2 읽기, Grep 사용됨/)
         const grep = screen.getByText('expiresAt').closest<HTMLElement>('.tl-tool')!
-        expect(grep).toHaveTextContent('Grep expiresAt (3개 일치)')
+        // 세부가 없는 옛 로그의 `Found 3 files`는 **파일** 수다(events §7 우려 16·FR-44).
+        expect(grep).toHaveTextContent('Grep expiresAt (파일 3개)')
         expect(grep.tagName).not.toBe('BUTTON')
         const read = screen.getByText('src/a.ts').closest<HTMLElement>('.tl-tool')!
         expect(read.tagName).not.toBe('BUTTON')
@@ -625,12 +630,46 @@ describe('Transcript', () => {
           ]
         })
         renderRuns([makeRun({ id: 'a1', resultText: '답' })])
-        await openBundle(/1 하위 에이전트 사용됨/)
+        // 하위 에이전트는 묶음에 들지 않고 카드 하나다(`docs/sdlc/conversation-events/` spec FR-38).
+        await expand()
+        expect(screen.queryByRole('button', { name: /하위 에이전트 사용됨/ })).toBeNull()
         const row = screen.getByRole('button', { name: /하위 에이전트 인증 조사/ })
         expect(row).toHaveTextContent('Explore')
         await userEvent.click(row)
         const prompt = screen.getByText('**굵게** 조사해')
         expect(prompt.querySelector('strong')).toBeNull()
+      })
+
+      it('하위 에이전트 카드를 펼치면 그 호출이 낳은 도구가 카드 안에 있다 (events FR-38)', async () => {
+        store({
+          a1: [
+            use(1, 't1', 'Agent', { description: '인증 조사', prompt: '조사해', subagent_type: 'Explore' }),
+            { ...use(2, 'c1', 'Read', { file_path: '/repo/src/a.ts' }), parentToolUseId: 't1' } as RunEvent,
+            { ...result(3, 'c1'), parentToolUseId: 't1' } as RunEvent,
+            result(4, 't1')
+          ]
+        })
+        const { container } = renderRuns([makeRun({ id: 'a1', resultText: '답' })])
+        await expand()
+        // 자식은 메인에 따로 서지 않는다
+        expect(screen.queryByRole('button', { name: /1 읽기 사용됨/ })).toBeNull()
+        await userEvent.click(screen.getByRole('button', { name: /하위 에이전트 인증 조사/ }))
+        const card = container.querySelector<HTMLElement>('.tl-subagent')!
+        expect(within(card).getByRole('button', { name: /1 읽기 사용됨/ })).toBeInTheDocument()
+      })
+
+      it('어댑터의 공지는 펼칠 것 없는 글자 한 줄이다 — 원문 줄 공지만 펼친다 (events FR-41)', async () => {
+        store({
+          a1: [
+            { type: 'notice', runId: 'a1', seq: 1, at: 0, kind: 'compact', text: '대화가 압축됨 · 자동' },
+            raw(2, '{깨진 줄')
+          ]
+        })
+        const { container } = renderRuns([makeRun({ id: 'a1', resultText: '답' })])
+        await expand()
+        const notices = [...container.querySelectorAll<HTMLElement>('.tl-notice')]
+        expect(notices.map((n) => n.textContent)).toEqual(['대화가 압축됨 · 자동', '해석하지 못한 출력 1줄'])
+        expect(within(notices[0]!).queryByRole('button')).toBeNull()
       })
 
       it('mcp는 펼치면 입력을 들여쓴 JSON으로 보인다', async () => {
@@ -705,7 +744,7 @@ describe('Transcript', () => {
           ]
         })
         renderRuns([makeRun({ id: 'a1', resultText: '답' })])
-        await openBundle(/1 하위 에이전트 사용됨/)
+        await expand()
         const row = screen.getByRole('button', { name: /하위 에이전트 인증 조사/ })
         const order = [...row.children].map((child) => child.getAttribute('class')!.split(' ')[0])
         expect(order).toEqual(['tl-label', 'tl-sub', 'tl-chevron', 'tl-aside'])
@@ -752,7 +791,7 @@ describe('Transcript', () => {
       it('묶음을 끊고 제자리에 따로 서며, 펼치면 오류 문구다', async () => {
         store({
           a1: [
-            use(1, 't1', 'Read', { file_path: '/repo/a.ts' }), result(2, 't1'),
+            use(0, 't1', 'Read', { file_path: '/repo/a.ts' }), result(2, 't1'),
             use(3, 't2', 'Bash', { command: 'pnpm lint' }), resultWith(4, 't2', 'lint 오류 3건', false),
             use(5, 't3', 'Read', { file_path: '/repo/b.ts' }), result(6, 't3')
           ]
@@ -1153,6 +1192,555 @@ describe('Transcript', () => {
         makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10, status: 'succeeded', usage: null })
       ])
       expect(container.querySelectorAll('.turn-meta')).toHaveLength(1)
+    })
+  })
+
+  /**
+   * 어댑터가 버리던 것 — 원문 출력·구조화된 세부·생각·하위 에이전트·공지 — 을 timeline이 만든 자리에
+   * 그린다 (`docs/sdlc/conversation-events/` spec FR-43~52). **전부 평문이다** — 도구 출력·파일 내용·
+   * 생각은 신뢰할 수 없는 입력이고 마크다운으로 해석하지 않는다(FR-53).
+   */
+  describe('대화가 버리던 데이터', () => {
+    type ResultEvent = Extract<RunEvent, { type: 'tool_result' }>
+    type ResultDetail = NonNullable<ResultEvent['detail']>
+    type ReasoningEvent = Extract<RunEvent, { type: 'reasoning' }>
+
+    /** 새 필드를 얹은 결과 — 기본은 성공한 옛 모양이다 */
+    function res(
+      seq: number, id: string,
+      over: Partial<Pick<ResultEvent, 'ok' | 'summary' | 'output' | 'outputTruncated' | 'detail'>> = {}
+    ): RunEvent {
+      return { type: 'tool_result', runId: 'a1', seq, at: 0, toolUseId: id, ok: true, summary: 'ok', ...over }
+    }
+
+    /** 어댑터의 공지. 종류는 문자열이다 — 이 버전이 모르는 종류도 그린다(events FR-41) */
+    function notice(seq: number, kind: string, body: string, toolUseId?: string): RunEvent {
+      return {
+        type: 'notice', runId: 'a1', seq, at: 0, kind, text: body,
+        ...(toolUseId === undefined ? {} : { toolUseId })
+      } as RunEvent
+    }
+
+    function think(seq: number, body: string, over: Partial<ReasoningEvent> = {}): RunEvent {
+      return { type: 'reasoning', runId: 'a1', seq, at: 0, text: body, startedAt: null, endedAt: null, ...over }
+    }
+
+    /** 하위 에이전트 호출 P가 낳은 이벤트 */
+    function under(parent: string, event: RunEvent): RunEvent {
+      return { ...event, parentToolUseId: parent } as RunEvent
+    }
+
+    function timed(at: number, event: RunEvent): RunEvent {
+      return { ...event, at }
+    }
+
+    const shell = (over: Partial<Extract<ResultDetail, { kind: 'shell' }>> = {}): ResultDetail =>
+      ({ kind: 'shell', exitCode: null, interrupted: false, timedOut: false, ...over })
+
+    async function expand() {
+      await userEvent.click(screen.getByRole('button', { name: '자세히' }))
+    }
+
+    /** 줄마다 번호 칸 둘(옛·새)의 글자 */
+    function lineNumbers(root: ParentNode): string[][] {
+      return [...root.querySelectorAll('.tl-line')].map((line) =>
+        [...line.querySelectorAll('.tl-diff-no')].map((cell) => cell.textContent ?? '')
+      )
+    }
+
+    /** 출력 블록 (FR-43·45·46) — 남긴 것이 끝부분이라 열 때 바닥이다 */
+    describe('출력 블록', () => {
+      beforeEach(() => {
+        // jsdom은 레이아웃을 계산하지 않는다 — 넘치는 상자처럼 높이를 세운다.
+        Object.defineProperty(HTMLElement.prototype, 'scrollHeight', { configurable: true, get: () => 900 })
+        Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 240 })
+      })
+
+      afterEach(() => {
+        Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight')
+        Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight')
+      })
+
+      it('셸은 원문 끝부분을 평문으로 보이고 열 때 바닥으로 스크롤한다 — 버린 앞부분은 몇 자인지 위에 말한다', async () => {
+        store({
+          a1: [
+            use(0, 't1', 'Bash', { command: 'pnpm test' }),
+            res(1, 't1', {
+              summary: '요약 앞부분',
+              // 색(SGR)과 창 제목(OSC) — 화면에서만 걷는다
+              output: '\u001b[32m✓\u001b[39m 통과\n\u001b]0;제목\u0007PASS',
+              outputTruncated: 12345,
+              detail: shell()
+            })
+          ]
+        })
+        const { container } = renderRuns([makeRun({ id: 'a1', resultText: '답' })])
+        await expand()
+        await userEvent.click(screen.getByRole('button', { name: /1 셸 사용됨/ }))
+        await userEvent.click(screen.getByRole('button', { name: /셸 pnpm test/ }))
+
+        const detail = container.querySelector<HTMLElement>('.tl-detail')!
+        const output = detail.querySelector<HTMLElement>('.tl-output')!
+        expect(output.textContent).toBe('✓ 통과\nPASS')
+        expect(output.scrollTop).toBe(900)
+        const note = within(detail).getByText('앞부분 12,345자는 기록하지 않았습니다')
+        expect(note).toHaveClass('tl-output-note')
+        // 안내는 블록 위다 — 잘린 자리가 위쪽이다.
+        expect(note.compareDocumentPosition(output) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        // 원문이 있으면 요약도, 요약의 안내("출력 앞부분만")도 없다.
+        expect(within(detail).queryByText('요약 앞부분')).toBeNull()
+        expect(within(detail).queryByText('출력 앞부분만 기록됩니다')).toBeNull()
+      })
+
+      it('종료 코드가 0이 아니면 부제 오른쪽에 알리고, 멈춘 셸은 중단됨·시간 초과다', async () => {
+        store({
+          a1: [
+            use(0, 't1', 'bash', { command: 'pnpm test' }), res(1, 't1', { detail: shell({ exitCode: 1 }) }),
+            use(2, 't2', 'bash', { command: 'pnpm lint' }), res(3, 't2', { detail: shell({ exitCode: 0 }) }),
+            use(4, 't3', 'Bash', { command: 'sleep 999' }),
+            res(5, 't3', { detail: shell({ timedOut: true, interrupted: true }) }),
+            use(6, 't4', 'Bash', { command: 'pnpm dev' }), res(7, 't4', { detail: shell({ interrupted: true }) })
+          ]
+        })
+        renderRuns([makeRun({ id: 'a1', resultText: '답' })])
+        await expand()
+        await userEvent.click(screen.getByRole('button', { name: /4 셸 사용됨/ }))
+        const row = (name: RegExp) => screen.getByRole('button', { name })
+        expect(within(row(/셸 pnpm test/)).getByText('종료 코드 1')).toHaveClass('tl-exit')
+        expect(row(/셸 pnpm lint/)).not.toHaveTextContent('종료 코드')
+        // 시간 초과가 중단보다 먼저다 — 시간 초과로 멈춘 것도 중단이다.
+        expect(row(/셸 sleep 999/)).toHaveTextContent('시간 초과')
+        expect(row(/셸 sleep 999/)).not.toHaveTextContent('중단됨')
+        expect(row(/셸 pnpm dev/)).toHaveTextContent('중단됨')
+      })
+
+      it('mcp는 펼치면 입력 JSON 아래에 출력 블록이다 — 셸이 아니라 제어열을 걷지 않는다', async () => {
+        store({
+          a1: [
+            use(0, 't1', 'mcp__onedesk__list_issues', { state: 'open' }),
+            res(1, 't1', { output: '\u001b[1m이슈 2개' })
+          ]
+        })
+        const { container } = renderRuns([makeRun({ id: 'a1', resultText: '답' })])
+        await expand()
+        await userEvent.click(screen.getByRole('button', { name: /^1 list_issues 사용됨$/ }))
+        await userEvent.click(screen.getByRole('button', { name: 'list_issues' }))
+        const blocks = [...container.querySelectorAll('.tl-detail .tl-output')].map((block) => block.textContent)
+        expect(blocks).toEqual(['{\n  "state": "open"\n}', '\u001b[1m이슈 2개'])
+      })
+
+      it('실패한 도구를 펼치면 출력 블록이고, 권한 거부는 "권한 거부"와 바로 아래 공지선 하나다', async () => {
+        store({
+          a1: [
+            use(0, 't1', 'Bash', { command: 'pnpm lint' }),
+            res(1, 't1', {
+              ok: false, summary: 'Exit code 2',
+              output: 'Exit code 2\n\u001b[31merror\u001b[39m no-unused-vars', detail: shell({ exitCode: 2 })
+            }),
+            use(2, 't2', 'Bash', { command: 'rm -rf build' }),
+            // 로그에는 system 줄과 result 줄이 두 번 알린다(events FR-19)
+            notice(3, 'permission_denied', '권한 때문에 막힘: Bash', 't2'),
+            res(4, 't2', { ok: false, summary: 'denied', output: 'Permission to use Bash has been denied.' }),
+            notice(5, 'permission_denied', '권한 때문에 막힘: Bash', 't2')
+          ]
+        })
+        const { container } = renderRuns([makeRun({ id: 'a1', resultText: '답' })])
+        await expand()
+        const errors = [...container.querySelectorAll<HTMLElement>('.tl-tool-error')]
+        expect(errors.map((e) => e.textContent)).toEqual(['셸 pnpm lint 종료 코드 2 실패', '셸 rm -rf build 권한 거부'])
+        expect(screen.getAllByText('권한 때문에 막힘: Bash')).toHaveLength(1)
+        expect(errors[1]!.nextElementSibling).toHaveClass('tl-notice')
+        expect(errors[1]!.nextElementSibling).toHaveTextContent('권한 때문에 막힘: Bash')
+
+        await userEvent.click(within(errors[0]!).getByRole('button'))
+        const output = errors[0]!.querySelector<HTMLElement>('.tl-output')!
+        expect(output.textContent).toBe('Exit code 2\nerror no-unused-vars')
+        expect(output.scrollTop).toBe(900)
+      })
+    })
+
+    it('검색 개수는 센 것에 따라 파일·일치·줄이고, 잘렸으면 "이상"이다 (FR-44)', async () => {
+      const search = (count: number, unit: 'files' | 'matches' | 'lines', truncated = false): ResultDetail =>
+        ({ kind: 'search', count, unit, truncated })
+      store({
+        a1: [
+          use(0, 't1', 'Grep', { pattern: 'a' }), res(1, 't1', { detail: search(3, 'files') }),
+          use(2, 't2', 'grep', { pattern: 'b' }), res(3, 't2', { detail: search(12, 'matches') }),
+          use(4, 't3', 'Grep', { pattern: 'c' }), res(5, 't3', { detail: search(7, 'lines') }),
+          use(6, 't4', 'Glob', { pattern: 'd' }), res(7, 't4', { detail: search(100, 'files', true) }),
+          use(8, 't5', 'grep', { pattern: 'e' }), res(9, 't5', { detail: search(1234, 'matches', true) })
+        ]
+      })
+      const { container } = renderRuns([makeRun({ id: 'a1', resultText: '답' })])
+      await expand()
+      await userEvent.click(screen.getByRole('button', { name: /5 Grep, Glob 사용됨/ }))
+      expect([...container.querySelectorAll('.tl-count')].map((count) => count.textContent)).toEqual([
+        '(파일 3개)', '(12개 일치)', '(7줄)', '(파일 100개 이상)', '(1,234개 이상 일치)'
+      ])
+    })
+
+    /** 줄 번호 diff (FR-47) */
+    describe('줄 번호 diff', () => {
+      it('세부의 hunk로 옛·새 번호를 달고, 첫 hunk 위와 hunk 사이에 건너뛴 줄 수를 둔다', async () => {
+        store({
+          a1: [
+            use(0, 't1', 'Edit', { file_path: '/repo/src/a.ts', old_string: 'b', new_string: 'c' }),
+            res(1, 't1', {
+              detail: {
+                kind: 'edit',
+                files: [{
+                  path: '/repo/src/a.ts', operation: 'edit',
+                  hunks: [
+                    { oldStart: 41, oldLines: 3, newStart: 41, newLines: 3, lines: [' a', '-b', '+c', ' d'] },
+                    { oldStart: 60, oldLines: 1, newStart: 60, newLines: 2, lines: [' x', '+y'] }
+                  ],
+                  hunksTruncated: 0, added: 2, removed: 1, before: '원본 전체', beforeMissing: null
+                }]
+              }
+            })
+          ]
+        })
+        const { container } = renderRuns([makeRun({ id: 'a1', resultText: '답' })])
+        await expand()
+        const file = screen.getByRole('button', { name: /src\/a\.ts/ })
+        expect(file).toHaveTextContent('+2 −1')
+        await userEvent.click(file)
+
+        const diff = container.querySelector<HTMLElement>('.tl-diff')!
+        expect(lineNumbers(diff)).toEqual([['41', '41'], ['42', ''], ['', '42'], ['43', '43'], ['60', '60'], ['', '61']])
+        // 번호 칸 · 번호 칸 · 부호 · 본문. 번호 칸은 복사에서 빠진다 — user-select: none을 이 클래스가 준다.
+        expect([...diff.querySelector('.tl-line')!.children].map((cell) => cell.className))
+          .toEqual(['tl-diff-no', 'tl-diff-no', 'tl-sign', 'tl-line-text'])
+        const gaps = [...diff.querySelectorAll('.tl-diff-gap')]
+        expect(gaps.map((gap) => gap.textContent)).toEqual(['⋯ 40줄', '⋯ 16줄'])
+        expect(diff.firstElementChild).toBe(gaps[0])
+        // 편집의 원본은 화면에 쓰지 않는다 — hunk로 충분하다.
+        expect(screen.queryByRole('button', { name: '이전 내용 보기' })).toBeNull()
+      })
+
+      it('덮어쓰기는 이전 내용을 따로 펼쳐 평문으로 본다', async () => {
+        store({
+          a1: [
+            use(0, 't1', 'Write', { file_path: '/repo/README.md', content: '# 새 제목\n' }),
+            res(1, 't1', {
+              detail: {
+                kind: 'edit',
+                files: [{
+                  path: '/repo/README.md', operation: 'overwrite',
+                  hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-# 옛 제목', '+# 새 제목'] }],
+                  hunksTruncated: 0, added: 1, removed: 1,
+                  before: '# 옛 제목\n<b>굵게</b>', beforeMissing: null
+                }]
+              }
+            })
+          ]
+        })
+        const { container } = renderRuns([makeRun({ id: 'a1', resultText: '답' })])
+        await expand()
+        const file = screen.getByRole('button', { name: /README\.md/ })
+        expect(file).not.toHaveTextContent('새로 씀')
+        await userEvent.click(file)
+
+        const show = screen.getByRole('button', { name: '이전 내용 보기' })
+        expect(show).toHaveAttribute('aria-expanded', 'false')
+        expect(container.querySelector('.tl-edit .tl-output')).toBeNull()
+        await userEvent.click(show)
+        const hide = screen.getByRole('button', { name: '이전 내용 숨기기' })
+        expect(hide).toHaveAttribute('aria-expanded', 'true')
+        const before = container.querySelector<HTMLElement>('.tl-edit .tl-output')!
+        expect(before.textContent).toBe('# 옛 제목\n<b>굵게</b>')
+        expect(before.querySelector('b')).toBeNull()
+        await userEvent.click(hide)
+        expect(container.querySelector('.tl-edit .tl-output')).toBeNull()
+      })
+
+      it('새 파일은 새로 씀이고 새 줄 번호 1..n이 붙는다', async () => {
+        store({
+          a1: [
+            use(0, 't1', 'Write', { file_path: '/repo/new.ts', content: 'x\ny\n' }),
+            res(1, 't1', {
+              detail: {
+                kind: 'edit',
+                files: [{
+                  path: '/repo/new.ts', operation: 'create', hunks: [], hunksTruncated: 0,
+                  added: null, removed: null, before: null, beforeMissing: null
+                }]
+              }
+            })
+          ]
+        })
+        const { container } = renderRuns([makeRun({ id: 'a1', resultText: '답' })])
+        await expand()
+        const file = screen.getByRole('button', { name: /new\.ts/ })
+        expect(file).toHaveTextContent('새로 씀')
+        expect(file).toHaveTextContent('+2 −0')
+        await userEvent.click(file)
+        expect(lineNumbers(container)).toEqual([['', '1'], ['', '2']])
+        expect(container.querySelector('.tl-diff-gap')).toBeNull()
+      })
+
+      it('옛 내용을 모르는 덮어쓰기(opencode write)는 지운 줄 수를 적지 않는다 — −0은 거짓이다', async () => {
+        // 리뷰 반영 2026-09-27: 100줄을 5줄로 덮어쓴 편집이 "+5 −0"으로 "더하기만 했다"처럼 읽혔다
+        store({
+          a1: [
+            use(0, 't1', 'write', { filePath: '/repo/oc.ts', content: 'x\ny' }),
+            res(1, 't1', {
+              detail: {
+                kind: 'edit',
+                files: [{
+                  path: '/repo/oc.ts', operation: 'overwrite', hunks: [], hunksTruncated: 0,
+                  added: null, removed: null, before: null, beforeMissing: 'unavailable'
+                }]
+              }
+            })
+          ]
+        })
+        const { container } = renderRuns([makeRun({ id: 'a1', resultText: '답' })])
+        await expand()
+        const file = screen.getByRole('button', { name: /oc\.ts/ })
+        expect(file).toHaveTextContent('+2')
+        expect(file).not.toHaveTextContent('−')
+        expect(file).not.toHaveTextContent('새로 씀')
+        expect(container.querySelector('.tl-removed')).toBeNull()
+      })
+    })
+
+    /** 생각 (FR-48) */
+    describe('생각', () => {
+      it('접힌 한 줄 "생각 · 약 N초"이고, 펼치면 본문을 마크다운이 아니라 글자 그대로 보인다', async () => {
+        store({
+          a1: [
+            timed(1_000, text(0, '봅니다')),
+            timed(5_000, think(1, '**굵게** 생각한다\n<b>태그</b>', { truncated: 10 }))
+          ]
+        })
+        const { container } = renderRuns([makeRun({ id: 'a1', resultText: '답', startedAt: 0 })])
+        await expand()
+        // claude는 시각을 주지 않는다 — 바로 앞 이벤트부터 잰 추정이라 "약"이다.
+        const head = screen.getByRole('button', { name: '생각 · 약 4초' })
+        expect(head).toHaveAttribute('aria-expanded', 'false')
+        expect(container.querySelector('.tl-reasoning-body')).toBeNull()
+        await userEvent.click(head)
+
+        const body = container.querySelector<HTMLElement>('.tl-reasoning-body')!
+        expect(body.textContent).toBe('**굵게** 생각한다\n<b>태그</b>')
+        expect(body.querySelector('strong, b')).toBeNull()
+        const reasoning = container.querySelector<HTMLElement>('.tl-reasoning')!
+        expect(within(reasoning).getByText('뒷부분 10자는 기록하지 않았습니다')).toHaveClass('tl-output-note')
+      })
+
+      it('시각 둘이 있으면(opencode) 정확한 시간이다', async () => {
+        store({ a1: [think(0, '정확히 잰다', { startedAt: 1_000, endedAt: 3_000 })] })
+        renderRuns([makeRun({ id: 'a1', resultText: '답' })])
+        await expand()
+        expect(screen.getByRole('button', { name: '생각 · 2초' })).toBeInTheDocument()
+      })
+
+      it('잴 기준이 없으면 시간 없이 "생각"이다', async () => {
+        store({ a1: [think(0, '기준이 없다')] })
+        renderRuns([makeRun({ id: 'a1', resultText: '답', startedAt: null })])
+        await expand()
+        expect(screen.getByRole('button', { name: '생각' })).toBeInTheDocument()
+      })
+
+      it('본문이 빈 생각은 펼칠 것 없는 한 줄이다 (§7-A)', async () => {
+        store({ a1: [timed(1_000, text(0, '봅니다')), timed(3_500, think(1, ''))] })
+        renderRuns([makeRun({ id: 'a1', resultText: '답', startedAt: 0 })])
+        await expand()
+        expect(screen.getByText('생각 · 약 2초')).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /생각/ })).toBeNull()
+      })
+
+      it('열어 둔 생각은 턴이 끝나도 닫히지 않는다 — 여닫는 것은 사용자뿐이다', async () => {
+        store({ a1: [timed(1_000, think(0, '생각 중'))] })
+        const props = { onCancel: vi.fn(), onResend: vi.fn(), onAnswer: vi.fn() }
+        const running = groupConversations([makeRun({ id: 'a1', status: 'running', startedAt: 0 })])[0]!
+        const { container, rerender } = render(<Transcript conversation={running} {...props} />)
+        await expand()
+        await userEvent.click(screen.getByRole('button', { name: '생각 · 약 1초' }))
+
+        const done = groupConversations([
+          makeRun({ id: 'a1', status: 'succeeded', startedAt: 0, endedAt: 2_000, resultText: '답' })
+        ])[0]!
+        rerender(<Transcript conversation={done} {...props} />)
+        expect(screen.getByRole('button', { name: '생각 · 약 1초' })).toHaveAttribute('aria-expanded', 'true')
+        expect(container.querySelector('.tl-reasoning-body')).toHaveTextContent('생각 중')
+      })
+    })
+
+    /** 하위 에이전트 카드 (FR-49) */
+    describe('하위 에이전트 카드', () => {
+      const AGENT = { description: '인증 조사', prompt: '조사해', subagent_type: 'Explore' }
+
+      it('머리 줄은 라벨·설명·종류·메타이고 이름은 "하위 에이전트 <설명>"이다 — 펼치면 지시·자식·결과다', async () => {
+        store({
+          a1: [
+            use(0, 't1', 'Agent', AGENT),
+            under('t1', use(1, 'c1', 'Read', { file_path: '/repo/src/a.ts' })), under('t1', res(2, 'c1')),
+            under('t1', use(3, 'c2', 'Grep', { pattern: 'token' })), under('t1', res(4, 'c2')),
+            res(5, 't1', {
+              output: 'login은 **세션**을 쓴다.',
+              detail: { kind: 'subagent', sessionId: null, model: 'claude-sonnet-5', toolCount: 12, durationMs: 34_000 }
+            })
+          ]
+        })
+        const { container } = renderRuns([makeRun({ id: 'a1', resultText: '답' })])
+        await expand()
+        // 이름에 상태·메타 글자가 빨려 들어가지 않는다 — aria-label이 준다.
+        const head = screen.getByRole('button', { name: '하위 에이전트 인증 조사' })
+        expect(head).toHaveTextContent('Explore')
+        expect(head).toHaveTextContent('도구 12회 · 34초 · claude-sonnet-5')
+        expect(head).toHaveAttribute('aria-expanded', 'false')
+        await userEvent.click(head)
+
+        const card = container.querySelector<HTMLElement>('.tl-subagent')!
+        expect(within(card).getByText('조사해')).toHaveClass('tl-plain')
+        const children = card.querySelector<HTMLElement>('.tl-subagent-children')!
+        expect(within(children).getByRole('button', { name: /2 읽기, Grep 사용됨/ })).toBeInTheDocument()
+        // 결과는 카드의 출력 블록이다 — 하위 에이전트의 보고도 도구 출력이라 평문이다.
+        const report = card.querySelector<HTMLElement>(':scope > .tl-detail > .tl-output')!
+        expect(report.textContent).toBe('login은 **세션**을 쓴다.')
+        expect(report.querySelector('strong')).toBeNull()
+        expect(within(card).queryByText(/OpenCode는/)).toBeNull()
+      })
+
+      it('세부가 없으면 메타는 자식으로 센 도구 수뿐이고, 실패한 호출도 카드다', async () => {
+        store({
+          a1: [
+            use(0, 't1', 'Task', AGENT),
+            under('t1', use(1, 'c1', 'Read', { file_path: '/repo/a.ts' })), under('t1', res(2, 'c1')),
+            res(3, 't1', { ok: false, summary: '하위 에이전트가 멈췄습니다' })
+          ]
+        })
+        const { container } = renderRuns([makeRun({ id: 'a1', resultText: '답' })])
+        await expand()
+        expect(container.querySelector('.tl-tool-error')).toBeNull()
+        const head = screen.getByRole('button', { name: '하위 에이전트 인증 조사' })
+        expect(head).toHaveTextContent('실패')
+        expect(head).toHaveTextContent('도구 1회')
+        expect(head).not.toHaveTextContent('초')
+      })
+
+      it('OpenCode 대화의 카드는 자식이 없는 이유를 말한다 — claude 대화의 카드는 말하지 않는다', async () => {
+        store({
+          a1: [
+            use(0, 't1', 'task', AGENT),
+            res(1, 't1', {
+              output: '끝',
+              detail: { kind: 'subagent', sessionId: 'ses_child', model: 'claude-fake-5', toolCount: null, durationMs: 34_000 }
+            })
+          ]
+        })
+        const view = renderRuns([makeRun({ id: 'a1', agentKind: 'opencode', resultText: '답' })])
+        await expand()
+        const head = screen.getByRole('button', { name: '하위 에이전트 인증 조사' })
+        expect(head).toHaveTextContent('34초 · claude-fake-5')
+        expect(head).not.toHaveTextContent('도구')
+        await userEvent.click(head)
+        expect(screen.getByText('OpenCode는 하위 에이전트의 활동을 보내지 않습니다')).toHaveClass('tl-subagent-note')
+        view.unmount()
+
+        renderRuns([makeRun({ id: 'a1', agentKind: 'claude-code', resultText: '답' })])
+        await expand()
+        await userEvent.click(screen.getByRole('button', { name: '하위 에이전트 인증 조사' }))
+        expect(screen.queryByText(/OpenCode는/)).toBeNull()
+      })
+    })
+
+    it('공지는 어댑터의 문구 그대로 가운데 한 줄이고, 거부·모델 대체만 경고 색이다 (FR-50)', async () => {
+      store({
+        a1: [
+          notice(0, 'compact', '대화가 압축됨 · 자동 · 153,214 → 12,400 토큰'),
+          notice(1, 'retry', 'API 재시도 중 · 1/10번째 · 1초 뒤 · 529'),
+          notice(2, 'retry', 'API 재시도 중 · 2/10번째 · 5초 뒤 · 529'),
+          notice(3, 'model_fallback', '모델 대체: claude-opus-5 → claude-sonnet-5 (과부하)'),
+          notice(4, 'permission_denied', '권한 때문에 막힘: Write', 'toolu_x'),
+          notice(5, 'mystery', '이 버전이 모르는 공지')
+        ]
+      })
+      const { container } = renderRuns([makeRun({ id: 'a1', resultText: '답' })])
+      await expand()
+      const notices = [...container.querySelectorAll<HTMLElement>('.tl-notice')]
+      // 연속된 재시도는 하나다 — 마지막 문구가 몇 번째인지 이미 말한다.
+      expect(notices.map((n) => n.textContent)).toEqual([
+        '대화가 압축됨 · 자동 · 153,214 → 12,400 토큰',
+        'API 재시도 중 · 2/10번째 · 5초 뒤 · 529',
+        '모델 대체: claude-opus-5 → claude-sonnet-5 (과부하)',
+        '권한 때문에 막힘: Write',
+        '이 버전이 모르는 공지'
+      ])
+      expect(notices.map((n) => n.classList.contains('tl-notice-warn'))).toEqual([false, false, true, true, false])
+      for (const n of notices) {
+        expect(n).toHaveClass('tl-notice-line')
+        // 보기 전용이고 live region이 아니다(TL NFR-4).
+        expect(within(n).queryByRole('button')).toBeNull()
+        expect(n.closest('[role="status"], [aria-live]')).toBeNull()
+      }
+    })
+
+    /** 접힌 턴 (FR-51) */
+    describe('접힌 턴', () => {
+      it('활동 요약은 실패·권한 거부·압축을 더하고 0인 조각은 뺀다', () => {
+        snapshots({
+          a1: [
+            use(0, 't1', 'Read', { file_path: '/repo/a.ts' }), res(1, 't1'),
+            use(2, 't2', 'Bash', { command: 'pnpm lint' }), res(3, 't2', { ok: false, summary: '오류' }),
+            use(4, 't3', 'Bash', { command: 'rm -rf build' }),
+            notice(5, 'permission_denied', '권한 때문에 막힘: Bash', 't3'),
+            res(6, 't3', { ok: false, summary: 'denied' }),
+            notice(7, 'compact', '대화가 압축됨 · 자동')
+          ]
+        })
+        const { container } = renderRuns([makeRun({ id: 'a1', resultText: '답' })])
+        expect(container.querySelector('.turn-summary')!.textContent).toBe('도구 3회 · 실패 1 · 권한 거부 1 · 대화 압축됨')
+      })
+
+      it('도구가 없어도 압축·거부가 있으면 그 조각만이다', () => {
+        snapshots({ a1: [notice(0, 'compact', '대화가 압축됨 · 수동')] })
+        const { container } = renderRuns([makeRun({ id: 'a1', resultText: '답' })])
+        expect(container.querySelector('.turn-summary')!.textContent).toBe('대화 압축됨')
+      })
+
+      it('재시도 중이면 상태 줄의 도구 자리에 그 문구가 선다', () => {
+        vi.useFakeTimers({ toFake: ['Date'] })
+        vi.setSystemTime(12_000)
+        snapshots({
+          a1: [
+            use(0, 't1', 'Read', { file_path: '/repo/a.ts' }),
+            notice(1, 'retry', 'API 재시도 중 · 2/10번째 · 5초 뒤 · 529')
+          ]
+        })
+        const { container } = renderRuns([makeRun({ id: 'a1', status: 'running', startedAt: 0 })])
+        const status = container.querySelector<HTMLElement>('.turn-status')!
+        expect(status).toHaveTextContent('작업 중')
+        expect(status).toHaveTextContent('12초')
+        expect(status.querySelector('.turn-status-tool')!.textContent).toBe('API 재시도 중 · 2/10번째 · 5초 뒤 · 529')
+        expect(status).not.toHaveTextContent('읽기')
+      })
+
+      it('지금 도는 것이 하위 에이전트면 그 안에서 도는 도구까지 보인다', () => {
+        snapshots({
+          a1: [
+            use(0, 't1', 'Agent', { description: '인증 조사', prompt: '조사해' }),
+            under('t1', use(1, 'c1', 'Read', { file_path: '/repo/src/a.ts' }))
+          ]
+        })
+        const { container } = renderRuns([makeRun({ id: 'a1', status: 'running', startedAt: 0 })])
+        expect(container.querySelector('.turn-status-tool')!.textContent).toBe('하위 에이전트 인증 조사 › 읽기 src/a.ts')
+      })
+    })
+
+    it('창 때문에 앞이 잘린 턴은 펼치면 맨 위에 몇 개를 생략했는지 말한다 (FR-52)', async () => {
+      store({ a1: [text(37, '뒷부분')] })
+      const { container } = renderRuns([makeRun({ id: 'a1', resultText: '답' })])
+      await expand()
+      expect(sections(container.querySelector('.turn')!)).toEqual([
+        'turn-user', 'tl-omitted', 'tl-text', 'turn-answer', 'turn-foot'
+      ])
+      expect(container.querySelector('.tl-omitted')).toHaveTextContent('앞의 기록 37개는 생략했습니다')
+      // 접힌 턴에는 블록이 없으므로 안내도 없다.
+      await userEvent.click(screen.getByRole('button', { name: '접기' }))
+      expect(container.querySelector('.tl-omitted')).toBeNull()
     })
   })
 })

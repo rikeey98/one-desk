@@ -65,6 +65,8 @@ if (scenario === 'hang') {
   finish(1)
 } else if (process.env.ONE_DESK_FAKE_SCRIPT === 'timeline') {
   runTimeline()
+} else if (process.env.ONE_DESK_FAKE_SCRIPT === 'events') {
+  runEvents()
 } else {
   // e2e가 running 상태를 관찰할 수 있도록 결과를 늦출 수 있다. 기본은 0(즉시).
   // 값이 이상하면 Number()가 NaN을 내고 setTimeout(fn, NaN)은 즉시 실행된다 —
@@ -171,6 +173,141 @@ function runTimeline() {
   let index = 0
   const next = () => {
     emit(steps[index++])
+    if (index < steps.length) setTimeout(next, stepMs)
+    else finish(0)
+  }
+  next()
+}
+
+/**
+ * 어댑터가 새로 싣는 것을 흉내 내는 시나리오 (docs/sdlc/conversation-events/ spec §8 e2e, plan 6단계).
+ *
+ * `ONE_DESK_FAKE_SCRIPT=events`로 켠다(`timeline`과 같은 방식). 기본 시나리오와 `timeline`은
+ * **건드리지 않는다**. 줄 사이마다 `ONE_DESK_FAKE_STEP_MS`(기본 300ms)를 쉰다.
+ *
+ * 모양은 claude 2.1.280 SDK 스키마를 옮긴 합성이다(spec §7 우려 3 — 모델을 부르지 않아 스트림을 새로
+ * 뜨지 못했다). 순서는 spec §8: 생각(서명 4KB) · 셸(7만 자 출력, 끝에 PASS) · Grep(파일 3개) ·
+ * Edit(41줄의 hunk) · Write 덮어쓰기(원본 포함) · API 재시도 · Agent와 그 자식 Read(`parent_tool_use_id`) ·
+ * 권한 거부된 셸(system 줄 + result의 `permission_denials` — 두 번 알린다) · 대화 압축 · JSON이 아닌 줄.
+ * 줄마다 `uuid`가 있다(E7). 셸 출력은 파일에 박지 않고 여기서 만든다.
+ *
+ * **출력은 결정적이다** — 시각도 난수도 싣지 않는다(경로만 작업 디렉토리를 따른다). e2e가 같은
+ * 디렉토리에서 이 스크립트를 한 번 더 돌려, 앱이 남긴 `raw.jsonl`이 그 출력과 줄마다 같은지 본다.
+ */
+function runEvents() {
+  const parsedStep = Number(process.env.ONE_DESK_FAKE_STEP_MS ?? 300)
+  const stepMs = Number.isFinite(parsedStep) ? parsedStep : 300
+  const cwd = process.cwd()
+  const auth = join(cwd, 'src', 'auth.ts')
+  const readme = join(cwd, 'README.md')
+  const login = join(cwd, 'src', 'login.ts')
+
+  let serial = 0
+  const origin = (parent) => ({ parent_tool_use_id: parent, uuid: `fake-uuid-${++serial}`, session_id: 'fake-session' })
+  const assistant = (block, parent = null) => ({
+    type: 'assistant', message: { role: 'assistant', content: [block] }, ...origin(parent)
+  })
+  const toolUse = (id, name, input, parent = null) => assistant({ type: 'tool_use', id, name, input }, parent)
+  const toolResult = (id, content, toolUseResult, { isError = false, parent = null } = {}) => ({
+    type: 'user',
+    message: {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: id, content, ...(isError ? { is_error: true } : {}) }]
+    },
+    ...origin(parent),
+    // 도구의 전체 Output 객체 — 실패하면 문자열이다(spec §2-1)
+    tool_use_result: toolUseResult
+  })
+  const system = (subtype, fields) => ({ type: 'system', subtype, ...fields, uuid: `fake-uuid-${++serial}`, session_id: 'fake-session' })
+
+  // 7만 자를 넘는 셸 출력 — 어댑터가 끝 65,536자만 남긴다. 남긴 끝에 PASS가 있어야 한다.
+  let testOutput = ''
+  for (let i = 0; testOutput.length < 70_000; i++) testOutput += ` ✓ src/case${i}.test.ts (3 tests)\n`
+  testOutput += 'PASS'
+
+  const oldAuth = Array.from({ length: 50 }, (_, i) => `// ${i + 1}`)
+  oldAuth.splice(40, 3, 'export function isExpired(token) {', '  return now > token.expiresAt', '}')
+  const oldReadme = '# 인증 모듈\n\n만료 경계는 `>`다.\n'
+  const newReadme = '# 인증 모듈\n\n만료 경계는 `>=`다.\n'
+  const report = [{ type: 'text', text: 'login은 세션 쿠키를 쓴다.' }]
+
+  const steps = [
+    assistant({
+      type: 'thinking',
+      thinking: '테스트가 왜 깨지는지 먼저 본다.\n만료 경계가 **의심스럽다**.',
+      // 서명은 정규화 로그에 싣지 않는다 — raw.jsonl에만 남는다(E3)
+      signature: `EqQBsignature${'A'.repeat(4096)}`
+    }),
+    assistant({ type: 'text', text: '테스트부터 돌립니다.' }),
+    toolUse('toolu_ev_bash', 'Bash', { command: 'pnpm test', description: '테스트 실행' }),
+    toolResult('toolu_ev_bash', testOutput, {
+      stdout: testOutput, stderr: '', interrupted: false, isImage: false, noOutputExpected: false
+    }),
+    toolUse('toolu_ev_grep', 'Grep', { pattern: 'expiresAt', output_mode: 'files_with_matches' }),
+    toolResult('toolu_ev_grep', 'Found 3 files\nsrc/auth.ts\nsrc/session.ts\nsrc/token.ts', {
+      mode: 'files_with_matches', numFiles: 3, filenames: ['src/auth.ts', 'src/session.ts', 'src/token.ts']
+    }),
+    toolUse('toolu_ev_edit', 'Edit', {
+      file_path: auth, old_string: 'return now > token.expiresAt', new_string: 'return now >= token.expiresAt'
+    }),
+    toolResult('toolu_ev_edit', `The file ${auth} has been updated successfully.`, {
+      filePath: auth, oldString: 'return now > token.expiresAt', newString: 'return now >= token.expiresAt',
+      originalFile: `${oldAuth.join('\n')}\n`,
+      structuredPatch: [{
+        oldStart: 41, oldLines: 3, newStart: 41, newLines: 3,
+        lines: [' export function isExpired(token) {', '-  return now > token.expiresAt', '+  return now >= token.expiresAt', ' }']
+      }],
+      userModified: false, replaceAll: false
+    }),
+    toolUse('toolu_ev_write', 'Write', { file_path: readme, content: newReadme }),
+    toolResult('toolu_ev_write', `The file ${readme} has been updated.`, {
+      type: 'update', filePath: readme, content: newReadme,
+      structuredPatch: [{
+        oldStart: 1, oldLines: 3, newStart: 1, newLines: 3,
+        lines: [' # 인증 모듈', ' ', '-만료 경계는 `>`다.', '+만료 경계는 `>=`다.']
+      }],
+      originalFile: oldReadme
+    }),
+    system('api_retry', {
+      attempt: 2, max_retries: 10, retry_delay_ms: 4200, error_status: 529, error: 'overloaded_error'
+    }),
+    toolUse('toolu_ev_agent', 'Agent', {
+      description: '로그인 흐름 조사', prompt: 'login이 세션을 어떻게 쓰는지 보고해라', subagent_type: 'Explore'
+    }),
+    toolUse('toolu_ev_child', 'Read', { file_path: login }, 'toolu_ev_agent'),
+    toolResult('toolu_ev_child', '     1\texport function login() {}', {
+      type: 'text', file: { filePath: login, content: 'export function login() {}', numLines: 1, startLine: 1, totalLines: 1 }
+    }, { parent: 'toolu_ev_agent' }),
+    toolResult('toolu_ev_agent', report, {
+      content: report, resolvedModel: 'claude-fake-sonnet', totalToolUseCount: 1, totalDurationMs: 3400,
+      totalTokens: 1200, usage: { input_tokens: 1000, output_tokens: 200 }
+    }),
+    toolUse('toolu_ev_denied', 'Bash', { command: 'rm -rf build' }),
+    system('permission_denied', {
+      tool_name: 'Bash', tool_use_id: 'toolu_ev_denied', decision_reason_type: 'rule',
+      message: 'Permission to use Bash has been denied.'
+    }),
+    toolResult('toolu_ev_denied', 'Permission to use Bash has been denied.',
+      'Error: Permission to use Bash has been denied.', { isError: true }),
+    system('compact_boundary', {
+      compact_metadata: { trigger: 'auto', pre_tokens: 153214, post_tokens: 12400, duration_ms: 5100 }
+    }),
+    assistant({ type: 'text', text: '만료 경계를 고쳤습니다.' }),
+    {
+      type: 'result', subtype: 'success', is_error: false, result: '만료 경계를 고쳤습니다.',
+      session_id: 'fake-session', uuid: `fake-uuid-${++serial}`,
+      // 권위 있는 기록 — system 줄이 이미 알린 호출을 한 번 더 알린다(화면은 한 번만 그린다)
+      permission_denials: [{ tool_name: 'Bash', tool_use_id: 'toolu_ev_denied', tool_input: { command: 'rm -rf build' } }]
+    },
+    // 해석하지 못하는 줄 — 어댑터는 raw 이벤트로, raw.jsonl에는 그대로 남는다
+    'fake-claude: 이 줄은 JSON이 아니다'
+  ]
+
+  let index = 0
+  const next = () => {
+    const step = steps[index++]
+    if (typeof step === 'string') process.stdout.write(`${step}\n`)
+    else emit(step)
     if (index < steps.length) setTimeout(next, stepMs)
     else finish(0)
   }

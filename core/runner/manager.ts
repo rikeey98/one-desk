@@ -4,14 +4,17 @@ import type { AgentKind, Permission, RunStatus } from '@shared/models'
 import type { RunEvent, RunEventInit, RunUsage } from '@shared/events'
 import type { AgentAdapter, McpRunConfig } from './types'
 import { createLineSplitter } from './stream'
-import { createLogWriter } from './logWriter'
+import { createLogWriter, createRawLogWriter, RAW_LOG_MAX_BYTES } from './logWriter'
 import { taskkillTreeSync, terminate, type TreeKiller } from './terminate'
 import { agentCommand } from './executable'
 import type { ErrorSink } from '../errors'
 
 export interface RunManagerOptions {
   adapters: Record<AgentKind, AgentAdapter>
-  /** 로그 루트. 실제 파일은 <logDir>/<runId>/stream.jsonl */
+  /**
+   * 로그 루트. run마다 `<logDir>/<runId>/`에 둘이 놓인다 — 정규화 이벤트 `stream.jsonl`과
+   * CLI의 stdout 줄 그대로인 `raw.jsonl`(`docs/sdlc/conversation-events/` spec FR-1).
+   */
   logDir: string
   onEvent: (event: RunEvent) => void
   /**
@@ -22,6 +25,11 @@ export interface RunManagerOptions {
    * 새는데 어떤 테스트도 빨개지지 않는다. 필수로 두면 typecheck가 막는다.
    */
   onError: ErrorSink
+  /**
+   * `raw.jsonl`의 run당 상한(바이트). **테스트가 작게 주는 통로다** — 실제 실행은 비워
+   * 두고 `RAW_LOG_MAX_BYTES`(32 MiB)를 쓴다(spec FR-3).
+   */
+  rawLogMaxBytes?: number
 }
 
 export interface StartSpec {
@@ -145,6 +153,17 @@ export function createRunManager(opts: RunManagerOptions) {
     return join(opts.logDir, runId, 'stream.jsonl')
   }
 
+  /**
+   * run의 원본 줄 로그 경로 (spec FR-2). logPathFor와 같은 원칙이다 — 경로 계산은 이
+   * 함수 한 자리뿐이다. DB에 컬럼이 없다: 정규화 로그와 같은 디렉토리라 유도된다.
+   *
+   * **읽는 코드는 없다**(FR-6) — `readLog`는 정규화 로그만 읽고, 이 파일은 화면에도
+   * IPC에도 나가지 않는다. 파서가 좋아졌을 때 지난 대화에 다시 쓸 재료다.
+   */
+  function rawLogPathFor(runId: string): string {
+    return join(opts.logDir, runId, 'raw.jsonl')
+  }
+
   function isRunning(runId: string): boolean {
     return active.has(runId)
   }
@@ -177,6 +196,11 @@ export function createRunManager(opts: RunManagerOptions) {
 
     const logPath = logPathFor(spec.runId)
     const log = createLogWriter(logPath, opts.onError)
+    // 두 로그는 서로 독립이다 — 원본 로그를 못 열어도 던지지 않고 onError로 한 번
+    // 알린 뒤 쓰기를 건너뛴다. 정규화 로그와 run은 그대로 간다(spec FR-4).
+    const rawLog = createRawLogWriter(
+      rawLogPathFor(spec.runId), opts.rawLogMaxBytes ?? RAW_LOG_MAX_BYTES, opts.onError
+    )
 
     let seq = 0
     let sessionId: string | null = null
@@ -262,6 +286,11 @@ export function createRunManager(opts: RunManagerOptions) {
     child.stdin?.end()
 
     const splitter = createLineSplitter((line) => {
+      // **파싱하기 전에** 쓴다 (spec FR-1). 어댑터가 버리는 줄·깨진 줄을 남기는 것이 이
+      // 파일의 존재 이유라, parseLine 뒤로 옮겨 이벤트가 된 줄만 쓰면 쓸모가 없어진다.
+      // stderr와 preEvents는 쓰지 않는다(FR-5) — 프로세스의 stdout 줄만이다. 예외 하나
+      // (`rate_limit_event`, spec §7-A)는 writer가 뺀다(`RAW_LOG_EXCLUDED_TYPES`).
+      rawLog.write(line)
       for (const raw of adapter.parseLine(line, spec.runId)) {
         emitFromProcess(raw, adapter.errorEventsAreFailureReasons === true)
       }
@@ -292,7 +321,10 @@ export function createRunManager(opts: RunManagerOptions) {
     active.delete(spec.runId)
     // 등록을 지우지 않으면 이미 끝난 run의 클로저가 계속 쌓인다.
     cancels.delete(spec.runId)
-    await log.close()
+    // 둘 다 닫은 뒤에 돌려준다. 닫지 않으면 run마다 파일 핸들이 하나씩 새고, 기다리지
+    // 않으면 돌려받은 쪽이 아직 쓰는 중인 파일을 본다. close는 실패한 writer에서도
+    // 매달리지 않는다(매달리면 동시 실행 슬롯이 영영 점유된다).
+    await Promise.all([log.close(), rawLog.close()])
 
     const status = judgeStatus({ canceled, timedOut, exitCode, reportedStatus })
 
@@ -327,7 +359,7 @@ export function createRunManager(opts: RunManagerOptions) {
     for (const fn of cancels.values()) fn(taskkillTreeSync)
   }
 
-  return { start, cancel, cancelAll, isRunning, logPathFor }
+  return { start, cancel, cancelAll, isRunning, logPathFor, rawLogPathFor }
 }
 
 export type RunManager = ReturnType<typeof createRunManager>

@@ -23,9 +23,12 @@ describe('claudeCodeAdapter.parseLine', () => {
     expect(events.map((e) => e.type)).toEqual(['text', 'tool_use'])
   })
 
-  it('thinking 블록은 버린다', () => {
+  it('thinking 블록은 서명 없이 reasoning이 되고, 블록 순서를 지킨다', () => {
+    // 옛 결정은 "thinking은 버린다"였다(서명 3~5KB). 이제 본문만 싣는다(conversation-events E3)
     const events = claudeCodeAdapter.parseLine(LINES[3]!, 'r1')
-    expect(events.map((e) => e.type)).toEqual(['tool_use'])
+    expect(events.map((e) => e.type)).toEqual(['reasoning', 'tool_use'])
+    expect(events[0]).toMatchObject({ text: '음...', startedAt: null, endedAt: null })
+    expect(JSON.stringify(events)).not.toContain('AAAAAAAA')
   })
 
   it('도구 결과는 type이 user인 줄에서 나온다', () => {
@@ -90,6 +93,402 @@ describe('claudeCodeAdapter.parseLine', () => {
   it('깨진 JSON은 raw 이벤트로 남기고 예외를 던지지 않는다', () => {
     const events = claudeCodeAdapter.parseLine('{깨진 줄', 'r1')
     expect(events).toEqual([expect.objectContaining({ type: 'raw', line: '{깨진 줄' })])
+  })
+
+  it('객체가 아닌 JSON 줄은 깨진 줄과 같다 — 던지면 stdout 핸들러 안이라 메인 프로세스가 죽는다', () => {
+    // 리뷰 반영 2026-09-27: `null`·수·배열도 JSON으로는 읽힌다. 그 뒤 `obj['type']`에서 던졌다.
+    for (const line of ['null', '7', '"글"', '[1,2]']) {
+      expect(claudeCodeAdapter.parseLine(line, 'r1'), line).toEqual([expect.objectContaining({ type: 'raw', line })])
+    }
+  })
+
+  it('content 배열의 null·객체 아닌 원소는 건너뛴다', () => {
+    const user = JSON.stringify({
+      type: 'user',
+      message: { content: [null, 7, { type: 'tool_result', tool_use_id: 't1', content: '끝' }] }
+    })
+    expect(claudeCodeAdapter.parseLine(user, 'r1'))
+      .toEqual([expect.objectContaining({ type: 'tool_result', toolUseId: 't1', ok: true })])
+    const assistant = JSON.stringify({
+      type: 'assistant', message: { content: [null, { type: 'text', text: '안녕' }] }
+    })
+    expect(claudeCodeAdapter.parseLine(assistant, 'r1'))
+      .toEqual([expect.objectContaining({ type: 'text', text: '안녕' })])
+  })
+})
+
+/**
+ * **옛 줄 호환** (`docs/sdlc/conversation-events/` plan 1단계). conversation-events를 구현하기 **전의**
+ * 어댑터로 `claude-stream.jsonl`을 파싱한 결과를 그대로 적어 두었다(`at`은 뺀다). 새 필드가 없는
+ * 옛 모양의 줄은 구현 뒤에도 기존 필드가 한 글자도 바뀌지 않아야 한다.
+ *
+ * 달라져도 되는 것은 둘뿐이다 — 새 선택 필드가 **더해지는 것**(`output` 등, 아래 NEW_KEYS),
+ * 그리고 thinking 줄(4행)의 thinking 블록이 reasoning이 되는 것(E3). 4행은 따로 본다.
+ */
+describe('옛 줄 호환 — 구현 전 어댑터의 출력', () => {
+  const BEFORE: Record<number, unknown[]> = {
+    0: [{ type: 'session', runId: 'r1', sessionId: '1c84c36a-b05c-45c2-945c-d83bd29ec52f' }],
+    1: [
+      { type: 'text', runId: 'r1', text: '파일을 읽어보겠습니다.' },
+      {
+        type: 'tool_use', runId: 'r1', toolUseId: 'toolu_018djaMLPCX6VaRd4frEcBJa', name: 'Read',
+        effect: 'read', targetPaths: ['/tmp/repo/src/auth.ts'], input: { file_path: '/tmp/repo/src/auth.ts' }
+      }
+    ],
+    2: [{
+      type: 'tool_result', runId: 'r1', toolUseId: 'toolu_018djaMLPCX6VaRd4frEcBJa', ok: true,
+      summary: 'export function auth() {}'
+    }],
+    3: [{
+      type: 'tool_use', runId: 'r1', toolUseId: 'toolu_02', name: 'Edit', effect: 'write',
+      targetPaths: ['/tmp/repo/src/auth.ts'],
+      input: { file_path: '/tmp/repo/src/auth.ts', old_string: 'a', new_string: 'b' }
+    }],
+    4: [{ type: 'tool_result', runId: 'r1', toolUseId: 'toolu_02', ok: false, summary: 'permission denied' }],
+    5: [],
+    6: [{
+      type: 'result', runId: 'r1', status: 'succeeded', resultText: '수정을 마쳤습니다.',
+      sessionId: '1c84c36a-b05c-45c2-945c-d83bd29ec52f', needsAnswer: false
+    }]
+  }
+  /** 이 기능이 더한 선택 필드. 옛 모양의 줄에서 더해질 수 있는 것은 이것뿐이다 */
+  const NEW_KEYS = ['output', 'outputTruncated', 'detail', 'parentToolUseId', 'messageId']
+
+  /** `at`(시각)과 새 필드를 뺀다 — 남는 것이 구현 전과 비교할 기존 필드다 */
+  function withoutNew(e: Record<string, unknown>): Record<string, unknown> {
+    return Object.fromEntries(Object.entries(e).filter(([k]) => k !== 'at' && !NEW_KEYS.includes(k)))
+  }
+
+  it.each(Object.keys(BEFORE).map(Number))('%i행의 기존 필드는 그대로다', (i) => {
+    const events = claudeCodeAdapter.parseLine(LINES[i]!, 'r1')
+      .filter((e) => e.type !== 'reasoning') as unknown as Record<string, unknown>[]
+    expect(events.map(withoutNew)).toEqual(BEFORE[i])
+  })
+
+  it('옛 줄에 붙는 새 필드는 도구 결과의 output뿐이다', () => {
+    // 옛 줄에는 tool_use_result·uuid·parent_tool_use_id가 없다 — detail·출처가 생길 자리가 없다
+    const added = parseAll().flatMap((e) => Object.keys(e).filter((k) => NEW_KEYS.includes(k)))
+    expect(added.sort()).toEqual(['output', 'output'])
+    const results = parseAll().filter((e) => e.type === 'tool_result')
+    expect(results.map((e) => 'output' in e ? e.output : null))
+      .toEqual(['export function auth() {}', 'permission denied'])
+  })
+})
+
+/**
+ * 합성 픽스처 `claude-events.jsonl` (plan 1단계). **모양의 출처** — 모델을 부르는 실행을 하지 않았으므로
+ * 스트림을 새로 뜨지 않았다(spec §7 우려 3):
+ * - 스키마: claude 2.1.280 바이너리의 SDK 메시지 zod 스키마 문자열 — `user` 줄의 `tool_use_result`·
+ *   `parent_tool_use_id`·`uuid`, system 하위 타입(`compact_boundary`·`api_retry`·`permission_denied`·
+ *   `model_fallback`), `result.permission_denials`
+ * - 기록: 이 장비의 세션 기록 39개의 `toolUseResult` 키 모양(Edit·Write·Bash·실패 문자열·Grep content·
+ *   비동기 Agent). assistant 줄이 **블록 하나씩** 오는 것도 기록에서 본 것이다(5,492줄 전부)
+ * - 픽스처: `claude-stream.jsonl`의 thinking 블록 모양(`{type, thinking, signature}`)
+ * 실제 run의 `raw.jsonl`이 생기면 그 줄로 바꾼다(plan 완료 증명의 후속 항목).
+ */
+const EVENT_LINES = readFileSync(resolve(HERE, 'fixtures/claude-events.jsonl'), 'utf8')
+  .split('\n').filter(Boolean)
+
+/** 줄을 uuid로 찾는다 — 픽스처에 줄을 더해도 테스트가 밀리지 않는다 */
+function lineOf(uuid: string): string {
+  const found = EVENT_LINES.find((l) => (JSON.parse(l) as { uuid?: string }).uuid === uuid)
+  if (!found) throw new Error(`픽스처에 ${uuid} 줄이 없다`)
+  return found
+}
+
+function parse(uuid: string) {
+  return claudeCodeAdapter.parseLine(lineOf(uuid), 'r1')
+}
+
+function resultOf(uuid: string) {
+  const ev = parse(uuid).find((e) => e.type === 'tool_result')
+  if (!ev || ev.type !== 'tool_result') throw new Error(`${uuid}에서 tool_result가 나오지 않았다`)
+  return ev
+}
+
+describe('thinking → reasoning (FR-15, spec §7-A)', () => {
+  it('본문을 싣고 서명은 어디에도 싣지 않는다', () => {
+    const signature = (JSON.parse(lineOf('u-think')) as {
+      message: { content: { signature: string }[] }
+    }).message.content[0]!.signature
+    expect(signature.length).toBeGreaterThanOrEqual(4096)
+
+    const events = parse('u-think')
+    expect(events).toEqual([expect.objectContaining({
+      type: 'reasoning', text: '테스트가 왜 깨지는지 먼저 본다.', startedAt: null, endedAt: null
+    })])
+    const json = JSON.stringify(events)
+    expect(json).not.toContain(signature)
+    expect(json).not.toContain('signature')
+  })
+
+  it('상한 이하면 truncated 키가 없다', () => {
+    expect('truncated' in parse('u-think')[0]!).toBe(false)
+  })
+
+  it('긴 생각은 앞부분만 남기고 버린 글자 수를 적는다', () => {
+    const long = `처음${'생'.repeat(70_000)}`
+    const [ev] = claudeCodeAdapter.parseLine(JSON.stringify({
+      type: 'assistant', message: { content: [{ type: 'thinking', thinking: long, signature: 'x' }] }
+    }), 'r1')
+    expect(ev).toMatchObject({ type: 'reasoning', truncated: long.length - 65_536 })
+    expect(ev && ev.type === 'reasoning' ? ev.text.startsWith('처음') : false).toBe(true)
+  })
+
+  it('본문이 빈 thinking은 이벤트를 내지 않는다 — 활동 묶음을 끊고 창을 차지하지 않게(spec §9-1 결정)', () => {
+    // claude의 생각은 대부분 서명만 온다(기록 1,851개 중 1,800개). 빈 생각을 "생각 · N초" 줄로 내면
+    // 도구 호출마다 줄이 끼어 펼친 턴의 묶음이 조각나고, 2,000개 창과 IPC push를 소비한다.
+    expect(parse('u-think-empty')).toEqual([])
+  })
+
+  it('공백뿐인 본문도 이벤트를 내지 않는다', () => {
+    expect(claudeCodeAdapter.parseLine(JSON.stringify({
+      type: 'assistant', message: { content: [{ type: 'thinking', thinking: ' \n ', signature: 'x' }] }
+    }), 'r1')).toEqual([])
+  })
+
+  it('redacted_thinking은 버린다', () => {
+    expect(parse('u-redacted')).toEqual([])
+    expect(JSON.stringify(EVENT_LINES.flatMap((l) => claudeCodeAdapter.parseLine(l, 'r1'))))
+      .not.toContain('ENCRYPTED')
+  })
+})
+
+describe('tool_result.output (FR-13, spec §7-A)', () => {
+  it('문자열 content가 output이다 — 모델이 본 그 글', () => {
+    expect(resultOf('u-bash-result')).toMatchObject({ output: 'Tests  12 passed (12)\nPASS' })
+  })
+
+  it('배열 content는 text를 잇고 이미지는 [이미지] — base64가 이벤트에 없다', () => {
+    const ev = resultOf('u-mcp-result')
+    expect(ev.output).toBe('이슈 2개\n[이미지]')
+    expect(JSON.stringify(ev.output)).not.toContain('iVBORw0KGgo')
+  })
+
+  it('끝부분만 남기고 버린 앞부분을 적는다', () => {
+    const big = `${'x'.repeat(70_000)}PASS`
+    const ev = claudeCodeAdapter.parseLine(JSON.stringify({
+      type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't', content: big }] }
+    }), 'r1')[0]
+    expect(ev).toMatchObject({ type: 'tool_result', outputTruncated: big.length - 65_536 })
+    expect(ev && ev.type === 'tool_result' ? ev.output?.endsWith('PASS') : false).toBe(true)
+    // 요약은 지금 규칙 그대로다(FR-9)
+    expect(ev && ev.type === 'tool_result' ? ev.summary : '').toHaveLength(201)
+  })
+
+  it('비었으면 output 키가 없다', () => {
+    const [ev] = claudeCodeAdapter.parseLine(JSON.stringify({
+      type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't', content: '' }] }
+    }), 'r1')
+    expect(ev && 'output' in ev).toBe(false)
+  })
+
+  it('읽기 도구의 원문은 싣지 않는다 — 요약만 남는다(§7-A)', () => {
+    const ev = resultOf('u-child-result')
+    expect('output' in ev).toBe(false)
+    expect(ev.summary).toContain('export function login')
+  })
+
+  it('실패한 도구의 output은 오류 글이다', () => {
+    expect(resultOf('u-bash-fail-result')).toMatchObject({
+      ok: false, output: 'Exit code 2\nerror  no-unused-vars'
+    })
+  })
+})
+
+describe('tool_result.detail (FR-14)', () => {
+  it('Edit — 줄 번호가 있는 hunk와 원본', () => {
+    expect(resultOf('u-edit-result').detail).toMatchObject({
+      kind: 'edit',
+      files: [{
+        path: '/repo/src/auth.ts', operation: 'edit', added: 1, removed: 1,
+        hunks: [{ oldStart: 41, newStart: 41 }], beforeMissing: null
+      }]
+    })
+  })
+
+  it('Write create·update', () => {
+    expect(resultOf('u-write-new-result').detail).toMatchObject({ files: [{ operation: 'create', hunks: [] }] })
+    expect(resultOf('u-write-over-result').detail).toMatchObject({
+      files: [{ operation: 'overwrite', before: '# 옛 제목\n' }]
+    })
+  })
+
+  it('셸 — 성공은 코드를 모르고 실패는 Exit code에서 읽는다', () => {
+    expect(resultOf('u-bash-result').detail).toEqual({ kind: 'shell', exitCode: null, interrupted: false, timedOut: false })
+    expect(resultOf('u-ps-result').detail).toMatchObject({ kind: 'shell' })
+    expect(resultOf('u-bash-fail-result').detail).toMatchObject({ kind: 'shell', exitCode: 2 })
+  })
+
+  it('검색 — 모드마다 단위가 다르다', () => {
+    expect(resultOf('u-grep-files-result').detail).toMatchObject({ count: 3, unit: 'files' })
+    expect(resultOf('u-grep-content-result').detail).toMatchObject({ count: 3, unit: 'lines' })
+    expect(resultOf('u-grep-count-result').detail).toMatchObject({ count: 3, unit: 'matches' })
+    expect(resultOf('u-glob-result').detail).toMatchObject({ count: 2, unit: 'files' })
+  })
+
+  it('하위 에이전트 — 동기와 비동기', () => {
+    expect(resultOf('u-agent-result')).toMatchObject({
+      output: 'login은 세션을 쓴다.',
+      detail: { kind: 'subagent', toolCount: 1, durationMs: 34000, model: 'claude-sonnet-5' }
+    })
+    expect(resultOf('u-agent-bg-result').detail).toMatchObject({ kind: 'subagent', toolCount: null, model: 'claude-haiku-5' })
+  })
+
+  it('MCP·읽기·권한 거부 문자열은 detail이 없다', () => {
+    for (const uuid of ['u-mcp-result', 'u-child-result', 'u-denied-result']) {
+      expect('detail' in resultOf(uuid)).toBe(false)
+    }
+  })
+
+  it('결과 블록이 여럿인 줄에서는 tool_use_result를 어느 결과에도 붙이지 않는다', () => {
+    // tool_use_result는 줄에 하나다 — 어느 블록의 것인지 모르면 엉뚱한 결과에 붙이느니 싣지 않는다
+    const events = claudeCodeAdapter.parseLine(JSON.stringify({
+      type: 'user',
+      message: {
+        content: [
+          { type: 'tool_result', tool_use_id: 'a', content: 'PASS' },
+          { type: 'tool_result', tool_use_id: 'b', content: 'src/a.ts' }
+        ]
+      },
+      tool_use_result: { stdout: 'PASS', stderr: '', interrupted: false }
+    }), 'r1')
+    expect(events.map((e) => e.type)).toEqual(['tool_result', 'tool_result'])
+    for (const e of events) expect('detail' in e).toBe(false)
+    // 원문 출력도 싣지 않는다 — 읽기인지 가르는 것이 tool_use_result의 모양뿐이라, 어느 블록의 것인지
+    // 모르는 줄에서는 파일 내용(읽기 결과)이 로그·IPC로 새지 않게 보수적으로 뺀다(§7-A, 리뷰 반영
+    // 2026-09-27). 요약(200자)은 지금 그대로다.
+    for (const e of events) expect('output' in e).toBe(false)
+    expect(events.map((e) => e.type === 'tool_result' ? e.summary : null)).toEqual(['PASS', 'src/a.ts'])
+  })
+
+  it('하위 에이전트가 넘긴 결과 줄도 tool_use_result로 읽기를 가른다', () => {
+    // 2.1.280은 하위 에이전트의 user 줄에도 tool_use_result를 싣는다(parent_tool_use_id와 함께)
+    const [ev] = claudeCodeAdapter.parseLine(JSON.stringify({
+      type: 'user', parent_tool_use_id: 'toolu_agent',
+      message: { content: [{ type: 'tool_result', tool_use_id: 'c', content: '비밀=값' }] },
+      tool_use_result: { type: 'text', file: { filePath: '/repo/.env', content: '비밀=값', numLines: 1, startLine: 1, totalLines: 1 } }
+    }), 'r1')
+    expect(ev).toMatchObject({ type: 'tool_result', parentToolUseId: 'toolu_agent' })
+    expect(ev && 'output' in ev).toBe(false)
+  })
+
+  it('CLI 방언의 원문 필드를 이벤트에 옮기지 않는다', () => {
+    // oldString·structuredPatch 같은 이름은 어댑터 밖으로 나가지 않는다(NFR-2)
+    const json = JSON.stringify(EVENT_LINES.flatMap((l) => claudeCodeAdapter.parseLine(l, 'r1'))
+      .filter((e) => e.type === 'tool_result'))
+    for (const key of ['tool_use_result', 'structuredPatch', 'originalFile', 'oldString', 'filenames', 'stdout']) {
+      expect(json).not.toContain(key)
+    }
+  })
+})
+
+describe('출처 — parentToolUseId·messageId (FR-16·17, FR-7)', () => {
+  it('하위 에이전트의 줄은 부모 호출 id와 메시지 id를 싣는다', () => {
+    expect(parse('u-child-use')[0]).toMatchObject({
+      type: 'tool_use', parentToolUseId: 'toolu_agent', messageId: 'u-child-use'
+    })
+    expect(resultOf('u-child-result')).toMatchObject({
+      parentToolUseId: 'toolu_agent', messageId: 'u-child-result'
+    })
+  })
+
+  it('메인 스레드의 이벤트에는 parentToolUseId 키 자체가 없다', () => {
+    // null로 채우면 로그가 늘기만 하고 옛 로그와 모양이 갈린다
+    const main = EVENT_LINES
+      .filter((l) => !(JSON.parse(l) as { parent_tool_use_id?: unknown }).parent_tool_use_id)
+      .flatMap((l) => claudeCodeAdapter.parseLine(l, 'r1'))
+    expect(main.length).toBeGreaterThan(20)
+    for (const e of main) expect('parentToolUseId' in e).toBe(false)
+  })
+
+  it('text·tool_use·reasoning·tool_result·notice에 messageId를 싣는다', () => {
+    expect(parse('u-think')[0]).toMatchObject({ messageId: 'u-think' })
+    expect(parse('u-final-text')[0]).toMatchObject({ type: 'text', messageId: 'u-final-text' })
+    expect(parse('u-edit-use')[0]).toMatchObject({ type: 'tool_use', messageId: 'u-edit-use' })
+    expect(resultOf('u-edit-result')).toMatchObject({ messageId: 'u-edit-result' })
+    expect(parse('u-compact')[0]).toMatchObject({ type: 'notice', messageId: 'u-compact' })
+  })
+
+  it('session·usage·result에는 messageId를 싣지 않는다', () => {
+    const events = [...parse('u-init'), ...parse('u-result')]
+      .filter((e) => e.type === 'session' || e.type === 'usage' || e.type === 'result')
+    expect(events.map((e) => e.type).sort()).toEqual(['result', 'session', 'usage', 'usage'])
+    for (const e of events) expect('messageId' in e).toBe(false)
+  })
+
+  it('uuid·parent_tool_use_id가 비었거나 문자열이 아니면 싣지 않는다', () => {
+    const [ev] = claudeCodeAdapter.parseLine(JSON.stringify({
+      type: 'assistant', uuid: '', parent_tool_use_id: 7,
+      message: { content: [{ type: 'text', text: 'x' }] }
+    }), 'r1')
+    expect(ev && ('messageId' in ev || 'parentToolUseId' in ev)).toBe(false)
+  })
+})
+
+describe('system 줄 → notice (FR-18)', () => {
+  it('압축·재시도·권한 거부·모델 대체가 공지 하나씩이 된다', () => {
+    expect(parse('u-compact')).toEqual([expect.objectContaining({
+      type: 'notice', kind: 'compact', text: '대화가 압축됨 · 자동 · 153,214 → 12,400 토큰'
+    })])
+    expect(parse('u-retry')).toEqual([expect.objectContaining({
+      type: 'notice', kind: 'retry', text: 'API 재시도 중 · 2/10번째 · 5초 뒤 · 529'
+    })])
+    expect(parse('u-denied-system')).toEqual([expect.objectContaining({
+      type: 'notice', kind: 'permission_denied', text: '권한 때문에 막힘: Bash', toolUseId: 'toolu_denied'
+    })])
+    expect(parse('u-fallback')).toEqual([expect.objectContaining({
+      type: 'notice', kind: 'model_fallback', text: '모델 대체: claude-opus-5 → claude-sonnet-5 (과부하)'
+    })])
+  })
+
+  it('status 같은 버리는 subtype은 아무 이벤트도 내지 않는다', () => {
+    expect(parse('u-status')).toEqual([])
+  })
+
+  it('필수 필드가 없는 공지 줄은 raw로도 만들지 않는다 — 줄은 JSON으로 읽혔다', () => {
+    expect(claudeCodeAdapter.parseLine(JSON.stringify({ type: 'system', subtype: 'api_retry' }), 'r1')).toEqual([])
+  })
+
+  it('init은 지금 그대로다 — 공지를 내지 않는다', () => {
+    expect(parse('u-init').map((e) => e.type)).toEqual(['session', 'usage'])
+  })
+})
+
+describe('result.permission_denials → notice (FR-19)', () => {
+  it('한 result 줄은 result → usage → notice… 순서로 낸다', () => {
+    const events = parse('u-result')
+    expect(events.map((e) => e.type)).toEqual(['result', 'usage', 'notice', 'notice'])
+    expect(events.slice(2)).toEqual([
+      expect.objectContaining({ kind: 'permission_denied', text: '권한 때문에 막힘: Bash', toolUseId: 'toolu_denied', messageId: 'u-result' }),
+      expect.objectContaining({ kind: 'permission_denied', text: '권한 때문에 막힘: Write', toolUseId: 'toolu_denied_write' })
+    ])
+  })
+
+  it('system 줄에서 이미 온 거부도 거르지 않는다 — parseLine은 한 줄만 본다(NFR-3)', () => {
+    const all = EVENT_LINES.flatMap((l) => claudeCodeAdapter.parseLine(l, 'r1'))
+    const denied = all.filter((e) => e.type === 'notice' && e.toolUseId === 'toolu_denied')
+    expect(denied).toHaveLength(2)
+  })
+})
+
+describe('합성 픽스처 전체', () => {
+  it('줄마다 내는 이벤트의 종류와 순서', () => {
+    // seq는 manager가 붙이므로 이 순서가 곧 화면 순서다(plan 다듬은 것 4)
+    const types = EVENT_LINES.map((l) => claudeCodeAdapter.parseLine(l, 'r1').map((e) => e.type).join(','))
+    // 생각 줄 둘 중 본문이 빈 하나(u-think-empty)는 이벤트를 내지 않는다(spec §9-1 결정)
+    expect(types.filter((t) => t.includes('reasoning'))).toEqual(['reasoning'])
+    expect(types.filter((t) => t.includes('notice'))).toEqual([
+      'notice', 'notice', 'notice', 'notice', 'result,usage,notice,notice'
+    ])
+    // 깨진 줄이 없다 — 합성 픽스처가 JSON으로 읽힌다
+    expect(types.some((t) => t.includes('raw'))).toBe(false)
+  })
+})
+
+describe('TOOL_EFFECTS (FR-20)', () => {
+  it('PowerShell은 실행이다 — Windows의 claude는 셸로 PowerShell을 쓴다', () => {
+    expect(parse('u-ps-use')[0]).toMatchObject({ type: 'tool_use', name: 'PowerShell', effect: 'execute' })
   })
 })
 

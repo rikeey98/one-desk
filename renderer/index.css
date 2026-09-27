@@ -516,7 +516,7 @@ select.pill { padding-right: 4px; cursor: pointer; text-overflow: ellipsis; }
 .tl-text { min-width: 0; }
 .tl-empty { font-size: .75rem; color: var(--text-muted); }
 .tl-error { font-size: .75rem; line-height: 1.5; color: var(--danger-text); white-space: pre-wrap; overflow-wrap: anywhere; }
-.tl-activity, .tl-edit, .tl-notice, .tl-tool-error { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tl-activity, .tl-edit, .tl-notice, .tl-tool-error, .tl-reasoning, .tl-subagent { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 /* 묶음 라벨·편집 머리·공지 — 글자 한 줄짜리 버튼이다. 바탕 없이 서고 hover에만 드러난다. */
 .tl-head { display: flex; align-items: center; gap: 6px; align-self: flex-start; max-width: 100%; margin-left: -4px; border: 0; border-radius: 5px; padding: 2px 4px; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: .75rem; text-align: left; transition: color .12s, background .12s; }
 .tl-head:hover { color: var(--text); background: var(--bg-hover); }
@@ -531,7 +531,9 @@ button.tl-tool:hover, button.tl-file:hover { background: var(--bg-hover); }
 .tl-label { flex: 0 0 auto; font-weight: 600; color: var(--text); }
 .tl-sub, .tl-path { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tl-path { color: var(--text); }
-.tl-count, .tl-state, .tl-created, .tl-aside, .tl-stat { flex: 0 0 auto; white-space: nowrap; }
+.tl-count, .tl-state, .tl-exit, .tl-created, .tl-aside, .tl-stat { flex: 0 0 auto; white-space: nowrap; }
+/* 0이 아닌 종료 코드 (docs/sdlc/conversation-events/ spec FR-43) — 색만으로 가르지 않는다: 글자가 있다. */
+.tl-exit { color: var(--danger-text); }
 .tl-aside, .tl-stat { margin-left: auto; }
 .tl-stat { font-family: var(--font-mono); font-size: .6875rem; color: var(--text-secondary); }
 /* 펼친 도구 — 셸의 명령과 출력, 하위 에이전트의 지시, 입력 JSON. 도구의 입력·출력은 평문이다(FR-26). */
@@ -540,7 +542,8 @@ button.tl-tool:hover, button.tl-file:hover { background: var(--bg-hover); }
 .tl-command pre, .tl-output { margin: 0; font-family: var(--font-mono); font-size: .6875rem; line-height: 1.55; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .tl-command pre { flex: 1; min-width: 0; padding-top: 3px; }
 .tl-output { max-height: 240px; overflow: auto; border-radius: 6px; padding: 6px 8px; background: var(--bg-muted); }
-.tl-truncated { font-size: .6875rem; color: var(--text-muted); }
+/* 잘림 안내 (events FR-43·48) — 앞을 버린 출력은 블록 위, 200자 요약·생각의 뒷부분은 아래다. */
+.tl-output-note { font-size: .6875rem; color: var(--text-muted); }
 .tl-plain { font-size: .75rem; line-height: 1.5; color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
 /* 실패한 도구 (FR-17) — 묶음 밖에 따로 선 한 줄. 색만으로 가르지 않는다: "실패" 글자가 있다. */
 .tl-tool-error > .tl-tool, .tl-tool-error .tl-label, .tl-tool-error .tl-sub { color: var(--danger-text); }
@@ -548,7 +551,7 @@ button.tl-tool:hover, button.tl-file:hover { background: var(--bg-hover); }
 .tl-tool-error > button.tl-tool:hover { background: var(--danger-bg); }
 /* "실패"는 오른쪽 끝으로 밀지 않는다 — 꺾쇠가 글자 바로 뒤에 서는 묶음·도구 줄과 한 자리다(spec §8의 5). */
 .tl-failed { flex: 0 0 auto; font-weight: 600; }
-.tl-tool-error > .tl-output, .tl-notice > .tl-output { margin-left: 4px; }
+.tl-tool-error > .tl-output, .tl-notice > .tl-output, .tl-tool-error > .tl-output-note { margin-left: 4px; }
 /* 편집의 diff (FR-18) — 줄 번호는 없다(입력에 문맥이 없다). 가로로 넘치면 이 상자 안에서만
    스크롤하고, 줄 바탕은 스크롤해도 끝까지 칠해진다(max-content). */
 .tl-diff { max-height: 240px; overflow: auto; margin: 2px 0 6px 4px; border-radius: 6px; padding: 4px 0; background: var(--bg-muted); font-family: var(--font-mono); font-size: .6875rem; line-height: 1.55; }
@@ -559,6 +562,42 @@ button.tl-tool:hover, button.tl-file:hover { background: var(--bg-hover); }
 .tl-add { background: var(--success-bg); }
 .tl-del { background: var(--danger-bg-soft); }
 .tl-more { padding: 2px 8px; color: var(--text-muted); }
+/* 줄 번호 diff (events FR-47) — 옛 번호 · 새 번호 · 부호 · 본문. 번호 칸은 **복사에서 빠진다**
+   (user-select: none) — 본문을 긁어 붙일 때 번호가 딸려 오지 않게. 줄마다 따로인 flex 줄이라 칸
+   폭을 고정해 세로로 맞춘다(9,999줄까지 — 그보다 긴 파일은 그 줄만 한 글자 밀린다). hunk 앞에서
+   건너뛴 줄은 `⋯ N줄` 구분선이고, 그 선이 TL의 hunk 사이 가는 선을 대신한다. */
+.tl-diff-no { flex: 0 0 auto; min-width: calc(4ch + 8px); padding: 0 4px; text-align: right; color: var(--text-muted); user-select: none; }
+/* 추가·삭제 줄의 바탕 위에서는 한 단계 진하게 — 다크의 초록 바탕 위 --text-muted는 3.75:1이었다
+   (리뷰 반영 2026-09-27, diffContrast.test가 두 스킴·세 줄 종류를 잰다). */
+.tl-add .tl-diff-no, .tl-del .tl-diff-no { color: var(--text-secondary); }
+.tl-diff-gap { padding: 1px 8px; color: var(--text-muted); user-select: none; }
+.tl-hunk + .tl-diff-gap { margin-top: 4px; border-top: 1px solid var(--border); padding-top: 3px; }
+/* 덮어쓰기 전 파일 (events FR-47) — 파일 줄 안에서 따로 연다. 끝줄 버튼과 같은 작은 테두리 버튼이다. */
+.tl-before { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin: 0 0 6px 4px; }
+.tl-before-toggle { align-self: flex-start; border: 1px solid var(--border); border-radius: 5px; padding: 1px 8px; background: var(--bg); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: .6875rem; transition: background .12s, color .12s; }
+.tl-before-toggle:hover { background: var(--bg-hover); color: var(--text); }
+
+/* 생각 (events FR-48) — 접힌 한 줄(묶음 라벨과 같은 .tl-head), 펼치면 평문 본문이다. 마크다운이
+   아니다 — 모델의 생각은 신뢰할 수 없는 입력이다. */
+.tl-reasoning-body { margin: 2px 0 2px 4px; font-size: .75rem; line-height: 1.5; color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
+.tl-reasoning > .tl-output-note { margin: 0 0 4px 4px; }
+
+/* 하위 에이전트 카드 (events FR-49) — 머리 줄은 도구 한 줄 모양이고 오른쪽에 종류 · 상태 · 메타가
+   선다. 펼치면 자식 블록이 12px 들여쓰기와 왼쪽 세로선 안에 턴과 같은 간격(8px)으로 쌓인다. */
+.tl-subagent-head .tl-aside { display: inline-flex; align-items: center; gap: 6px; }
+.tl-subagent-head .tl-failed { color: var(--danger-text); }
+.tl-subagent-meta { color: var(--text-muted); }
+.tl-subagent-children { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 2px 0 2px 12px; border-left: 1px solid var(--border-faint); }
+.tl-subagent-note { font-size: .75rem; color: var(--text-muted); }
+
+/* 어댑터의 공지 (events FR-50) — 턴 사이 공지(.turn-notice, TL FR-19)와 같은 가운데 한 줄, 양옆 가는
+   선. 권한 거부·모델 대체는 --warn(두 스킴 다 4.5:1을 넘는다), 압축·재시도는 --text-muted다. */
+.tl-notice-line { flex-direction: row; align-items: center; gap: 8px; font-size: .6875rem; color: var(--text-muted); cursor: default; }
+.tl-notice-line::before, .tl-notice-line::after { content: ''; flex: 1 1 16px; min-width: 16px; border-top: 1px solid var(--border-faint); }
+.tl-notice-line > span { flex: 0 1 auto; min-width: 0; text-align: center; overflow-wrap: anywhere; }
+.tl-notice-warn { color: var(--warn); }
+/* 창 때문에 앞이 잘린 턴 (events FR-52) — 빠진 것이 "없던 일"로 보이면 안 된다. */
+.tl-omitted { font-size: .75rem; color: var(--text-muted); }
 
 /* 대화록(위)과 입력부(아래)를 위아래로 쌓는다 (설계 §4-1, docs/sdlc/conversation-timeline/
    spec FR-41). **스크롤은 대화록만 한다** — 헤더와 입력부는 밀려나지 않는다(DESIGN.md). 사슬의

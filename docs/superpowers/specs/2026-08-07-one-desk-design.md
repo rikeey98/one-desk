@@ -208,8 +208,14 @@ DB와 로그는 Electron의 `app.getPath('userData')` 아래에 둔다.
 └─ logs/
    └─ <run_id>/
       ├─ stream.jsonl      정규화된 실행 이벤트
+      ├─ raw.jsonl         CLI stdout 원본 줄 (2026-09-27 추가)
       └─ before/           수정 전 파일 스냅샷
 ```
+
+> **2026-09-27 추가:** `raw.jsonl`은 CLI가 stdout에 낸 줄을 파싱하기 전에 받은 그대로 적는다 —
+> 파서가 좋아지면 지난 대화를 다시 파싱할 재료다. 화면·IPC는 읽지 않고(`readLog`는 `stream.jsonl`만),
+> run당 32 MiB에서 표식 한 줄로 끝나며, `rate_limit_event` 줄은 쓰지 않는다.
+> `docs/sdlc/conversation-events/` spec FR-1~6·§7-A.
 
 `core/`는 이 경로를 인자로 받는다. `app.getPath`를 직접 호출하면 섹션 4의 규칙 1을 위반한다.
 

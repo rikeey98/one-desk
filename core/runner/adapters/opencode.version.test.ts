@@ -72,6 +72,20 @@ describe('createVersionGate', () => {
     await expect(gate(makeFile())).resolves.toBeNull()
   })
 
+  it('--thinking이 없는 1.1.49 이하는 거부한다 — 모르는 옵션이라 모든 run이 시작하자마자 죽는다', async () => {
+    // 리뷰 반영 2026-09-27: buildCommand가 늘 `--thinking`을 붙인다(conversation-events FR-21). 그 옵션은
+    // 1.1.50에서 생겼고, 1.0.0부터 yargs `.strict()`라 모르는 옵션이면 도움말을 찍고 exit 1이다.
+    const file = makeFile()
+    for (const old of ['1.1.49', '1.0.0', '0.9.3']) {
+      const reason = await createVersionGate(reader(old))(file)
+      expect(reason, old).toContain(old)
+      expect(reason, old).toContain('1.1.50')
+      expect(reason, old).toContain(file)
+    }
+    await expect(createVersionGate(reader('1.1.50'))(file)).resolves.toBeNull()
+    await expect(createVersionGate(reader('1.2.0'))(file)).resolves.toBeNull()
+  })
+
   it('버전을 못 읽으면 막지 않는다 — 지금 동작 그대로다', async () => {
     await expect(createVersionGate(reader(null))(makeFile())).resolves.toBeNull()
     await expect(createVersionGate(reader('알 수 없는 출력'))(makeFile())).resolves.toBeNull()

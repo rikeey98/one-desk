@@ -81,7 +81,7 @@ tool_use_result?, tool_result_meta?}`(스키마). **`tool_use_result`는 "모델
 | 값 | p50 | p90 | 최대 | 비고 |
 |---|---|---|---|---|
 | Bash `content` | 744 | 4,963 | 28,821 | CLI가 약 3만 자에서 끊고 나머지를 파일로 뺀다(`persistedOutputPath`) |
-| Edit `originalFile` | 5,699 | 8,799 | 9,993 | 129건 중 45건이 null — **CLI가 큰 원본을 싣지 않는 것으로 보인다**(스트림도 같은지 미확인) |
+| Edit `originalFile` | 5,699 | 8,799 | 9,993 | 129건 중 45건이 null — **CLI가 큰 원본을 싣지 않는 것으로 보인다**(스트림도 같은지 미확인) *(정정 — 리뷰 2026-09-27: 그 null은 트랜스크립트 writer가 1만 자 넘는 원본을 디스크에 적으며 지운 것이다. 스트림 변환은 그 객체를 그대로 싣고, 스트림의 Edit 원본에는 크기 한계가 없다 — 이 표의 크기는 스트림보다 작다. §9의 2)* |
 | Edit hunk 줄 수 | 10 | 33 | 114 | hunk는 대개 1개 |
 | Read `content` | 10,545 | 291,136 | 529,980 | 이미지(base64) 포함 |
 
@@ -114,11 +114,11 @@ tool_use_result?, tool_result_meta?}`(스키마). **`tool_use_result`는 "모델
 | `tool_use` 실패 | `part.state = {status:'error', input, error: string, metadata?, time}` — **`output`이 없다** | 소스 processor:186-205 |
 | read | `metadata: {preview, truncated, loaded[], display{…}}` | 픽스처 |
 | write | `metadata: {diagnostics, filepath, exists: boolean, truncated}` — **이전 내용 없음** | 픽스처 · 바이너리 |
-| edit | `metadata: {diagnostics, diff: string, filediff: {file, patch: string, additions, deletions}}` — `patch`는 unified diff(`createTwoFilesPatch`). **`before`·`after`는 없다** | 바이너리 |
+| edit | `metadata: {diagnostics, diff: string, filediff: {file, patch: string, additions, deletions}}` — `patch`는 unified diff(`createTwoFilesPatch`). **`before`·`after`는 없다** *(정정 — 리뷰 2026-09-27: `patch`와 `diff`는 `createTwoFilesPatch`의 출력을 `trimDiff`로 다듬은 값이다. 문맥·추가·삭제 줄 전체의 가장 짧은 앞 공백만큼을 걷어, 줄 번호는 맞지만 줄 본문은 파일과 다르다. §9의 5)* | 바이너리 |
 | grep | `metadata: {matches: number, truncated}` — 일치한 **줄** 수, 100에서 잘림. `output`은 `Found N matches…` | 바이너리 |
 | glob | `metadata: {count, truncated}` — 파일 수, 100에서 잘림 | 바이너리 |
 | bash | `metadata: {output: string(미리보기, 약 3만 자), exit: number\|null, truncated, outputPath?}` | 바이너리 |
-| apply_patch | `metadata: {files: [{type, filePath, relativePath, diff, additions?, deletions?}]}` | 바이너리의 UI 데모 값에서 **추정 — 미확인** |
+| apply_patch | `metadata: {files: [{type, filePath, relativePath, diff, additions?, deletions?}]}` *(정정 — 리뷰 2026-09-27: 1.18.30의 도구 구현은 `{diff, files: [{filePath, relativePath, type: 'add'\|'update'\|'move'\|'delete', patch, additions, deletions, movePath?}], diagnostics}`이다. 파일별 diff는 **`patch`** 키이고(edit처럼 `trimDiff`를 거친다), `move`면 `relativePath`가 새 자리(`movePath`)다)* | 바이너리의 UI 데모 값에서 **추정 — 미확인** → 바이너리의 도구 구현으로 확인 |
 | task | `metadata: {parentSessionId, sessionId, model: {modelID, providerID}, background?}` | 소스 `tool/task.ts`:184 |
 | 중단된 도구 | `status:'error', error:'Tool execution aborted', metadata.interrupted: true` | 소스 processor:599 |
 | 권한 거부 | `status:'error'`, `error`가 `"The user rejected permission to use this specific tool call."`(ask 자동 거부) 또는 `"The user has specified a rule which prevents you from using this specific tool call. …"`(deny 규칙) | 바이너리 |
@@ -137,7 +137,7 @@ tool_use_result?, tool_result_meta?}`(스키마). **`tool_use_result`는 "모델
 |---|---|
 | claude `tool_use_result` (위 표의 "쓰는 것") | `tool_result.detail` |
 | claude `tool_result.content` | `tool_result.output` |
-| claude thinking | `reasoning` (빈 본문·`redacted_thinking`은 버린다) |
+| claude thinking | `reasoning` (빈 본문·`redacted_thinking`은 버린다) *(§7-A: 빈 본문도 `text: ''`의 `reasoning`이다 — `redacted_thinking`만 버린다)* |
 | claude `parent_tool_use_id` · `uuid` | `parentToolUseId` · `messageId` |
 | claude `compact_boundary`·`api_retry`·`permission_denied`·`model_fallback`·`model_refusal_fallback` · `result.permission_denials` | `notice` |
 | claude `status`·`notification`·`informational`·`task_*`·`hook_*`·`thinking`(@internal)·`thinking_tokens`·`turn_duration`·`post_turn_summary`·`rate_limit_event`·`stream_event`·`prompt_suggestion` | 버린다 (`raw.jsonl`에는 남는다) |
@@ -145,7 +145,7 @@ tool_use_result?, tool_result_meta?}`(스키마). **`tool_use_result`는 "모델
 | opencode `state.metadata` (위 표) | `tool_result.detail` |
 | opencode `reasoning` | `reasoning` (`metadata` 버림) |
 | opencode 권한 거부 오류 문구 | `notice` |
-| opencode `part.messageID` | 버린다(E7은 claude만 — §7 우려 9) |
+| opencode `part.messageID` | 버린다(E7은 claude만 — §7 우려 9) *(§7-A: `messageId`로 싣는다 — text·tool_use·tool_result·reasoning·notice)* |
 
 ## 3. 이벤트 모델
 
@@ -314,6 +314,11 @@ export function eventWeight(event: RunEvent): number
   | `detail.files[].hunks` | 결과 하나의 모든 파일을 합쳐 줄 글자 131,072자 | 앞쪽 줄 | 뒤의 줄을 버리고 파일마다 `hunksTruncated` |
   | `detail.files[].before` | 131,072자 | — | **싣지 않는다**(null, `beforeMissing: 'too_large'`) — 잘린 원본은 원본이 아니다 |
 
+  *(다듬음 — 리뷰 반영 2026-09-27: `output`의 잘린 자리가 줄 가운데면 **다음 줄바꿈까지 더 버린다**.
+  그러지 않으면 출력의 첫 줄이 앞이 날아간 조각(`se139.test.ts (3 tests)`)이라 위의 "앞부분 N자" 안내와
+  함께 깨진 줄로 읽혔다. 더 버린 글자도 `outputTruncated`에 들고, 남긴 끝부분에 줄바꿈이 없으면(한 줄짜리
+  긴 출력) 그대로 둔다 — `toolResultText`.)*
+
 - **FR-11.** 글자 수는 `string.length`(UTF-16 코드 유닛)다 — 바이트를 세려면 인코딩을 한 번 더 해야
   한다. 자르는 자리가 서로게이트 쌍 가운데면 한 칸 옮겨 반쪽 글자를 남기지 않는다.
 - **FR-12.** hunk 예산은 파일 순서·hunk 순서·줄 순서로 채운다. `added`·`removed`는 **자르기 전에**
@@ -346,10 +351,37 @@ export function eventWeight(event: RunEvent): number
   싣는다. 값의 타입이 기대와 다르면(수 자리에 문자열 등) 그 detail을 통째로 싣지 않는다 — 반쯤
   맞는 detail은 거짓말을 한다. `oldString`·`newString`·`content`·`filenames`·`stdout`은 싣지 않는다
   (input이나 output과 같은 글이다).
+
+  *(다듬음 — 리뷰 반영 2026-09-27, 2.1.280 바이너리로 확인한 것. 위 표의 해당 칸은 이것으로 읽는다.)*
+  - *`timedOutAfterMs`는 시간 초과가 아니다.* 스키마의 설명은 "시간이 다 되어 **자동으로 백그라운드로
+    넘겼다**"이고, 그 값은 늘 `backgroundTaskId`·`interrupted: false`와 함께 온다 — 명령은 계속 돈다.
+    그것을 `timed_out`으로 그리면 아직 도는 명령이 "시간 초과"로 멈춘 것처럼 보였다. claude에는 셸이
+    시간 초과로 **멈췄다**는 필드가 없으므로 claude의 `timedOut`은 늘 거짓이다.
+  - *실패한 셸의 중단.* 셸 오류 글은 `Exit code N`, (중단이면) `[Request interrupted by user for tool use]`,
+    stderr, stdout을 줄로 이은 것이다. 그래서 **둘째 줄이 그 표식이면** `interrupted: true`다(출력 속의 같은
+    글자는 중단이 아니다).
+  - *Edit의 `originalFile` null은 `unavailable`이다.* §2-1의 null은 트랜스크립트 writer가 1만 자 넘는
+    원본을 디스크에 적으며 지운 것이고, 스트림 변환은 그 객체를 그대로 싣는다. 스트림의 Edit null은 원격
+    실행 재구성처럼 원본을 모르는 경로다. Write update의 null은 그대로 `too_large`다(원본이 10MiB를 넘으면
+    CLI가 null과 빈 hunk로 싣는다).
+  - *Grep의 개수는 총수다.* `numFiles`·`numLines`는 `head_limit`(기본 250)으로 **자른 뒤의** 수이고
+    `totalFiles`·`totalLines`가 자르기 전의 총수다. 총수가 있으면 그것을 `count`로, `truncated: false`로
+    싣는다(정확한 수라 "이상"이 아니다). 총수가 없는 모양만 자른 뒤의 수와 `appliedLimit`(실제로 잘렸을
+    때만 온다)을 쓴다. count 모드에 `numMatches`가 없으면 `numFiles`는 단위 `files`다 — "일치"라고
+    부르지 않는다.
+  - *수의 모양은 렌더러와 같은 판정이다.* 개수·줄 번호·도구 수는 **음이 아닌 정수**(`shared/events.ts`의
+    `isCount`)여야 싣는다 — 어댑터가 유한한 수를 다 받으면 렌더러의 `readDetail`이 그 detail을 통째로 버려,
+    로그·IPC에는 실린 것이 화면에서만 말없이 사라졌다. 잰 시간(`totalDurationMs`)은 소수를 반올림하고
+    음수면 싣지 않는다. 종료 코드와 시각은 여기 들지 않는다.
+  - *읽기 원문 제외(§7-A)는 모양에 기댄다.* 결과 블록이 여럿인 `user` 줄은 `tool_use_result`를 어느
+    블록에도 붙이지 않으므로 읽기인지 가를 수 없다 — **그 줄에서는 `output`을 싣지 않는다**(요약만).
+    하위 에이전트가 넘긴 결과 줄도 `tool_use_result`를 싣는다(바이너리).
 - **FR-15.** **thinking → `reasoning`.** `thinking` 블록의 `thinking`을 FR-10으로 잘라 `text`에 싣는다.
   **`signature`는 정규화 이벤트 어디에도 싣지 않는다**(원본 줄째로는 `raw.jsonl`에 남는다). 본문이 비었거나
   공백뿐이면 이벤트를 만들지 않는다. `redacted_thinking`은 버린다. `startedAt`·`endedAt`은 null이다.
   claudeCode.ts의 "thinking은 버린다" 주석과 테스트는 이 조건으로 고친다(E3).
+  *(§7-A가 뒤집었다 — 리뷰가 찾은 문서의 어긋남, 2026-09-27: 본문이 빈 thinking도 `text: ''`의 이벤트다.
+  구현은 §7-A를 따른다. 그 결정이 FR-40과 부딪히는 자리는 §9의 1.)*
 - **FR-16.** **`parentToolUseId`** — `assistant`·`user` 줄의 `parent_tool_use_id`가 비지 않은 문자열이면
   그 줄에서 나온 `text`·`tool_use`·`reasoning`·`tool_result`에 싣는다(E4).
 - **FR-17.** **`messageId`** — 줄의 `uuid`가 비지 않은 문자열이면 그 줄에서 나온 `text`·`tool_use`·
@@ -378,9 +410,17 @@ export function eventWeight(event: RunEvent): number
 - **FR-21.** **`buildCommand`가 `--thinking`을 붙인다** — `['run', '--format', 'json', '--thinking', …]`.
   1.18.30 run 루프는 이 플래그가 있을 때만 `reasoning` 줄을 낸다(§2-3). 출력만 바꾼다 — 모델 호출
   인자·권한과 무관하다. 2.x는 fixes FR-17의 버전 게이트가 먼저 막는다.
+  *(다듬음 — 리뷰 반영 2026-09-27: `--thinking`은 **1.1.50에서 생겼다**(1.1.49의 `run.ts`에는 없다). 1.0.0부터
+  CLI가 yargs `.strict()`라 모르는 옵션이면 도움말을 찍고 exit 1이므로, 그 아래 버전에서는 모든 run이
+  시작하자마자 실패한다 — §7-A가 claude의 숨은 플래그를 버린 근거와 같다. 같은 버전 게이트에 **최소 버전
+  1.1.50**을 두어 preflight에서 이유를 말하며 막는다(설정 화면의 CLI 상태도 같은 판정이다). 버전을 못 읽으면
+  지금처럼 막지 않는다.)*
 - **FR-22.** **`reasoning` 줄 → `reasoning`.** `text` = `part.text`(FR-10, 공백뿐이면 이벤트 없음),
   `startedAt` = `part.time.start`, `endedAt` = `part.time.end`(수가 아니면 null). **`part.metadata`는
   버린다** — provider 서명·암호문이다(E3).
+  *(리뷰 반영 2026-09-27: 구현이 한동안 §7-A를 opencode에도 넓혀 공백뿐인 reasoning을 빈 본문으로 냈다.
+  §7-A는 우려 2 — claude — 의 결정이라 이 FR대로 되돌렸다. OpenAI 계열은 본문 없이 암호문만 오는 reasoning이
+  흔해, 내면 턴마다 펼칠 것 없는 생각 줄이 여럿 선다.)*
 - **FR-23.** **`output`** — `completed`면 `state.output`, `error`면 `state.error ?? state.output`.
   문자열이 아니면 싣지 않는다. FR-10으로 자른다.
 - **FR-24.** **`detail`은 도구 이름으로 가른다**(opencode는 같은 줄에 이름이 있다). `completed`일 때:
@@ -400,6 +440,14 @@ export function eventWeight(event: RunEvent): number
   `parseUnifiedDiff`는 `@@ -a,b +c,d @@` 머리(개수 생략형 `@@ -1 +1 @@` 포함)와 ` `·`-`·`+` 줄만 읽고
   `Index:`·`===`·`---`·`+++`·`\ No newline` 줄은 건너뛴다. 모양이 깨지면 빈 배열이다(`hunks: []`).
   opencode 전용 방언이라 opencode 쪽에 둔다.
+
+  *(다듬음 — 리뷰 반영 2026-09-27.)*
+  - *apply_patch의 파일별 diff는 `patch` 키다*(§2-3 정정). `diff`만 읽던 동안 실제 run의 apply_patch는 늘
+    `hunks: []`였다 — 화면에 `+N −M`만 있고 줄이 없는 파일 줄. `patch ?? diff`로 읽고(옛 모양), **diff 글이
+    없는 항목이 있으면 detail이 없다**(줄 없는 `+1 −1`은 반쯤 맞는 detail이다). `move`는 새 자리(`movePath`)의
+    `edit`이다 — CLI의 `relativePath`도 그렇다.
+  - *수의 모양은 claude와 같다*(FR-14 다듬음) — `matches`·`count`·`additions`·`deletions`는 음이 아닌
+    정수여야 싣고, task의 걸린 시간은 반올림한다.
 - **FR-25.** 실패한 도구의 `summary`를 `state.error`에서 만든다. 지금은 `summarize(undefined)`가
   `""`(따옴표 두 글자)가 된다 — 결함이다.
 - **FR-26.** **권한 거부 → `notice`.** `status === 'error'`이고 `state.error`가 아래 문구로 시작하면
@@ -415,6 +463,8 @@ export function eventWeight(event: RunEvent): number
 - **FR-27.** `TOOL_EFFECTS`에 `apply_patch: 'write'`를 더한다(지금은 `other`라 파일을 쓰는데도 쓰기로
   잡히지 않는다).
 - **FR-28.** `parentToolUseId`·`messageId`는 싣지 않는다(E4·E7은 claude).
+  *(§7-A가 절반을 뒤집었다: `part.messageID`는 `messageId`로 text·tool_use·tool_result·reasoning·notice에
+  싣는다 — session·usage·result·error에는 싣지 않는다. `parentToolUseId`는 그대로 싣지 않는다.)*
 
 ### (F) 창 — 로그 되살리기와 스토어
 
@@ -432,6 +482,12 @@ export function eventWeight(event: RunEvent): number
   seq 오름차순 그대로. 무게는 줄 길이다(`logWriter`가 쓴 것이 정확히 `JSON.stringify(event)`라 같은
   수다). 깨진 줄은 지금처럼 건너뛴다. **IPC로 넘어가는 양이 창으로 묶인다** — 긴 run의 로그 전체를
   렌더러로 보냈다가 스토어가 버리는 일이 없다.
+  *(다듬음 — 리뷰 반영 2026-09-27: **읽는 쪽 비용도 창으로 묶는다.** 파일 전체를 문자열로 읽고 줄 배열을
+  만든 뒤 꼬리만 파싱하면, IPC 양은 묶여도 메인 프로세스가 로그 크기의 두 배 가까운 메모리를 순간적으로
+  잡고(같은 프로세스에 MCP 서버가 돈다) V8 문자열 한계를 넘는 로그에서는 던졌다. 끝에서부터 64KiB 덩어리로
+  거꾸로 읽어 창이 차면 멈춘다 — `core/db/repositories/logTail.ts`. 줄은 바이트 `\n`으로 가르므로 덩어리
+  경계가 여러 바이트 글자에 걸려도 온전하다. 깨진 줄이 창의 글자에도 세지 않는다는 것을 테스트로
+  고정했다.)*
 - **FR-34.** 옛 로그(새 필드·종류가 없는 줄)는 그대로 읽힌다. 모르는 `type`의 줄도 버리지 않고 넘긴다
   (렌더러가 모르는 종류를 무시한다 — 앞으로 종류가 늘어도 되살리기가 깨지지 않는다).
 
@@ -470,6 +526,14 @@ timeline spec의 FR 번호를 그대로 부른다(`TL FR-n`). **새 필드가 �
   - `detail`이 없거나 그 파일이 `files[]`에 없으면 TL FR-7 그대로(입력으로 만든 번호 없는 diff).
   - `DiffLine`에 `oldNo?`·`newNo?`, `DiffHunk`에 `oldStart?`·`newStart?`·`gapBefore?`, `EditFile`에
     `numbered`·`operation`·`before`를 더한다. 선택 필드라 TL의 입력 diff는 그대로 컴파일된다.
+  - *(다듬음 — 리뷰 반영 2026-09-27)* **같은 파일의 편집을 한 줄로 합칠 때 뒤 편집의 첫 hunk는 간격을
+    세지 않는다**(`gapBefore` 없음 → 셈 없는 hunk 경계, TL의 가는 선). 그 첫 hunk의 `gapBefore`는 "파일 맨
+    위부터의 줄 수"라 앞 hunk와의 간격이 아니고, 번호도 앞 편집이 반영된 파일 기준이라 간격을 알 수 없다
+    — 41~43 hunk 뒤 45에서 시작하는 편집 앞에 `⋯ 44줄`이 섰다. 같은 편집 안의 hunk 사이는 그대로 잰다.
+  - *(다듬음 — 리뷰 반영 2026-09-27)* **옛 내용을 모르는 덮어쓰기(hunk 없는 `overwrite`, opencode write)는
+    지운 줄 수가 null이다** — 입력으로 만든 "전부 추가" diff에서 세면 늘 −0이라, 100줄을 5줄로 덮어쓴 편집이
+    "더하기만 했다"로 읽혔다. `EditFile.removed`는 `number | null`이고 화면은 null이면 `−M`을 적지 않는다.
+    합친 파일 줄은 한쪽이라도 모르면 모른다.
 
 - **FR-38. 하위 에이전트.** 종류가 `subagent`인 `tool_use`(TL FR-4 표의 `task`·`agent`)는 활동 묶음에
   들지 않고 **`subagent` 블록 하나**가 된다 — 묶음을 끊는다(tool-error와 같다).
@@ -489,6 +553,12 @@ timeline spec의 FR 번호를 그대로 부른다(`TL FR-n`). **새 필드가 �
   - `current`는 메인 스레드의 결과 없는 마지막 `tool_use`다. 그것이 하위 에이전트면 `currentChild` = 그
     카드 안의 결과 없는 마지막 `tool_use`.
   - `retrying` = run이 `running`이고 메인 스레드의 마지막 이벤트가 `retry` 공지면 그 `text`, 아니면 null.
+    *(다듬음 — 리뷰 반영 2026-09-27: **턴의 마지막 이벤트**다 — 스코프를 가리지 않는다. 재시도 공지는 늘 메인
+    스코프에 서지만, 하위 에이전트가 도는 동안 메인은 Agent의 결과를 기다리므로 그때의 재시도는 자식의 API
+    호출이다(claude 2.1.280은 메인이 아닌 경로의 재시도 대기도 출처 없는 재시도 줄로 알린다 — 바이너리).
+    그 뒤에 자식의 이벤트가 오면 호출이 다시 흐르는 것인데, "메인의 마지막"으로 보면 상태 줄이 `하위 에이전트
+    … › <자식 도구>` 대신 낡은 재시도 문구에 멈췄다. 병렬 하위 에이전트 둘 중 하나만 재시도 중일 때는 다른
+    쪽의 이벤트가 문구를 지우지만, 그 대기는 주기적으로 다시 알려 온다.)*
   - `omitted` = 첫 이벤트의 `seq`(창 때문에 앞이 잘렸으면 0보다 크다).
 
 - **FR-40. `reasoning` 블록** `{ kind: 'reasoning', key, text, durationMs, estimated, truncated }`.
@@ -518,6 +588,10 @@ timeline spec의 FR 번호를 그대로 부른다(`TL FR-n`). **새 필드가 �
   - `outputTruncated > 0`이면 블록 위에 `앞부분 12,345자는 기록하지 않았습니다`(`--text-muted`).
     `outputSource === 'summary'`면 TL FR-16의 "출력 앞부분만 기록됩니다" 그대로.
   - **ANSI 제어열은 화면에서만 걷는다**(`renderer/ansi.ts`의 `stripAnsi`). 로그는 그대로다.
+    *(다듬음 — 리뷰 반영 2026-09-27: **걷기는 선형 시간이다.** OSC·DCS 본문을 `[\s\S]*?`로 두면 끝나지 않은
+    시작점마다 입력 끝까지 훑은 뒤 실패해, `ESC ]`를 되풀이한 65,536자 출력에 약 0.6초가 걸렸다 — 도구
+    출력은 신뢰할 수 없는 입력이고 펼친 셸 줄은 도는 턴에서 매초 다시 그려진다. 본문은 다음 ESC(OSC는
+    BEL도)에서 멈춘다 — 터미널도 문자열 안의 ESC에서 문자열을 끝낸다.)*
 - **FR-44. 검색 한 줄의 개수**(TL FR-16의 "(N개 일치)"를 단위별로): `files` → `(파일 N개)`,
   `matches` → `(N개 일치)`, `lines` → `(N줄)`. `matchesTruncated`면 `N개 이상`처럼 "이상"을 붙인다.
 - **FR-45. mcp·그 밖 한 줄**을 펼치면 TL FR-16의 입력 JSON 아래에 출력 블록(FR-43과 같은 모양, ANSI
@@ -527,6 +601,9 @@ timeline spec의 FR 번호를 그대로 부른다(`TL FR-n`). **새 필드가 �
 - **FR-47. 줄 번호 diff**(`numbered`인 파일 줄을 펼쳤을 때).
   - 줄마다 옛 번호 · 새 번호 · 부호 · 본문. 번호 칸은 모노, 오른쪽 정렬, `--text-muted`,
     **`user-select: none`** — 본문을 복사할 때 번호가 딸려 오지 않게. 추가·삭제 바탕은 TL FR-18 그대로.
+    *(다듬음 — 리뷰 반영 2026-09-27: 추가·삭제 줄 위의 번호는 `--text-secondary`다. 다크 스킴에서 추가 줄의
+    초록 바탕 위 `--text-muted`는 약 3.75:1로 4.5:1에 못 미쳤다 — 캡처는 문맥 줄 위의 번호만 쟀다.
+    `renderer/diffContrast.test.ts`가 `index.css`의 토큰으로 두 스킴 · 세 줄 종류를 잰다.)*
   - hunk 사이 구분선에 `⋯ N줄`(`gapBefore`). 첫 hunk가 1줄에서 시작하지 않으면 위에도 선다.
   - `before`가 있는 덮어쓰기는 파일 줄 안에 `이전 내용 보기`/`이전 내용 숨기기` 버튼 → `before`를 출력
     블록 모양(평문, 240px)으로. `create`는 TL의 "새로 씀"에 줄 번호가 붙는다.
@@ -591,6 +668,9 @@ timeline spec의 FR 번호를 그대로 부른다(`TL FR-n`). **새 필드가 �
   (run-info NFR-2와 같은 원칙).
 - **NFR-3.** **`parseLine`은 한 줄만 본다**(설계 2026-09-06 §7). 그래서 claude의 detail은 모양으로
   가르고(FR-14), 권한 거부 중복은 화면이 거른다(FR-19·41).
+  *(다듬음 — 리뷰 반영 2026-09-27: **`parseLine`은 던지지 않는다.** stdout 핸들러 안에서 불려 던지면 메인
+  프로세스가 죽는다. JSON으로 읽혔지만 객체가 아닌 줄(`null`·수·배열)은 깨진 줄과 같이 `raw`이고, content
+  배열의 객체가 아닌 원소(null 등)는 건너뛴다 — 두 어댑터 다.)*
 - **NFR-4.** 경계 셋 그대로 — `core/`는 electron을 모르고, `renderer/`는 core를 모르며, IPC 핸들러는
   얇다. `shared/events.ts`의 `eventWeight`는 순수 함수다.
 - **NFR-5.** 헤드리스 제약 그대로 — `ask`를 만들지 않고 `stdin.end()`를 부른다. `--thinking`은 권한과
@@ -671,7 +751,8 @@ timeline spec의 FR 번호를 그대로 부른다(`TL FR-n`). **새 필드가 �
   상수로 드러낸다.
 - **숨은 플래그 `--thinking-display`를 넘기지 않는다**(우려 2). 숨은 플래그는 버전이 바뀌면
   사라질 수 있고, 모르는 옵션이면 CLI가 시작부터 거부해 **모든 run이 실패한다.** 본문이 빈 생각
-  블록은 펼칠 것 없는 "생각 · N초" 한 줄로 보인다(시간은 이벤트 시각으로 잰다).
+  블록은 펼칠 것 없는 "생각 · N초" 한 줄로 보인다(시간은 이벤트 시각으로 잰다). *(2026-09-27 §9-1 결정으로
+  뒤집혔다 — 본문이 빈 claude thinking은 이벤트를 만들지 않는다.)*
 - **읽기(read) 도구의 원문 출력은 싣지 않는다**(우려 5). 요약과 세부(줄 수 등)만 둔다 — 로그에서
   가장 큰 몫인데 화면(timeline FR-16)이 쓰지 않는다.
 - **opencode의 `part.messageID`도 싣는다**(우려 9). 비용이 작고 되돌리기·분기의 재료가 대칭이 된다.
@@ -710,7 +791,13 @@ timeline spec의 FR 번호를 그대로 부른다(`TL FR-n`). **새 필드가 �
   모든 줄이 순서대로 `raw.jsonl`에 있다 — **깨진 줄과 어댑터가 버리는 줄(`rate_limit_event`) 포함**,
   `stream.jsonl`에는 `signature`가 없고 `raw.jsonl`에는 있다. FR-3 작은 상한. FR-4 원본 로그를 못 열어도
   run은 끝나고 정규화 로그는 온전하다.
+  *(§7-A에 맞춰 고침: 어댑터가 버리는 줄의 예는 `system/status`이고, `rate_limit_event`는 **빠지는지**를 본다.
+  run 종료가 원본 writer를 닫는지는 `createRawLogWriter`를 감싸 close가 끝났는지로 본다 — Windows에서도
+  닫지 않은 fs 스트림이 `rmSync`를 막지 않아 임시 디렉토리 정리로는 드러나지 않는다.)*
 - `shared/events.test.ts` † — `eventWeight`가 `logWriter`가 쓴 줄 길이와 같다.
+  *(자리를 옮김: 실제 `createLogWriter`와 대조하는 테스트는 `core/db/repositories/run.test.ts`의 "글자 한계는
+  logWriter가 쓴 줄의 길이로 잰다 — eventWeight와 같은 수다"다. `shared/`는 renderer 타입 검사에도 걸려 core의
+  node 모듈을 import할 수 없다. `shared/events.test.ts`는 무게·`isCount`의 정의를 본다.)*
 - `core/db/repositories/run.test.ts` — FR-33: 꼬리 창(개수·글자 두 한계), 순서, 깨진 줄. FR-34: 이 기능 전
   모양의 줄만 있는 로그와 모르는 `type`의 줄을 그대로 읽는다. `raw.jsonl`이 옆에 있어도 결과가 같다(FR-6).
 - `renderer/store/runEvents.test.ts` — FR-31: 글자 예산으로 앞을 버림(`push`·`hydrate` 둘 다), 버린 seq가
@@ -765,3 +852,56 @@ timeline spec의 FR 번호를 그대로 부른다(`TL FR-n`). **새 필드가 �
 - `grep -rn "dangerouslySetInnerHTML" renderer/` — 출력 없음(FR-53)
 
 **명령** — `pnpm test` · `pnpm typecheck` · `pnpm lint` · `pnpm test:e2e` 전부 초록.
+
+## 9. 리뷰가 남긴 과제
+
+2026-09-27 구현 리뷰(파서·크기와 보안·화면과 테스트 렌즈, 지적 25건)를 처리한 뒤 남은 것이다. 고친 것은
+해당 FR·표의 "다듬음 — 리뷰 반영"·"정정"에 적었다. 여기 남은 것은 **이 spec의 결정(§7-A·FR-3·FR-10·FR-30·
+FR-40)을 뒤집거나 새로 정해야 하는 것**이라 코드에서 임의로 고르지 않았다.
+
+1. **claude의 빈 생각이 묶음을 끊고 창을 차지한다** (§7-A × FR-40, FR-31·33). §7-A는 본문이 빈 thinking도
+   "생각 · N초" 한 줄로 보이게 했고(FR-15를 뒤집었다), FR-40은 모든 reasoning이 text처럼 활동·편집 묶음을
+   끊게 했다 — FR-40은 FR-15("빈 thinking은 이벤트 없음")를 전제로 쓰였다. 둘을 합치면 도구 호출 사이마다
+   빈 생각이 끼는 보통의 claude 턴(기록의 thinking 1,851개 중 1,800개가 빈 본문)이 `생각 · 1초 / 1 읽기
+   사용됨 / 생각 · 1초 / 1 Grep 사용됨 …`으로 조각나고 같은 파일의 편집도 한 블록으로 모이지 않는다(재현:
+   `[thinking '' → Read a → thinking '' → Read b → thinking '' → Grep]`이 `reasoning | activity(1) | reasoning |
+   activity(1) | reasoning | activity(1)` — 이 기능 전에는 `3 읽기, Grep 사용됨` 한 줄). 같은 이벤트가 run당
+   2,000개 창의 약 1/3과 이벤트마다 IPC push 하나를 먹어, 창 안에 남는 도구 이력이 짧아진다(이 기능 전에는
+   thinking이 칸을 차지하지 않았다). 안: (가) 본문이 빈 생각은 묶음을 끊지 않고 묶음 라벨에 접는다(`3 읽기,
+   Grep 사용됨 · 생각 3번`), (나) 빈 생각은 개수 창에서 빼거나 앞 이벤트에 접는다, (다) §7-A를 되돌려 빈
+   생각은 이벤트를 만들지 않는다(생각한 흔적은 사라진다). (가)와 (나)는 함께 고를 수 있다.
+   **결정(2026-09-27, 사용자 위임으로 Claude가 택함): (다).** 본문이 빈(공백뿐인) claude thinking은 이벤트를
+   만들지 않는다 — FR-15의 원래 문장으로 돌아간다. 빈 생각 줄은 담는 정보가 "생각했다"뿐인데 보통의 claude
+   턴을 조각내고 창을 먹는다. (가)·(나)는 FR-40·FR-31을 함께 고쳐야 하는 큰 변경이라 고르지 않았다.
+   본문이 있는 생각은 그대로 "생각 · 약 N초" 블록이다. `claudeCode.parse.test.ts`의 "본문이 빈 thinking은
+   이벤트를 내지 않는다"가 고정한다.
+2. **Edit의 `before`가 화면이 쓰지 않는데 로그·IPC·스토어 창을 차지한다** (FR-10·FR-30·FR-37, §5-1). §7-A는
+   읽기 출력을 "화면이 쓰지 않는다"는 이유로 뺐는데 Edit의 `before`(≤131,072자)는 FR-37대로 화면에 쓰지
+   않으면서 매 편집마다 이벤트째로 IPC push되고 800만 자 스토어 창에 든다 — 130K자 파일을 60번쯤 편집하면
+   앞선 도구 줄이 전부 "앞의 기록 N개는 생략했습니다"로 밀려난다. 게다가 §2-1의 크기(p50 5.7K)는 트랜스크립트
+   writer가 1만 자에서 지운 저장본의 것이라 스트림에서는 과소평가다(스트림의 Edit 원본에는 크기 한계가 없다 —
+   FR-14 다듬음). 또 상한은 `string.length`로 재는데 창의 무게는 JSON 길이라, 따옴표·백슬래시는 2배, 제어
+   문자는 6배로 불어나 이벤트 하나가 §5-1의 "최대 약 33만 자"를 크게 넘을 수 있다(`before`가 전부 제어
+   문자면 약 79만 자). 안: (가) Edit의 `before`는 `raw.jsonl`에만 남기고 이벤트에 싣지 않는다(diff 뷰어가
+   원본 줄에서 다시 읽는다), (나) 창의 무게에서 `before`를 뺀다, (다) 상한을 JSON 길이로 잰다.
+3. **`raw.jsonl`이 에이전트가 읽은 파일 원문을 평문으로 무기한 남긴다** (E1, FR-5, §7 우려 1·4). 제외 목록은
+   `rate_limit_event` 하나뿐이라, claude `user` 줄의 `content`·`tool_use_result.file.content`(Read가 연
+   `.env`·자격 증명 파일 전문, 이미지·PDF는 base64가 두 벌), Write/Edit의 원본·내용, thinking의 서명,
+   opencode reasoning의 provider 암호문이 `userData/logs/<runId>/raw.jsonl`에 그대로 쌓이고 지우는 코드가
+   없다. `stream.jsonl`에서는 읽기 원문과 서명을 일부러 뺐지만 원본 줄에는 남는다. §7 우려 1은 개인 정보로
+   rate_limit 하나만 다뤘다. **사용자에게 알리고** 보존 정책(`conversation-next`)의 우선순위를 올려야 한다.
+   안: (가) 원본 줄에서도 읽기 결과의 파일 내용을 걷어 쓴다(재파싱 재료가 줄어든다), (나) 보존 기간이 지난
+   run의 `raw.jsonl`부터 지운다, (다) 설정에 원본 줄 로그 끄기.
+4. **`raw.jsonl` 상한에 닿으면 마지막 `result`·`usage`까지 버려진다** (FR-3). 무거운 줄은 대개 도구 결과
+   한두 줄(이미지 Read는 base64가 두 벌, 기록의 Read p90 약 38만 자)이라 큰 이미지 몇 장이면 run 중간에
+   32MiB에 닿고, 그 뒤의 assistant 줄과 최종 `result`(usage·permission_denials)가 모두 사라진다. 이 파일의
+   존재 이유가 "지난 대화를 다시 파싱하는 재료"라 꼬리가 없으면 그 run은 재구성할 수 없다. 안: (가) 상한을
+   넘는 줄만 건너뛰고 표식에 건너뛴 수를 적는다(뒤 줄은 계속 쓴다), (나) `result` 줄을 위한 여유를 남긴다,
+   (다) 한 줄의 상한을 따로 둔다.
+5. **opencode의 hunk 줄 본문은 공통 들여쓰기가 걷힌 것이다** (§2-3 정정, FR-24, §7 우려 12). 1.18.30은 edit·
+   apply_patch의 `patch`를 `trimDiff`로 다듬어 보낸다 — 줄 번호는 맞지만 본문이 파일과 달라, 깊게 들여쓴
+   코드가 대화록에서 왼쪽으로 당겨져 보인다(OpenCode 자신의 화면도 그렇다). 걷은 폭은 어디에도 없어 되돌릴
+   수 없다. 대화록에는 해가 작지만, `PatchHunk`를 diff 뷰어의 원본 재료로 쓰면 원본 들여쓰기를 잃는다.
+   안: (가) `EditFileDetail`에 "본문이 다듬어졌다" 표식을 둔다, (나) edit은 입력의 `oldString`과 hunk의 `-`
+   줄을 맞춰 걷은 폭을 추정한다(깨지기 쉽다), (다) diff 뷰어 설계가 opencode는 hunk를 표시용으로만 쓴다고
+   정한다(원본은 어차피 없다 — 우려 12).

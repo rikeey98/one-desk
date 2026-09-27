@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
 import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import type { Database } from '../open'
 import { asset, issue, memo, repo, run, runContextItem } from '../schema'
@@ -8,8 +7,9 @@ import type {
   Run, ContextItemRef, ContextItemType, ContextItemView, RunStatus, AgentKind,
   Permission, InboxCounts
 } from '@shared/models'
-import type { RunEvent, RunUsage } from '@shared/events'
+import { RUN_EVENT_WINDOW, type RunEvent, type RunUsage } from '@shared/events'
 import { INBOX_RULES, inboxCategory, representativeTurn } from '@shared/inbox'
+import { readEventTail } from './logTail'
 
 /** db.transaction()의 콜백이 받는 runner. db와 같은 쿼리 빌더 API를 갖는다. */
 type Runner = Parameters<Parameters<Database['transaction']>[0]>[0]
@@ -442,26 +442,27 @@ export function createRunRepository(db: Database) {
      * IPC와 agent의 MCP 호출이 전부 멈춘다. 파일이 없는 것(취소됐거나 spawn 전에 끝난
      * run)만 빈 배열이고, 그 밖의 읽기 실패는 그대로 던진다 — 삼키면 로그가 원래 없던
      * run처럼 보인다.
+     *
+     * **창 안의 꼬리만 돌려준다** (`docs/sdlc/conversation-events/` spec FR-33). 끝에서부터
+     * 개수·글자 두 한계를 모두 지키는 만큼, 순서는 파일 그대로(seq 오름차순)다. 렌더러
+     * 스토어와 같은 창(`RUN_EVENT_WINDOW`)이라 긴 run의 로그 전체를 IPC로 보냈다가 스토어가
+     * 버리는 일이 없다. 무게는 **파싱하지 않은 줄의 길이**다 — `createLogWriter`가 쓴 줄이
+     * 정확히 `JSON.stringify(event)`라 `eventWeight`와 같은 수이고, 창이 찬 뒤의 앞줄들은
+     * 파싱하지 않는다. 깨진 줄은 건너뛰고 창에도 세지 않는다. 혼자서 창보다 무거운 줄은
+     * 남지 않는다 — 스토어도 같은 규칙이다(한쪽만 "하나는 남긴다"면 둘이 갈린다).
+     *
+     * 모르는 `type`의 줄도 그대로 넘긴다(FR-34) — 렌더러가 모르는 종류를 무시한다.
+     * 같은 디렉토리의 `raw.jsonl`은 읽지 않는다(FR-6). `window`는 테스트가 작게 준다 —
+     * IPC 핸들러는 run id만 넘긴다.
      */
-    async readLog(id: string): Promise<RunEvent[]> {
-      const { logPath } = get(id)
-      let text: string
-      try {
-        text = await readFile(logPath, 'utf8')
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
-        throw err
-      }
-      const events: RunEvent[] = []
-      for (const line of text.split('\n')) {
-        if (!line.trim()) continue
-        try {
-          events.push(JSON.parse(line) as RunEvent)
-        } catch {
-          // 쓰다 만 마지막 줄일 수 있다. 나머지를 살린다.
-        }
-      }
-      return events
+    async readLog(
+      id: string,
+      window: { maxEvents: number; maxChars: number } = RUN_EVENT_WINDOW
+    ): Promise<RunEvent[]> {
+      // **파일 전체를 읽지 않는다**(리뷰 반영 2026-09-27) — 끝에서부터 덩어리로 거꾸로 읽어 창이 차면
+      // 멈춘다. 전체를 문자열로 읽으면 창과 무관하게 메인 프로세스가 로그 크기만큼 메모리를 잡고,
+      // V8 문자열 한계를 넘는 로그에서는 던졌다.
+      return readEventTail(get(id).logPath, window)
     },
 
     /**

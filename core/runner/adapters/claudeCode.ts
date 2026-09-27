@@ -3,15 +3,23 @@ import type { AgentAdapter, PreflightResult, ResolvedRunSpec, SpawnSpec } from '
 import { claudeCodePermissionArgs } from '../permission'
 import { findExecutable, isBatchShim, type LookupOptions } from '../executable'
 import type { RunEventInit, RunUsage, ToolEffect } from '@shared/events'
-import { emptyUsage, stripNeedsAnswer, summarize, withLoopbackBypass } from './common'
+import {
+  emptyUsage, reasoningText, stripNeedsAnswer, summarize, toolResultText, withLoopbackBypass
+} from './common'
+import {
+  claudeDenialNotices, claudeNotice, claudeResultText, claudeToolDetail, isClaudeReadResult
+} from './claudeCode.detail'
 
 type RawEvent = RunEventInit
 
-/** 도구 이름 → 효과. 어느 도구가 파일을 쓰는지 아는 것은 어댑터의 책임이다. */
+/**
+ * 도구 이름 → 효과. 어느 도구가 파일을 쓰는지 아는 것은 어댑터의 책임이다.
+ * Windows의 claude는 셸로 PowerShell을 쓴다(기록 103건) — 빠지면 `other`로 떨어진다.
+ */
 const TOOL_EFFECTS: Record<string, ToolEffect> = {
   Read: 'read', Glob: 'read', Grep: 'read', WebFetch: 'read', WebSearch: 'read',
   Edit: 'write', Write: 'write', NotebookEdit: 'write',
-  Bash: 'execute'
+  Bash: 'execute', PowerShell: 'execute'
 }
 
 function toolEffect(name: string): ToolEffect {
@@ -88,11 +96,38 @@ function mcpServers(obj: Record<string, unknown>): { name: string; status: strin
     .map((s) => ({ name: String(s['name'] ?? '?'), status: String(s['status'] ?? '?') }))
 }
 
+/**
+ * 메시지의 content 블록. **객체가 아닌 원소(null 등)는 건너뛴다** — 캐스팅만 하고 두면
+ * `block['type']`에서 던지고, 이 함수는 stdout 핸들러 안에서 불려 메인 프로세스가 죽는다(리뷰 반영).
+ */
 function readBlocks(obj: Record<string, unknown>): Record<string, unknown>[] {
   const message = obj['message']
   if (typeof message !== 'object' || message === null) return []
   const content = (message as Record<string, unknown>)['content']
-  return Array.isArray(content) ? (content as Record<string, unknown>[]) : []
+  if (!Array.isArray(content)) return []
+  return content.filter((block): block is Record<string, unknown> =>
+    typeof block === 'object' && block !== null && !Array.isArray(block))
+}
+
+/** 줄의 메시지 id(`uuid`). 되돌리기·분기의 재료 — 저장만 한다 (conversation-events E7) */
+function messageOrigin(line: Record<string, unknown>): { messageId?: string } {
+  const uuid = line['uuid']
+  return typeof uuid === 'string' && uuid ? { messageId: uuid } : {}
+}
+
+/**
+ * 줄의 출처 — 하위 에이전트 호출 id와 메시지 id (FR-16·17).
+ *
+ * **값이 있을 때만 싣는다**(FR-7). 메인 스레드의 `parent_tool_use_id`는 null로 오는데, 그것을
+ * 그대로 옮기면 모든 이벤트에 `"parentToolUseId":null`이 붙어 로그가 늘기만 하고 옛 로그와 모양이
+ * 갈린다. 읽는 쪽은 키가 없으면 "메인 스레드(또는 모른다)"로 읽는다.
+ */
+function origin(line: Record<string, unknown>): { parentToolUseId?: string; messageId?: string } {
+  const parent = line['parent_tool_use_id']
+  return {
+    ...(typeof parent === 'string' && parent ? { parentToolUseId: parent } : {}),
+    ...messageOrigin(line)
+  }
 }
 
 /**
@@ -176,17 +211,28 @@ export const claudeCodeAdapter = {
 
   parseLine(line: string, runId: string): RawEvent[] {
     const at = Date.now()
-    let obj: Record<string, unknown>
+    let parsed: unknown
     try {
-      obj = JSON.parse(line) as Record<string, unknown>
+      parsed = JSON.parse(line)
     } catch {
       // 깨진 줄 때문에 run 전체를 죽이지 않는다 (설계 §11)
       return [{ type: 'raw', runId, at, line }]
     }
+    // 객체가 아닌 JSON(`null`·수·배열)도 깨진 줄이다 — 그대로 두면 아래에서 던지고, 이 함수는 stdout
+    // 핸들러 안에서 불려 메인 프로세스가 죽는다(리뷰 반영 2026-09-27).
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return [{ type: 'raw', runId, at, line }]
+    }
+    const obj = parsed as Record<string, unknown>
 
     switch (obj['type']) {
       case 'system': {
-        if (obj['subtype'] !== 'init') return []
+        if (obj['subtype'] !== 'init') {
+          // 압축·재시도·권한 거부·모델 대체 (FR-18). 그 밖의 하위 타입은 버린다 — 원본 줄은
+          // raw.jsonl에 남는다. 공지는 run의 상태·실패 이유를 건드리지 않는다(FR-8).
+          const notice = claudeNotice(obj)
+          return notice ? [{ type: 'notice', runId, at, ...notice, ...messageOrigin(obj) }] : []
+        }
         const events: RawEvent[] = [
           { type: 'session', runId, at, sessionId: String(obj['session_id'] ?? '') }
         ]
@@ -218,10 +264,11 @@ export const claudeCodeAdapter = {
 
       case 'assistant': {
         const events: RawEvent[] = []
+        const src = origin(obj)
         for (const block of readBlocks(obj)) {
           if (block['type'] === 'text') {
             const { text } = stripNeedsAnswer(String(block['text'] ?? ''))
-            events.push({ type: 'text', runId, at, text })
+            events.push({ type: 'text', runId, at, text, ...src })
           } else if (block['type'] === 'tool_use') {
             const name = String(block['name'] ?? '')
             events.push({
@@ -230,24 +277,57 @@ export const claudeCodeAdapter = {
               name,
               effect: toolEffect(name),
               targetPaths: targetPaths(block['input']),
-              input: block['input']
+              input: block['input'],
+              ...src
+            })
+          } else if (block['type'] === 'thinking') {
+            // **본문만 싣고 signature는 정규화 이벤트 어디에도 싣지 않는다**(E3) — 3~5KB 서명이
+            // 로그를 불필요하게 키운다. 원본 줄째로는 raw.jsonl에 남는다.
+            // **본문이 빈(공백뿐인) thinking은 이벤트를 내지 않는다**(spec §9-1 결정, 2026-09-27 —
+            // §7-A의 "빈 본문도 낸다"를 되돌렸다). claude의 생각은 대부분 서명만 온다(기록 1,851개 중
+            // 1,800개) — 그것을 "생각 · N초" 줄로 내면 도구 호출마다 줄이 끼어 펼친 턴의 활동 묶음이
+            // 조각나고(FR-40: reasoning은 묶음을 끊는다), 2,000개 창과 IPC push를 소비한다.
+            // 시간은 claude가 주지 않는다 — 화면이 이벤트 시각으로 잰다.
+            const thinking = typeof block['thinking'] === 'string' ? block['thinking'] : ''
+            if (thinking.trim() === '') continue
+            events.push({
+              type: 'reasoning', runId, at,
+              ...reasoningText(thinking),
+              startedAt: null, endedAt: null,
+              ...src
             })
           }
-          // thinking은 버린다. signature가 3~5KB라 로그를 불필요하게 키운다.
+          // redacted_thinking은 버린다 — 본문이 암호문이다.
         }
         return events
       }
 
       case 'user': {
         const events: RawEvent[] = []
-        for (const block of readBlocks(obj)) {
-          if (block['type'] !== 'tool_result') continue
+        const src = origin(obj)
+        const blocks = readBlocks(obj).filter((block) => block['type'] === 'tool_result')
+        // tool_use_result는 줄에 하나다. 결과 블록이 여럿인 줄이면 어느 것의 것인지 모른다 —
+        // 엉뚱한 결과에 붙이느니 싣지 않는다(기록에서는 줄마다 블록 하나였다).
+        const single = blocks.length === 1
+        const toolUseResult = single ? obj['tool_use_result'] : undefined
+        // 읽기인지 가르는 것은 그 모양뿐이다(줄에 도구 이름이 없다). 모양을 못 붙이는 줄(블록이 여럿)은
+        // 원문 출력도 싣지 않는다 — 파일 내용이 로그·IPC로 새느니 요약만 남긴다(§7-A, 리뷰 반영
+        // 2026-09-27). 하위 에이전트가 넘긴 줄도 tool_use_result를 싣는다(2.1.280 바이너리).
+        const withOutput = single && !isClaudeReadResult(toolUseResult)
+        for (const block of blocks) {
+          // 성공 시 is_error 필드가 아예 없다 (실측 확인됨)
+          const ok = block['is_error'] !== true
+          const text = claudeResultText(block['content'])
+          const detail = claudeToolDetail(toolUseResult, text, !ok)
           events.push({
             type: 'tool_result', runId, at,
             toolUseId: String(block['tool_use_id'] ?? ''),
-            // 성공 시 is_error 필드가 아예 없다 (실측 확인됨)
-            ok: block['is_error'] !== true,
-            summary: summarize(block['content'])
+            ok,
+            summary: summarize(block['content']),
+            // 읽기의 원문은 싣지 않는다(spec §7-A) — 로그의 가장 큰 몫인데 화면이 쓰지 않는다
+            ...(withOutput ? toolResultText(text) : {}),
+            ...(detail ? { detail } : {}),
+            ...src
           })
         }
         return events
@@ -265,6 +345,11 @@ export const claudeCodeAdapter = {
         }]
         const usage = resultUsage(obj)
         if (usage) events.push({ type: 'usage', runId, at, usage })
+        // 권한 때문에 막힌 호출 — 권위 있는 기록이다(FR-19). 순서는 result → usage → notice…
+        const src = messageOrigin(obj)
+        for (const notice of claudeDenialNotices(obj)) {
+          events.push({ type: 'notice', runId, at, ...notice, ...src })
+        }
         return events
       }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { lineDiff, diffStats, truncateHunks, MAX_DIFF_CELLS } from './diff'
+import { lineDiff, diffStats, truncateHunks, hunksFromPatch, MAX_DIFF_CELLS, type DiffHunk } from './diff'
 
 const signs = (hunk: ReturnType<typeof lineDiff>) =>
   hunk.lines.map((l) => `${l.sign}${l.text}`)
@@ -99,5 +99,85 @@ describe('truncateHunks', () => {
   it('상한 안이면 그대로다', () => {
     const small = lineDiff('a', 'b')
     expect(truncateHunks([small])).toEqual({ hunks: [small], truncated: 0 })
+  })
+
+  it('잘린 hunk도 머리(시작 번호·간격)를 지킨다 — 번호 칸과 구분선이 그것을 본다', () => {
+    const numbered = hunksFromPatch([{
+      oldStart: 41, oldLines: 450, newStart: 41, newLines: 450,
+      lines: Array.from({ length: 450 }, (_, i) => ` line ${i}`)
+    }])
+    const [hunk] = truncateHunks(numbered).hunks
+    expect(hunk).toMatchObject({ oldStart: 41, newStart: 41, gapBefore: 40 })
+    expect(hunk!.lines).toHaveLength(400)
+  })
+})
+
+/** detail의 hunk에서 줄 번호 diff를 만든다 (`docs/sdlc/conversation-events/` spec FR-37) */
+describe('hunksFromPatch', () => {
+  const view = (hunk: DiffHunk) =>
+    hunk.lines.map((l) => `${l.oldNo ?? '.'} ${l.newNo ?? '.'} ${l.sign}${l.text}`)
+
+  it('문맥은 두 번호를, 지운 줄은 옛 번호만, 더한 줄은 새 번호만 센다', () => {
+    const [hunk] = hunksFromPatch([{
+      oldStart: 41, oldLines: 4, newStart: 41, newLines: 5,
+      lines: [' const a = 1', '-if (a < b) {', '+if (a <= b) {', '+  log()', ' }', ' ']
+    }])
+    expect(view(hunk!)).toEqual([
+      '41 41  const a = 1',
+      '42 . -if (a < b) {',
+      '. 42 +if (a <= b) {',
+      '. 43 +  log()',
+      '43 44  }',
+      '44 45  '
+    ])
+    expect(hunk).toMatchObject({ oldStart: 41, newStart: 41 })
+  })
+
+  it('첫 hunk의 간격은 그 위의 줄 수이고, 그다음은 앞 hunk 끝부터다', () => {
+    const hunks = hunksFromPatch([
+      { oldStart: 1, oldLines: 2, newStart: 1, newLines: 2, lines: [' a', ' b'] },
+      { oldStart: 10, oldLines: 3, newStart: 10, newLines: 4, lines: [' x', '+y', ' z', ' w'] },
+      { oldStart: 13, oldLines: 1, newStart: 14, newLines: 1, lines: [' q'] }
+    ])
+    // 앞 hunk가 1~2줄 → 3~9줄(7줄)을 건너뛰고 10줄, 10~12줄 바로 뒤 13줄은 간격이 없다
+    expect(hunks.map((h) => h.gapBefore)).toEqual([0, 7, 0])
+    expect(hunksFromPatch([
+      { oldStart: 41, oldLines: 1, newStart: 41, newLines: 1, lines: [' a'] }
+    ])[0]!.gapBefore).toBe(40)
+  })
+
+  it('간격은 음수가 되지 않는다 — 새 파일의 `-0,0`이나 순서가 어긋난 hunk', () => {
+    expect(hunksFromPatch([
+      { oldStart: 0, oldLines: 0, newStart: 1, newLines: 1, lines: ['+new'] }
+    ])[0]!.gapBefore).toBe(0)
+    expect(hunksFromPatch([
+      { oldStart: 20, oldLines: 5, newStart: 20, newLines: 5, lines: [' a'] },
+      { oldStart: 3, oldLines: 1, newStart: 3, newLines: 1, lines: [' b'] }
+    ])[1]!.gapBefore).toBe(0)
+  })
+
+  it('부호가 아닌 줄은 줄로 세지 않는다 — `\\ No newline`이 번호를 밀면 안 된다', () => {
+    const [hunk] = hunksFromPatch([{
+      oldStart: 5, oldLines: 1, newStart: 5, newLines: 1,
+      lines: ['-old', '\\ No newline at end of file', '+new']
+    }])
+    expect(view(hunk!)).toEqual(['5 . -old', '. 5 +new'])
+  })
+
+  it('줄이 하나도 없는 hunk는 빠지고, 간격은 보인 hunk부터 잰다 — 안 보인 줄을 빼먹지 않는다', () => {
+    const hunks = hunksFromPatch([
+      { oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [' a'] },
+      { oldStart: 3, oldLines: 2, newStart: 3, newLines: 2, lines: [] },
+      { oldStart: 8, oldLines: 1, newStart: 8, newLines: 1, lines: [' k'] }
+    ])
+    expect(hunks).toHaveLength(2)
+    // 2~7줄(6줄)이 화면에 없다 — 빈 hunk의 끝(5)부터 재면 "⋯ 3줄"이 되어 셋을 빼먹는다
+    expect(hunks[1]!.gapBefore).toBe(6)
+  })
+
+  it('+N −M은 번호 diff에서도 같은 규칙으로 센다', () => {
+    expect(diffStats(hunksFromPatch([
+      { oldStart: 1, oldLines: 2, newStart: 1, newLines: 2, lines: [' a', '-b', '+c'] }
+    ]))).toEqual({ added: 1, removed: 1 })
   })
 })

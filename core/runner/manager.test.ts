@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { createRunManager, judgeStatus, mergeUsage } from './manager'
+import { createRunManager, judgeStatus, mergeUsage, type RunManagerOptions } from './manager'
 import { claudeCodeAdapter } from './adapters/claudeCode'
 import { opencodeAdapter } from './adapters/opencode'
 import { consoleErrorSink } from '../errors'
@@ -13,14 +13,40 @@ import { emptyUsage } from './adapters/common'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FAKE = resolve(HERE, 'fixtures/fake-claude.mjs')
 
-function makeManager() {
+/** close가 **끝난** 원본 로그의 경로. 아래 껍데기가 적는다 */
+const closedRawLogs = vi.hoisted(() => [] as string[])
+
+/**
+ * 원본 writer를 그대로 통과시키는 껍데기 — close가 끝난 순간만 적는다("돌려준 순간 원본
+ * 로그는 닫혀 있다"). 파일로는 이것을 못 본다: libuv는 파일을 FILE_SHARE_DELETE로 열어
+ * Windows에서도 열린 스트림째로 디렉토리가 지워지고, 쓴 줄은 닫지 않아도 곧 디스크에 간다.
+ */
+vi.mock('./logWriter', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./logWriter')>()
+  return {
+    ...actual,
+    createRawLogWriter: (...args: Parameters<typeof actual.createRawLogWriter>) => {
+      const writer = actual.createRawLogWriter(...args)
+      return {
+        write: (line: string) => writer.write(line),
+        close: async () => {
+          await writer.close()
+          closedRawLogs.push(args[0])
+        }
+      }
+    }
+  }
+})
+
+function makeManager(extra: Partial<Pick<RunManagerOptions, 'onError' | 'rawLogMaxBytes'>> = {}) {
   const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-run-'))
   const events: RunEvent[] = []
   const manager = createRunManager({
     adapters: { 'claude-code': claudeCodeAdapter, opencode: opencodeAdapter },
     logDir: dir,
     onEvent: (e) => events.push(e),
-    onError: consoleErrorSink
+    onError: consoleErrorSink,
+    ...extra
   })
   return { manager, events, dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
 }
@@ -383,45 +409,53 @@ describe('judgeStatus', () => {
   })
 })
 
-/**
- * 판정과 실패 이유를 실제 spawn으로 본다 (spec FR-12·FR-13). 가짜 CLI는 그 자리에서
- * 만든 한 번짜리 스크립트다 — `node <스크립트>`로 띄우므로 Windows에서도 실제로 돈다.
- */
-describe('RunManager — 판정과 실패 이유', () => {
-  interface FakeScript {
-    lines: unknown[]
-    stderr?: string
-    exitCode: number
-  }
+interface FakeScript {
+  /** 한 줄씩 JSON으로 적는다 */
+  lines?: unknown[]
+  /** lines 뒤에 **그대로** 적는다 — 깨진 줄·CRLF처럼 JSON 한 줄로는 못 적는 출력 */
+  stdout?: string
+  stderr?: string
+  exitCode: number
+}
 
-  function withScript(script: FakeScript) {
-    const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-judge-'))
-    const path = resolve(dir, 'fake-cli.mjs')
-    // stdin을 끝까지 읽고 나서 쓴다. process.exit()은 파이프 버퍼를 버리므로
-    // exitCode만 정하고 자연 종료시킨다 (fake-claude.mjs와 같은 이유).
-    writeFileSync(path, [
-      'process.stdin.resume()',
-      "process.stdin.on('end', () => {",
-      ...script.lines.map((l) => `  process.stdout.write(${JSON.stringify(JSON.stringify(l) + '\n')})`),
-      script.stderr ? `  process.stderr.write(${JSON.stringify(script.stderr)})` : '',
-      `  process.exitCode = ${script.exitCode}`,
-      '})'
-    ].join('\n'))
-    const made = makeManager()
-    return {
-      ...made,
-      run: (agentKind: 'claude-code' | 'opencode', extra: { preEvents?: RunEventInit[] } = {}) =>
-        made.manager.start({
-          ...spec('judge'), agentKind, extraArgs: [path],
-          ...(extra.preEvents ? { preEvents: extra.preEvents } : {})
-        }),
-      cleanup: () => {
-        made.cleanup()
-        rmSync(dir, { recursive: true, force: true })
-      }
+/**
+ * 그 자리에서 만든 한 번짜리 가짜 CLI로 manager를 돌린다. `node <스크립트>`로 띄우므로
+ * **Windows에서도 실제로 돈다** — `ONE_DESK_AGENT_PATH`만 세운 run은 Windows에서 spawn조차
+ * 안 된다(CLAUDE.md).
+ */
+function withScript(script: FakeScript, managerOptions: Parameters<typeof makeManager>[0] = {}) {
+  const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-judge-'))
+  const path = resolve(dir, 'fake-cli.mjs')
+  // stdin을 끝까지 읽고 나서 쓴다. process.exit()은 파이프 버퍼를 버리므로
+  // exitCode만 정하고 자연 종료시킨다 (fake-claude.mjs와 같은 이유).
+  writeFileSync(path, [
+    'process.stdin.resume()',
+    "process.stdin.on('end', () => {",
+    ...(script.lines ?? []).map((l) => `  process.stdout.write(${JSON.stringify(JSON.stringify(l) + '\n')})`),
+    script.stdout ? `  process.stdout.write(${JSON.stringify(script.stdout)})` : '',
+    script.stderr ? `  process.stderr.write(${JSON.stringify(script.stderr)})` : '',
+    `  process.exitCode = ${script.exitCode}`,
+    '})'
+  ].join('\n'))
+  const made = makeManager(managerOptions)
+  return {
+    ...made,
+    run: (agentKind: 'claude-code' | 'opencode', extra: { preEvents?: RunEventInit[] } = {}) =>
+      made.manager.start({
+        ...spec('judge'), agentKind, extraArgs: [path],
+        ...(extra.preEvents ? { preEvents: extra.preEvents } : {})
+      }),
+    cleanup: () => {
+      made.cleanup()
+      rmSync(dir, { recursive: true, force: true })
     }
   }
+}
 
+/**
+ * 판정과 실패 이유를 실제 spawn으로 본다 (spec FR-12·FR-13).
+ */
+describe('RunManager — 판정과 실패 이유', () => {
   const ocText = (text: string) => ({ type: 'text', sessionID: 'ses_x', part: { type: 'text', text } })
   const ocError = (message: string) => ({
     type: 'error', sessionID: 'ses_x',
@@ -528,6 +562,136 @@ describe('RunManager — 판정과 실패 이유', () => {
       })
       expect(outcome.errorMessage).toBe('진짜 원인')
     } finally { t.cleanup() }
+  })
+})
+
+/**
+ * 원본 줄 로그 `raw.jsonl` (`docs/sdlc/conversation-events/` spec FR-1~5, §7-A).
+ *
+ * 정규화 로그는 어댑터가 고른 것만 남아서 파서를 넓혀도 끝난 대화에 소급되지 않는다.
+ * 원본 줄이 그 재료다 — **버리는 줄을 남기는 것이 이 파일의 존재 이유다.**
+ */
+describe('RunManager — 원본 줄 로그', () => {
+  const SIGNATURE = `SIG-${'s'.repeat(4000)}`
+  const init = { type: 'system', subtype: 'init', session_id: 's', model: 'claude-opus-5' }
+  const thinking = {
+    type: 'assistant', session_id: 's', uuid: 'u-1',
+    message: { content: [{ type: 'thinking', thinking: '먼저 파일을 본다', signature: SIGNATURE }] }
+  }
+  /** 어댑터가 버리는 하위 타입 — 정규화 로그에는 없고 원본에는 있어야 한다 */
+  const status = { type: 'system', subtype: 'status', status: 'compacting', session_id: 's' }
+  const rateLimit = {
+    type: 'rate_limit_event', session_id: 's',
+    rate_limit_info: { status: 'allowed', resetsAt: 1790000000, unifiedWindows: { five_hour: { utilization: 0.03 } } }
+  }
+  const result = { type: 'result', subtype: 'success', is_error: false, result: '끝', session_id: 's' }
+  const BROKEN = '이건 JSON이 아니다 {'
+
+  const json = (line: unknown) => JSON.stringify(line)
+
+  /** 파일을 줄로 돌려준다. 끝은 반드시 개행이다 */
+  function readLines(path: string): string[] {
+    const content = readFileSync(path, 'utf8')
+    expect(content.endsWith('\n')).toBe(true)
+    return content.slice(0, -1).split('\n')
+  }
+
+  it('stdout 줄을 파싱하기 전에 받은 그대로 순서대로 쓴다 — 깨진 줄과 어댑터가 버리는 줄도 (FR-1)', async () => {
+    // CLI가 CRLF로 써도 원본 로그는 LF다 — 줄 분할기가 끝의 \r을 걷는다(stream.ts).
+    // 원본 "그대로"는 분할기가 넘긴 줄 그대로라는 뜻이다.
+    const stdout = [json(init), json(thinking), json(status), BROKEN, json(rateLimit), json(result)]
+      .map((line) => `${line}\r\n`).join('')
+    const t = withScript({ stdout, exitCode: 0 })
+    try {
+      const outcome = await t.run('claude-code')
+      expect(outcome.status).toBe('succeeded')
+
+      const rawPath = t.manager.rawLogPathFor('r-judge')
+      // 경로는 정규화 로그의 옆자리다 — DB 컬럼 없이 유도된다(FR-2).
+      expect(dirname(rawPath)).toBe(dirname(outcome.logPath))
+      const raw = readFileSync(rawPath, 'utf8')
+      expect(raw).not.toContain('\r')
+      // rate_limit_event만 빠진다 (spec §7-A) — 개인 구독 정보다.
+      expect(readLines(rawPath)).toEqual([json(init), json(thinking), json(status), BROKEN, json(result)])
+      expect(raw).not.toContain('rate_limit')
+
+      // 서명은 원본 줄째로만 남는다 — 정규화 로그에는 생각의 본문만 간다(E3).
+      expect(raw).toContain(SIGNATURE)
+      const stream = readFileSync(outcome.logPath, 'utf8')
+      expect(stream).not.toContain('SIG-')
+      expect(stream).toContain('먼저 파일을 본다')
+      expect(stream).not.toContain('compacting')
+    } finally { t.cleanup() }
+  })
+
+  it('상한을 넘기면 표식 한 줄로 끝나고, 정규화 로그와 run은 그대로다 (FR-3)', async () => {
+    const limit = Buffer.byteLength(json(init)) + Buffer.byteLength(json(thinking)) + 2
+    const t = withScript({ lines: [init, thinking, status, result], exitCode: 0 }, { rawLogMaxBytes: limit })
+    try {
+      const outcome = await t.run('claude-code')
+      expect(outcome.status).toBe('succeeded')
+      expect(outcome.resultText).toBe('끝')
+
+      const lines = readLines(t.manager.rawLogPathFor('r-judge'))
+      expect(lines.slice(0, 2)).toEqual([json(init), json(thinking)])
+      expect(lines).toHaveLength(3)
+      expect(JSON.parse(lines[2]!)).toEqual({ oneDesk: 'raw-truncated', limitBytes: limit, at: expect.any(Number) })
+
+      const stream = readFileSync(outcome.logPath, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as RunEvent)
+      expect(stream.at(-1)?.type).toBe('result')
+    } finally { t.cleanup() }
+  })
+
+  it('원본 로그를 열지 못해도 run은 끝나고, 정규화 로그는 온전하다 (FR-4)', async () => {
+    const errors: string[] = []
+    const t = withScript({ lines: [init, thinking, result], exitCode: 0 }, { onError: (message) => errors.push(message) })
+    try {
+      // 원본 로그가 놓일 자리에 같은 이름의 디렉토리 — 열기가 비동기로 실패한다.
+      mkdirSync(t.manager.rawLogPathFor('r-judge'), { recursive: true })
+
+      const outcome = await t.run('claude-code')
+
+      expect(outcome.status).toBe('succeeded')
+      expect(errors.some((m) => m.includes('run 원본 로그를 쓸 수 없습니다'))).toBe(true)
+      // 두 로그는 서로 독립이다 — 한쪽이 실패해도 다른 쪽은 끝까지 쓴다.
+      expect(errors.some((m) => m.includes('run 로그를 쓸 수 없습니다'))).toBe(false)
+      const stream = readFileSync(outcome.logPath, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as RunEvent)
+      expect(stream).toEqual(t.events)
+      expect(stream.at(-1)?.type).toBe('result')
+    } finally { t.cleanup() }
+  })
+
+  it('stderr와 실행 전 이벤트(preEvents)는 원본 로그에 쓰지 않는다 (FR-5)', async () => {
+    const t = withScript({ lines: [result], stderr: 'stderr에-남은-글\n', exitCode: 0 })
+    try {
+      const outcome = await t.run('claude-code', {
+        preEvents: [{ type: 'error', runId: 'r-judge', at: 0, message: '맥락 파일을 읽을 수 없어 빠졌습니다' }]
+      })
+      expect(readLines(t.manager.rawLogPathFor('r-judge'))).toEqual([json(result)])
+      // preEvents는 프로세스 출력이 아니다 — 정규화 로그에만 간다.
+      expect(readFileSync(outcome.logPath, 'utf8')).toContain('맥락 파일을 읽을 수 없어 빠졌습니다')
+    } finally { t.cleanup() }
+  })
+
+  it('돌려준 순간 원본 로그는 닫혀 있다 — 정상 종료와 spawn 실패 둘 다', async () => {
+    // writer가 하나 늘었으니 닫는 자리도 하나 는다. 닫지 않으면 run마다 파일 핸들이 하나씩
+    // 새고, 기다리지 않으면 돌려받은 쪽이 아직 쓰는 중인 파일을 본다.
+    const t = withScript({ lines: [init, thinking, status, result], exitCode: 0 })
+    const { manager, cleanup } = makeManager()
+    try {
+      await t.run('claude-code')
+      expect(closedRawLogs).toContain(t.manager.rawLogPathFor('r-judge'))
+
+      // 오류 경로 — 프로세스가 뜨지도 못한 run도 같은 자리에서 닫는다.
+      const failed = await manager.start({
+        ...spec('no-such'), executable: resolve(tmpdir(), 'one-desk-no-such-cli'), extraArgs: []
+      })
+      expect(failed.status).toBe('failed')
+      expect(closedRawLogs).toContain(manager.rawLogPathFor('r-no-such'))
+    } finally {
+      t.cleanup()
+      cleanup()
+    }
   })
 })
 

@@ -12,6 +12,8 @@ import { createAssetRepository } from './asset'
 import { createRunRepository } from './run'
 import { run } from '../schema'
 import type { Database } from '../open'
+import { createLogWriter } from '../../runner/logWriter'
+import { RUN_EVENT_WINDOW, eventWeight, type RunEvent } from '@shared/events'
 
 describe('RunRepository', () => {
   let db: Database
@@ -234,6 +236,155 @@ describe('RunRepository', () => {
       // 디렉토리를 가리키면(EISDIR) "로그 없음"이 아니라 오류다 — 빈 배열로 바꾸면
       // 화면은 로그가 원래 없던 run으로 보인다.
       await expect(runs.readLog(runWithLog(dir).id)).rejects.toThrow()
+    })
+
+    // `docs/sdlc/conversation-events/` spec FR-33 — readLog는 창 안의 **꼬리**만 돌려준다.
+    // 스토어(renderer/store/runEvents.ts)와 같은 창(RUN_EVENT_WINDOW)이다. 긴 run의 로그
+    // 전체를 IPC로 보냈다가 스토어가 버리는 일이 없게, 넘어가는 양이 여기서 묶인다.
+    describe('창 (FR-33)', () => {
+      function text(seq: number, body = `줄 ${seq}`): RunEvent {
+        return { type: 'text', runId: 'r', seq, at: seq, text: body }
+      }
+
+      function writeLog(events: RunEvent[]): string {
+        const logPath = join(dir, 'stream.jsonl')
+        writeFileSync(logPath, events.map((e) => JSON.stringify(e) + '\n').join(''))
+        return logPath
+      }
+
+      it('개수 한계를 넘으면 끝에서부터 남기고 순서는 seq 오름차순 그대로다', async () => {
+        const id = runWithLog(writeLog([0, 1, 2, 3, 4].map((s) => text(s)))).id
+        const events = await runs.readLog(id, { maxEvents: 3, maxChars: Number.MAX_SAFE_INTEGER })
+        expect(events.map((e) => e.seq)).toEqual([2, 3, 4])
+      })
+
+      it('글자 한계는 logWriter가 쓴 줄의 길이로 잰다 — eventWeight와 같은 수다', async () => {
+        // 스토어는 eventWeight로, readLog는 파싱하지 않은 줄 길이로 잰다. 둘이 한 글자라도
+        // 어긋나면 되살린 턴과 실시간 턴의 창이 갈린다. 그래서 줄을 손으로 만들지 않고
+        // 실제 writer로 쓴다 — 한글·이스케이프가 든 본문이어야 바이트와 글자가 갈린다.
+        const logPath = join(dir, 'stream.jsonl')
+        const writer = createLogWriter(logPath)
+        const events = [text(0, '처음'), text(1, '가운데 "따옴표"\n줄바꿈'), text(2, '끝 — 한글')]
+        for (const e of events) writer.write(e)
+        await writer.close()
+        const id = runWithLog(logPath).id
+        const [, w1, w2] = events.map(eventWeight) as [number, number, number]
+
+        const exact = await runs.readLog(id, { maxEvents: 100, maxChars: w1 + w2 })
+        expect(exact.map((e) => e.seq)).toEqual([1, 2])
+
+        const oneShort = await runs.readLog(id, { maxEvents: 100, maxChars: w1 + w2 - 1 })
+        expect(oneShort.map((e) => e.seq)).toEqual([2])
+      })
+
+      it('두 한계 중 먼저 닿는 쪽에서 멈춘다', async () => {
+        const events = [0, 1, 2, 3].map((s) => text(s))
+        const id = runWithLog(writeLog(events)).id
+        const lastTwo = eventWeight(events[2]!) + eventWeight(events[3]!)
+        // 개수로는 셋까지 되지만 글자는 둘까지다.
+        const events1 = await runs.readLog(id, { maxEvents: 3, maxChars: lastTwo })
+        expect(events1.map((e) => e.seq)).toEqual([2, 3])
+      })
+
+      it('넘기지 않으면 RUN_EVENT_WINDOW를 쓴다 — 개수', async () => {
+        const count = RUN_EVENT_WINDOW.maxEvents + 1
+        const id = runWithLog(writeLog(Array.from({ length: count }, (_, s) => text(s)))).id
+        const events = await runs.readLog(id)
+        expect(events).toHaveLength(RUN_EVENT_WINDOW.maxEvents)
+        expect(events[0]!.seq).toBe(1)
+        expect(events.at(-1)!.seq).toBe(count - 1)
+      })
+
+      it('넘기지 않으면 RUN_EVENT_WINDOW를 쓴다 — 글자', async () => {
+        // 셋을 합치면 창을 넘고 둘은 들어간다. 개수로는 한참 모자라므로 글자가 자른 것이다.
+        const body = 'x'.repeat(Math.floor(RUN_EVENT_WINDOW.maxChars * 0.4))
+        const id = runWithLog(writeLog([0, 1, 2].map((s) => text(s, body)))).id
+        const events = await runs.readLog(id)
+        expect(events.map((e) => e.seq)).toEqual([1, 2])
+      })
+
+      it('깨진 줄은 건너뛰고 창의 개수에도 세지 않는다', async () => {
+        const logPath = join(dir, 'stream.jsonl')
+        writeFileSync(logPath, [
+          JSON.stringify(text(0)), JSON.stringify(text(1)), '{깨진 줄', JSON.stringify(text(2))
+        ].join('\n') + '\n')
+        const events = await runs.readLog(runWithLog(logPath).id, { maxEvents: 2, maxChars: Number.MAX_SAFE_INTEGER })
+        expect(events.map((e) => e.seq)).toEqual([1, 2])
+      })
+
+      it('깨진 줄은 창의 글자에도 세지 않는다', async () => {
+        // 리뷰 반영 2026-09-27: 개수 쪽만 고정돼 있었다. 깨진 줄은 스토어에 들어가지 않으므로 그 무게를
+        // 세면 되살린 턴이 실시간 턴보다 앞을 더 버린다(FR-29·33의 "같은 창").
+        const events = [text(0), text(1), text(2)]
+        const logPath = join(dir, 'stream.jsonl')
+        writeFileSync(logPath, [
+          JSON.stringify(events[0]), JSON.stringify(events[1]), `{깨진 줄 ${'x'.repeat(500)}`, JSON.stringify(events[2])
+        ].join('\n') + '\n')
+        const maxChars = eventWeight(events[1]!) + eventWeight(events[2]!)
+        const result = await runs.readLog(runWithLog(logPath).id, { maxEvents: 10, maxChars })
+        expect(result.map((e) => e.seq)).toEqual([1, 2])
+      })
+
+      it('창보다 무거운 마지막 줄 하나면 아무것도 돌려주지 않는다 — 스토어와 같은 규칙이다', async () => {
+        // 스토어도 합이 한계를 넘으면 가장 오래된 것부터 버리므로, 혼자서 넘는 이벤트는
+        // 남지 않는다. 한쪽만 "하나는 남긴다"로 두면 되살린 턴과 실시간 턴이 갈린다.
+        // (어댑터 상한 때문에 실제 이벤트는 창에 한참 못 미친다 — spec §5-1.)
+        const events = [text(0), text(1, 'x'.repeat(100))]
+        const id = runWithLog(writeLog(events)).id
+        const result = await runs.readLog(id, { maxEvents: 10, maxChars: eventWeight(events[1]!) - 1 })
+        expect(result).toEqual([])
+      })
+    })
+
+    // spec FR-34 — 옛 로그(새 필드·종류가 없는 줄)는 그대로 읽힌다. 모르는 type도 버리지
+    // 않는다 — 렌더러가 모르는 종류를 무시하므로, 앞으로 종류가 늘어도 되살리기가 깨지지 않는다.
+    it('이 기능 전 모양의 줄만 든 로그를 그대로 읽는다 (FR-34)', async () => {
+      const old: RunEvent[] = [
+        { type: 'session', runId: 'r', seq: 0, at: 1, sessionId: 's' },
+        {
+          type: 'tool_use', runId: 'r', seq: 1, at: 2, toolUseId: 't1', name: 'Bash',
+          effect: 'execute', targetPaths: [], input: { command: 'ls' }
+        },
+        { type: 'tool_result', runId: 'r', seq: 2, at: 3, toolUseId: 't1', ok: true, summary: 'a.txt' },
+        { type: 'text', runId: 'r', seq: 3, at: 4, text: '끝났습니다' },
+        {
+          type: 'result', runId: 'r', seq: 4, at: 5, status: 'succeeded', resultText: '끝났습니다',
+          sessionId: 's', needsAnswer: false
+        }
+      ]
+      const logPath = join(dir, 'stream.jsonl')
+      writeFileSync(logPath, old.map((e) => JSON.stringify(e)).join('\n') + '\n')
+
+      expect(await runs.readLog(runWithLog(logPath).id)).toEqual(old)
+    })
+
+    it('모르는 type의 줄도 버리지 않고 넘긴다 (FR-34)', async () => {
+      const future = { type: 'hologram', runId: 'r', seq: 1, at: 2, beam: 3 }
+      const logPath = join(dir, 'stream.jsonl')
+      writeFileSync(logPath, [
+        JSON.stringify({ type: 'text', runId: 'r', seq: 0, at: 1, text: '앞' }),
+        JSON.stringify(future)
+      ].join('\n') + '\n')
+
+      const events = await runs.readLog(runWithLog(logPath).id)
+      expect(events).toHaveLength(2)
+      expect(events[1]).toEqual(future)
+    })
+
+    it('같은 디렉토리의 raw.jsonl은 읽지 않는다 (FR-6)', async () => {
+      // 원본 줄 로그는 재파싱 재료다 — 화면에도 IPC에도 나가지 않는다.
+      const logPath = join(dir, 'stream.jsonl')
+      writeFileSync(logPath, JSON.stringify({ type: 'text', runId: 'r', seq: 0, at: 1, text: '정규화' }) + '\n')
+      const id = runWithLog(logPath).id
+      const without = await runs.readLog(id)
+
+      writeFileSync(join(dir, 'raw.jsonl'), [
+        JSON.stringify({ type: 'text', runId: 'r', seq: 1, at: 2, text: '원본에만 있는 줄' }),
+        JSON.stringify({ type: 'assistant', message: { content: [{ type: 'thinking', signature: 'sig' }] } })
+      ].join('\n') + '\n')
+
+      expect(await runs.readLog(id)).toEqual(without)
+      expect(without.map((e) => e.seq)).toEqual([0])
     })
   })
 

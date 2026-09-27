@@ -194,6 +194,14 @@ NULL 조합을 매번 재조립하게 된다. 전부 NULL이면 `null`이고, �
   계정 정보이고 이번 범위 밖이다. 어댑터가 모르는 `type`을 무시하는 기존 동작(`default:
   return []`)에 그대로 맡긴다 — **로그 파일에는 원본 줄이 남지 않는다**(로그는 정규화된
   이벤트만 적는다).
+  *(2026-09-27 각주 — `docs/sdlc/conversation-events/`가 run마다 CLI stdout의 원본 줄 로그
+  `logs/<runId>/raw.jsonl`을 더했다. 그 파일은 원칙상 모든 줄을 남기지만 **이 약속을 지키려고
+  `rate_limit_event` 줄만은 쓰지 않는다**(그 spec §7-A, `core/runner/logWriter.ts`의
+  `RAW_LOG_EXCLUDED_TYPES`). 그래서 이 문장은 그대로 참이다 — 정규화 로그에도 원본 줄 로그에도
+  그 줄이 없다. 이 기능의 plan이 완료 증명으로 적은 "`rate_limit` grep 무출력"은 이제 테스트 밖에서
+  그 제외 상수와 그것을 가리키는 주석(`logWriter.ts`·`manager.ts`)을 찾는다 — 파싱이 아니라
+  제외다. 다른 개인 정보(agent가 읽은 파일 원문·생각 서명)는 원본 줄 로그에 남는다 — 그 spec
+  §9의 3.)*
 - 저장하는 것은 수치뿐이다. 프롬프트 본문·응답은 이 작업으로 새로 저장되지 않는다.
 - `cost_usd`는 정가 기준 추정이다. 화면에서 "청구액"이라고 부르지 않는다.
 

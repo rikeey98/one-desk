@@ -162,7 +162,8 @@ describe('대화록 타임라인', () => {
       expect(await rows.count()).toBe(3)
       // 경로는 작업 디렉토리 기준이다 — Windows에서는 구분자가 `\`다.
       expect(await rows.nth(0).textContent()).toMatch(/^읽기 src[\\/]auth\.ts$/)
-      expect(await rows.nth(1).textContent()).toBe('Grep expiresAt (3개 일치)')
+      // claude Grep의 `Found 3 files`가 센 것은 파일이다(docs/sdlc/conversation-events/ §7 우려 16·FR-44).
+      expect(await rows.nth(1).textContent()).toBe('Grep expiresAt (파일 3개)')
       // 경로는 모노 글꼴로 그려진다 — UI 글꼴(한국어 Windows의 Malgun Gothic)은 `\`를 `₩`로 그렸다
       // (spec §8의 7). jsdom은 글꼴을 모르므로 실제로 그린 글꼴을 CDP로 묻는다(위 코드 블록과 같다).
       const pathFonts = await (async () => {
@@ -180,10 +181,13 @@ describe('대화록 타임라인', () => {
       expect(pathFonts.length).toBeGreaterThan(0)
       expect(pathFonts.join(', ')).not.toMatch(/malgun|gulim/i)
 
-      // 셸 한 줄을 펼치면 명령과 출력 — 출력은 앞부분만 기록된다고 말한다.
+      // 셸 한 줄을 펼치면 명령과 출력. 출력은 이제 200자 요약이 아니라 원문이다
+      // (docs/sdlc/conversation-events/ FR-13·FR-43) — 끝 줄까지 있고 "앞부분만" 안내가 없다.
       await turn.getByRole('button', { name: '셸 pnpm test' }).click()
       await turn.locator('.tl-command').filter({ hasText: 'pnpm test' }).waitFor({ state: 'visible', timeout: 5_000 })
-      await turn.getByText('출력 앞부분만 기록됩니다').waitFor({ state: 'visible', timeout: 5_000 })
+      const shellOutput = turn.locator('.tl-activity .tl-detail .tl-output')
+      expect(await shellOutput.textContent()).toContain('✓ src/auth11.test.ts (3 tests)')
+      expect(await turn.getByText('출력 앞부분만 기록됩니다').count()).toBe(0)
 
       // 실패한 셸은 묶음 밖에 따로 선다(FR-17).
       expect(await turn.locator('.tl-tool-error').textContent()).toBe('셸 pnpm lint 실패')

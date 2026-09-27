@@ -26,7 +26,11 @@ export default defineConfig({
           // .tsx만 잡으면 JSX 없는 렌더러 테스트(.ts)가 어느 프로젝트에도
           // 걸리지 않아 실행되지 않은 채로 통과한 것처럼 보인다.
           include: ['renderer/**/*.test.{ts,tsx}'],
-          setupFiles: ['./renderer/vitest.setup.ts']
+          setupFiles: ['./renderer/vitest.setup.ts'],
+          // 기본값이면 CSS 파일은 빈 글자로 대체돼 `index.css?raw`도 비어 온다. 토큰과 규칙을 글자로
+          // 읽어 대비를 재는 테스트(diffContrast.test)가 있다 — 이 파일만 실제 내용을 준다. 렌더러 타입
+          // 검사에는 node 모듈이 없어 fs로 읽을 수 없다. Vite의 id는 Windows에서도 `/`다.
+          css: { include: [/renderer\/index\.css/] }
         }
       }
     ]

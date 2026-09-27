@@ -1031,6 +1031,9 @@ export function useNow(active: boolean): number
    로그로 확인해야 한다**(2026-09-27 확인됨 — FR-5의 다듬음). glob·opencode는 개수가 없다. 전문과 종료 코드는 `conversation-events`다
    — 그 intent(E2·E5)가 Grep `numFiles`·셸 원문·공지 이벤트를 실으면 `ToolItem.matches`·`output`과
    `notice` 블록을 거기서 채운다. **투영의 출력 모양(§3)은 그대로 두고 입력만 넓히는 자리다.**
+   *(2026-09-27 — `conversation-events`가 채웠다: 셸은 원문의 끝부분과 종료 코드, 검색은 `detail`의 개수·
+   단위(claude Grep 기본은 파일 수라 `(N개 일치)`가 `(파일 N개)`로 바뀌었다), 공지는 `notice` 블록이다.
+   이 항목의 200자 규칙은 이제 옛 로그(원문이 없는 줄)에만 쓰인다. 그 spec FR-36·43·44.)*
 4. **접힌 턴의 활동 요약은 앱을 다시 켜면 사라진다**(FR-14). 접힌 턴이 로그를 읽지 않는다는
    원칙을 지킨 대가다. 한 번 펼치면 스토어가 채워져 접어도 남는다. 요약을 run 행에 저장하면
    해결되지만 스키마 변경이다 — `conversation-events`에서 같이 다룰 수 있다.

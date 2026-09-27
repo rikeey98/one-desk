@@ -6,7 +6,10 @@ import type {
 } from '../types'
 import { opencodePermissionConfig } from '../permission'
 import { agentCommand, findExecutable, isBatchShim, type LookupOptions } from '../executable'
-import { emptyUsage, stripNeedsAnswer, summarize, withLoopbackBypass } from './common'
+import {
+  emptyUsage, reasoningText, stripNeedsAnswer, summarize, toolResultText, withLoopbackBypass
+} from './common'
+import { opencodeDeniedNotice, opencodeToolDetail } from './opencode.detail'
 import type { RunEventInit, ToolEffect } from '@shared/events'
 
 type RawEvent = RunEventInit
@@ -14,11 +17,12 @@ type RawEvent = RunEventInit
 /**
  * 도구 이름 → 효과. **소문자다** — claude는 `Edit`, opencode는 `edit`이다.
  * 어느 도구가 파일을 쓰는지 아는 것은 어댑터의 책임이다 (전체 설계 §329).
+ * `apply_patch`는 파일을 쓰는데도 빠져 있어 `other`로 떨어졌다(conversation-events FR-27).
  */
 const TOOL_EFFECTS: Record<string, ToolEffect> = {
   read: 'read', glob: 'read', grep: 'read', list: 'read',
   webfetch: 'read', websearch: 'read', lsp: 'read',
-  write: 'write', edit: 'write', patch: 'write',
+  write: 'write', edit: 'write', patch: 'write', apply_patch: 'write',
   bash: 'execute'
 }
 
@@ -51,6 +55,35 @@ function errorMessageOf(obj: Record<string, unknown>, line: string): string {
     : {}
   return nonEmpty(data['message']) ?? nonEmpty(e['message']) ?? nonEmpty(e['name'])
     ?? JSON.stringify(error)
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+/**
+ * part의 메시지 id(`part.messageID`). 되돌리기·분기의 재료 — 저장만 한다
+ * (conversation-events spec §7-A: claude의 `uuid`와 대칭이 되게 opencode도 싣는다).
+ * **값이 있을 때만 싣는다**(FR-7). `parentToolUseId`는 싣지 않는다 — opencode `run`은 하위
+ * 세션의 part를 내보내지 않는다(FR-28).
+ */
+function messageOrigin(part: Record<string, unknown>): { messageId?: string } {
+  const id = part['messageID']
+  return typeof id === 'string' && id ? { messageId: id } : {}
+}
+
+/**
+ * 도구 결과의 원문 출력 (FR-23). 실패하면 `state.error`가 모델이 본 글이다 — `output`이 없다
+ * (소스 processor:186-205). 옛 모양(error 없이 output만)이면 output으로 되돌아간다.
+ *
+ * **읽기의 원문은 싣지 않는다**(spec §7-A) — 로그에서 가장 큰 몫인데 화면(timeline FR-16)이
+ * 읽기 줄을 펼치지 않는다. 실패한 읽기의 오류 글은 파일 내용이 아니므로 싣는다(claude와 같다).
+ */
+function resultText(name: string, state: Record<string, unknown>): unknown {
+  if (state['status'] === 'error') return state['error'] ?? state['output']
+  return name === 'read' ? undefined : state['output']
 }
 
 /** 도구 입력에서 파일 경로를 뽑는다. claude의 file_path와 달리 filePath다. */
@@ -96,6 +129,14 @@ export type VersionGate = (executable: string) => Promise<string | null>
 /** 지원하지 않는 첫 major. 2.x부터 권한 환경변수를 따른다는 보장이 없다 (spec FR-17) */
 const FIRST_UNSUPPORTED_MAJOR = 2
 
+/**
+ * 지원하는 가장 낮은 버전. `buildCommand`가 늘 붙이는 `--thinking`(conversation-events FR-21)은
+ * **1.1.50에서 생겼다**(1.1.49의 `run.ts`에는 없다). 1.0.0부터 CLI가 yargs `.strict()`라 모르는
+ * 옵션이면 도움말을 찍고 exit 1로 끝난다 — 그 아래 버전에서는 모든 run이 시작하자마자 실패한다.
+ * 그래서 실행 전에(preflight) 이유를 말하며 막는다(리뷰 반영 2026-09-27).
+ */
+const MIN_SUPPORTED: readonly [number, number, number] = [1, 1, 50]
+
 /** 버전 출력은 즉시 온다. 매달린 CLI가 설정 화면을 붙잡지 않게 넉넉히만 준다 */
 const VERSION_TIMEOUT_MS = 5_000
 
@@ -104,18 +145,38 @@ const VERSION_TIMEOUT_MS = 5_000
  * 앞에 `opencode `나 `v`가 붙는 변형까지만 받아 준다. 첫 줄이 버전이 아니면 null이다:
  * 오류 문구나 도움말 뒤쪽의 숫자를 버전으로 오인하면 멀쩡한 설치본을 막는다.
  */
-export function parseOpencodeVersion(output: string): { version: string; major: number } | null {
+export function parseOpencodeVersion(
+  output: string
+): { version: string; major: number; minor: number; patch: number } | null {
   const first = output.split(/\r?\n/).map((l) => l.trim()).find((l) => l !== '')
   if (!first) return null
-  const m = /^(?:opencode\s+)?v?((\d+)\.\d+\.\d+)\b/i.exec(first)
+  const m = /^(?:opencode\s+)?v?((\d+)\.(\d+)\.(\d+))\b/i.exec(first)
   if (!m) return null
-  return { version: m[1]!, major: Number(m[2]) }
+  return { version: m[1]!, major: Number(m[2]), minor: Number(m[3]), patch: Number(m[4]) }
+}
+
+/** 최소 버전보다 낮은가 — major·minor·patch를 차례로 비교한다 */
+function belowMinimum(v: { major: number; minor: number; patch: number }): boolean {
+  const parts = [v.major, v.minor, v.patch]
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i] !== MIN_SUPPORTED[i]) return parts[i]! < MIN_SUPPORTED[i]!
+  }
+  return false
 }
 
 function judgeVersion(executable: string, output: string | null): string | null {
   const parsed = output === null ? null : parseOpencodeVersion(output)
   // 버전을 못 읽으면 막지 않는다 — 게이트 전의 동작 그대로다 (spec FR-17).
-  if (!parsed || parsed.major < FIRST_UNSUPPORTED_MAJOR) return null
+  if (!parsed) return null
+  if (belowMinimum(parsed)) {
+    const min = MIN_SUPPORTED.join('.')
+    return (
+      `OpenCode ${parsed.version} CLI는 너무 오래됐습니다 — one-desk는 ${min}에서 생긴 --thinking 옵션을 ` +
+      '붙여 실행하는데, 그 전 버전은 모르는 옵션이라 실행을 시작하자마자 거부합니다. ' +
+      `${min} 이상으로 올리거나 설정의 CLI 경로를 새 실행 파일로 바꾸세요: ${executable}`
+    )
+  }
+  if (parsed.major < FIRST_UNSUPPORTED_MAJOR) return null
   return (
     `OpenCode ${parsed.version} CLI는 아직 지원하지 않습니다 — 2.x는 우리가 넘기는 권한 정책` +
     '(OPENCODE_PERMISSION)을 따르지 않을 수 있어, 읽기 전용 실행이 파일을 고칠 수 있습니다. ' +
@@ -261,7 +322,9 @@ export const opencodeAdapter = {
   },
 
   buildCommand(spec: ResolvedRunSpec): SpawnSpec {
-    const args = ['run', '--format', 'json']
+    // --thinking이 없으면 1.18.30의 run 루프는 reasoning 줄을 내지 않는다(`run.ts`:766). **출력만
+    // 가른다** — 모델 호출 인자·권한과 무관하다(conversation-events spec FR-21, NFR-5).
+    const args = ['run', '--format', 'json', '--thinking']
 
     // --auto는 "명시적으로 deny가 아닌 권한을 자동 승인"이다. 전체 허용에서만
     // 쓴다 (전체 설계 §376). 다른 단계에 켜면 우리가 막은 것이 열린다.
@@ -346,13 +409,17 @@ export const opencodeAdapter = {
 
   parseLine(line: string, runId: string): RawEvent[] {
     const at = Date.now()
-    let obj: Record<string, unknown>
+    let parsed: unknown
     try {
-      obj = JSON.parse(line) as Record<string, unknown>
+      parsed = JSON.parse(line)
     } catch {
       // 깨진 줄 때문에 run 전체를 죽이지 않는다 (전체 설계 §11)
       return [{ type: 'raw', runId, at, line }]
     }
+    // 객체가 아닌 JSON(`null`·수·배열)도 깨진 줄이다 — 그대로 두면 `obj['part']`에서 던지고, 이
+    // 함수는 stdout 핸들러 안에서 불려 메인 프로세스가 죽는다(리뷰 반영 2026-09-27, claude와 같다).
+    const obj = record(parsed)
+    if (!obj) return [{ type: 'raw', runId, at, line }]
 
     const part = (typeof obj['part'] === 'object' && obj['part'] !== null)
       ? (obj['part'] as Record<string, unknown>)
@@ -367,25 +434,56 @@ export const opencodeAdapter = {
       case 'tool_use': {
         if (!part) return []
         const name = String(part['tool'] ?? '')
-        const state = (typeof part['state'] === 'object' && part['state'] !== null)
-          ? (part['state'] as Record<string, unknown>)
-          : {}
+        const state = record(part['state']) ?? {}
         const toolUseId = String(part['callID'] ?? '')
+        const src = messageOrigin(part)
+        const failed = state['status'] === 'error'
+        const output = resultText(name, state)
+        const detail = opencodeToolDetail(name, state)
         // 한 줄에 입력과 결과가 함께 온다 — 이미 끝난 도구를 보고받는 것이다.
         // (그래서 diff 뷰어의 before 스냅샷을 여기서 걸 수 없다. 설계 §10-1)
-        return [
+        // 순서는 tool_use → tool_result → (권한 거부면) notice다 (plan 다듬은 것 4).
+        const events: RawEvent[] = [
           {
             type: 'tool_use', runId, at, toolUseId, name,
             effect: toolEffect(name),
             targetPaths: targetPaths(state['input']),
-            input: state['input']
+            input: state['input'],
+            ...src
           },
           {
             type: 'tool_result', runId, at, toolUseId,
             ok: state['status'] === 'completed',
-            summary: summarize(state['output'])
+            // 실패하면 output이 없다 — 오류 글로 요약한다(FR-25; 전에는 `""` 두 글자였다)
+            summary: summarize(failed ? state['error'] ?? state['output'] ?? '' : state['output']),
+            ...toolResultText(typeof output === 'string' ? output : null),
+            ...(detail ? { detail } : {}),
+            ...src
           }
         ]
+        // 권한 거부는 run의 상태를 건드리지 않는 공지다(FR-8·26). 도구 실패 줄은 그대로 남는다.
+        const denied = failed ? opencodeDeniedNotice(name, state['error'], toolUseId) : null
+        if (denied) events.push({ type: 'notice', runId, at, ...denied, ...src })
+        return events
+      }
+
+      case 'reasoning': {
+        if (!part) return []
+        // `--thinking`이 있을 때만 오는 줄이다(buildCommand). **`part.metadata`는 버린다** —
+        // provider 서명·암호문이다(E3). 원본 줄째로는 raw.jsonl에 남는다.
+        // **공백뿐인 본문은 이벤트를 만들지 않는다**(FR-22). §7-A의 "빈 생각도 한 줄로 보인다"는
+        // 우려 2 — claude — 의 결정이다(리뷰 반영 2026-09-27: 한동안 여기에도 넓혀 적용했다). OpenAI
+        // 계열은 본문 없이 암호문만 오는 reasoning이 흔해, 내면 턴마다 펼칠 것 없는 줄이 여럿 선다.
+        const text = typeof part['text'] === 'string' ? part['text'] : ''
+        if (text.trim() === '') return []
+        const time = record(part['time'])
+        return [{
+          type: 'reasoning', runId, at,
+          ...reasoningText(text),
+          startedAt: num(time?.['start']),
+          endedAt: num(time?.['end']),
+          ...messageOrigin(part)
+        }]
       }
 
       case 'text': {
@@ -395,8 +493,9 @@ export const opencodeAdapter = {
         // 함께 내면 RunManager가 덮어써서 마지막 것이 남는다 (설계 §7).
         // 여기 적은 succeeded는 종료 코드가 0일 때만 산다 — 비정상 종료를 이기지
         // 못한다 (`docs/sdlc/conversation-fixes/` spec FR-12, manager의 judgeStatus).
+        // 메시지 id는 text에만 싣는다 — result는 합성한 종료 이벤트이지 메시지가 아니다.
         return [
-          { type: 'text', runId, at, text },
+          { type: 'text', runId, at, text, ...messageOrigin(part) },
           {
             type: 'result', runId, at,
             status: 'succeeded',

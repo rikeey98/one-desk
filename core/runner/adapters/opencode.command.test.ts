@@ -28,6 +28,19 @@ describe('opencodeAdapter.buildCommand', () => {
     expect(built.cwd).toBe('/tmp/work')
   })
 
+  it('--thinking이 --format json 바로 뒤에 붙는다 — 없으면 reasoning 줄이 오지 않는다', () => {
+    // 1.18.30의 run 루프는 이 플래그가 있을 때만 reasoning 줄을 낸다(`run.ts`:766).
+    // 출력만 가른다 — 모델 호출 인자·권한과 무관하다 (conversation-events spec FR-21).
+    for (const over of [
+      {}, { permission: 'full' as const }, { permission: 'read_only' as const },
+      { model: 'anthropic/claude-sonnet-4-5', effort: 'high', resumeSessionId: 'ses_abc' }
+    ]) {
+      const { args } = opencodeAdapter.buildCommand(spec(over))
+      expect(args.slice(0, 4)).toEqual(['run', '--format', 'json', '--thinking'])
+      expect(args.filter((a) => a === '--thinking')).toHaveLength(1)
+    }
+  })
+
   it('프롬프트를 인자에 싣지 않는다', () => {
     // stdin으로 넘긴다 — 맥락이 합쳐지면 수십 KB라 인자 길이 제한에 걸린다.
     const built = opencodeAdapter.buildCommand(spec({ prompt: '아주 긴 프롬프트' }))

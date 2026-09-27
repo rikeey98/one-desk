@@ -265,18 +265,117 @@ spec의 결정을 뒤집지 않고 모양만 맞춘다.
 
 ## 완료 증명
 
-(구현 후 채운다)
+7단계(마지막 검증, 2026-09-27)에서 채웠다. 명령은 전부 저장소 루트에서 돌렸다 — 확인할 때 사용자의
+`pnpm dev`(`electron-vite dev`)는 떠 있지 않았으므로(프로세스 명령줄로 두 번 확인) `pnpm test:e2e`도 저장소에서
+돌렸다. 저장소를 건드리지 않아야 하는 것 — 기준선 측정·변이·캡처 — 은 scratchpad의 사본에서 돌렸다(아래 각 항목).
+git 상태를 바꾸는 명령과 모델을 부르는 CLI는 쓰지 않았다.
 
-- [ ] 기준선(fixes 병합 직후)의 `pnpm test` 통과 수와 이 작업 뒤의 수
-- [ ] `pnpm typecheck` · `pnpm lint` 오류 0
-- [ ] `pnpm test:e2e` — 파일 수, 새 파일 `events` 포함
-- [ ] NFR-2 grep — 어댑터 밖에서 CLI 방언 이름 출력 없음
-- [ ] `grep -rn "from 'electron'" core/` · `grep -rn "window.oneDesk" renderer/ | grep -v main.tsx` — 출력 없음
-- [ ] `grep -rn "dangerouslySetInnerHTML" renderer/` — 출력 없음
-- [ ] 옛 줄 호환 스냅샷(claude·opencode 실측 픽스처)이 구현 전후로 같다
-- [ ] 변이 검증 — spec §8 "회귀 확인"의 일곱과 단계별 완료 확인에 적은 것, 각각 몇 개가 빨개졌는지
-- [ ] e2e run 하나의 `stream.jsonl`·`raw.jsonl` 크기(§5-1의 추정과 대조)
-- [ ] 라이트·다크 캡처 여섯 장면씩 — 본 것과 고친 것
-- [ ] CLAUDE.md·설계 문서 각주 셋
+- [x] 기준선(fixes 병합 직후)의 `pnpm test` 통과 수와 이 작업 뒤의 수
+  - **최종(7단계, `pnpm test`)**: 파일 104 통과 · 1 건너뜀(105), 테스트 **2,104 통과** · 31 건너뜀(2,135), 25.1초.
+    기준선에서 **+367**, 파일 98 → 105(+7 — 새 테스트 파일 일곱: `common.test`·`claudeCode.detail.test`·
+    `opencode.detail.test`·`logTail.test`·`shared/events.test`·`ansi.test`·`diffContrast.test`). 건너뛴 파일이 2 → 1인 것은
+    `core/runner/fixtures.test.ts`다 — 기준선에서는 셋 다 POSIX 전용이라 Windows에서 통째로 건너뛰었고, 이제 `node <스크립트>`로
+    띄우는 `events` 블록이 Windows에서도 돌아 9 통과 · 9 건너뜀이다. 새 파일이 **실제로 도는지** JSON 리포터
+    (`vitest run --reporter=json`)로 셌다 —
+    `shared/events.test.ts` 5 · `common.test` 24 · `claudeCode.detail.test` 71 · `opencode.detail.test` 37 · `logTail.test` 4 ·
+    `ansi.test` 9 · `diffContrast.test` 6, 전부 통과. 통째로 건너뛰는 파일은 `core/mcp/realCli.test.ts`(1) 하나다.
+  - **기준선(`e6592e4`, fixes·timeline 병합 뒤의 HEAD)**: 파일 96 통과 · 2 건너뜀(98), 테스트 **1,737 통과** · 31 건너뜀.
+    `git stash`를 쓰지 않으려고 `git archive HEAD`를 scratchpad에 풀고 `node_modules`만 접합점으로 이어 `npx vitest run`을
+    돌렸다(끝나고 접합점만 `rmdir`). 1단계가 뺄셈으로 적은 1,737과 같다.
+  - 1단계 뒤 1,864(+127), 6단계 뒤(리뷰 전) 2,069, 리뷰 반영 뒤(지적 25건 — 19 고침 · 6 미룸) 2,104. 7단계는 코드를 바꾸지
+    않았다(문서만).
+- [x] `pnpm typecheck` · `pnpm lint` 오류 0 — 7단계: `pnpm typecheck`(`tsc --build --force`) exit 0, `pnpm lint`(`eslint .`)
+  exit 0, 출력 없음.
+- [x] `pnpm test:e2e` — 파일 수, 새 파일 `events` 포함
+  - **7단계 — 전체 `pnpm test:e2e` 두 번**(저장소에서, `electron-vite build` 포함): 두 번 다 **파일 22 통과 · 2 건너뜀(24),
+    테스트 41 통과 · 2 건너뜀(43)**, 119.62초 · 119.57초. 새 `e2e/events.e2e.ts`(claude·opencode 두 테스트)와 글자를 바꾼
+    `timeline.e2e.ts`가 들어 있다. 건너뛴 둘은 `opencode-real`·`slash-real`이다 — `ONE_DESK_REAL_CLI=1`과 진짜 CLI 경로가
+    있어야 돌고 돌리면 실제 모델을 부르므로 돌리지 않았다. 실패·재시도·플레이키 0건(두 로그에 `×`·`Error:`·`Unhandled` 없음).
+  - 6단계: `events`·`timeline`만 돌렸다(초록). core-loop·conversation은 기본 시나리오를 바꾸지 않아 이 전체 실행이 처음이다 — 초록.
+- [x] NFR-2 grep — 어댑터 밖에서 CLI 방언 이름 출력 없음. spec §8의 명령 그대로(`core shared renderer electron`, `*.ts`·`*.tsx`,
+  `core/runner/adapters/`·`core/runner/fixtures/` 제외) — **출력 없음**. 4~6단계가 걸려 있다고 적은
+  `manager.test.ts:578`의 `parent_tool_use_id`는 리뷰 반영에서 리터럴을 뺐다. 덧붙여 run-info의 금지 grep(`rate_limit`, 테스트
+  밖)은 이제 셋을 찾는다 — 제외 상수 `RAW_LOG_EXCLUDED_TYPES`(`logWriter.ts`:80)와 그것을 설명하는 주석 둘(`logWriter.ts`:76,
+  `manager.ts`:292). 파싱이 아니라 제외다(run-info spec §7 각주).
+- [x] `grep -rn "from 'electron'" core/` · `grep -rn "window.oneDesk" renderer/ | grep -v main.tsx` — 출력 없음
+- [x] `grep -rn "dangerouslySetInnerHTML" renderer/` — 출력 없음(`rehype-raw`를 함께 찾아도 없음)
+- [x] 옛 줄 호환 스냅샷(claude·opencode 실측 픽스처)이 구현 전후로 같다 — `claudeCode.parse.test`·`opencode.parse.test`의
+  `옛 줄 호환 — 구현 전 어댑터의 출력`(구현 전 어댑터로 `claude-stream.jsonl`·`opencode-stream.jsonl`을 파싱한 결과를 적어
+  둔 것, `at` 제외)이 초록이다. 더해지는 것은 claude는 도구 결과의 `output`뿐, opencode는 메시지 id와 write의 출력·detail뿐이고
+  읽기는 원문이 없다(§7-A). 이 스냅샷이 살아 있는 단언이라는 것은 아래 M3가 보인다(메인에 `parentToolUseId: null`을 넣으면
+  "옛 줄에 붙는 새 필드는 도구 결과의 output뿐이다"가 빨개진다). 렌더러 쪽 옛 로그 호환은 TL의 `timeline.test`가 고치지 않고
+  통과하는 것(요약 모양이 넓어진 단언만 고쳤다 — 5단계)과 `run.test`의 FR-34 테스트다.
+- [x] 변이 검증 — spec §8 "회귀 확인"의 일곱과 단계별 완료 확인에 적은 것. 7단계가 **저장소가 아니라 scratchpad의 작업 트리
+  사본**(`git ls-files -co --exclude-standard`, `node_modules` 접합점)에서 다시 돌렸다. 변이마다 대상 글이 정확히 한 번 있는지
+  확인하고 바꾼 뒤 그 테스트 파일들만 돌리고 되돌렸다(끝나고 사본의 원본 열 파일이 저장소와 바이트 단위로 같음을 `cmp`로
+  확인). 변이 전 기준: 대상 파일 묶음 552 통과 · 9 건너뜀. **열일곱 전부 빨개졌다.**
+
+  | # | 변이 | 결과 |
+  |---|---|---|
+  | M1 | claude thinking의 `signature`를 reasoning에 싣는다 | 2 실패 — "본문을 싣고 서명은 어디에도 싣지 않는다" 외 1 |
+  | M2 | `toolResultText`가 앞부분을 남긴다(`keepTail` → `keepHead`) | 3 실패 — common·claude·opencode의 끝부분 테스트 |
+  | M3 | 메인 스레드 이벤트에 `parentToolUseId: null` | 3 실패 — "메인 스레드의 이벤트에는 parentToolUseId 키 자체가 없다"·옛 줄 호환 외 1 |
+  | M4 | opencode `buildCommand`에서 `--thinking`을 뺀다 | 단위 3 실패(명령 테스트 · fixtures 둘) + **e2e**: 사본에서 다시 빌드해 `events.e2e`를 돌리면 opencode 테스트가 `생각 · 2초` 버튼을 30초 기다리다 실패(`events.e2e.ts`:175), claude 테스트는 통과 |
+  | M5 | manager가 원본 줄을 `parseLine` 뒤에, 이벤트가 된 줄만 쓴다 | 1 실패 — "stdout 줄을 파싱하기 전에 … 깨진 줄과 어댑터가 버리는 줄도 (FR-1)" |
+  | M6 | 권한 거부 공지 중복 제거를 뺀다 | 4 실패 — "권한 거부는 그 도구의 실패 줄 바로 뒤에 한 번만 선다 — system과 result가 둘 다 알려도" 외 3 |
+  | M7 | 하위 에이전트의 자식을 메인 스코프에 둔다 | 12 실패 — "요약은 메인 스레드의 도구만 센다 — 카드는 하나로 센다" 외 11 |
+  | M8 | 생각 본문을 `Markdown`으로 그린다 | 1 실패 — "…펼치면 본문을 마크다운이 아니라 글자 그대로 보인다" |
+  | S2a | opencode 거부 문구 상수를 바꾼다 | 5 실패 |
+  | S2b | opencode reasoning에 `part.metadata`를 싣는다 | 2 실패 — "part.metadata(provider 서명·암호문)는 어디에도 싣지 않는다" 외 1 |
+  | S3a | 원본 로그 표식의 한 번 가드를 뺀다 | 2 실패 — 표식 한 번·큰 한 줄 |
+  | S3b | run 종료에서 원본 writer를 닫지 않는다 | 1 실패 — "돌려준 순간 원본 로그는 닫혀 있다 — 정상 종료와 spawn 실패 둘 다"(`createRawLogWriter`를 감싼 close 기록) |
+  | S4a | 스토어의 글자 예산을 무한으로 | 8 실패(`runEvents.test`) |
+  | S5a | 생각 시간 추정의 기준을 늘 스코프 시작(메인은 `run.startedAt`)으로 | 1 실패 — "claude는 같은 스코프의 바로 앞 이벤트부터 잰다 — 추정이다" |
+  | S5b | `hunksFromPatch`의 `-` 줄이 새 번호도 센다 | 3 실패(`diff.test`·`timeline.test`) |
+  | S6a | 셸 출력 블록에서 `stripAnsi`를 뺀다 | 2 실패(`Transcript.test`) |
+
+  **빨개질 수 없던 둘**(단계에서 이미 밝힌 것): 1단계의 "모양 판정의 Write/Edit 순서를 뒤집으면 'Write update는
+  overwrite다'가 빨개진다"는 성립하지 않는다 — FR-14의 Edit 모양이 `structuredPatch` + `oldString` 문자열이고 Write 결과에는
+  `oldString`이 없어 두 모양이 겹치지 않는다(순서가 결과를 바꾸지 않으므로 변이가 아니다). 3단계의 "원본 writer를 닫지
+  않으면 임시 디렉토리 정리가 빨개진다"도 Windows 11에서 성립하지 않는다 — libuv가 `FILE_SHARE_DELETE`로 열어 닫지 않은
+  `WriteStream`이 `rmSync`를 막지 않는다(7단계가 따로 실측: 열린 스트림이 있는 디렉토리를 `rmSync`하면 성공하고 디렉토리가
+  사라진다). 그래서 3단계가 close 기록으로 바꿨고 S3b가 그것으로 빨개진다(CLAUDE.md의 Windows 핸들 항목에 적었다). 4단계의
+  "`readLog`가 앞에서부터 자르면 꼬리 테스트가 빨개진다"는 리뷰 반영이 `logTail.ts`로 옮기며 대상을 되돌려 확인했고 7단계는
+  다시 돌리지 않았다.
+- [x] e2e run 하나의 `stream.jsonl`·`raw.jsonl` 크기(§5-1의 추정과 대조)
+  - **claude `events` e2e run**(6단계가 e2e 데이터 디렉토리에서 잰 것): `stream.jsonl` 79,797 B(25줄) · `raw.jsonl` 164,537 B(23줄).
+    7단계가 같은 가짜 CLI 출력을 실제 어댑터로 다시 파싱해 잰 값(`tsx` 스크립트, 경로 길이만 다르다): `stream` 78,430 B(25줄) ·
+    `raw` 164,209 B(23줄), 가장 큰 줄은 `tool_result` 71,845 B(7만 자 셸 출력의 끝 65,536자 + 요약·세부).
+  - **opencode `events`**(7단계, 같은 방법): `stream` 4,495 B(16줄) · `raw` 5,395 B(9줄), 가장 큰 줄 580 B.
+  - **§5-1과 대조.** 원본 줄 로그가 정규화 로그의 **2.1배**(claude) — 추정 2~5배의 아래 끝이다. 이 시나리오는 Read가 한 번(자식,
+    짧다)이고 이미지가 없어서다. 셸 출력 7만 자 원문과 4KB 서명이 원본 줄에만 두 벌·한 벌 더 있다. `tool_result` 한 줄 최대는
+    FR-10의 출력 상한이 정한 대로 약 7만 자이고 추정의 "최대 약 33만 자"(출력 + hunk + before)에 들어간다. **실제 run의 크기
+    (추정 100KB~1MB)는 확인하지 못했다** — 모델을 부르는 실행을 하지 않았다(아래 후속 항목).
+- [x] 라이트·다크 캡처 여섯 장면씩 — 본 것과 고친 것. 임시 `e2e/zz-events-capture.e2e.ts`를 **저장소가 아니라 위 사본에만**
+  두고(그래서 지울 것도 없다) 사본에서 빌드해 돌렸다. 1440×900, 도크 최대화, `ONE_DESK_FAKE_STEP_MS=1500`. 장면 일곱 × 두 스킴:
+  생각 열림 · 셸 출력 열림 · 줄 번호 diff와 이전 내용 · 하위 에이전트 카드 열림 · 공지 셋 · 접힌 턴의 재시도 상태 줄(도는 중,
+  `작업 중 · 15초 · API 재시도 중 · 2/10번째 · 5초 뒤 · 529`) · 끝난 접힌 턴의 요약(`도구 6회 · 권한 거부 1 · 대화 압축됨`).
+  - 다크에서 흰 채로 남은 칸 없음. 번호 칸 둘과 부호·본문이 줄마다 맞고, `⋯ 40줄`이 첫 hunk 위에 선다.
+  - 셸 출력 블록은 가로로 넘치지 않는다(`scrollWidth` = `clientWidth` = 844). 열 때 바닥이고 `앞부분 4,510자는 기록하지
+    않았습니다`가 위에 선다.
+  - **번호를 빼고 복사되는가** — 손 대신 auth.ts diff 전체를 `Range`로 고른 선택의 글을 읽었다: `export function
+    isExpired(token) {\n  return now > token.expiresAt\n  return now >= token.expiresAt\n}` — 번호 칸·`⋯ 40줄`·부호가 빠진다.
+  - 계산된 글자색의 대비(WCAG): 공지 `--text-muted` 5.30(라이트)·6.70(다크), 공지 `--warn` 5.02·5.39, 번호 칸(문맥 줄)
+    4.82·5.57, 생각 본문 7.73·8.33 — 전부 4.5 이상. 추가·삭제 줄 위의 번호는 `diffContrast.test`가 토큰으로 잰다.
+  - 본 것 둘, 고치지 않았다: (1) 카드 안의 왼쪽 세로선(`--border-faint`, spec FR-49가 정한 토큰)은 두 스킴 다 거의 안 보인다 —
+    들여쓰기(12px)로 자식이 갈리긴 한다. 토큰을 바꾸는 것은 spec의 결정이라 두었다. (2) 대화록을 위로 올려 둔 채 바닥 근처의
+    공지를 보면 `최신으로 이동` 알약(TL)이 그 줄을 가린다 — 첫 캡처가 그랬고, 바닥으로 내려 다시 찍었다. TL의 기존 동작이다.
+- [x] CLAUDE.md·설계 문서 각주 셋
+  - `CLAUDE.md` — 현재 상태에 이 기능 한 절, "남은 5단계 과제" 문장에 diff 뷰어의 재료, 함정 열 항목(원본 줄 로그와 제외 type ·
+    필드별 상한과 잘림 표식 · 값이 있을 때만 싣기 · `parentToolUseId`와 카드 · `tool_use_result`는 모양으로 가르고 실패는 문자열 ·
+    셸 종료 코드는 `content`에서만 · opencode `filediff`에 `before` 없음 · 생각은 텍스트만(빈 본문) · `RUN_EVENT_WINDOW` 한 값 ·
+    권한 거부 두 번), 낡은 서술 셋을 사실대로(투영 항목의 "셸 출력은 200자 요약뿐" · 로그 되살리기의 "병합에는 상한을 걸지
+    않는다" · 바닥 따라가기의 "run당 2,000개"), Windows 핸들 항목에 fs 스트림의 예외, 문서 표에 `docs/sdlc/conversation-events/`.
+    "thinking을 의도적으로 버린다"는 CLAUDE.md에 없었다(spec §7 우려 18) — 새 생각 항목이 옛 결정을 대신한다고 적었다.
+  - 각주 셋 — `docs/superpowers/specs/2026-09-06-opencode-adapter-design.md` §10-1(2026-09-27 정정: edit은 hunk만 오고
+    `before`·`after`는 없다, `trimDiff`), `docs/superpowers/specs/2026-08-07-one-desk-design.md`의 로그 디렉토리 그림(`raw.jsonl`
+    한 줄과 주), `docs/sdlc/run-info/spec.md` §7(`rate_limit_event`는 원본 줄 로그에서도 빠진다 — 그 문장은 그대로 참이다).
+  - 곁들인 것: `docs/sdlc/conversation-timeline/spec.md` 우려 3과 `docs/superpowers/specs/2026-08-07-implementation-notes.md`의
+    thinking 줄에 이 기능이 채웠다는 한 줄, 이 spec의 §2-4 표 두 칸·FR-28·§8의 두 항목(manager의 버리는 줄 예, `eventWeight`
+    대조 테스트의 자리)에 §7-A와 구현대로 고친 주.
 - [ ] (후속, 사용자 실행) 실제 claude·opencode run 한 번씩의 `raw.jsonl`로 확인: 스트림의 `originalFile` 한계,
-      `-p`의 thinking 본문 유무, thinking이 따로 한 줄로 오는지 — 합성 픽스처를 그 줄로 바꾼다
+      `-p`의 thinking 본문 유무, thinking이 따로 한 줄로 오는지 — 합성 픽스처를 그 줄로 바꾼다. opencode는 apply_patch
+      `files[]`·reasoning `metadata`의 모양과 `--thinking`이 1.18.30에서 실제로 통과하는지(`opencode-real.e2e`)도 함께 본다.
+- [ ] (후속, 결정 필요) spec §9의 다섯 — 특히 **§9의 3: `raw.jsonl`이 agent가 읽은 파일 원문(`.env` 같은 것)·생각 서명·
+      opencode reasoning 암호문을 평문으로 무기한 남긴다.** 지우는 코드가 없다. 사용자에게 알리고 보존 정책
+      (`conversation-next`)의 우선순위를 정해야 한다.
