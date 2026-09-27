@@ -1,7 +1,18 @@
 import type { Permission } from '@shared/models'
 
-/** 읽기 전용에서 살려둘 빌트인 도구 (Claude Code 2.1.x 기준, 실측 노트 Q22) */
-const READ_ONLY_TOOLS = ['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'TodoWrite']
+/**
+ * 읽기 전용에서 살려둘 빌트인 도구 (Claude Code 2.1.x 기준, 실측 노트 Q22).
+ *
+ * **할 일 도구는 두 벌이다** (`docs/sdlc/conversation-fixes/` spec FR-15). 2.1.280은 기본이
+ * `TaskCreate`/`TaskGet`/`TaskUpdate`/`TaskList`이고 `TodoWrite`는 `CLAUDE_CODE_ENABLE_TASKS`가
+ * false일 때만 켜진다. `--tools`는 화이트리스트라 Task*를 빠뜨리면 할 일 도구가 하나도 남지
+ * 않는데 실패는 조용하다 — 모델이 그 도구를 못 볼 뿐이다. `TodoWrite`는 구버전·환경변수
+ * 경로를 위해 남긴다. 어느 쪽도 파일을 건드리지 않는다.
+ */
+const READ_ONLY_TOOLS = [
+  'Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch',
+  'TodoWrite', 'TaskCreate', 'TaskGet', 'TaskUpdate', 'TaskList'
+]
 
 /** 편집 허용에서 추가되는 빌트인 도구 */
 const EDIT_TOOLS = ['Edit', 'Write', 'NotebookEdit']

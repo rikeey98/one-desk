@@ -101,6 +101,54 @@ describe('opencodeAdapter.parseLine — 단위', () => {
   })
 })
 
+/**
+ * `{"type":"error"}` 줄 (`docs/sdlc/conversation-fixes/` spec FR-13).
+ *
+ * json 모드의 opencode는 오류를 stderr에 쓰지 않고 이 줄 하나로 낸다 — 버리면 원인 없는
+ * failed가 된다. 모양은 `run.ts`의 `emit("error", { error })`다: `{type, timestamp,
+ * sessionID, error}`이고 `error`는 session.error의 NamedError(`{name, data}`)다.
+ * CLI 자신도 `data.message`를 먼저, 없으면 `name`을 보여준다.
+ */
+describe('opencodeAdapter.parseLine — error', () => {
+  const errorLine = (error: unknown) => JSON.stringify({
+    type: 'error', timestamp: 1788661877138, sessionID: 'ses_x', error
+  })
+
+  it('error 줄을 error 이벤트로 낸다 — 메시지는 error.data.message다', () => {
+    const out = opencodeAdapter.parseLine(errorLine({
+      name: 'APIError',
+      data: {
+        message: "Error from provider (Console): OpenCode's free tier can only be used from within OpenCode",
+        statusCode: 403, isRetryable: false
+      }
+    }), 'run-1')
+    expect(out).toEqual([{
+      type: 'error', runId: 'run-1', at: expect.any(Number),
+      message: "Error from provider (Console): OpenCode's free tier can only be used from within OpenCode"
+    }])
+  })
+
+  it('data.message가 없으면 error.message, 그다음 error.name이다', () => {
+    const [byMessage] = opencodeAdapter.parseLine(errorLine({ name: 'X', message: '메시지' }), 'run-1')
+    expect(byMessage).toMatchObject({ type: 'error', message: '메시지' })
+    const [byName] = opencodeAdapter.parseLine(
+      errorLine({ name: 'ProviderAuthError', data: { providerID: 'anthropic' } }), 'run-1'
+    )
+    expect(byName).toMatchObject({ type: 'error', message: 'ProviderAuthError' })
+  })
+
+  it('이름조차 없으면 error를 JSON으로 싣는다 — 빈 메시지로 두지 않는다', () => {
+    const [event] = opencodeAdapter.parseLine(errorLine({ code: 7 }), 'run-1')
+    expect(event).toMatchObject({ type: 'error', message: '{"code":7}' })
+  })
+
+  it('error 필드가 없어도 줄을 버리지 않는다', () => {
+    const line = JSON.stringify({ type: 'error', sessionID: 'ses_x' })
+    const [event] = opencodeAdapter.parseLine(line, 'run-1')
+    expect(event).toMatchObject({ type: 'error', message: line })
+  })
+})
+
 /** 모델·토큰·컨텍스트 (`docs/sdlc/run-info/`). 값은 기록된 실측 픽스처의 모양이다. */
 describe('opencodeAdapter.parseLine — usage', () => {
   const stepFinish = (tokens: unknown, cost = 0) => JSON.stringify({

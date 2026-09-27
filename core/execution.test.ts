@@ -709,22 +709,33 @@ describe('ExecutionService', () => {
     expect(ctx.runs.inbox().map((r) => r.id)).not.toContain(run.id)
   })
 
-  it('예약 턴을 취소하면 뿌리가 확인되어 대화가 인박스에 안 뜬다 (C-1)', async () => {
+  it('다른 활성 턴이 없는 예약 턴을 취소하면 뿌리가 확인되어 대화가 인박스에 안 뜬다 (C-1)', async () => {
     // 리뷰가 잡은 결함: cancel()이 확인 표시를 취소하는 그 턴의 id에 찍으면
     // (뿌리가 아니라) 뿌리는 미확인인 채로 남는다. inbox()의 소속 판정이
-    // 뿌리 기준이라, 이 대화는 마지막 턴(canceled)과 함께 "대기 중 취소됨"으로
-    // 인박스에 다시 뜬다 — 3b가 cancel()에 확인 표시를 넣은 이유("사용자가
-    // 스스로 한 일") 자체는 맞지만 자리가 틀렸었다.
+    // 뿌리 기준이라, 이 대화는 앞 턴과 함께 인박스에 다시 뜬다 — 3b가 cancel()에
+    // 확인 표시를 넣은 이유("사용자가 스스로 한 일") 자체는 맞지만 자리가 틀렸었다.
+    //
+    // **그 대화에 다른 활성 턴이 없을 때로 좁혔다** (`docs/sdlc/conversation-fixes/`
+    // spec FR-8). 앞 턴이 아직 돌고 있으면 찍지 않는다 — 아래 FR-8 테스트가 그쪽이다.
+    // 그래서 이 예약은 같은 대화의 앞 턴이 아니라 **전역 상한** 때문에 기다리게 만든다.
     const ctrl = createPerRunManager()
-    const local = setup({ manager: ctrl.manager, limit: 3 })
+    const local = setup({ manager: ctrl.manager, limit: 1 })
 
     const first = await local.service.start({
       workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
       permission: 'edit', userPrompt: '1턴', context: []
     })
-    expect(first.status).toBe('running')
+    ctrl.finish(first.id, 'sess-1')
+    await vi.waitFor(() => expect(local.runs.get(first.id).status).toBe('succeeded'))
 
-    // 1턴이 도는 중에 2턴을 예약한다 — 같은 대화라 슬롯이 남아도 대기한다.
+    // 다른 대화가 하나뿐인 슬롯을 쥔다.
+    const other = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '다른 대화', context: []
+    })
+    expect(other.status).toBe('running')
+
+    // 1턴은 끝났다 — 2턴은 슬롯이 없어 기다린다. 이 대화에 다른 활성 턴은 없다.
     const second = await local.service.resume({
       conversationId: first.id, permission: 'edit', userPrompt: '2턴(예약)', context: []
     })
@@ -737,11 +748,13 @@ describe('ExecutionService', () => {
     const root = local.runs.get(first.id)
     expect(root.reviewedKind).toBe('archived')
     expect(root.reviewedAt).toBeTypeOf('number')
+    // 대화 전체가 인박스에서 빠져야 한다 — 취소된 2턴을 건너뛴 대표 턴(1턴)으로도 뜨면 안 된다.
+    expect(local.runs.inbox().map((r) => r.rootRunId ?? r.id)).not.toContain(first.id)
 
-    ctrl.finish(first.id)
-    await vi.waitFor(() => expect(local.runs.get(first.id).status).toBe('succeeded'))
-    // 대화 전체가 인박스에서 빠져야 한다 — 마지막 턴(취소된 2턴)만 봐서는 안 된다.
-    expect(local.runs.inbox()).toHaveLength(0)
+    ctrl.finish(other.id)
+    await vi.waitFor(() => {
+      expect(local.queue.snapshot()).toEqual({ running: 0, limit: 1, waiting: 0 })
+    })
     rmSync(local.logDir, { recursive: true, force: true })
   })
 
@@ -749,7 +762,8 @@ describe('ExecutionService', () => {
     // 위 C-1 회귀 테스트는 대기 중 취소 분기만 지나간다(취소 대상이 pending이므로).
     // cancel()의 실행 중 취소 분기(target.rootRunId ?? target.id)도 같은 버그에
     // 노출될 수 있다 — 예약된 턴이 앞 턴 종료로 자동 실행되면 running이면서
-    // rootRunId와 다른 id를 갖는데, Dock.tsx는 대화의 마지막 턴 id로 취소를 건다.
+    // rootRunId와 다른 id를 갖는다. 도크 헤더는 대화의 활성 턴(conversation.active)으로
+    // 취소를 건다. 1턴은 이미 끝났으므로 **다른 활성 턴이 없다** (FR-8).
     const ctrl = createPerRunManager()
     const local = setup({ manager: ctrl.manager, limit: 3 })
 
@@ -771,17 +785,400 @@ describe('ExecutionService', () => {
 
     // 2턴을 취소한다 — 이제 실행 중 분기다.
     local.service.cancel(second.id)
+    expect(ctrl.cancelRequests).toEqual([second.id])
 
     // 뿌리(1턴)가 확인 표시를 받아야 대화 전체가 인박스에서 빠진다.
     const root = local.runs.get(first.id)
     expect(root.reviewedKind).toBe('archived')
     expect(root.reviewedAt).toBeTypeOf('number')
 
-    ctrl.finish(second.id)
-    await vi.waitFor(() => expect(local.runs.get(second.id).status).toBe('succeeded'))
+    ctrl.finish(second.id, 'session-1', 'canceled')
+    await vi.waitFor(() => expect(local.runs.get(second.id).status).toBe('canceled'))
     // 대화 전체가 인박스에서 빠져야 한다 — "대기 중 취소됨"으로 재등장하면 안 된다.
     expect(local.runs.inbox()).toHaveLength(0)
     rmSync(local.logDir, { recursive: true, force: true })
+  })
+
+  it('도는 턴 뒤의 예약을 취소해도 뿌리에 찍지 않는다 — 앞 턴의 실패가 인박스에 남는다 (FR-8)', async () => {
+    // 취소는 어느 분기든 뿌리에 archived를 찍었다. 2턴이 도는 중 예약한 3턴을
+    // 취소하면, 2턴이 답변 필요·실패로 끝나도 인박스에도 배지에도 안 떴다
+    // (intent 결함 1). 다른 활성 턴이 있으면 그 턴의 결과가 인박스를 정한다.
+    const ctrl = createPerRunManager()
+    const local = setup({ manager: ctrl.manager, limit: 3 })
+
+    const first = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '1턴', context: []
+    })
+    const second = await local.service.resume({
+      conversationId: first.id, permission: 'edit', userPrompt: '2턴(예약)', context: []
+    })
+    expect(second.status).toBe('pending')
+
+    local.service.cancel(second.id)
+
+    expect(local.runs.get(second.id).status).toBe('canceled')
+    expect(local.runs.get(first.id).reviewedAt).toBeNull()
+
+    ctrl.finish(first.id, 'sess-1', 'failed')
+    await vi.waitFor(() => expect(local.runs.get(first.id).status).toBe('failed'))
+    // 취소된 예약을 건너뛴 대표 턴(1턴, 실패)이 대화를 대표한다 (FR-1).
+    expect(local.runs.inbox().map((r) => r.id)).toEqual([first.id])
+    expect(local.runs.inboxCounts().total).toBe(1)
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
+  it('예약이 남은 채로 실행 중인 턴을 멈추면 예약은 이어서 뜨고 뿌리에 찍지 않는다 (FR-8·FR-9)', async () => {
+    // 실행 중 턴의 취소는 그 프로세스만 멈춘다. 예약은 사용자가 따로 보낸 지시라
+    // 건드리지 않고(FR-9), 그 예약이 아직 남아 있으니 대화는 끝나지 않았다(FR-8).
+    const ctrl = createPerRunManager()
+    const local = setup({ manager: ctrl.manager, limit: 3 })
+
+    const first = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '1턴', context: []
+    })
+    const second = await local.service.resume({
+      conversationId: first.id, permission: 'edit', userPrompt: '2턴(예약)', context: []
+    })
+    expect(second.status).toBe('pending')
+
+    local.service.cancel(first.id)
+
+    expect(ctrl.cancelRequests).toEqual([first.id])
+    expect(local.runs.get(second.id).status).toBe('pending')
+    expect(local.runs.get(first.id).reviewedAt).toBeNull()
+
+    // 프로세스가 멈춘다 — 세션은 남아 있으니 예약이 그것을 이어받아 뜬다.
+    ctrl.finish(first.id, 'sess-1', 'canceled')
+    await vi.waitFor(() => expect(ctrl.started(second.id)).toBe(true))
+    expect(ctrl.sessionIdFor(second.id)).toBe('sess-1')
+
+    ctrl.finish(second.id, 'sess-1', 'failed')
+    await vi.waitFor(() => expect(local.runs.get(second.id).status).toBe('failed'))
+    expect(local.runs.inbox().map((r) => r.id)).toEqual([second.id])
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
+  it('도는 턴을 멈추고 그 프로세스가 끝나기 전에 예약까지 취소해도, 대화가 인박스에 남지 않는다 (FR-8)', async () => {
+    // 두 취소가 겹치는 순서다. 판정을 누른 순간에만 하면 아무도 뿌리에 찍지 않는다:
+    // (1) 1턴을 멈출 때는 예약(2턴)이 활성이라 찍지 않고, (2) 1턴이 SIGTERM 유예·taskkill로
+    // 아직 내려가는 중에 예약을 취소하면 이번엔 1턴이 DB에서 running이라 또 찍지 않는다.
+    // 그러면 사용자가 전부 멈춘 대화가 시작한 뒤 취소된 1턴을 대표로 내세워 "대기 중
+    // 취소됨"으로 인박스에 남는다. 대화록은 도는 턴이 위, 예약이 아래라 이 순서가 자연스럽다.
+    const ctrl = createPerRunManager()
+    const local = setup({ manager: ctrl.manager, limit: 3 })
+
+    const first = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '1턴', context: []
+    })
+    const second = await local.service.resume({
+      conversationId: first.id, permission: 'edit', userPrompt: '2턴(예약)', context: []
+    })
+    expect(second.status).toBe('pending')
+
+    local.service.cancel(first.id)
+    local.service.cancel(second.id)
+    expect(local.runs.get(second.id).status).toBe('canceled')
+
+    // 1턴의 프로세스가 이제야 내려간다.
+    ctrl.finish(first.id, 'sess-1', 'canceled')
+    await vi.waitFor(() => expect(local.runs.get(first.id).status).toBe('canceled'))
+
+    expect(local.runs.get(first.id).reviewedKind).toBe('archived')
+    expect(local.runs.inbox()).toHaveLength(0)
+    expect(ctrl.started(second.id)).toBe(false)
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
+  it('멈춘 턴이 끝날 때 다른 예약이 남아 있으면 그때도 찍지 않는다 (FR-8·FR-9)', async () => {
+    // 끝날 때 다시 판정하는 것이 "무조건 찍기"가 되면 이어서 뜰 예약의 결과가 가려진다.
+    const ctrl = createPerRunManager()
+    const local = setup({ manager: ctrl.manager, limit: 3 })
+
+    const first = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '1턴', context: []
+    })
+    const second = await local.service.resume({
+      conversationId: first.id, permission: 'edit', userPrompt: '2턴(예약)', context: []
+    })
+
+    local.service.cancel(first.id)
+    ctrl.finish(first.id, 'sess-1', 'canceled')
+    await vi.waitFor(() => expect(ctrl.started(second.id)).toBe(true))
+
+    expect(local.runs.get(first.id).reviewedAt).toBeNull()
+    ctrl.finish(second.id, 'sess-1', 'failed')
+    await vi.waitFor(() => expect(local.runs.inbox().map((r) => r.id)).toEqual([second.id]))
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
+  it('이미 끝난 턴에 뒤늦게 온 취소는 뿌리에 찍지 않는다 — 그 턴의 결과가 인박스를 정한다', async () => {
+    // 턴이 실패·답변 필요로 끝나는 순간과 헤더의 "취소"가 겹치면, 렌더러가 종료 push를
+    // 받기 전에 취소가 도착한다. 그 취소가 뿌리에 archived를 찍으면 방금 생긴 실패가
+    // 인박스에도 배지에도 뜨지 않는다.
+    const ctrl = createPerRunManager()
+    const local = setup({ manager: ctrl.manager, limit: 3 })
+
+    const run = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '1턴', context: []
+    })
+    ctrl.finish(run.id, 'sess-1', 'failed')
+    await vi.waitFor(() => expect(local.runs.get(run.id).status).toBe('failed'))
+
+    local.service.cancel(run.id)
+
+    expect(local.runs.get(run.id).reviewedAt).toBeNull()
+    expect(local.runs.inbox().map((r) => r.id)).toEqual([run.id])
+    expect(local.runs.inboxCounts().total).toBe(1)
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
+  it('프로세스는 끝났고 종료 기록 직전에 온 취소도 찍지 않는다', async () => {
+    // DB에는 아직 running인데 프로세스는 이미 없다 — manager가 결과를 돌려주고 finish가
+    // 기록하기 전의 틈이다. 취소는 아무것도 멈추지 못하고, 결과는 그 턴 자신의 것이다.
+    const ctrl = createPerRunManager()
+    const local = setup({ manager: ctrl.manager, limit: 3 })
+
+    const run = await local.service.start({
+      workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '1턴', context: []
+    })
+    ctrl.finish(run.id, 'sess-1', 'failed')
+    expect(local.runs.get(run.id).status).toBe('running')
+
+    local.service.cancel(run.id)
+    await vi.waitFor(() => expect(local.runs.get(run.id).status).toBe('failed'))
+
+    expect(local.runs.get(run.id).reviewedAt).toBeNull()
+    expect(local.runs.inbox().map((r) => r.id)).toEqual([run.id])
+    rmSync(local.logDir, { recursive: true, force: true })
+  })
+
+  describe('launch 중 취소 (FR-7)', () => {
+    // launch는 행을 만들어 먼저 알린 뒤 실행 파일 확인·실행 전 확인·MCP 준비를 await하고
+    // 나서야 큐에 넣는다. 그 틈의 취소는 큐에도 manager에도 없어 삼켜졌다 — 턴은 그대로
+    // 돌고 뿌리에는 archived만 남았다(intent 결함 1).
+    const ok: PreflightResult = { ok: true, executable: process.execPath }
+
+    function startIn(local: ReturnType<typeof setup>, userPrompt = '고쳐줘') {
+      return local.service.start({
+        workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+        permission: 'edit', userPrompt, context: []
+      })
+    }
+
+    it('실행 파일을 확인하는 동안 취소하면 뒤 단계 없이 canceled로 끝난다', async () => {
+      const gate = createGate<PreflightResult>()
+      const ctrl = createPerRunManager()
+      // 뒤 단계가 불리는지 보려고 둘 다 물린다 — 취소된 run이 `opencode debug config`를
+      // 띄우거나 MCP 토큰을 받는 낭비가 없어야 한다.
+      const verifyRunnable = vi.fn(async () => ({ ok: true }))
+      const fake = fakeHost()
+      const local = setup({
+        manager: ctrl.manager, preflight: gate.wait, limit: 1, verifyRunnable, mcp: fake.host
+      })
+
+      const launching = startIn(local)
+      await vi.waitFor(() => expect(gate.entered()).toBe(true))
+      const id = local.updates[0]!.id
+      expect(local.runs.get(id).status).toBe('pending')
+
+      local.service.cancel(id)
+      gate.release(ok)
+      const run = await launching
+
+      expect(run.status).toBe('canceled')
+      // 시작한 적이 없다 — 대표 턴 규칙(FR-1)이 건너뛰는 "시작하지 못하고 취소된 턴"이다.
+      expect(run.startedAt).toBeNull()
+      expect(ctrl.started(id)).toBe(false)
+      expect(verifyRunnable).not.toHaveBeenCalled()
+      expect(fake.prepared).toEqual([])
+      expect(local.queue.snapshot()).toEqual({ running: 0, limit: 1, waiting: 0 })
+      // 사용자가 스스로 한 일이고 이 대화에 다른 활성 턴이 없다 — 뿌리에 찍는다 (FR-8).
+      expect(local.runs.get(id).reviewedKind).toBe('archived')
+      rmSync(local.logDir, { recursive: true, force: true })
+    })
+
+    it('실행 전 확인(verifyRunnable) 중에 취소하면 MCP를 준비하지 않고 canceled로 끝난다', async () => {
+      const gate = createGate<PreflightResult>()
+      const ctrl = createPerRunManager()
+      const fake = fakeHost()
+      const local = setup({ manager: ctrl.manager, verifyRunnable: gate.wait, mcp: fake.host })
+
+      const launching = startIn(local)
+      await vi.waitFor(() => expect(gate.entered()).toBe(true))
+      const id = local.updates[0]!.id
+
+      local.service.cancel(id)
+      gate.release({ ok: true })
+      const run = await launching
+
+      expect(run.status).toBe('canceled')
+      expect(run.startedAt).toBeNull()
+      expect(ctrl.started(id)).toBe(false)
+      expect(fake.prepared).toEqual([])
+      rmSync(local.logDir, { recursive: true, force: true })
+    })
+
+    it('실행 전 확인이 거부해도 취소 요청이 있으면 취소로 끝난다', async () => {
+      const gate = createGate<PreflightResult>()
+      const local = setup({ verifyRunnable: gate.wait })
+
+      const launching = startIn(local)
+      await vi.waitFor(() => expect(gate.entered()).toBe(true))
+      local.service.cancel(local.updates[0]!.id)
+      gate.release({ ok: false, reason: "bash 권한이 '물어보기'로 남아 있습니다." })
+
+      const run = await launching
+      expect(run.status).toBe('canceled')
+      expect(run.errorMessage).toBeNull()
+      rmSync(local.logDir, { recursive: true, force: true })
+    })
+
+    it('MCP 준비가 실패해도 취소 요청이 있으면 취소로 끝나고 토큰은 한 번만 폐기한다', async () => {
+      const gate = createGate<void>()
+      const fake = fakeHost()
+      const inner = fake.host
+      const host = {
+        ...inner,
+        async prepare(input: Parameters<McpHost['prepare']>[0]) {
+          await gate.wait()
+          throw new Error(`포트를 열지 못했습니다 (${input.runId})`)
+        }
+      } as McpHost
+      const local = setup({ mcp: host })
+
+      const launching = startIn(local)
+      await vi.waitFor(() => expect(gate.entered()).toBe(true))
+      const id = local.updates[0]!.id
+      local.service.cancel(id)
+      gate.release()
+
+      const run = await launching
+      expect(run.status).toBe('canceled')
+      expect(run.errorMessage).toBeNull()
+      expect(fake.released).toEqual([id])
+      rmSync(local.logDir, { recursive: true, force: true })
+    })
+
+    it('MCP를 준비하는 동안 취소하면 받은 토큰을 폐기하고 canceled로 끝난다', async () => {
+      // prepare()가 끝나면 토큰이 이미 등록돼 있다. 폐기하지 않으면 시작도 못 한
+      // run의 토큰으로 workspace를 계속 읽고 쓸 수 있다 (releaseMcp 참고).
+      const gate = createGate<void>()
+      const fake = fakeHost()
+      const inner = fake.host
+      const host = {
+        ...inner,
+        async prepare(input: Parameters<McpHost['prepare']>[0]) {
+          await gate.wait()
+          return inner.prepare(input)
+        }
+      } as McpHost
+      const ctrl = createPerRunManager()
+      const local = setup({ manager: ctrl.manager, mcp: host })
+
+      const launching = startIn(local)
+      await vi.waitFor(() => expect(gate.entered()).toBe(true))
+      const id = local.updates[0]!.id
+
+      local.service.cancel(id)
+      gate.release()
+      const run = await launching
+
+      expect(run.status).toBe('canceled')
+      expect(ctrl.started(id)).toBe(false)
+      expect(fake.prepared).toEqual([id])
+      expect(fake.released).toEqual([id])
+      expect(local.queue.snapshot().running).toBe(0)
+      rmSync(local.logDir, { recursive: true, force: true })
+    })
+
+    it('취소 요청이 있으면 실행 파일 확인이 실패해도 실패가 아니라 취소로 끝난다', async () => {
+      // 사용자가 멈추라고 한 턴이다. 읽을 필요 없는 오류 문구로 인박스·배지에 오르면 안 된다.
+      const gate = createGate<PreflightResult>()
+      const local = setup({ preflight: gate.wait })
+
+      const launching = startIn(local)
+      await vi.waitFor(() => expect(gate.entered()).toBe(true))
+      const id = local.updates[0]!.id
+
+      local.service.cancel(id)
+      gate.release({ ok: false, reason: 'claude를 찾을 수 없습니다' })
+      const run = await launching
+
+      expect(run.status).toBe('canceled')
+      expect(run.errorMessage).toBeNull()
+      rmSync(local.logDir, { recursive: true, force: true })
+    })
+
+    it('launch가 어느 출구로 끝나든 표식을 남기지 않는다 — 실패·취소 경로 포함', async () => {
+      // 표식이 새면 동작은 같아 보인다(끝난 run의 취소는 어차피 아무것도 하지 않는다).
+      // 대신 실패한 run마다 항목이 쌓인다 — plan의 리스크 "모든 조기 반환 경로에서 요청
+      // 표식을 치운다"를 여기서 고정한다.
+      const cases: { name: string; local: ReturnType<typeof setup>; status: Run['status'] }[] = []
+
+      const preflightFails = setup({ preflight: async () => ({ ok: false, reason: 'claude가 없다' }) })
+      cases.push({ name: '실행 파일 확인 실패', local: preflightFails, status: 'failed' })
+
+      const verifyFails = setup({ verifyRunnable: async () => ({ ok: false, reason: "'물어보기'가 남았다" }) })
+      cases.push({ name: '실행 전 확인 실패', local: verifyFails, status: 'failed' })
+
+      const broken = fakeHost()
+      broken.fail()
+      const mcpFails = setup({ mcp: broken.host })
+      cases.push({ name: 'MCP 준비 실패', local: mcpFails, status: 'failed' })
+
+      for (const c of cases) {
+        const run = await startIn(c.local)
+        expect(run.status, c.name).toBe(c.status)
+        expect(c.local.service.launchingCount(), c.name).toBe(0)
+        rmSync(c.local.logDir, { recursive: true, force: true })
+      }
+
+      // launch 중 취소로 끝난 경로
+      const gate = createGate<PreflightResult>()
+      const canceled = setup({ preflight: gate.wait })
+      const launching = startIn(canceled)
+      await vi.waitFor(() => expect(gate.entered()).toBe(true))
+      expect(canceled.service.launchingCount()).toBe(1)
+      canceled.service.cancel(canceled.updates[0]!.id)
+      gate.release(ok)
+      expect((await launching).status).toBe('canceled')
+      expect(canceled.service.launchingCount()).toBe(0)
+      rmSync(canceled.logDir, { recursive: true, force: true })
+    })
+
+    it('같은 대화에 도는 턴이 있으면 launch 중 취소도 뿌리에 찍지 않는다', async () => {
+      const gate = createGate<PreflightResult>()
+      let calls = 0
+      const ctrl = createPerRunManager()
+      const local = setup({
+        manager: ctrl.manager,
+        // 1턴은 바로 통과하고, 2턴만 확인 중에 붙잡아 둔다.
+        preflight: () => (calls++ === 0 ? Promise.resolve(ok) : gate.wait())
+      })
+
+      const first = await startIn(local, '1턴')
+      expect(first.status).toBe('running')
+      const launching = local.service.resume({
+        conversationId: first.id, permission: 'edit', userPrompt: '2턴', context: []
+      })
+      await vi.waitFor(() => expect(gate.entered()).toBe(true))
+      const secondId = local.updates.find((r) => r.userPrompt === '2턴')!.id
+
+      local.service.cancel(secondId)
+      gate.release(ok)
+      expect((await launching).status).toBe('canceled')
+      expect(local.runs.get(first.id).reviewedAt).toBeNull()
+
+      ctrl.finish(first.id, 'sess-1', 'failed')
+      await vi.waitFor(() => expect(local.runs.inbox().map((r) => r.id)).toEqual([first.id]))
+      rmSync(local.logDir, { recursive: true, force: true })
+    })
   })
 
   it('삼킨 오류를 주입받은 onError로 흘려보낸다', async () => {
@@ -959,20 +1356,118 @@ describe('ExecutionService', () => {
       rmSync(spy.logDir, { recursive: true, force: true })
     })
 
+    it('첫 턴이 도는 중 앱이 꺼져도 그 대화를 이을 수 있다 (FR-16)', async () => {
+      // 예전에는 세션 id가 종료 때(markFinished)에야 DB에 들어갔다. 첫 턴이 도는 중
+      // 앱이 꺼지면 reapStale이 행을 interrupted로 만드는데 세션 id가 없어, 이으면
+      // "이어받을 세션이 없습니다"로 실패했다. 실행 서비스가 manager에 넘기는
+      // onSession 한 줄이 이 테스트에 걸려 있다 — 빼면 아래 단언이 전부 빨개진다.
+      const running = setup({
+        manager: {
+          logPathFor: (id: string) => resolve(tmpdir(), `one-desk-early-${id}.jsonl`),
+          // 세션 id를 알린 뒤 끝나지 않는다 — 앱이 꺼질 때까지 도는 첫 턴이다.
+          start: (spec) => {
+            spec.onSession?.(spec.runId, 'sess-early')
+            return new Promise<RunOutcome>(() => {})
+          },
+          cancel: () => {},
+          cancelAll: () => {},
+          isRunning: () => true
+        }
+      })
+      try {
+        const first = await running.service.start({
+          workspaceId: running.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+          permission: 'edit', userPrompt: '1턴', context: []
+        })
+        expect(running.runs.get(first.id).status).toBe('running')
+        // 종료를 기다리지 않고 이미 남아 있다.
+        expect(running.runs.get(first.id).externalSessionId).toBe('sess-early')
+
+        // 앱이 꺼졌다가 다시 뜬다 — 같은 DB, 새 실행 서비스와 새 큐.
+        running.runs.reapStale()
+        expect(running.runs.get(first.id).status).toBe('interrupted')
+
+        const seen: (string | null)[] = []
+        const restarted = createExecutionService({
+          db: running.db,
+          runs: running.runs,
+          queue: createRunQueue({ limit: 3 }),
+          resolveExecutable: async () => ({ ok: true, executable: process.execPath }),
+          manager: {
+            logPathFor: (id: string) => resolve(tmpdir(), `one-desk-restart-${id}.jsonl`),
+            start: async (spec) => {
+              seen.push(spec.resumeSessionId)
+              return {
+                status: 'succeeded' as const, resultText: null, externalSessionId: null,
+                needsAnswer: false, exitCode: 0, errorMessage: null, logPath: 'x', usage: null
+              }
+            },
+            cancel: () => {},
+            cancelAll: () => {},
+            isRunning: () => false
+          }
+        })
+
+        const second = await restarted.resume({
+          conversationId: first.id, permission: 'edit', userPrompt: '2턴', context: []
+        })
+
+        expect(seen).toEqual(['sess-early'])
+        await vi.waitFor(() => expect(running.runs.get(second.id).status).toBe('succeeded'))
+        expect(running.runs.get(second.id).errorMessage).toBeNull()
+      } finally {
+        rmSync(running.logDir, { recursive: true, force: true })
+      }
+    })
+
+    it('세션을 배운 뒤 manager.start가 거부돼도 도는 중에 남긴 세션을 지우지 않는다', async () => {
+      // 거부 경로는 종료를 externalSessionId: null로 기록한다. 그것이 FR-16으로 남긴 값을
+      // 덮으면 그 대화는 "이어받을 세션이 없습니다"로 끊긴다.
+      const local = setup({
+        manager: {
+          logPathFor: (id: string) => resolve(tmpdir(), `one-desk-reject-${id}.jsonl`),
+          start: async (spec) => {
+            spec.onSession?.(spec.runId, 'sess-learned')
+            throw new Error('로그를 닫지 못했다')
+          },
+          cancel: () => {},
+          cancelAll: () => {},
+          isRunning: () => false
+        }
+      })
+      try {
+        const run = await local.service.start({
+          workspaceId: local.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+          permission: 'edit', userPrompt: '1턴', context: []
+        })
+        await vi.waitFor(() => expect(local.runs.get(run.id).status).toBe('failed'))
+
+        expect(local.runs.get(run.id).errorMessage).toBe('로그를 닫지 못했다')
+        expect(local.runs.get(run.id).externalSessionId).toBe('sess-learned')
+        expect(local.runs.latestSessionRun(run.id)?.id).toBe(run.id)
+      } finally {
+        rmSync(local.logDir, { recursive: true, force: true })
+      }
+    })
+
     it('마지막 턴이 세션 없이 실패해도 그 앞 턴에서 이어받는다', async () => {
       const first = await finishedWithSession()
       expect(first.externalSessionId).toBe('fake-session')
 
       // 2턴이 세션 없이 실패한 상황을 만든다 — preflight 실패와 같은 모양이다.
-      const failed = await ctx.service.resume({
-        conversationId: first.id, permission: 'edit', userPrompt: '2턴', context: []
+      // 행을 직접 만든다: 한 번 돈 턴을 null로 덮어 흉내내던 것은 이제 통하지 않는다 —
+      // 종료 기록의 null은 도는 중에 남긴 세션을 지우지 않는다(markFinished).
+      const failed = ctx.runs.create({
+        workspaceId: first.workspaceId, agentKind: first.agentKind, model: null, effort: null,
+        cwd: first.cwd, permission: 'edit', userPrompt: '2턴', assembledPrompt: '2턴',
+        logPath: resolve(ctx.logDir, 'no-such', 'stream.jsonl'), context: [], parentRunId: first.id
       })
-      await vi.waitFor(() => expect(ctx.runs.get(failed.id).status).toBe('succeeded'))
       ctx.runs.markFinished(failed.id, {
         status: 'failed', resultText: null, externalSessionId: null,
-        needsAnswer: false, exitCode: 1, errorMessage: '실행 파일을 찾을 수 없습니다.',
+        needsAnswer: false, exitCode: null, errorMessage: '실행 파일을 찾을 수 없습니다.',
         usage: null
       })
+      expect(ctx.runs.get(failed.id).externalSessionId).toBeNull()
 
       // 3턴은 그 앞 턴(1턴)의 세션을 이어받는다.
       const third = await ctx.service.resume({
@@ -1239,6 +1734,9 @@ function createPerRunManager() {
   // 실행 시점에 고른 값이 이 자리로 온다 — 그냥 "떴는지"만으로는 지연 해석이
   // 앞 턴의 세션을 실제로 집었는지 증명하지 못한다.
   const resumeSessionIds = new Map<string, string | null>()
+  // manager.cancel()이 불린 run. 실제 manager처럼 프로세스를 죽이지는 않는다 —
+  // 끝나는 순간은 테스트가 finish()로 정한다.
+  const cancelRequests: string[] = []
 
   const manager: RunManager = {
     logPathFor,
@@ -1247,7 +1745,7 @@ function createPerRunManager() {
       resumeSessionIds.set(spec.runId, spec.resumeSessionId)
       return new Promise<RunOutcome>((r) => settlers.set(spec.runId, r))
     },
-    cancel: () => {},
+    cancel: (runId) => { cancelRequests.push(runId) },
     cancelAll: () => {},
     isRunning: (runId) => settlers.has(runId)
   }
@@ -1256,20 +1754,39 @@ function createPerRunManager() {
     manager,
     started: (runId: string) => seen.has(runId),
     sessionIdFor: (runId: string) => resumeSessionIds.get(runId) ?? null,
-    finish(runId: string, sessionId: string | null = null) {
+    cancelRequests,
+    finish(runId: string, sessionId: string | null = null, status: RunOutcome['status'] = 'succeeded') {
       const settle = settlers.get(runId)
       if (!settle) throw new Error(`시작한 적 없는 run입니다: ${runId}`)
       settlers.delete(runId)
       settle({
-        status: 'succeeded',
+        status,
         resultText: null,
         externalSessionId: sessionId,
         needsAnswer: false,
-        exitCode: 0,
-        errorMessage: null,
+        exitCode: status === 'succeeded' ? 0 : 1,
+        errorMessage: status === 'failed' ? '깨짐' : null,
         logPath: logPathFor(runId),
         usage: null
       })
+    }
+  }
+}
+
+/** 테스트가 풀어줄 때까지 끝나지 않는 비동기 단계 하나 (launch 중 취소 재현용). */
+function createGate<T>() {
+  let open: ((value: T) => void) | null = null
+  let entered = false
+  const wait = () => {
+    entered = true
+    return new Promise<T>((r) => { open = r })
+  }
+  return {
+    wait,
+    entered: () => entered,
+    release: (value: T) => {
+      if (!open) throw new Error('아직 그 단계에 들어오지 않았다')
+      open(value)
     }
   }
 }

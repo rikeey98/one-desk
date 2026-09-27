@@ -203,7 +203,9 @@ export const claudeCodeAdapter = {
         // 이상하다는 걸 알고, 이유는 알 방법이 없다.
         //
         // run을 실패로 만들지는 않는다. MCP가 필요 없는 프롬프트도 있고,
-        // agent가 이미 한 일을 무효로 돌릴 이유가 없다.
+        // agent가 이미 한 일을 무효로 돌릴 이유가 없다. 다른 이유로 실패한 run의
+        // 실패 이유 자리도 차지하지 않는다 — 이 어댑터는 `errorEventsAreFailureReasons`를
+        // 켜지 않는다(사내 프록시 환경에서는 이 경고가 늘 붙어 진짜 원인을 가린다).
         for (const server of mcpServers(obj)) {
           if (server.status === 'connected') continue
           events.push({

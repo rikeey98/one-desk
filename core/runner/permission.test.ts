@@ -4,12 +4,28 @@ import type { Permission } from '@shared/models'
 
 const ALL: Permission[] = ['read_only', 'edit', 'full']
 
+/**
+ * 인자 어딘가에 `ask`가 **낱말로** 있는가. 부분 문자열로 보면 안 된다 — 할 일 도구
+ * `TaskCreate`·`TaskList`(spec FR-15)가 `ask`를 품고 있어 멀쩡한 인자가 걸린다.
+ * `--permission-mode ask`나 `{"bash":"ask"}`처럼 값으로 쓰인 것은 그대로 잡는다.
+ */
+function mentionsAsk(args: string[]): boolean {
+  return args.some((a) => /(^|[^A-Za-z])ask($|[^A-Za-z])/i.test(a))
+}
+
 describe('claudeCodePermissionArgs', () => {
   it('어떤 권한에서도 ask를 생성하지 않는다', () => {
     for (const p of ALL) {
-      const joined = claudeCodePermissionArgs(p).join(' ')
-      expect(joined).not.toContain('ask')
+      expect(mentionsAsk(claudeCodePermissionArgs(p)), `${p}에 ask가 있다`).toBe(false)
     }
+  })
+
+  it('ask 검사는 낱말만 본다 — Task* 도구 이름에 걸리지 않고 값으로 쓰인 ask는 잡는다', () => {
+    // 위 검사가 무력해지지 않았는지 확인한다. 부분 문자열 검사로 되돌리면 첫 줄이,
+    // 검사를 통째로 false로 만들면 나머지 두 줄이 빨개진다.
+    expect(mentionsAsk(['--tools', 'TaskCreate,TaskList'])).toBe(false)
+    expect(mentionsAsk(['--permission-mode', 'ask'])).toBe(true)
+    expect(mentionsAsk(['--settings', '{"bash":"ask"}'])).toBe(true)
   })
 
   it('읽기 전용은 permission-mode로 acceptEdits를 쓴다', () => {
@@ -68,6 +84,20 @@ describe('claudeCodePermissionArgs — 도구 집합', () => {
     expect(valueOf(args, '--disallowedTools')).toBe('Bash')
   })
 
+  it.each(['read_only', 'edit'] as const)('%s에 할 일 도구(Task*·TodoWrite)가 살아 있다', (level) => {
+    // `docs/sdlc/conversation-fixes/` spec FR-15. Claude Code 2.1.280은 기본이 Task* 넷이고
+    // TodoWrite는 CLAUDE_CODE_ENABLE_TASKS가 false일 때만 켜진다. --tools 화이트리스트에
+    // Task*가 없으면 할 일 도구가 하나도 남지 않는데 실패는 조용하다 — 모델이 그 도구를
+    // 못 볼 뿐이다. TodoWrite는 구버전·환경변수 경로를 위해 남긴다.
+    const args = claudeCodePermissionArgs(level)
+    const tools = valueOf(args, '--tools')!.split(',')
+    const allowed = valueOf(args, '--allowedTools')!.split(',')
+    for (const name of ['TaskCreate', 'TaskGet', 'TaskUpdate', 'TaskList', 'TodoWrite']) {
+      expect(tools, `${level}의 --tools에 ${name}가 없다`).toContain(name)
+      expect(allowed, `${level}의 --allowedTools에 ${name}가 없다`).toContain(name)
+    }
+  })
+
   it('전체 허용은 도구를 제한하지 않는다', () => {
     const args = claudeCodePermissionArgs('full')
     expect(args).not.toContain('--tools')
@@ -92,7 +122,7 @@ describe('claudeCodePermissionArgs — MCP 승인', () => {
 
   it('접두사를 넣어도 ask는 생기지 않는다', () => {
     for (const p of ALL) {
-      expect(claudeCodePermissionArgs(p, ['mcp__onedesk']).join(' ')).not.toContain('ask')
+      expect(mentionsAsk(claudeCodePermissionArgs(p, ['mcp__onedesk'])), `${p}에 ask가 있다`).toBe(false)
     }
   })
 })

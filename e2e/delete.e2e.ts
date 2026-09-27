@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { launchApp } from './driver'
+import { clickRowAction } from './rowAction'
 
 /**
  * 목록 줄에서 바로 지우는 길. 상세를 열지 않고 지운다.
@@ -26,15 +27,18 @@ describe('목록에서 삭제', () => {
 
     // 아이콘은 줄을 hover할 때만 폭이 풀린다. 접혀 있을 때는 폭이 0이라 아이콘
     // 자체를 hover할 수 없다(줄이 포인터를 가로챈다) — 사람이 하는 순서 그대로
-    // 줄을 먼저 hover한다.
-    await page.locator('li.item', { hasText: '지울 이슈' }).hover()
-    await page.getByRole('button', { name: '지울 이슈 삭제' }).click()
+    // 줄을 먼저 hover한다. 한 번 hover하고 바로 누르면 click의 재시도가 목록을 스크롤해
+    // hover가 풀릴 수 있어, 헬퍼가 눌릴 수 있을 때까지 hover를 다시 건다(FR-23).
+    const row = page.locator('li.item', { hasText: '지울 이슈' })
+    await clickRowAction(row, '지울 이슈 삭제')
     // 한 번으로는 안 지워진다 — 확인 라벨로 바뀌었을 뿐이다.
     await expect.poll(
       () => page.getByRole('button', { name: '지울 이슈', exact: true }).count(),
       { timeout: 2_000 }
     ).toBe(1)
-    await page.getByRole('button', { name: '정말 삭제?' }).click()
+    // 확인 버튼은 포커스를 쥐고 있어 펼쳐진 채지만, 같은 헬퍼로 누른다 — 줄 밖의 같은
+    // 이름 버튼을 잡지 않도록 줄 안에서 찾는다.
+    await clickRowAction(row, '정말 삭제?')
 
     await page.getByRole('button', { name: '지울 이슈', exact: true })
       .waitFor({ state: 'detached', timeout: 10_000 })
@@ -57,9 +61,9 @@ describe('목록에서 삭제', () => {
     await page.getByRole('button', { name: '지울 메모', exact: true })
       .waitFor({ state: 'visible', timeout: 10_000 })
 
-    await page.locator('li.item', { hasText: '지울 메모' }).hover()
-    await page.getByRole('button', { name: '지울 메모 삭제' }).click()
-    await page.getByRole('button', { name: '정말 삭제?' }).click()
+    const row = page.locator('li.item', { hasText: '지울 메모' })
+    await clickRowAction(row, '지울 메모 삭제')
+    await clickRowAction(row, '정말 삭제?')
 
     await page.getByRole('button', { name: '지울 메모', exact: true })
       .waitFor({ state: 'detached', timeout: 10_000 })

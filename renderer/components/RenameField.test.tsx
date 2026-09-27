@@ -57,6 +57,28 @@ describe('RenameField', () => {
     expect(onCancel).toHaveBeenCalled()
   })
 
+  it('allowEmpty면 비운 이름을 저장한다 — 붙인 이름을 지워 기본 제목으로 되돌리는 길이다', async () => {
+    // 대화 이름(`docs/sdlc/conversation-fixes/` spec FR-21). workspace·repo는 이름이
+    // 없을 수 없지만, 대화 제목은 비우면 파생 제목으로 돌아간다.
+    const onSubmit = vi.fn()
+    const onCancel = vi.fn()
+    render(<RenameField initial="붙인 이름" label="이름" allowEmpty onSubmit={onSubmit} onCancel={onCancel} />)
+    await userEvent.clear(screen.getByRole('textbox'))
+    await userEvent.type(screen.getByRole('textbox'), '  {Enter}')
+    expect(onSubmit).toHaveBeenCalledWith('')
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+
+  it('allowEmpty여도 처음부터 비어 있었고 그대로면 저장하지 않는다', async () => {
+    // 이름이 없던 대화에서 칸을 열었다 닫은 것은 바뀐 것이 없다.
+    const onSubmit = vi.fn()
+    const onCancel = vi.fn()
+    render(<RenameField initial="" label="이름" allowEmpty onSubmit={onSubmit} onCancel={onCancel} />)
+    await userEvent.tab()
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(onCancel).toHaveBeenCalled()
+  })
+
   it('Esc는 위로 새지 않는다 — App이 document에 건 keydown이 패널을 함께 닫는다', async () => {
     const outer = vi.fn()
     render(

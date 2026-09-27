@@ -101,6 +101,7 @@ function renderDock(
           draftPrompt=""
           draftCwd={null}
           focusConversationId={focusConversationId}
+          onFocusConsumed={vi.fn()}
         />
       </RunEventProvider>
     </ClientProvider>
@@ -143,8 +144,8 @@ describe('Dock', () => {
       })
     ])
 
-    // 줄의 상태 점은 마지막 턴(b2, succeeded)에서 온다 — 첫 턴(running)이 아니다.
-    // 글자가 아니라 점이므로 접근성 이름으로 잡는다(2026-09-23: 좁은 레일에서
+    // 줄의 상태 점은 대표 턴(여기서는 마지막 턴 b2, succeeded)에서 온다 — 첫 턴(running)이
+    // 아니다. 글자가 아니라 점이므로 접근성 이름으로 잡는다(2026-09-23: 좁은 레일에서
     // 영어 상태 단어가 제목을 밀어내 글자를 뺐다).
     expect(screen.getByRole('img', { name: 'succeeded' })).toBeInTheDocument()
     expect(screen.queryByRole('img', { name: 'running' })).toBeNull()
@@ -152,6 +153,36 @@ describe('Dock', () => {
     await userEvent.click(screen.getByText('첫 말'))
     // 입력부의 권한 기본값도 마지막 턴(read_only)에서 온다 — 첫 턴(edit)이 아니다.
     await waitFor(() => expect(screen.getByLabelText('권한')).toHaveValue('read_only'))
+  })
+
+  /**
+   * **줄의 상태는 마지막 턴이 아니라 대표 턴이다** (`docs/sdlc/conversation-fixes/` spec FR-3).
+   *
+   * 답변 필요로 멈춘 1턴 뒤에 예약했다가 시작도 못 하고 취소된 2턴이 있다. 마지막 턴으로
+   * 그리면 점이 canceled가 되고 "답변 필요"가 사라진다 — 배지(core)는 대표 턴을 세므로
+   * 사이드바에는 1이 있는데 도크 목록에는 그 이유가 보이지 않는다.
+   */
+  it('줄의 상태 점과 답변 필요 표시는 대표 턴에서 온다', () => {
+    renderDock([
+      makeRun({
+        id: 'c2', rootRunId: 'c1', createdAt: 20, status: 'canceled',
+        startedAt: null, endedAt: 3
+      }),
+      makeRun({
+        id: 'c1', rootRunId: 'c1', createdAt: 10, status: 'succeeded', endedAt: 2,
+        needsAnswer: true, userPrompt: '질문한 대화'
+      })
+    ])
+
+    const row = screen.getByText('질문한 대화', { selector: '.dock-conv-title' })
+      .closest('.dock-conv') as HTMLElement
+    const dot = within(row).getByRole('img', { name: 'succeeded' })
+    // 점의 **색**도 대표 턴에서 온다 — 이름만 보면 className이 마지막 턴으로 되돌아가도
+    // (회색 canceled 점) 초록인 채로 지나간다.
+    expect(dot).toHaveClass('status-succeeded')
+    expect(dot).not.toHaveClass('status-canceled')
+    expect(within(row).queryByRole('img', { name: 'canceled' })).toBeNull()
+    expect(within(row).getByText('답변 필요')).toBeInTheDocument()
   })
 
   it('처음에는 실행 패널을 보여주고 탭을 누르면 그 대화의 로그로 바뀐다', async () => {
@@ -230,12 +261,14 @@ describe('Dock', () => {
     expect(readLog).toHaveBeenCalledWith('run-1')
   })
 
-  it('실행 중인 run에만 취소 버튼을 보여주고 눌리면 취소한다', async () => {
+  it('실행 중인 run에만 헤더 멈추기 버튼을 보여주고 눌리면 취소한다', async () => {
+    // 실행 중인 턴을 겨누는 헤더 버튼의 이름은 대화록의 것과 같다 — "실행 중인 턴 멈추기".
     const cancel = vi.fn().mockResolvedValue(undefined)
     renderDock([makeRun({ status: 'running' })], null, makeClient({ cancel }))
 
     await userEvent.click(screen.getByText('토큰 버그 고쳐줘'))
-    await userEvent.click(screen.getByRole('button', { name: '취소' }))
+    const header = document.querySelector<HTMLElement>('.dock-header')!
+    await userEvent.click(within(header).getByRole('button', { name: '실행 중인 턴 멈추기' }))
     expect(cancel).toHaveBeenCalledWith('run-1')
   })
 
@@ -256,10 +289,75 @@ describe('Dock', () => {
     expect(cancel).toHaveBeenCalledWith('run-1')
   })
 
+  /**
+   * **헤더의 취소는 대화의 활성 턴을 겨눈다 — 실행 중인 턴이 먼저다**
+   * (`docs/sdlc/conversation-fixes/` spec FR-11).
+   *
+   * 예전에는 `createdAt` 기준 마지막 턴을 겨눠, 예약이 있으면 예약을 취소했고 실행 중인
+   * 턴을 멈출 버튼이 어디에도 없었다.
+   */
+  it('헤더 취소는 예약이 아니라 실행 중인 턴을 겨눈다', async () => {
+    const cancel = vi.fn().mockResolvedValue(undefined)
+    renderDock([
+      makeRun({ id: 'a2', rootRunId: 'a1', createdAt: 20, status: 'pending', startedAt: null }),
+      makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10, status: 'running', userPrompt: '도는 대화' })
+    ], null, makeClient({ cancel }))
+
+    await userEvent.click(screen.getByText('도는 대화', { selector: '.dock-conv-title' }))
+    // 대화록에도 1턴의 멈추기가 있다 — 헤더의 것만 콕 집는다.
+    const header = document.querySelector<HTMLElement>('.dock-header')!
+    await userEvent.click(within(header).getByRole('button', { name: '실행 중인 턴 멈추기' }))
+    expect(cancel).toHaveBeenCalledWith('a1')
+    expect(cancel).not.toHaveBeenCalledWith('a2')
+  })
+
+  it('헤더 버튼의 이름이 겨누는 턴을 말한다 — 예약 버블의 "취소"와 같은 이름으로 다른 턴을 멈추지 않는다', async () => {
+    // 예약이 걸린 대화에는 헤더 버튼과 예약 버블의 버튼이 함께 있다. 둘 다 "취소"면
+    // 스크린리더와 테스트가 어느 턴이 멈추는지 가를 수 없다. 이름이 같으면 같은 턴이다.
+    const cancel = vi.fn().mockResolvedValue(undefined)
+    renderDock([
+      makeRun({ id: 'a2', rootRunId: 'a1', createdAt: 20, status: 'pending', startedAt: null }),
+      makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10, status: 'running', userPrompt: '도는 대화' })
+    ], null, makeClient({ cancel }))
+
+    await userEvent.click(screen.getByText('도는 대화', { selector: '.dock-conv-title' }))
+    const header = document.querySelector<HTMLElement>('.dock-header')!
+    expect(within(header).getByRole('button', { name: '실행 중인 턴 멈추기' })).toBeInTheDocument()
+    expect(within(header).queryByRole('button', { name: '취소' })).toBeNull()
+
+    // 화면 전체에서 "취소"는 예약 버블 하나뿐이고, 그것은 예약을 겨눈다.
+    const cancels = screen.getAllByRole('button', { name: '취소' })
+    expect(cancels).toHaveLength(1)
+    await userEvent.click(cancels[0]!)
+    expect(cancel).toHaveBeenCalledWith('a2')
+    // "실행 중인 턴 멈추기"는 헤더와 대화록 어느 쪽이든 1턴을 겨눈다.
+    for (const stop of screen.getAllByRole('button', { name: '실행 중인 턴 멈추기' })) {
+      await userEvent.click(stop)
+    }
+    expect(cancel.mock.calls.filter(([id]) => id === 'a1')).toHaveLength(2)
+  })
+
+  it('예약을 취소해 마지막 턴이 끝났어도 도는 턴이 있으면 헤더 취소가 남는다', async () => {
+    // 마지막 턴(취소된 예약)으로 판정하면 버튼이 사라져 도는 턴을 멈출 방법이 없어진다.
+    const cancel = vi.fn().mockResolvedValue(undefined)
+    renderDock([
+      makeRun({
+        id: 'a2', rootRunId: 'a1', createdAt: 20, status: 'canceled', startedAt: null, endedAt: 3
+      }),
+      makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10, status: 'running', userPrompt: '도는 대화' })
+    ], null, makeClient({ cancel }))
+
+    await userEvent.click(screen.getByText('도는 대화', { selector: '.dock-conv-title' }))
+    const header = document.querySelector<HTMLElement>('.dock-header')!
+    await userEvent.click(within(header).getByRole('button', { name: '실행 중인 턴 멈추기' }))
+    expect(cancel).toHaveBeenCalledWith('a1')
+  })
+
   it('끝난 run에는 취소 버튼이 없다', async () => {
     renderDock([makeRun({ status: 'succeeded' })])
     await userEvent.click(screen.getByText('토큰 버그 고쳐줘'))
     expect(screen.queryByRole('button', { name: '취소' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '실행 중인 턴 멈추기' })).toBeNull()
   })
 
   it('답변을 기다리는 대화는 탭에 표시한다', () => {
@@ -420,6 +518,20 @@ describe('Dock 대화 수명 주기', () => {
     expect(client.runs.rename).toHaveBeenCalledWith('a1', '인증 정리')
   })
 
+  it('붙인 이름을 비우고 저장하면 빈 제목으로 rename해 파생 제목으로 되돌린다', async () => {
+    // `docs/sdlc/conversation-fixes/` spec FR-21. 비운 칸이 취소로 끝나면 한 번 붙인
+    // 이름을 영영 못 떼어 낸다. 저장소가 빈 문자열을 null로 저장한다(lifecycle FR-14) —
+    // IPC는 문자열만 받으므로 null이 아니라 ''를 넘긴다.
+    const client = makeClient()
+    renderDock([makeRun({ id: 'a1', rootRunId: 'a1', title: '붙인 이름', userPrompt: '첫 지시' })], null, client)
+
+    await userEvent.click(screen.getByRole('button', { name: '붙인 이름 이름 바꾸기' }))
+    await userEvent.clear(screen.getByRole('textbox', { name: '붙인 이름 새 이름' }))
+    await userEvent.keyboard('{Enter}')
+
+    expect(client.runs.rename).toHaveBeenCalledWith('a1', '')
+  })
+
   it('close가 실패하면 배너로 보여주고 대화는 그대로 열려 있다', async () => {
     const client = makeClient({ close: vi.fn().mockRejectedValue(new Error('못 끝냄')) })
     renderDock([makeRun({ id: 'a1', rootRunId: 'a1', userPrompt: '보던 대화' })], 'a1', client)
@@ -432,10 +544,113 @@ describe('Dock 대화 수명 주기', () => {
 })
 
 /**
+ * workspace 전환과 일회성 포커스 (`docs/sdlc/conversation-fixes/` spec FR-22).
+ *
+ * Dock은 workspace를 바꿔도 다시 마운트되지 않는다(App이 key를 주지 않는다). 그래서
+ * 고른 대화·보기·이름 편집이 그대로 남아, 새 workspace의 목록 위에 옛 workspace의
+ * 선택이 걸린다 — useRuns는 workspace가 바뀌어도 목록을 곧바로 비우지 않으므로 그
+ * 사이에는 옛 대화가 그대로 열려 있고 입력부도 그 대화를 겨눈다.
+ */
+describe('Dock workspace 전환', () => {
+  function dockProps(over: Partial<Parameters<typeof Dock>[0]> = {}): Parameters<typeof Dock>[0] {
+    return {
+      runs: [], error: null, workspaceId: 'w1', workspaces, repos, reposError: null,
+      queue: null, queueError: null, onChangeLimit: vi.fn(), chips: [], onRemoveChip: vi.fn(),
+      onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null,
+      focusConversationId: null, onFocusConsumed: vi.fn(),
+      ...over
+    }
+  }
+
+  function renderWith(props: Parameters<typeof Dock>[0], client: OneDeskClient = makeClient()) {
+    const wrap = (p: Parameters<typeof Dock>[0]) => (
+      <ClientProvider client={client}>
+        <RunEventProvider store={createRunEventStore()}>
+          <Dock {...p} />
+        </RunEventProvider>
+      </ClientProvider>
+    )
+    const view = render(wrap(props))
+    return { rerender: (p: Parameters<typeof Dock>[0]) => view.rerender(wrap(p)) }
+  }
+
+  const w1Runs = [makeRun({ id: 'a1', rootRunId: 'a1', status: 'succeeded', endedAt: 2, userPrompt: '옛 workspace 대화' })]
+
+  it('workspace가 바뀌면 보던 대화를 놓고 새 대화로 돌아간다', async () => {
+    const { rerender } = renderWith(dockProps({ runs: w1Runs }))
+    await userEvent.click(screen.getByText('옛 workspace 대화', { selector: '.dock-conv-title' }))
+    expect(screen.getByText('옛 workspace 대화', { selector: '.turn-user' })).toBeInTheDocument()
+
+    // 목록(runs)은 아직 옛 workspace의 것이다 — useRuns가 새 목록을 받기 전의 찰나다.
+    rerender(dockProps({ runs: w1Runs, workspaceId: 'w2' }))
+
+    expect(screen.queryByText('옛 workspace 대화', { selector: '.turn-user' })).toBeNull()
+    expect(screen.getByText('지시를 입력하면 대화가 시작됩니다')).toBeInTheDocument()
+  })
+
+  it('workspace가 바뀌면 고치던 대화 이름 칸이 닫힌다', async () => {
+    const { rerender } = renderWith(dockProps({ runs: w1Runs }))
+    await userEvent.click(screen.getByRole('button', { name: '옛 workspace 대화 이름 바꾸기' }))
+    expect(screen.getByRole('textbox', { name: '옛 workspace 대화 새 이름' })).toBeInTheDocument()
+
+    rerender(dockProps({ runs: w1Runs, workspaceId: 'w2' }))
+
+    expect(screen.queryByRole('textbox', { name: '옛 workspace 대화 새 이름' })).toBeNull()
+  })
+
+  it('workspace가 바뀌면 옛 대화에서 난 오류 배너가 사라진다', async () => {
+    // 옛 workspace 대화의 끝내기·이름 바꾸기·취소·자동 확인 실패가 새 workspace의 도크
+    // 위에 남으면, 사용자는 지금 보는 곳에서 무엇이 실패했는지 찾게 된다.
+    const client = makeClient({ close: vi.fn().mockRejectedValue(new Error('못 끝냄')) })
+    const { rerender } = renderWith(dockProps({ runs: w1Runs }), client)
+    await userEvent.click(screen.getByRole('button', { name: '옛 workspace 대화 대화 끝내기' }))
+    expect(await screen.findByText('못 끝냄')).toBeInTheDocument()
+
+    rerender(dockProps({ runs: w1Runs, workspaceId: 'w2' }))
+
+    expect(screen.queryByText('못 끝냄')).toBeNull()
+  })
+
+  it('workspace가 그대로면 고른 대화를 놓지 않는다', async () => {
+    // 초기화가 workspaceId 변화가 아니라 매 렌더에 걸리면 목록이 갱신될 때마다 튄다.
+    const { rerender } = renderWith(dockProps({ runs: w1Runs }))
+    await userEvent.click(screen.getByText('옛 workspace 대화', { selector: '.dock-conv-title' }))
+
+    rerender(dockProps({ runs: [...w1Runs] }))
+
+    expect(screen.getByText('옛 workspace 대화', { selector: '.turn-user' })).toBeInTheDocument()
+  })
+
+  it('focusConversationId로 대화를 열고 나면 소비했다고 알린다', () => {
+    // App이 그 값을 치워야 다음 마운트에 되살아나지 않는다.
+    const onFocusConsumed = vi.fn()
+    renderWith(dockProps({ runs: w1Runs, focusConversationId: 'a1', onFocusConsumed }))
+
+    expect(screen.getByText('옛 workspace 대화', { selector: '.turn-user' })).toBeInTheDocument()
+    expect(onFocusConsumed).toHaveBeenCalled()
+  })
+
+  it('소비한 포커스가 치워져도 연 대화는 그대로다', () => {
+    const { rerender } = renderWith(dockProps({ runs: w1Runs, focusConversationId: 'a1' }))
+
+    rerender(dockProps({ runs: w1Runs, focusConversationId: null }))
+
+    expect(screen.getByText('옛 workspace 대화', { selector: '.turn-user' })).toBeInTheDocument()
+  })
+
+  it('포커스가 없으면 소비를 알리지 않는다', () => {
+    const onFocusConsumed = vi.fn()
+    renderWith(dockProps({ runs: w1Runs, onFocusConsumed }))
+    expect(onFocusConsumed).not.toHaveBeenCalled()
+  })
+})
+
+/**
  * 본 대화는 저절로 확인된다 (`docs/sdlc/conversation-lifecycle/` FR-5~FR-8).
  *
  * 인박스에 가서 "확인함"을 눌러야만 배지가 줄던 것이 이 기능이 고치려던 증상이다.
- * 판정은 core의 배지 집계와 **같은 표**(`shared/inbox.ts`의 ACTIONABLE)에서 온다.
+ * 판정은 core의 배지 집계와 **같은 표**(`shared/inbox.ts`의 INBOX_RULES)의 `clearsOnView`
+ * 칸에서, 대화의 **대표 턴**(`representativeTurn`)으로 한다.
  */
 describe('Dock 자동 확인', () => {
   const done = () => makeRun({
@@ -488,13 +703,88 @@ describe('Dock 자동 확인', () => {
     expect(client.runs.markReviewed).not.toHaveBeenCalled()
   })
 
-  it('실패도 눌러도 찍지 않는다', async () => {
+  /**
+   * **실패·중단은 배지에 세되, 열면 확인된다** (`docs/sdlc/conversation-fixes/` spec FR-4·FR-6).
+   *
+   * 2026-09-23에는 "실패는 열어 봐도 남는다"였다. 사용자가 "실패한 세션은 클릭해도 1이 안
+   * 없어진다"고 보고해 뒤집었다 — OpenCode의 오류 알림처럼 보면 사라진다.
+   */
+  it('실패는 누르면 확인 표시를 찍는다', async () => {
     const client = makeClient()
     renderDock([makeRun({
       id: 'a1', rootRunId: 'a1', status: 'failed', endedAt: 2, userPrompt: '깨진 대화'
     })], null, client)
 
     await userEvent.click(screen.getByText('깨진 대화', { selector: '.dock-conv-title' }))
+
+    expect(client.runs.markReviewed).toHaveBeenCalledWith('a1', 'confirmed')
+  })
+
+  it('중단됨도 누르면 확인 표시를 찍는다', async () => {
+    const client = makeClient()
+    renderDock([makeRun({
+      id: 'a1', rootRunId: 'a1', status: 'interrupted', endedAt: 2, userPrompt: '끊긴 대화'
+    })], null, client)
+
+    await userEvent.click(screen.getByText('끊긴 대화', { selector: '.dock-conv-title' }))
+
+    expect(client.runs.markReviewed).toHaveBeenCalledWith('a1', 'confirmed')
+  })
+
+  /**
+   * **판정은 마지막 턴이 아니라 대표 턴으로 한다** (spec FR-1·FR-3).
+   *
+   * 답변 필요로 멈춘 1턴 뒤에 예약했다가 취소한 2턴이 있다. 마지막 턴(canceled =
+   * 대기 중 취소됨)으로 판정하면 "열면 확인된다"에 걸려 **답해야 할 질문이 인박스에서
+   * 조용히 내려간다.** 배지(core)는 대표 턴을 보므로 둘이 어긋나기도 한다.
+   */
+  it('시작하지 못하고 취소된 예약은 건너뛰고 대표 턴으로 판정한다', async () => {
+    const client = makeClient()
+    renderDock([
+      makeRun({
+        id: 'a2', rootRunId: 'a1', createdAt: 20, status: 'canceled',
+        startedAt: null, endedAt: 3
+      }),
+      makeRun({
+        id: 'a1', rootRunId: 'a1', createdAt: 10, status: 'succeeded', endedAt: 2,
+        needsAnswer: true, userPrompt: '질문한 대화'
+      })
+    ], null, client)
+
+    await userEvent.click(screen.getByText('질문한 대화', { selector: '.dock-conv-title' }))
+
+    expect(client.runs.markReviewed).not.toHaveBeenCalled()
+  })
+
+  it('도는 턴 뒤의 예약이 취소됐어도 대화는 아직 진행 중이라 찍지 않는다', async () => {
+    // 마지막 턴(취소된 예약)은 끝났지만 대표 턴(2턴)은 아직 돈다. "끝났는가"도 대표
+    // 턴으로 봐야 한다 — 마지막 턴으로 보면 도는 중인 대화를 "봤다"고 내린다.
+    const client = makeClient()
+    renderDock([
+      makeRun({
+        id: 'a2', rootRunId: 'a1', createdAt: 20, status: 'canceled',
+        startedAt: null, endedAt: 3
+      }),
+      makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10, status: 'running', userPrompt: '도는 대화' })
+    ], null, client)
+
+    await userEvent.click(screen.getByText('도는 대화', { selector: '.dock-conv-title' }))
+
+    expect(client.runs.markReviewed).not.toHaveBeenCalled()
+  })
+
+  it('예약이 아직 기다리는 중이면 찍지 않는다', async () => {
+    // 앞 턴이 실패로 끝났어도 대화는 아직 진행 중이다 — 예약이 곧 뜬다.
+    const client = makeClient()
+    renderDock([
+      makeRun({ id: 'a2', rootRunId: 'a1', createdAt: 20, status: 'pending', startedAt: null }),
+      makeRun({
+        id: 'a1', rootRunId: 'a1', createdAt: 10, status: 'failed', endedAt: 2,
+        userPrompt: '이어지는 대화'
+      })
+    ], null, client)
+
+    await userEvent.click(screen.getByText('이어지는 대화', { selector: '.dock-conv-title' }))
 
     expect(client.runs.markReviewed).not.toHaveBeenCalled()
   })

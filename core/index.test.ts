@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { createAdapters, createCore, type Core } from './index'
 import { DEFAULT_CONCURRENCY_LIMIT } from './db/repositories/setting'
 import type { InboxCounts, McpStatus, Run } from '@shared/models'
-import { ACTIONABLE, inboxCategory } from '@shared/inbox'
+import { INBOX_RULES, inboxCategory } from '@shared/inbox'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const MIGRATIONS_DIR = resolve(HERE, '../drizzle')
@@ -159,7 +159,7 @@ describe('createCore', () => {
       // 어느 플랫폼이든 그 run이 유일한 대화이므로, 집계는 그 대화의 카테고리가
       // 정하는 값과 정확히 같다.
       const finished = core.runs.get(run.id)
-      const expected = ACTIONABLE[inboxCategory(finished)] ? 1 : 0
+      const expected = INBOX_RULES[inboxCategory(finished)].badge ? 1 : 0
       expect(core.inbox.counts().total).toBe(expected)
     } finally {
       // 전역을 건드렸으니 반드시 되돌린다. 남기면 뒤 테스트가 가짜 CLI를 쓴다.
@@ -273,7 +273,7 @@ describe('createCore', () => {
     const core = open(dataDir)
     const seeded = seedRun(core, dataDir, '확인 대상')
     // 배지가 세는 카테고리로 끝낸다 — 완료·미확인은 애초에 0이라(shared/inbox.ts의
-    // ACTIONABLE, spec FR-4) succeeded로 두면 "줄어든 것을 push한다"를 확인할 수 없다.
+    // INBOX_RULES, spec FR-4) succeeded로 두면 "줄어든 것을 push한다"를 확인할 수 없다.
     core.runs.markFinished(seeded.id, {
       status: 'failed', resultText: null, externalSessionId: null,
       needsAnswer: false, exitCode: 1, errorMessage: '깨짐',
@@ -655,6 +655,85 @@ describe('core.workspaces.checkAgents', () => {
       const status = await core.workspaces.checkAgents('없는-id')
       expect(status['claude-code']).toHaveProperty('ok')
       expect(status.opencode).toHaveProperty('ok')
+    })
+  })
+
+  it('opencode 2.x는 설정 화면과 실행이 같은 이유로 막고, 버전은 한 번만 읽는다 (FR-17)', async () => {
+    // `docs/sdlc/conversation-fixes/` spec FR-17. 버전 게이트를 preflight에 둔 것이 곧
+    // "checkAgents와 실행이 같은 판정"이다 — 한쪽에만 있으면 설정 화면은 초록인데 실행은
+    // 막히거나, 반대로 화면은 빨간데 2.x가 권한 정책 없이 돈다. 판정은 (경로, 크기, mtime)
+    // 캐시를 함께 쓰므로 두 번의 확인과 한 번의 실행이 프로세스를 한 번만 띄운다.
+    await withoutOverride(async () => {
+      const dataDir = makeDataDir()
+      const script = join(dataDir, 'opencode-2.mjs')
+      const calls = join(dataDir, 'version-calls.txt')
+      writeFileSync(script, [
+        "import { appendFileSync } from 'node:fs'",
+        'process.stdin.resume()',
+        "process.stdin.on('end', () => {",
+        "  if (!process.argv.includes('--version')) return",
+        `  appendFileSync(${JSON.stringify(calls)}, 'x')`,
+        "  process.stdout.write('2.0.18\\n')",
+        '})'
+      ].join('\n'), { mode: 0o755 })
+
+      // 셔뱅이 없는 .mjs다 — Windows는 런처 없이 띄우지 못한다(driver.ts와 같은 통로).
+      const previousLauncher = process.env['ONE_DESK_AGENT_LAUNCHER']
+      process.env['ONE_DESK_AGENT_LAUNCHER'] = process.execPath
+      try {
+        const core = open(dataDir)
+        const ws = core.workspaces.create({ name: 'ws' }).id
+        core.workspaces.updatePaths({ id: ws, claudePath: null, opencodePath: script })
+
+        const status = await core.workspaces.checkAgents(ws)
+        expect(status.opencode.ok).toBe(false)
+        expect(status.opencode.reason).toContain('2.x')
+        // 다시 열어도 같은 답이다 — 캐시에서 온다.
+        expect((await core.workspaces.checkAgents(ws)).opencode).toEqual(status.opencode)
+
+        const run = await core.execution.start({
+          workspaceId: ws, agentKind: 'opencode', cwd: dataDir,
+          permission: 'read_only', userPrompt: 'x', context: []
+        })
+        const saved = core.runs.get(run.id)
+        expect(saved.status).toBe('failed')
+        // 실행을 막은 이유가 설정 화면이 보여준 이유와 글자까지 같다.
+        expect(saved.errorMessage).toBe(status.opencode.reason)
+        expect(saved.startedAt).toBeNull()
+
+        expect(readFileSync(calls, 'utf8')).toBe('x')
+        close(core)
+      } finally {
+        if (previousLauncher === undefined) delete process.env['ONE_DESK_AGENT_LAUNCHER']
+        else process.env['ONE_DESK_AGENT_LAUNCHER'] = previousLauncher
+      }
+    })
+  })
+
+  it('opencode 1.x는 설정 화면에서 그 실행 파일로 잡힌다', async () => {
+    // 게이트가 멀쩡한 설치본까지 막지 않는다는 반대쪽 절반이다.
+    await withoutOverride(async () => {
+      const dataDir = makeDataDir()
+      const script = join(dataDir, 'opencode-1.mjs')
+      writeFileSync(script, [
+        'process.stdin.resume()',
+        "process.stdin.on('end', () => { process.stdout.write('1.18.30\\n') })"
+      ].join('\n'), { mode: 0o755 })
+
+      const previousLauncher = process.env['ONE_DESK_AGENT_LAUNCHER']
+      process.env['ONE_DESK_AGENT_LAUNCHER'] = process.execPath
+      try {
+        const core = open(dataDir)
+        const ws = core.workspaces.create({ name: 'ws' }).id
+        core.workspaces.updatePaths({ id: ws, claudePath: null, opencodePath: script })
+
+        const status = await core.workspaces.checkAgents(ws)
+        expect(status.opencode).toEqual({ ok: true, executable: script })
+        close(core)
+      } finally {
+        if (previousLauncher === undefined) delete process.env['ONE_DESK_AGENT_LAUNCHER']
+        else process.env['ONE_DESK_AGENT_LAUNCHER'] = previousLauncher
+      }
     })
   })
 

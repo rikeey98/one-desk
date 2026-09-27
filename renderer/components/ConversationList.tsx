@@ -40,15 +40,20 @@ function Row({ conv, selected, repos, onPick, onRename, onClose, renaming, onSta
   if (renaming) {
     return (
       <li className="dock-conv-row">
+        {/* 비워서 저장하면 붙인 이름을 떼고 파생 제목으로 돌아간다 (FR-21). */}
         <RenameField
           initial={conv.named ? conv.title : ''}
           label={`${conv.title} 새 이름`}
+          allowEmpty
           onSubmit={(title) => onRename(conv, title)}
           onCancel={onCancelRename}
         />
       </li>
     )
   }
+
+  // 점의 색·이름·툴팁이 **한 값**에서 나온다 — 따로 적으면 색만 다른 턴을 볼 수 있다.
+  const status = conv.state.status
 
   return (
     <li className="dock-conv-row">
@@ -61,16 +66,19 @@ function Row({ conv, selected, repos, onPick, onRename, onClose, renaming, onSta
           {/* **글자 없이 점만.** 좁은 레일에서 'succeeded' 같은 영어 단어가 제목을
               밀어낸다 — 여기서 중요한 것은 제목이다(2026-09-23 사용자 결정). 이름은
               role="img"+aria-label로 남고, 글자로 된 상태 칩은 대화록의 턴마다 그대로
-              보인다. */}
+              보인다.
+              **마지막 턴이 아니라 대표 턴(`conv.state`)이다** — 시작도 못 하고 취소된
+              예약이 앞 턴의 실패·답변 필요를 가리면 배지(core)와 줄이 다른 것을 말한다
+              (docs/sdlc/conversation-fixes/ spec FR-3). */}
           <span
-            className={`status-dot status-${conv.last.status}`}
+            className={`status-dot status-${status}`}
             role="img"
-            aria-label={conv.last.status}
-            title={conv.last.status}
+            aria-label={status}
+            title={status}
           />
           {/* succeeded로 끝나도 agent가 질문하고 멈춘 것일 수 있다. 배지가 없으면
               구분이 안 된다 — 이것만은 글자로 남긴다. */}
-          {conv.last.needsAnswer && <span className="needs-answer">답변 필요</span>}
+          {conv.state.needsAnswer && <span className="needs-answer">답변 필요</span>}
           {/* 잘린 제목은 호버로 읽는다. */}
           <span className="dock-conv-title" title={conv.title}>{conv.title}</span>
         </span>

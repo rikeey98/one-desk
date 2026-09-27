@@ -2,16 +2,17 @@ import { useEffect, useMemo, useState , useRef } from 'react'
 import { useClient } from '../client/ClientProvider'
 import { clampDockHeight, readDockHeight, writeDockHeight, DEFAULT_DOCK_RATIO } from '../dockHeight'
 import { ConversationPanel } from './ConversationPanel'
+import { STOP_RUNNING_TURN } from './Transcript'
 import { ConversationList } from './ConversationList'
 import { SlotIndicator } from './SlotIndicator'
 import { conversationIdOf, groupConversations, type Conversation } from '../conversation'
-import { ACTIONABLE, inboxCategory } from '@shared/inbox'
+import { INBOX_RULES, inboxCategory } from '@shared/inbox'
 import type { ContextChip } from '../context'
 import type { QueueSnapshot, Repo, Run, Workspace } from '@shared/models'
 
 export function Dock({
   runs, error, workspaceId, workspaces, repos, reposError, queue, queueError, onChangeLimit, chips, onRemoveChip,
-  onRunStarted, draftPrompt, draftCwd, focusConversationId
+  onRunStarted, draftPrompt, draftCwd, focusConversationId, onFocusConsumed
 }: {
   runs: Run[]
   error: string | null
@@ -31,6 +32,13 @@ export function Dock({
   draftCwd: string | null
   /** 인박스의 "대화 열기"가 지정한 대화. null이면 기본대로 새 대화 탭이 열린다. */
   focusConversationId: string | null
+  /**
+   * `focusConversationId`로 대화를 열었다고 알린다 — App이 그 값을 치운다
+   * (`docs/sdlc/conversation-fixes/` spec FR-22). 일회성 지시라, 남아 있으면 Dock이 다시
+   * 마운트될 때마다(설정에 갔다 오기) 그 대화가 되살아난다. **필수다** — 선택 인자면
+   * App의 배선 한 줄을 지워도 조용히 컴파일된다.
+   */
+  onFocusConsumed: () => void
 }) {
   const client = useClient()
   const [open, setOpen] = useState(true)
@@ -85,6 +93,25 @@ export function Dock({
   const [showClosed, setShowClosed] = useState(false)
   const [renamingId, setRenamingId] = useState<string | null>(null)
 
+  // workspace가 바뀌면 고른 대화·보기·이름 편집을 처음으로 돌린다 (spec FR-22). App은
+  // Dock에 key를 주지 않아 workspace를 바꿔도 다시 마운트되지 않는다 — 남겨 두면 새
+  // workspace의 목록 위에 옛 선택이 걸리고, useRuns가 새 목록을 받기 전의 찰나에는 옛
+  // 대화가 그대로 열린 채 입력부가 그 대화를 겨눈다. 옛 대화에서 난 오류 배너도 함께
+  // 치운다 — 새 workspace의 도크 위에 남으면 지금 보는 곳에서 무엇이 실패했는지 찾게 된다.
+  //
+  // **effect가 아니라 렌더 중에 맞춘다**(React의 "prop이 바뀌면 state 조정" 패턴). effect면
+  // 옛 선택과 새 workspaceId가 함께 그려지는 한 프레임이 생긴다. 아래 포커스 effect는
+  // 커밋 뒤에 도므로, 둘이 같이 바뀌어도 포커스가 이긴다. 끝낸 대화 펼침(`showClosed`)은
+  // 선택이 아니라 보기 취향이라 두고 간다.
+  const [shownWorkspaceId, setShownWorkspaceId] = useState(workspaceId)
+  if (shownWorkspaceId !== workspaceId) {
+    setShownWorkspaceId(workspaceId)
+    setView('new')
+    setPickedId(null)
+    setRenamingId(null)
+    setActionError(null)
+  }
+
   // useRuns는 최신순 평평한 목록을 준다. 목록은 run이 아니라 대화 단위다.
   const conversations = useMemo(() => groupConversations(runs), [runs])
   // 끝낸 대화는 기본 목록에서 내려간다 (spec FR-18·FR-20). 지우는 것이 아니라
@@ -98,11 +125,16 @@ export function Dock({
 
   // 위 초기값은 "마운트 시점"만 잡는다 — Dock이 마운트된 채로 focusConversationId가
   // 나중에 바뀌는 경우(지금 배선에서는 일어나지 않지만)도 대비해 effect로도 맞춘다.
+  //
+  // 연 뒤에는 소비했다고 알린다 (FR-22) — App이 값을 치워 null이 되면 이 effect는
+  // 아무것도 하지 않으므로 연 대화는 그대로다. onFocusConsumed는 의존성에 넣지 않는다:
+  // App이 매 렌더 새 함수를 넘기므로, 넣으면 지시가 치워지기 전 렌더마다 다시 연다.
   useEffect(() => {
     if (!focusConversationId) return
     setPickedId(focusConversationId)
     setView('conversation')
     setOpen(true)
+    onFocusConsumed()
   }, [focusConversationId])
 
   // 폴백은 "고른 적이 없을 때"(pickedId===null)에만 적용한다. pickedId가 있는데
@@ -156,17 +188,23 @@ export function Dock({
   /**
    * 본 대화를 인박스에서 내린다 (FR-5).
    *
-   * 판정은 core의 배지 집계와 **같은 표**에서 온다(`shared/inbox.ts`의 `ACTIONABLE`) —
-   * 배지가 세는 것은 열어 봤다고 내려가지 않고, 세지 않는 것은 열면 내려간다.
-   * 표를 두 곳에 적으면 어느 쪽에도 안 걸리는 카테고리가 생긴다.
+   * 판정은 core의 배지 집계와 **같은 표**의 다른 칸에서 온다(`shared/inbox.ts`의
+   * `INBOX_RULES` — 배지는 `badge`, 여기는 `clearsOnView`). 열어 봐도 남는 것은 답변
+   * 필요뿐이고, 실패·중단은 배지에 세지만 열면 내려간다(`docs/sdlc/conversation-fixes/`
+   * spec FR-4·FR-6). 표를 두 곳에 적으면 어느 쪽에도 안 걸리는 카테고리가 생긴다.
+   *
+   * **마지막 턴이 아니라 대표 턴(`conv.state`)으로 판정한다** (FR-3). 시작도 못 하고
+   * 취소된 예약으로 판정하면 그 앞 턴의 답변 필요가 "대기 중 취소됨"에 가려 열자마자
+   * 조용히 내려간다. 배지(core)도 같은 대표 턴을 센다.
    *
    * 되돌리는 자리는 core에 이미 있다: `create(parentRunId)`가 뿌리의 `reviewedAt`을
    * 지우므로, 새 턴이 오면 배지에 다시 오른다(FR-7).
    */
   async function confirmSeen(conv: Conversation) {
-    if (ACTIONABLE[inboxCategory(conv.last)]) return
-    // 끝나지 않은 대화는 인박스 소속 자체가 아니다.
-    if (conv.last.endedAt === null) return
+    if (!INBOX_RULES[inboxCategory(conv.state)].clearsOnView) return
+    // 끝나지 않은 대화는 인박스 소속 자체가 아니다. 대표 턴이 아직 돌거나 기다리는
+    // 중이면(예약이 남아 있으면) 대화는 진행 중이다.
+    if (conv.state.endedAt === null) return
     // 뿌리가 이미 확인됐으면 부를 것이 없다. core도 같은 가드가 있지만, IPC 왕복을
     // 목록 클릭마다 하는 것이 아깝다.
     const root = conv.runs.find((r) => r.id === conv.id) ?? conv.runs[0]!
@@ -235,11 +273,21 @@ export function Dock({
           {open ? '▾' : '▴'} 실행
         </button>
         <SlotIndicator snapshot={queue} onChangeLimit={onChangeLimit} />
-        {/* 대기 중인 턴도 취소할 수 있어야 한다 — 프로세스가 없을 뿐 사용자에겐 똑같이 걸려 있다.
-            Transcript의 턴별 취소는 pending에만 있어 running을 덮지 못한다 (FR-24). */}
-        {view === 'conversation' && (selected?.last.status === 'running' || selected?.last.status === 'pending') && (
-          <button type="button" className="dock-cancel" onClick={() => void cancel(selected.last.id)}>
-            취소
+        {/* **대화의 활성 턴을 겨눈다 — 실행 중인 턴이 먼저다** (`docs/sdlc/conversation-fixes/`
+            spec FR-11). 마지막 턴(`last`)을 겨누면 예약이 있을 때 예약을 취소하고 실행 중인
+            턴은 멈출 수 없으며, 예약을 취소하고 나면 마지막 턴이 끝나 버튼 자체가 사라진다.
+            대기 중인 턴도 겨눌 수 있다 — 프로세스가 없을 뿐 사용자에겐 똑같이 걸려 있다.
+            **이름이 겨누는 턴을 말한다** — 대화록에서 같은 턴을 겨누는 버튼과 같은 이름이다.
+            실행 중이면 "실행 중인 턴 멈추기", 예약이면 예약 버블과 같은 "취소". 늘 "취소"로
+            두면 예약이 걸린 대화에서 헤더와 예약 버블이 같은 이름으로 다른 턴을 멈춘다. */}
+        {view === 'conversation' && selected?.active && (
+          <button
+            type="button"
+            className="dock-cancel"
+            aria-label={selected.active.status === 'running' ? STOP_RUNNING_TURN : undefined}
+            onClick={() => { if (selected.active) void cancel(selected.active.id) }}
+          >
+            {selected.active.status === 'running' ? '멈추기' : '취소'}
           </button>
         )}
       </header>

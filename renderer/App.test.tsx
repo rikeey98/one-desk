@@ -654,6 +654,29 @@ describe('App', () => {
     expect(await screen.findByPlaceholderText(/무엇을 시킬지/)).toHaveValue('')
   })
 
+  it('"대화 열기"는 한 번만 연다 — 다른 화면에 갔다 오면 그 대화로 되돌아가지 않는다', async () => {
+    // `docs/sdlc/conversation-fixes/` spec FR-22. focusConversationId는 "이 대화를 열어라"는
+    // 일회성 지시다. 소비한 뒤에도 남아 있으면 Dock이 다시 마운트될 때마다(설정에 갔다
+    // 오기, 다른 workspace 고르기) 그 대화가 되살아난다 — 다른 workspace의 대화를
+    // 가리킨 채로 입력부가 열릴 수도 있다.
+    const a = makeRun({ id: 'a-done', userPrompt: 'A 대화 시작' })
+    const client = makeClient({}, { repos: [makeRepo('r1', 'api', '/tmp/api')], inbox: [a] })
+    renderApp(client)
+
+    await openInbox()
+    await userEvent.click(await screen.findByRole('button', { name: '대화 열기' }))
+    expect(await screen.findByText('A 대화 시작', { selector: '.turn-user' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+    await screen.findByRole('heading', { name: '설정' })
+    // 인박스에 항목이 있어 workspace 줄에 배지가 붙는다("ws1 1") — 앞부분으로 잡는다.
+    await userEvent.click(screen.getByRole('button', { name: /^ws1( \d+)?$/ }))
+
+    // 다시 마운트된 Dock은 기본대로 새 대화를 연다.
+    expect(await screen.findByText('지시를 입력하면 대화가 시작됩니다')).toBeInTheDocument()
+    expect(screen.queryByText('A 대화 시작', { selector: '.turn-user' })).toBeNull()
+  })
+
   it('"다시 실행"은 이미 열어 둔 다른 대화가 아니라 새 대화 탭을 연다', async () => {
     // restart의 setFocusConversationId(null)이 지키는 계약이다. 먼저 대화 A를
     // "대화 열기"로 열어 focusConversationId가 A의 뿌리로 세워진 채로 인박스에

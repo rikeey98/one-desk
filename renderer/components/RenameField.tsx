@@ -6,11 +6,18 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
  * 이 앱에는 모달이 없다(설계 §5) — 목록의 이름이 그 자리에서 입력창으로 바뀐다.
  * Enter와 포커스 잃기는 저장, Esc는 취소다. 바뀐 것이 없거나 빈 이름이면
  * 저장하지 않고 취소로 끝낸다 — 헛된 쓰기가 updatedAt만 올리는 것을 막는다.
+ *
+ * `allowEmpty`면 빈 이름도 저장한다(`''`로 부른다). 대화 제목이 그렇다 — 비우면
+ * 파생 제목으로 돌아가므로, 빈 칸을 취소로 삼키면 한 번 붙인 이름을 영영 못 뗀다
+ * (`docs/sdlc/conversation-fixes/` spec FR-21). workspace·repo는 이름이 없을 수 없어
+ * 켜지 않는다.
  */
-export function RenameField({ initial, label, onSubmit, onCancel }: {
+export function RenameField({ initial, label, allowEmpty = false, onSubmit, onCancel }: {
   initial: string
   /** 접근성 이름. 무엇의 이름을 고치는 중인지 읽어줘야 한다 */
   label: string
+  /** 비운 이름을 "이름 지우기"로 저장한다 */
+  allowEmpty?: boolean
   onSubmit: (name: string) => void
   onCancel: () => void
 }) {
@@ -30,7 +37,8 @@ export function RenameField({ initial, label, onSubmit, onCancel }: {
     if (done.current) return
     done.current = true
     const trimmed = value.trim()
-    if (trimmed === '' || trimmed === initial) {
+    // 처음부터 비어 있던 칸을 그대로 닫은 것은 첫 조건("바뀐 것 없음")에 걸린다.
+    if (trimmed === initial || (trimmed === '' && !allowEmpty)) {
       onCancel()
       return
     }

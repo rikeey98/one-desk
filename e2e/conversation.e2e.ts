@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { launchApp } from './driver'
+import { clickRowAction } from './rowAction'
 
 describe('대화', () => {
   it('한 세션에서 세 턴을 주고받고 인박스에는 한 줄만 남는다', async () => {
@@ -183,10 +184,11 @@ describe('대화', () => {
    * 저장소의 트랜잭션. `create(parentRunId)`가 `closedAt`을 지우는 반대쪽 절반까지
    * 한 시나리오 안에서 확인한다.
    *
-   * **자동 확인은 여기서 검증하지 않는다.** 가짜 CLI는 Windows에서 spawn조차 되지
-   * 않아 run이 항상 failed(=ACTIONABLE)로 끝나고, macOS에서는 succeeded(=자동 확인
-   * 대상)로 끝난다 — 플랫폼마다 정답이 반대인 e2e가 된다(CLAUDE.md). 그 규칙은
-   * `Dock.test.tsx`가 status를 직접 세워 양쪽 다 고정한다.
+   * **자동 확인은 여기서 검증하지 않는다** — 이 시나리오는 끝내기와 되살아남만 본다.
+   * e2e의 run은 driver가 `ONE_DESK_AGENT_LAUNCHER`로 node를 물려 두 플랫폼에서 똑같이
+   * 성공한다(CLAUDE.md). 자동 확인 규칙(`INBOX_RULES`의 `clearsOnView` — 실패·중단·완료는
+   * 열면 확인되고 답변 필요만 남는다)은 `Dock.test.tsx`가 status를 직접 세워 카테고리마다
+   * 고정한다.
    */
   it('대화를 끝내면 목록에서 내려가고, 턴을 이으면 되살아난다', async () => {
     const app = await launchApp()
@@ -217,9 +219,9 @@ describe('대화', () => {
     await expect.poll(() => page.locator('.dock-conv').count(), { timeout: 10_000 }).toBe(1)
 
     // 줄 끝 아이콘은 폭 0으로 접혀 있다 — 줄을 먼저 hover해야 누를 수 있다.
+    // 헬퍼가 눌릴 수 있을 때까지 hover를 다시 건다(FR-23).
     const row = page.locator('.dock-conv-row').first()
-    await row.hover()
-    await row.getByRole('button', { name: /대화 끝내기/ }).click()
+    await clickRowAction(row, /대화 끝내기/)
 
     // 기본 목록에서 내려가고, 보고 있던 대화였으므로 새 대화로 돌아온다(FR-23).
     await expect.poll(() => page.locator('.dock-conv').count(), { timeout: 10_000 }).toBe(0)

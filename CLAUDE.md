@@ -49,7 +49,12 @@ workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 
 
 **`checkAgents`는 실행과 같은 판정을 써야 한다.** `resolveAgentPath` → 어댑터 `preflight`를
 그대로 탄다(`ONE_DESK_AGENT_PATH`가 workspace 설정을 이기는 것까지 같다). 따로 구현하면
-**설정 화면은 초록인데 실행 버튼은 막히는** 상태가 생긴다. 프로세스를 띄우지 않으므로 값싸다.
+**설정 화면은 초록인데 실행 버튼은 막히는** 상태가 생긴다. claude는 프로세스를 띄우지 않아
+값싸다. **opencode는 처음 한 번 `--version`을 띄운다** — 2.x를 막는 버전 게이트가 preflight
+안에 있기 때문이다(`docs/sdlc/conversation-fixes/` FR-17). 같은 판정을 쓰는 규칙은 게이트를
+preflight에 둔 것으로 지켜진다 — `core/index.test.ts`의 "opencode 2.x는 설정 화면과 실행이
+같은 이유로 막고, 버전은 한 번만 읽는다"가 사유의 글자까지 비교한다. 결과는 (경로, 크기,
+mtime)으로 캐시하므로 그 뒤로는 stat뿐이다.
 e2e에서 진짜 경로를 넣어 검증하려면 `launchApp({ agentPath: '' })`로 그 변수를 비워야 한다 —
 비우지 않으면 무엇을 넣든 가짜 CLI가 이긴다.
 
@@ -117,7 +122,8 @@ SIGTERM 유예를 쓰면 모델 호출까지 진행할 수 있다. OpenCode에�
   세지 않는다(예전에는 대화 수만큼 단조 증가했다). 인박스 *목록*은 그대로다.
 - **본 대화는 저절로 확인된다.** 도크 목록에서 대화를 **명시적으로 누르면** 뿌리에
   확인 표시가 찍힌다. 되돌리는 자리는 원래 있었다 — `create(parentRunId)`가 뿌리의
-  `reviewedAt`을 지우므로 새 턴이 오면 배지에 다시 오른다.
+  `reviewedAt`을 지우므로 새 턴이 오면 배지에 다시 오른다. **열어 봐도 남는 것은 답변
+  필요뿐이다** — 실패·중단은 배지에 세지만 열면 내려간다(2026-09-27, `conversation-fixes`).
 - **대화를 끝낼 수 있다.** 줄 끝 체크(`IconCheck` — ×는 삭제로 읽힌다)가 `closed_at`을
   찍고 **같은 트랜잭션에서 확인도 겸한다.** 끝낸 대화는 목록 아래 "끝낸 대화" 토글로
   내려가고, 턴을 이으면 되살아난다.
@@ -125,6 +131,34 @@ SIGTERM 유예를 쓰면 모델 호출까지 진행할 수 있다. OpenCode에�
   갈렸다(`.dock-side`/`.dock-main`). 줄마다 제목·상태·repo·턴 수·시각이 보인다.
 - **제목은 폴백 사다리다** — 사용자가 붙인 이름 > 담긴 첫 이슈·메모(`이름 +N`) >
   첫 repo 이름 > 첫 지시의 첫 줄.
+
+**대화의 확인된 결함 묶음을 고쳤다** (`docs/sdlc/conversation-fixes/`). 마이그레이션 없음.
+
+- **대화의 상태는 대표 턴이다** — 가장 최근 턴이 아니라 `representativeTurn`(아래 함정 절).
+  도크 목록의 점·답변 필요·자동 확인과 인박스·배지가 같은 턴을 본다.
+- **취소는 누른 그 턴을 누른 순간에 멈춘다.** launch 중(행은 있고 큐에는 아직 없다)에
+  온 취소도 표식으로 잡는다. 실행 중인 턴은 대화록과 도크 헤더의 "실행 중인 턴 멈추기"로
+  멈춘다 — 헤더는 대화의 활성 턴(running 우선)을 겨누고, 이름이 곧 겨누는 턴이다.
+- **취소가 뿌리에 찍는 것은 그 대화에 다른 활성 턴이 없을 때만이다.** 실행 중에 멈춘
+  턴은 그 프로세스가 취소로 끝날 때 한 번 더 판정하고(두 취소가 겹쳐도 찍힌다), 이미
+  끝난 턴에 온 취소는 아무것도 하지 않는다. **타임아웃은 failed다.**
+- **run의 성패는 종료 코드가 이긴다** — opencode가 text 줄마다 합성하는 succeeded가
+  exit 1을 못 이긴다. opencode의 `{"type":"error"}` 줄은 실패 이유가 된다.
+- **세션 id는 도는 중에 저장된다**(`saveExternalSessionId`) — 첫 턴이 앱 종료로 끊겨도
+  이을 수 있다. 종료 기록의 null은 그 값을 지우지 않는다.
+- **OpenCode 2.x는 preflight가 막는다**(권한 환경변수를 따른다는 보장이 없다). 판정은
+  (경로, 크기, mtime)으로 캐시하되 못 읽은 판정은 캐시하지 않는다.
+- **Windows 취소는 taskkill `/T /F`로 트리째 죽인다.** 앱 종료 경로(`cancelAll`)는 그것을
+  기다린다(아래 함정 절).
+- **읽기 전용·편집 허용에도 할 일 도구가 산다** — `--tools` 화이트리스트에 `Task*` 넷을
+  더했다(아래 함정 절).
+- 작은 것 넷: `readLog`가 비동기이고 로그 되살리기는 seq 병합이다, 브리지가 SSE에서 요청
+  id에 맞는 응답을 고른다, 대화 이름을 비우면 파생 제목으로 돌아간다, workspace를 바꾸면
+  도크의 선택·이름 칸·오류 배너가 처음 상태로 돌아간다.
+- **화면에 새로 생긴 것은 "실행 중인 턴 멈추기" 버튼 하나다** — 대화록 재구성은 다음
+  기능(`conversation-timeline`)이다. 리뷰가 재현했지만 이 spec의 결정을 뒤집어야 해서
+  코드로 고치지 않은 셋(답을 보낸 뒤 시작 전 취소, `reapStale`이 내린 예약 건너뛰기,
+  도크 점과 헤더의 불일치)은 spec §7에 있다.
 
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
@@ -202,7 +236,7 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 **Dynamic Workflows는 `claude -p`에서 돌지 않는다.** 헤드리스에는 워크플로 도구가 노출되지 않아 `ultracode` 키워드도 `--effort ultracode`도 무력하다(v2.1.226 실측). one-desk가 띄우는 실행에는 해당 없음.
 
-**생성하는 권한 설정에 `ask`를 절대 넣지 않는다.** 헤드리스에서 물어보면 응답할 사람이 없어 프로세스가 그대로 멈춘다. 모든 정책은 `allow` 아니면 `deny`로만 떨어져야 한다.
+**생성하는 권한 설정에 `ask`를 절대 넣지 않는다.** 헤드리스에서 물어보면 응답할 사람이 없다 — 멈추든(claude, 실측 기록 없음) 조용히 거부하고 성공으로 끝나든(opencode 1.18.x, 아래 OpenCode 절) 결과가 틀린다. 모든 정책은 `allow` 아니면 `deny`로만 떨어져야 한다. **테스트에서 `ask`를 부분 문자열로 찾지 말 것** — `TaskCreate`·`TaskList`가 `ask`를 품어 멀쩡한 인자에 걸린다. `permission.test.ts`의 `mentionsAsk`가 낱말로만 본다.
 
 **Vite dev 서버는 `127.0.0.1`로 고정돼 있다.** 기본값으로 두면 IPv6 `[::1]`에만 바인딩하는데 macOS는 `localhost`를 양쪽으로 해석해서 Electron이 `ERR_TIMED_OUT`으로 멈춘다. `electron.vite.config.ts`의 `server.host`를 지우지 말 것.
 
@@ -224,6 +258,8 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 없는 경우).
 
 **`--tools`와 `--allowedTools`는 다른 일을 한다.** `--tools`는 도구 자체를 존재하지 않게 만들어 모델이 시도조차 못 하게 하고, `--allowedTools`는 존재하는 도구를 묻지 않고 승인한다. **MCP 도구는 `--permission-mode`로 자동 승인되지 않는다** — `mcp__<serverName>` 접두사를 `--allowedTools`에 직접 얹어야 하고, 빠뜨리면 agent가 MCP 도구를 전혀 못 쓰는데 실패가 조용하다(`core/runner/adapters/claudeCode.ts`의 `mcpToolPrefixes`).
+
+**할 일 도구는 `TodoWrite`만이 아니다 — `--tools` 화이트리스트에 `Task*` 넷이 있어야 한다.** Claude Code 2.1.280은 기본이 `TaskCreate`·`TaskGet`·`TaskUpdate`·`TaskList`이고 `TodoWrite`는 `CLAUDE_CODE_ENABLE_TASKS`가 false일 때만 켜진다. `--tools`는 이름을 대지 않은 도구를 **존재하지 않게** 만들므로, 넷이 빠지면 읽기 전용·편집 허용에서 할 일 도구가 하나도 남지 않는데 모델은 그런 도구가 있는 줄도 모르니 실패가 조용하다. `TodoWrite`는 구버전·환경변수 경로를 위해 남긴다(`core/runner/permission.ts`의 `READ_ONLY_TOOLS`, `docs/sdlc/conversation-fixes/` FR-15). 빼면 `permission.test.ts`의 "%s에 할 일 도구(Task*·TodoWrite)가 살아 있다"가 빨개진다. CLI가 기본 도구 이름을 또 바꾸면 여기가 가장 먼저 조용히 낡는다.
 
 **agent가 MCP로 만든 데이터는 run이 끝나면 화면에 나타난다.** `useIssues`/`useMemos`가 `onRunUpdate`를 구독해, **같은 workspace의 끝난 run**에 대해 목록을 다시 읽는다. 4단계 설계 §1이 "UI 변경 없음"으로 미뤄뒀던 경계였고, MCP가 실제로 돌기 시작하면서 매번 걸려 해소했다. 같은 run의 후속 갱신(확인함/보관)으로는 다시 읽지 않는다. **`e2e/mcp.e2e.ts`는 화면을 벗어나지 않고 확인한다** — 예전처럼 인박스에 갔다 돌아오면 패널이 다시 마운트돼 구독이 죽어도 통과해 버린다.
 
@@ -261,6 +297,18 @@ opencode는 `--variant`를 받지만 `init`에도 `result`에도 그 값이 없�
 `"Not logged in · Please run /login"`). **성공 판정에 `subtype`을 쓰지 말 것** — 어댑터는
 `is_error`를 본다.
 
+**run의 성패는 종료 코드가 어댑터의 보고를 이긴다** (`core/runner/manager.ts`의 순수 함수
+`judgeStatus`, `docs/sdlc/conversation-fixes/` FR-12). 순서가 곧 규칙이다: 취소 → `canceled`,
+타임아웃 → `failed`, 종료 코드가 0이 아니거나 null(신호로 죽음) → `failed`, 그 밖에만
+`reportedStatus ?? 'succeeded'`. 예전에는 보고를 먼저 봐서 **opencode가 `text` 줄마다 합성하는
+succeeded가 exit 1을 이겼다** — 중간 답을 내고 죽은 run이 성공으로 기록됐다. 반대 방향은
+그대로다: exit 0인데 claude가 `is_error`로 실패를 보고하면 보고가 이긴다. **타임아웃은
+`canceled`가 아니다** — 사용자가 누른 취소와 섞이면 인박스에 "대기 중 취소됨"으로 떠 배지에서
+빠진다. 취소와 타임아웃이 겹치면 취소가 이긴다. `manager.test.ts`의 "어댑터가 succeeded를
+보고해도 종료 코드가 0이 아니면 failed다"·"취소가 타임아웃보다, 타임아웃이 종료 코드보다
+먼저다"가 이 순서를 고정한다. 실패 이유(`errorMessage`)는 **어댑터가 인정한 마지막 error
+이벤트 → stderr 앞 2000자** 순이다(아래 "실패 이유는 어댑터가 인정한" 항목).
+
 **`updatedAt`은 단조 증가해야 낙관적 잠금이 성립한다.** 같은 밀리초 안에 두 번 쓰면 `Date.now()`만으로는 이전 값과 같아져 "그 사이 바뀌었다"를 놓친다. `updateIfUnchanged`의 `buildPatch`는 `Math.max(Date.now(), previousUpdatedAt + 1)`로 반드시 이전 값보다 크게 만든다(`core/db/repositories/issue.ts`·`memo.ts`).
 
 **성공한 저장이 기대값(`expected.current`)을 갱신하지 않으면 두 번째 저장이 자기 자신과 충돌한다.** `IssueDetail`/`MemoDetail`의 `persist()`는 매 성공 응답의 `result.issue.updatedAt`(또는 `memo`)으로 `expected.current`를 다시 세운다 — 안 하면 디바운스로 이어지는 다음 자동 저장이 이미 낡은 `expectedUpdatedAt`을 들고 가 스스로와 충돌 배너를 띄운다.
@@ -273,13 +321,27 @@ opencode는 `--variant`를 받지만 `init`에도 `result`에도 그 값이 없�
 
 **`createWriteStream`의 open은 비동기다 — `error` 리스너가 없으면 앱이 죽는다.** `mkdirSync`가 방금 만든 디렉토리라도 그 사이에 사라질 수 있고, 디스크가 차거나 권한이 막혀도 실패한다. 리스너가 없으면 처리되지 않은 예외가 되어 Electron 메인 프로세스가 통째로 내려간다. `core/runner/logWriter.ts`가 이를 `ErrorSink`로 흘려보내고, 실패한 뒤 `close()`가 매달리지 않게 한다(매달리면 run이 안 끝나 동시 실행 슬롯이 영영 점유된다).
 
+**Windows 취소는 `taskkill /PID <pid> /T /F`로 트리째 죽인다** (`core/runner/terminate.ts`, `docs/sdlc/conversation-fixes/` FR-18). `child.kill()`은 직계만 즉시 강제 종료하므로 Bash 도구가 띄운 손자(dev 서버 등)가 주인 없이 남는다. taskkill이 실패하거나 pid가 없으면(spawn 실패) `child.kill()`로 되돌아가고, Windows 갈래에는 SIGKILL 유예 타이머가 없다(`/F`가 이미 강제다). 플랫폼과 트리 종료 함수는 인자로 주입해 개발 장비에서 두 갈래를 다 본다. **진짜 트리를 죽여 보는 테스트는 손자를 `detached`로 띄워야 한다** — detached가 아닌 손자는 libuv가 부모와 같은 job에 넣어 부모가 죽을 때 같이 죽으므로, 옛 `child.kill()` 코드에서도 테스트가 초록이다(실측). `terminate.test.ts`의 "자식이 띄운 손자 프로세스까지 죽인다"가 그 모양이다.
+
+**앱 종료 경로의 taskkill은 기다려야 한다 — 비동기면 손자가 남는다.** libuv는 detached가 아닌 자식을 "부모가 죽으면 같이 죽는" job에 넣는데 taskkill 자신도 그 자식이다. will-quit의 `core.shutdown()` → `manager.cancelAll()`이 비동기 taskkill만 띄우고 돌아오면 메인 프로세스가 끝나며 taskkill도 함께 죽는다 — 직계 agent는 job 때문에 죽지만, job을 빠져나간 손자(Bash 도구의 dev 서버 등)는 남는다(2026-09-27 실측: 비동기 8/8 생존, 동기 8/8 종료). 그래서 `cancelAll`만 `taskkillTreeSync`를 쓴다. **일반 취소에 동기판을 쓰지 말 것** — 아래 `execFileSync` 함정 그대로 MCP 서버가 멈춘다. `manager.test.ts`의 Windows 전용 테스트 "돌아오기 전에 agent가 띄운 손자까지 죽인다 — 앱이 곧바로 끝나도 남지 않는다"가 **돌아온 순간 손자가 이미 죽어 있는지**로 고정한다(기다려서 확인하면 비동기판도 통과한다).
+
+**실패 이유는 어댑터가 인정한 error 이벤트만 된다** (`AgentAdapter.errorEventsAreFailureReasons`). error 이벤트의 뜻이 어댑터마다 다르다: opencode는 json 모드에서 오류를 stdout의 error 줄로만 내고(켠다), claude의 error는 init의 MCP 연결 경고뿐이다(켜지 않는다). 켜면 사내 프록시 환경처럼 MCP 경고가 늘 붙는 곳에서 **다른 이유로 실패한 run이 전부 "MCP 서버에 연결하지 못했습니다"로 기록된다** — stderr의 진짜 원인이 가려진다. spawn 오류(`ENOENT` 등)는 어댑터와 무관하게 늘 실패 이유다. 실행 서비스가 흘리는 `preEvents`의 error(맥락 파일을 못 읽었다는 알림 — run을 실패시키지 않는다)는 후보가 아니다(`manager.test.ts`의 "실행 전에 흘린 error(preEvents)는 실패 이유가 되지 않는다"). 성공한 run에서는 error 이벤트가 있어도 `errorMessage`를 비워 둔다.
+
 **Windows에서 가짜 CLI는 spawn조차 되지 않는다 — run은 `start()`가 resolve되기도 전에 끝난다.** 픽스처가 `.mjs`라 Windows가 직접 실행하지 못해 spawn이 즉시 실패하고, `markFinished`와 그에 딸린 `onRunUpdate`(인박스 push, asset 재스캔)가 **`await core.execution.start(...)` 안에서 이미 다 지나간다.** 그래서 두 가지가 따라온다. 첫째, run 상태는 항상 `failed`다 — `core/index.test.ts`의 run 테스트들이 `succeeded`가 아니라 `endedAt`만 보는 이유다. 둘째, **`start()` 뒤에 만든 파일은 그 run의 재스캔이 영영 못 본다** — "실행 중에 생긴 파일"을 흉내내려면 run을 띄우기 **전에** 써 둬야 한다. macOS에서는 가짜 CLI가 실제로 100ms쯤 돌아 순서가 늘 맞아떨어지므로 **로컬은 초록인데 릴리스 CI만 깨진다**(v0.7.0·v0.7.1 릴리스 빌드가 이것으로 연속해서 깨졌다). 로컬에서 재현하려면 `ONE_DESK_AGENT_PATH`를 없는 경로로 주면 된다.
 
 **그 함정은 e2e에는 해당하지 않는다 — `e2e/driver.ts`가 `ONE_DESK_AGENT_LAUNCHER`로 node를 물린다.** 그래서 **e2e의 run은 두 플랫폼에서 똑같이 성공한다.** 위 항목이 말하는 "항상 `failed`"는 `ONE_DESK_AGENT_PATH`만 세우는 **단위 테스트**(`core/index.test.ts`)의 이야기다. 둘을 섞으면 반대 방향으로 두 번 틀린다: 단위 테스트에 `succeeded`를 못 박으면 macOS에서만 초록이고, e2e에서 "어차피 실패하니까"로 판단을 건너뛰면 실제로는 성공하는 경로를 검증하지 못한다. **단위 테스트에서 run 결과에 기대는 단언은 카테고리를 실제 행에서 다시 계산해 쓴다**(`core/index.test.ts`의 "run이 끝나면 인박스 카운트를 push한다"가 그 모양이다).
 
-**배지가 세는 것과 열었을 때 자동 확인되는 것은 `ACTIONABLE` 한 표의 양면이다** (`shared/inbox.ts`). core의 `inboxCounts()`와 renderer의 `Dock`이 같은 상수를 본다 — 표를 두 곳에 적으면 **어느 쪽에도 안 걸리는 카테고리**가 생겨 그 대화는 인박스 목록에만 영원히 남는다. `shared/`에 둔 이유가 이것뿐이다. `inboxCategory`가 `Run`이 아니라 `{ status, needsAnswer }`만 받는 것도 의도다 — `inboxCounts`의 슬림한 select가 그대로 들어가야 `assembled_prompt`를 나르지 않는다.
+**배지가 세는 것과 열었을 때 자동 확인되는 것은 `INBOX_RULES` 한 표의 두 칸이다** (`shared/inbox.ts`, `docs/sdlc/conversation-fixes/` FR-4). core의 `inboxCounts()`는 `badge` 칸을, renderer의 `Dock`은 `clearsOnView` 칸을 본다 — 표를 두 곳에 적으면 **어느 쪽에도 안 걸리는 카테고리**가 생겨 그 대화는 인박스 목록에만 영원히 남는다. `shared/`에 둔 이유가 이것이다. 예전의 한 칸짜리 `ACTIONABLE`에서는 두 판정이 서로의 부정이었지만 **이제 아니다** — 실패·중단은 배지에 세면서 열면 확인된다(2026-09-27 결정). 부정 관계가 풀린 자리는 `inbox.test.ts`의 불변식 둘이 지킨다: 배지에 세지 않는 것은 반드시 열면 확인되고, 열어 봐도 남는 것은 답변 필요 하나뿐이다. **표를 다시 한 칸으로 접지 말 것.** 같은 파일의 `representativeTurn`이 **대화의 상태를 정하는 한 함수**다 — 시작하지 못하고 취소된 턴을 건너뛴 가장 최근 턴이고, core의 인박스·배지(`lastTurnsOf`)와 renderer의 도크 목록(`Conversation.state`)이 같이 쓴다. 따로 적으면 배지와 도크가 다른 턴을 본다. `inboxCategory`·`representativeTurn`이 `Run`이 아니라 `{ status, needsAnswer }`·`{ status, startedAt }`만 받는 것도 의도다 — `inboxCounts`의 슬림한 select가 그대로 들어가야 `assembled_prompt`를 나르지 않는다.
 
 **자동 확인을 `Dock`의 `selected`나 마운트 effect에 걸지 말 것.** `pickedId`가 null이면 `selected`는 `openConversations[0]`으로 떨어지므로, **도크를 열기만 해도** 최근 대화가 조용히 인박스에서 내려간다 — 사용자는 그 대화를 본 적이 없다. 목록 줄의 클릭 핸들러(`pick`)에만 건다. 되살리면 `Dock.test`의 "마운트만으로는 찍지 않는다"·"focusConversationId로 열려도 찍지 않는다"가 빨개진다.
+
+**`Conversation`의 턴 셋은 서로 다른 질문의 답이다 — `last`를 상태로 쓰지 말 것** (`renderer/conversation.ts`, `docs/sdlc/conversation-fixes/` FR-3·FR-11). `last`는 가장 최근에 **만든** 턴(목록 줄의 시각·repo), `state`는 대표 턴(`representativeTurn` — 줄의 상태 점·답변 필요·자동 확인), `active`는 멈출 턴(running, 없으면 pending, 없으면 null — 도크 헤더의 취소). 예전에는 전부 `last`였다: 예약이 있으면 헤더 취소가 예약을 겨눠 **실행 중인 턴을 멈출 버튼이 없었고**, 예약을 취소하면 마지막 턴이 canceled가 되어 헤더 버튼이 사라졌다. 헤더 버튼의 접근성 이름이 겨누는 턴을 말한다 — 실행 중이면 "실행 중인 턴 멈추기"(보이는 글자 "멈추기"), 예약이면 "취소". **이름이 같으면 같은 턴이다** — 헤더가 실행 중인 턴을 겨누면서 "취소"라 부르면 예약 버블의 "취소"와 이름이 같아 다른 턴을 멈춘다. `Dock.test`의 "헤더 취소는 예약이 아니라 실행 중인 턴을 겨눈다"·"헤더 버튼의 이름이 겨누는 턴을 말한다"가 고정한다. 자동 확인은 `INBOX_RULES[inboxCategory(conv.state)].clearsOnView`와 `conv.state.endedAt`을 본다 — 예약이 기다리거나 도는 턴이 있으면 끝난 대화가 아니다.
+
+**workspace가 바뀌면 도크의 선택은 렌더 중에 처음으로 돌린다 — effect가 아니다** (FR-22). `view`·`pickedId`·`renamingId`·`actionError`를 이전 `workspaceId`와 비교해 렌더 중에 맞춘다(React의 "prop이 바뀌면 state 조정" 패턴). effect면 옛 선택과 새 workspace가 함께 그려지는 한 프레임이 생긴다. 끝낸 대화 펼침(`showClosed`)은 선택이 아니라 보기 취향이라 두고 간다. `App`의 `focusConversationId`는 **한 번 쓰면 치운다** — Dock의 필수 prop `onFocusConsumed`가 그 배선이다. 선택 prop이면 `App`의 한 줄을 지워도 조용히 컴파일되고, 그러면 다른 화면에 갔다 올 때마다 그 대화로 끌려간다(`App.test`의 "\"대화 열기\"는 한 번만 연다"). 의존성 배열에 `onFocusConsumed`를 넣지 말 것 — `App`이 매 렌더 새 함수를 넘겨 치워지기 전 렌더마다 다시 연다.
+
+**로그 되살리기는 교체가 아니라 seq 병합이다 — 그리고 `readLog`는 비동기다** (FR-19). `useRunEvents`는 대화를 열 때 `runs.readLog`를 부르는데, 그 응답이 오는 사이 `onRunEvent` push가 계속 들어온다. 스토어의 `hydrate`가 목록을 통째로 바꾸면 그 사이 도착한 이벤트가 지워진다. 그래서 seq로 합치고 중복 seq는 하나만 남긴다(`runEvents.test`의 "로그를 읽는 사이에 push된 이벤트를 지우지 않는다"). 병합에는 `maxPerRun` 상한을 걸지 않는다(되살린 로그를 전부 보여주던 동작). `readLog`는 `fs/promises`로 읽는다 — 메인 프로세스에 MCP 서버가 같이 있어 긴 로그를 동기로 읽는 동안 IPC와 agent의 MCP 호출이 전부 멈춘다(위 `execFileSync` 함정과 같은 뿌리). 파일이 없으면(ENOENT) 빈 배열이고 그 밖의 읽기 실패는 던진다 — 삼키면 로그가 원래 없던 run처럼 보인다.
+
+**대화 이름을 비우고 저장하면 파생 제목으로 돌아간다** (FR-21, lifecycle FR-14). `RenameField`는 기본이 "빈 이름 = 취소"라 붙인 이름을 지울 길이 없었다. `allowEmpty`를 대화 목록에서만 켜 `rename(root, '')`를 부른다 — IPC 시그니처가 string이고 저장소가 빈 문자열을 null로 저장한다. 이름이 없던 칸을 그대로 닫으면 여전히 취소다. 같은 컴포넌트를 쓰는 workspace(`Sidebar`)·repo(`RepoStrip`) 이름에는 켜지 않는다 — 비우면 되돌아갈 파생 이름이 없다.
 
 **`run.title`·`run.closed_at`은 뿌리 행에서만 의미가 있고 타입은 그것을 지켜주지 않는다.** 이어지는 턴의 행에도 컬럼이 있고 null일 뿐이다. 저장소의 `close`/`rename`이 `assertRoot`로 던지는 것이 유일한 방어선이다 — 조용히 엉뚱한 행에 찍히면 화면에서 영영 드러나지 않는다. 읽는 쪽도 같다: `groupConversations`는 뿌리를 **id로 찾는다**(`ordered[0]`이 아니다). 가장 오래된 행이 뿌리라는 것은 "목록이 그 대화의 모든 턴을 담고 있다"에 얹힌 가정이고, `runs.list`에 개수 제한이 붙는 날 조용히 null이 된다.
 
@@ -291,7 +353,7 @@ opencode는 `--variant`를 받지만 `init`에도 `result`에도 그 값이 없�
 
 **`productName`이 사용자 데이터 위치를 정한다 — `appId`가 아니다.** Electron은 `userData`를 `appData` + 앱 이름으로 만들고 앱 이름은 `productName`을 우선한다. `electron-builder.yml`의 `productName: one-desk`를 보기 좋게 바꾸면 기존 사용자의 DB 디렉토리를 앱이 더 이상 보지 않는다.
 
-**MCP는 stdio로 간다 — HTTP가 아니다.** claude가 `core/mcp/bridge.mjs`를 자식 프로세스로 띄우고 표준입출력으로 JSON-RPC를 주고받으면, 브리지가 그것을 앱 안의 HTTP 서버로 중계한다. **HTTP로 직접 붙던 시절에는 사내 프록시가 루프백 요청을 403으로 막아 그 환경에서 아예 못 썼다** — 같은 포트에 `curl`은 401을 받는데 agent만 실패하는 증상이었다. Node의 `http`/`fetch`는 `HTTP_PROXY`를 자동으로 쓰지 않으므로 브리지는 통과한다. **브리지는 멍청한 파이프다** — 권한 게이팅과 도구 등록은 전부 서버에 남는다.
+**MCP는 stdio로 간다 — HTTP가 아니다.** claude가 `core/mcp/bridge.mjs`를 자식 프로세스로 띄우고 표준입출력으로 JSON-RPC를 주고받으면, 브리지가 그것을 앱 안의 HTTP 서버로 중계한다. **HTTP로 직접 붙던 시절에는 사내 프록시가 루프백 요청을 403으로 막아 그 환경에서 아예 못 썼다** — 같은 포트에 `curl`은 401을 받는데 agent만 실패하는 증상이었다. Node의 `http`/`fetch`는 `HTTP_PROXY`를 자동으로 쓰지 않으므로 브리지는 통과한다. **브리지는 멍청한 파이프다** — 권한 게이팅과 도구 등록은 전부 서버에 남는다. **예외는 하나, SSE 본문에서 응답을 고르는 것이다** (`docs/sdlc/conversation-fixes/` FR-20). 서버는 응답 앞에 알림을 먼저 보낼 수 있는데 첫 `data:` 줄만 넘기면 claude가 알림을 응답으로 받고 진짜 응답은 버려진다. 그래서 이벤트 단위로 가르고(여러 줄 data·CRLF 포함) **요청 id가 같고 `method`가 없는** 메시지를 한 줄로 다시 직렬화해 보낸다. 맞는 것이 없으면 그 id로 JSON-RPC 오류를 돌려준다 — 알림을 응답 대신 넘기면 claude가 영영 기다린다. 알림과 서버발 요청은 stdio 쪽으로 전달하지 않고 버린다(서버가 sampling·elicitation·progress를 쓰기 시작하면 전달 경로가 필요하다). `bridge.test.ts`의 "응답 앞에 온 알림을 건너뛰고 요청 id와 같은 응답을 돌려준다"가 고정한다.
 
 **브리지는 `extraResources`로 나간다.** 번들되지 않는 원본 `.mjs`이고, `command`는 Electron 바이너리에 `ELECTRON_RUN_AS_NODE=1`이다(패키징된 앱에 독립 `node`가 없다). asar 안에 두지 않는다 — asar 내부 경로를 자식 프로세스로 실행할 수 있는지가 플랫폼마다 미묘하다.
 
@@ -326,30 +388,45 @@ opencode는 `--variant`를 받지만 `init`에도 `result`에도 그 값이 없�
 
 **OpenCode는 설정을 병합하고, 우리가 이길 수 없는 자리가 있다.** 우선순위는 `OPENCODE_PERMISSION` 환경변수 > 프로젝트 `opencode.json` > `OPENCODE_CONFIG`가 가리키는 파일 > 전역 설정이고, `permission` 안에서 키 단위로 합쳐진다. **`"*"`는 구체 키를 이기지 못한다** — 소스 우선순위와 무관하게 구체적인 키가 와일드카드를 이긴다. 그래서 권한은 파일이 아니라 환경변수로 넘기고 알려진 키 15개를 전부 명시한다. 이름을 대지 않은 키는 남의 설정 값이 그대로 산다.
 
-**OpenCode는 설정이 잘못돼도 조용히 무시한다.** `OPENCODE_CONFIG`가 없는 파일을 가리켜도, 거기에 인라인 JSON을 넣어도(경로만 받는다), `OPENCODE_PERMISSION`이 깨진 JSON이어도 **종료 코드 0으로 사용자 설정에 그대로 되돌아간다.** 셋 다 증상이 같다 — 헤드리스 실행이 아무 말 없이 영원히 멈추고 동시 실행 슬롯을 계속 점유한다. `opencodeAdapter.verifyRunnable`이 실행 직전에 해결된 설정을 다시 읽어 `ask`가 남았는지 보는 이유이고, 그래서 그 검사는 선택이 아니다.
+**OpenCode는 설정이 잘못돼도 조용히 무시한다.** `OPENCODE_CONFIG`가 없는 파일을 가리켜도, 거기에 인라인 JSON을 넣어도(경로만 받는다), `OPENCODE_PERMISSION`이 깨진 JSON이어도 **종료 코드 0으로 사용자 설정에 그대로 되돌아간다.** 셋 다 결과가 같다 — 사용자 설정의 `ask`가 살아남는다. **1.18.x의 `run`은 그 `ask`를 자동 거부하고 조용히 exit 0으로 끝난다**(남는 것은 도구 실패뿐이다 — 소스 `run.ts` v1.18.30:801-822, 1.18.27과 바이트 동일). 예전에 여기 적혀 있던 "헤드리스 실행이 영원히 멈추고 슬롯을 점유한다"는 틀린 서술이었다(2026-09-27 정정, `docs/sdlc/conversation-fixes/` FR-14). 멈추지 않는 대신 **agent가 그 도구를 못 쓴 run이 성공으로 기록되고** 사용자는 이유를 알 길이 없다. `opencodeAdapter.verifyRunnable`이 실행 직전에 해결된 설정을 다시 읽어 `ask`가 남았는지 보는 이유이고, 그것을 실행 전의 명시적 실패로 바꾸므로 그 검사는 여전히 선택이 아니다.
+
+**OpenCode 2.x CLI는 preflight가 막는다 — 권한 정책이 조용히 무시될 수 있다** (`docs/sdlc/conversation-fixes/` FR-17). 데스크톱 번들의 `opencode-cli.exe` 2.0.18을 경로로 주면 `--variant`가 없고 바이너리에 `OPENCODE_PERMISSION` 문자열조차 없다 — **읽기 전용 run이 파일을 고칠 수 있다.** 그래서 preflight가 `--version` 첫 줄의 major를 보고 2 이상이면 거부한다(명시 경로와 PATH 탐색이 합류한 뒤, `.cmd` 거부 다음 — 한쪽 갈래에만 두면 다른 쪽으로 샌다). 버전을 못 읽으면 막지 않는다(게이트 전의 동작). 판정은 (경로, 크기, mtime)으로 **프로미스째** 캐시해 동시에 들어온 조회도 프로세스를 한 번만 띄운다. **못 읽은 판정(실패·시간 초과)은 캐시에서 뺀다** — 통과(fail-open)가 굳으면 Windows 백신이 새 바이너리의 첫 실행을 붙잡은 한 번의 시간 초과가 앱이 사는 동안 2.x 차단을 꺼 둔다. 되살리면 `opencode.version.test.ts`의 "못 읽은 판정은 캐시하지 않는다"가 빨개진다. **`--version`을 띄울 때도 stdin을 닫고 `agentCommand`를 거친다** — 닫지 않으면 stdin을 기다리는 CLI가 5초 타임아웃까지 매달리고, 런처 없이는 가짜 CLI(`.mjs`)가 Windows에서 뜨지 않는다. e2e에서는 두 agent가 모두 가짜 CLI에 물려 있어 설정 화면이 열리면 `node fake-claude.mjs --version`이 한 번 돈다 — 기본 시나리오를 찍으므로(버전이 아니다) 통과하고, `ONE_DESK_FAKE_DELAY_MS`만큼 첫 `checkAgents`가 늦어지며, `ONE_DESK_*_CAPTURE`를 세운 테스트라면 그 파일을 덮는다. **가짜 CLI가 `--version`에 버전 문자열을 찍게 "고치지" 말 것** — 2.x 모양이면 게이트가 e2e의 opencode 실행을 전부 막는다. 2.0.18의 `--version` 출력 형식은 실측하지 않았다 — 파서가 받는 것은 첫 줄의 `[opencode ]v?X.Y.Z`뿐이라 형식이 다르면 "못 읽음 → 통과"로 게이트가 무력해진다.
 
 **OpenCode의 `tool_use`는 이미 끝난 도구를 보고한다.** `part.state.status`가 `completed`이고 출력까지 함께 온다(그래서 한 줄이 `tool_use`와 `tool_result` 두 이벤트가 된다). 그 대가로 **전체 설계 §553의 "쓰기 도구 호출을 감지하면 원본을 복사한다"가 OpenCode에서는 성립하지 않는다** — 복사할 시점에 원본이 이미 없다. diff 뷰어 설계에서 정면으로 다뤄야 한다.
 
-**OpenCode에는 claude의 `result` 같은 종료 이벤트가 없다.** 스트림이 그냥 끝난다. 그래서 어댑터가 `text` 줄마다 `result`를 함께 내고 `RunManager`가 덮어써 마지막 것이 남는다. `text`에서 `result`를 빼면 `resultText`가 영영 null이 되는데, run은 종료 코드 0이라 **성공으로 끝나고 결과만 비어 보인다.**
+**OpenCode에는 claude의 `result` 같은 종료 이벤트가 없다.** 스트림이 그냥 끝난다. 그래서 어댑터가 `text` 줄마다 `result`를 함께 내고 `RunManager`가 덮어써 마지막 것이 남는다. `text`에서 `result`를 빼면 `resultText`가 영영 null이 되는데, run은 종료 코드 0이라 **성공으로 끝나고 결과만 비어 보인다.** 그 합성 result는 `status: 'succeeded'`를 싣지만 성패를 정하지 못한다 — 종료 코드가 이긴다(위 `judgeStatus` 항목). 오류는 json 모드에서 stderr가 아니라 stdout의 `{"type":"error"}` 줄로 오고, 어댑터가 그것을 error 이벤트로 낸다(메시지는 `error.data.message` → `error.message` → `error.name` → JSON 순). 1.18.30의 `run`은 error 줄을 낸 run을 `--attach`가 아니면 항상 exit 1로 끝낸다(바이너리 확인).
 
 **같은 대화의 두 턴은 동시에 뜨면 안 된다** — `claude --resume`은 이전 프로세스가 끝나야 한다. `RunQueue`의 `groupKey`가 막고 있다.
 
 **`root_run_id`를 NOT NULL로 "고치지" 말 것** — SQLite에서 그러려면 테이블을 다시 만들어야 하고, 그 `DROP TABLE run`이 `run_context_item`의 cascade를 태워 모든 맥락 기록을 지운다. 마이그레이션의 `PRAGMA foreign_keys=OFF`는 트랜잭션 안이라 무시된다.
 
-**e2e에서 `getByRole('button', { name: '실행' })`은 exact 없이 쓰면 강제로 실패한다.** substring 매칭이 기본이라 도크 토글("▾ 실행"/"▴ 실행")과 슬롯 표시기(`aria-label="실행 슬롯"`)까지 같이 걸려 strict mode 위반이 된다 — run-start 버튼을 잡으려면 `{ name: '실행', exact: true }`가 필수다(태스크 8이 라벨을 "▶ 실행"에서 "실행"으로 줄이면서 처음 생긴 충돌).
+**e2e에서 `getByRole('button', { name: '실행' })`은 exact 없이 쓰면 강제로 실패한다.** substring 매칭이 기본이라 도크 토글("▾ 실행"/"▴ 실행")과 슬롯 표시기(`aria-label="실행 슬롯"`)까지 같이 걸려 strict mode 위반이 된다 — run-start 버튼을 잡으려면 `{ name: '실행', exact: true }`가 필수다(태스크 8이 라벨을 "▶ 실행"에서 "실행"으로 줄이면서 처음 생긴 충돌). **"실행 중인 턴 멈추기"(대화록·도크 헤더, `Transcript.tsx`의 `STOP_RUNNING_TURN`)도 "실행"을 품는다** — 대화가 도는 동안에는 exact 없는 셀렉터에 하나 더 걸린다.
 
 **이 함정은 "실행"만의 것이 아니다 — 짧은 라벨을 새로 붙일 때마다 기존 e2e가 깨진다.** 설정 화면에 "기본값 저장"을 더하자 글로벌 경로의 `{ name: '저장' }`이 둘을 잡아 `asset.e2e.ts`가 깨졌다. `getByLabel`도 같다 — "Skills / Agents" 패널이 `getByLabel('agent')`에 걸린다. **Vitest/RTL의 `getByLabelText`는 전체 일치라 단위 테스트는 전부 초록인 채로 넘어간다.** 새 라벨이 기존 라벨의 부분 문자열이면 e2e를 먼저 돌려볼 것. 그리고 `<label>`이 `<select>`를 감싸고 있으면 Playwright가 계산하는 접근성 이름에 `<option>` 텍스트까지 빨려 들어가므로(`"agentClaude CodeOpenCode"`), 그런 컨트롤에는 `aria-label`을 명시한다.
 
 **줄 끝의 아이콘은 폭 0으로 접혀 있어 Playwright가 직접 hover할 수 없다.** 이슈·메모 줄의
 삭제(`.item-actions`)와 repo 줄의 열기·이름 바꾸기·삭제(`.repo-actions`)는 hover·포커스에만
 폭이 풀린다 — 접힌 상태의 버튼은 폭이 0이라 `.hover()`가 "li.item intercepts pointer events"로
-막힌다(실측). **줄을 먼저 hover하고 버튼을 누른다**(`e2e/delete.e2e.ts`). 접근성 이름은
+막힌다(실측). **줄 끝 버튼은 `e2e/rowAction.ts`의 `clickRowAction(row, name)`으로 누른다**
+(`docs/sdlc/conversation-fixes/` FR-23, 대화 줄의 `.dock-conv-actions`도 같다). 줄을 한 번
+hover하고 바로 누르면 가끔 깨진다 — 눌리지 않은 click이 스크롤 방식을 바꿔 다시 시도하는
+동안 목록이 스크롤되면 줄이 멈춘 마우스 밑에서 빠져나가 hover가 풀리고, 그다음 시도는
+전부 같은 이유로 막힌다. 헬퍼는 **매번 줄을 다시 hover하고 시험 클릭(`click({ trial: true })`)이
+통과할 때까지 기다린 뒤** 누른다 — "폭을 얻었는가"를 CSS 구조가 아니라 Playwright 자신의
+판정으로 기다린다. 시험 클릭은 이벤트를 보내지 않으므로 "정말 삭제?" 같은 두 번 누르기
+버튼이 미리 무장되지 않는다. 문자열 `name`은 **전체 일치**다: 접근성 이름이
 `<제목> 삭제`라 상세의 `삭제`와 갈린다 — RTL의 이름 매칭은 전체 일치라 단위 테스트는 안
 부딪히지만, Playwright는 부분 일치이므로 `{ name: '삭제' }`로 잡으면 둘 다 걸린다.
 
 **대화의 첫 턴을 시작한 직후 도크 탭 텍스트로 "떴다"고 판단하지 말 것.** Dock의 `view`/`pickedId` 전환(RunPanel의 `onStarted` 콜백, 동기)과 `runs` 목록 갱신(`useRuns`의 `onRunUpdate` IPC push, 비동기)이 서로 다른 경로로 온다. 도크 탭(`conversations.map(...)`)은 `runs`가 갱신되는 즉시 그려지지만, 그 순간 `ConversationPanel`은 아직 `key='new'`인 옛 인스턴스일 수 있다 — 탭 텍스트가 보인다고 바로 다음 입력을 채우면 곧 재마운트될 RunPanel에 채워 넣어 버려 전송이 빈 프롬프트로 막힌다(실행 버튼이 계속 disabled). 대화록 안의 `.turn-user` 텍스트로 기다려야 재마운트가 끝난 안정된 인스턴스를 보장한다(`e2e/conversation.e2e.ts`).
 
 **인박스 소속은 뿌리의 `reviewedAt`으로 판정한다.** 확인·보관·취소 같은 "인박스에서 내리는" 동작은 전부 **뿌리(root run) id**에 찍어야 한다. 턴 id에 찍으면 아무 일도 일어나지 않는다 — 대화는 인박스에 그대로 남는다. 실제로 `execution.cancel()`이 이 자리에서 걸렸다: 예약된 뒤 턴을 취소하면서 그 턴의 id에 확인 표시를 찍었더니, 뿌리는 계속 미확인으로 남아 대화 전체가 "대기 중 취소됨"으로 인박스에 다시 떴다(C-1-a). 반대로 뿌리에 찍는 것만으로는 새 문제가 생긴다 — `markReviewed`는 한 번 찍히면 스스로 지워지지 않으므로, 뿌리(=첫 턴)를 실행 중에 취소하면 그 대화는 세션이 살아 있어 계속 이어갈 수 있는데도 이후 어떤 턴도(`needs_answer`로 멈춘 턴을 포함해) 인박스에도 배지에도 다시 나타나지 않는다(C-1-b). 그래서 반대쪽 절반이 반드시 같이 있어야 한다: **`create()`가 `parentRunId`를 받으면(=기존 대화에 새 턴을 잇는 것이면) 뿌리의 `reviewedAt`/`reviewedKind`를 지운다.** 확인 표시를 찍는 자리(취소·확인함·보관)와 지우는 자리(새 턴 생성)가 항상 짝을 이뤄야 한다 — 한쪽만 고치면 반대 방향으로 조용히 깨진다.
+
+**취소가 뿌리에 찍는 것은 그 대화에 취소 대상 말고 활성 턴(running·pending)이 없을 때만이다** (`core/execution.ts`의 `archiveRootIfIdle`, `docs/sdlc/conversation-fixes/` FR-8). 찍는 자리는 여전히 뿌리다 — 바뀐 것은 **언제** 찍느냐다. 예전에는 어느 분기든 찍어서, 2턴이 도는 중 예약한 3턴을 취소했을 뿐인데 2턴이 답변 필요·실패로 끝나도 인박스·배지에 안 떴다. 판정은 누른 순간 한 번으로 끝나지 않는다: **실행 중에 멈춘 턴은 그 프로세스가 `canceled`로 끝날 때(`finish`, `stopRequested`) 한 번 더 판정한다** — 도는 턴을 멈추고 프로세스가 내려가기 전에 예약까지 취소하면 두 판정이 서로를 활성으로 보고 아무도 찍지 않는다. 멈추지 못하고 제 결과로 끝났으면 찍지 않는다. **멈출 프로세스가 없는 취소는 아무것도 하지 않는다**(`manager.isRunning` 가드) — 턴이 실패로 끝나는 순간과 누른 순간이 겹치면, 렌더러가 종료 push를 받기 전에 온 취소가 방금 생긴 결과를 인박스에서 조용히 뺀다. 이 셋을 되돌리면 `execution.test.ts`의 "도는 턴 뒤의 예약을 취소해도 뿌리에 찍지 않는다"·"도는 턴을 멈추고 그 프로세스가 끝나기 전에 예약까지 취소해도, 대화가 인박스에 남지 않는다"·"이미 끝난 턴에 뒤늦게 온 취소는 뿌리에 찍지 않는다"가 빨개진다. **다른 활성 턴이 없는 경우의 C-1("취소하면 대화째 빠진다")은 그대로다** — 같은 파일의 "(C-1)" 두 테스트가 좁혀진 채 지킨다.
+
+**launch 중인 run도 취소를 받는다 — 행은 있고 큐에는 아직 없는 틈이다** (FR-7). `launch`는 pending 행을 만들어 먼저 알린 뒤 실행 파일 확인·`verifyRunnable`(opencode는 `opencode debug config` 프로세스)·MCP 준비를 await하고 나서야 enqueue한다. 그 틈의 취소는 큐에도 manager에도 닿지 않아 **턴이 그대로 돌았다.** 그래서 `launching` 표식에 요청만 기록하고, launch가 await 뒤마다(그리고 enqueue 직전에) 요청을 보고 토큰을 폐기한 뒤 `canceled`(`startedAt` null)로 끝낸다. 요청이 있으면 그 단계가 실패했더라도 실패가 아니라 취소로 끝난다. **표식은 launch의 모든 출구에서 지운다**(try/finally) — 새도 동작으로는 드러나지 않아 `launchingCount()`가 테스트에서 지킨다("launch가 어느 출구로 끝나든 표식을 남기지 않는다"). 대기 중 취소와 launch 중 취소는 같은 `finishUnstarted`를 탄다 — 그것이 `representativeTurn`이 건너뛰는 "시작하지 못하고 취소된 턴"을 만드는 유일한 자리다.
+
+**세션 id는 도는 중에 저장한다 — 종료 기록까지 기다리지 않는다** (FR-16). 예전에는 session 이벤트의 id가 manager 지역 변수와 로그에만 있다가 `markFinished`에서야 DB에 들어가, 첫 턴이 도는 중 앱을 끄면 `reapStale`이 interrupted로 내린 행에 세션이 없어 그 대화를 이으면 "이어받을 세션이 없습니다"로 실패했다. 이제 manager가 새 세션 id를 알게 되는 즉시 run마다 넘긴 `StartSpec.onSession`을 부르고 실행 서비스가 `runs.saveExternalSessionId`로 쓴다(`external_session_id IS NULL`일 때만, 빈 문자열은 무시). 콜백이 던지면 manager가 삼켜 `onError`로 보낸다 — 스트림 data 핸들러 안이라 새면 메인 프로세스가 죽는다. **짝이 되는 규칙: `markFinished`의 `externalSessionId: null`은 있던 값을 지우지 않는다** — manager.start가 세션을 배운 뒤 거부되면 실행 서비스는 null로 끝내는데, 덮으면 이을 수 있던 대화가 끊긴다. `execution.test.ts`의 "첫 턴이 도는 중 앱이 꺼져도 그 대화를 이을 수 있다 (FR-16)"·"세션을 배운 뒤 manager.start가 거부돼도 도는 중에 남긴 세션을 지우지 않는다"가 고정한다.
 
 **`updatedAt`으로 "사람이 마지막으로 본 시각"을 판정하면 안 된다.** agent가 MCP `update_issue`로 본문을 고쳐도 `updatedAt`이 올라가므로, 사람이 그 이슈를 본 적이 없는데 "방금 본 것"이 된다. **agent가 건드린 이슈일수록 조용해진다** — 정확히 거꾸로다. 그래서 `seenAt`이 따로 있고, `markSeen`은 `buildPatch`를 타지 않는다. 이슈 목록 정렬은 `updatedAt DESC`가 아니라 **`seenAt` 오래된 순**이다(안 본 것이 위로). 되돌리지 말 것.
 
@@ -461,6 +538,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/agent-setup/` | agent 준비 상태와 실행 조건 — intent·spec·plan. 세 칸이 쌓이는 판정(FR-1), init이 인증·모델을 보지 않는 실측, 자유 입력을 남긴 근거(FR-8), effort/variant를 가른 이유(FR-13) |
 | `docs/sdlc/repo-instructions/` | repo의 지시 파일 보기 — intent·spec·plan. discovered 본문 읽기 통로(`readBody`, id로만), `instructions` 종류가 맥락에 담기지 않는 이유(FR-9) |
 | `docs/sdlc/conversation-lifecycle/` | 대화의 수명 주기와 정체성 — intent·spec·plan. 배지가 세는 것과 자동 확인이 한 표의 양면인 근거(spec FR-3), 종료가 확인을 겸하는 이유(FR-12), 찍는 자리와 지우는 자리의 짝(FR-13), 제목 폴백 사다리(FR-11) |
+| `docs/sdlc/conversation-fixes/` | 대화의 확인된 결함 묶음 — intent·spec·plan. 대표 턴(spec FR-1), 두 칸짜리 인박스 표(FR-4), 취소가 뿌리에 찍는 조건(FR-8), 종료 코드가 이기는 판정(FR-12), OpenCode 버전 게이트(FR-17), Windows 트리 종료(FR-18) |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |
 | `docs/diagrams/` | 아키텍처 다이어그램 — `one-desk-architecture.html`(단독 실행 가능)과 그것을 만든 archify 사양 `one-desk.architecture.json`. `main`에 들어가면 `.github/workflows/pages.yml`이 GitHub Pages로 올린다 |
 

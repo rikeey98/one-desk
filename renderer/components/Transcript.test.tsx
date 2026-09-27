@@ -116,6 +116,31 @@ describe('Transcript', () => {
     expect(onCancel).toHaveBeenCalledWith('a2')
   })
 
+  it('실행 중인 턴을 대화록에서 멈출 수 있다', async () => {
+    // 예전에는 대기 중인 턴에만 버튼이 있어, 예약이 걸린 대화에서는 실행 중인 턴을
+    // 멈출 곳이 없었다 (`docs/sdlc/conversation-fixes/` spec FR-11). 접근성 이름으로
+    // 어느 턴인지 갈린다 — 예약은 "취소", 실행 중은 "실행 중인 턴 멈추기".
+    const onCancel = vi.fn()
+    const conv = groupConversations([
+      makeRun({ id: 'a2', rootRunId: 'a1', createdAt: 20, status: 'pending', userPrompt: '예약된 말' }),
+      makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10, status: 'running', startedAt: 1 })
+    ])[0]!
+    render(<Transcript conversation={conv} onCancel={onCancel} />)
+
+    await userEvent.click(screen.getByRole('button', { name: '실행 중인 턴 멈추기' }))
+    expect(onCancel).toHaveBeenCalledWith('a1')
+    await userEvent.click(screen.getByRole('button', { name: '취소' }))
+    expect(onCancel).toHaveBeenLastCalledWith('a2')
+  })
+
+  it('끝난 턴에는 멈추기 버튼이 없다', () => {
+    const conv = groupConversations([
+      makeRun({ id: 'a1', rootRunId: 'a1', status: 'succeeded', resultText: '답변' })
+    ])[0]!
+    render(<Transcript conversation={conv} onCancel={() => {}} />)
+    expect(screen.queryByRole('button', { name: '실행 중인 턴 멈추기' })).toBeNull()
+  })
+
   it('답변 필요 배지를 단다', () => {
     const conv = groupConversations([
       makeRun({ id: 'a1', rootRunId: 'a1', needsAnswer: true, resultText: '무엇을 할까요?' })

@@ -1,12 +1,13 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { createRunManager, mergeUsage } from './manager'
+import { createRunManager, judgeStatus, mergeUsage } from './manager'
 import { claudeCodeAdapter } from './adapters/claudeCode'
+import { opencodeAdapter } from './adapters/opencode'
 import { consoleErrorSink } from '../errors'
-import type { RunEvent, RunUsage } from '@shared/events'
+import type { RunEvent, RunEventInit, RunUsage } from '@shared/events'
 import { emptyUsage } from './adapters/common'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -16,7 +17,7 @@ function makeManager() {
   const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-run-'))
   const events: RunEvent[] = []
   const manager = createRunManager({
-    adapters: { 'claude-code': claudeCodeAdapter, opencode: claudeCodeAdapter },
+    adapters: { 'claude-code': claudeCodeAdapter, opencode: opencodeAdapter },
     logDir: dir,
     onEvent: (e) => events.push(e),
     onError: consoleErrorSink
@@ -78,10 +79,12 @@ describe('RunManager', () => {
     cleanup()
   })
 
-  it('타임아웃이 지나면 프로세스를 죽인다', async () => {
+  it('타임아웃이 지나면 프로세스를 죽이고 failed로 끝낸다', async () => {
+    // 사용자가 누른 취소가 아니다 (`docs/sdlc/conversation-fixes/` spec FR-10).
+    // canceled로 끝내면 인박스에서 "대기 중 취소됨"과 섞이고 배지에서도 빠진다.
     const { manager, cleanup } = makeManager()
     const outcome = await manager.start({ ...spec('hang'), timeoutMs: 200 })
-    expect(outcome.status).toBe('canceled')
+    expect(outcome.status).toBe('failed')
     expect(outcome.errorMessage).toMatch(/시간/)
     cleanup()
   })
@@ -172,6 +175,150 @@ describe('RunManager', () => {
   })
 })
 
+/**
+ * 세션 id를 **받는 즉시** 알린다 (`docs/sdlc/conversation-fixes/` spec FR-16).
+ *
+ * 예전에는 세션 id가 manager의 지역 변수와 로그에만 있다가 종료 때에야 DB에 들어갔다.
+ * 첫 턴이 도는 중 앱이 꺼지면 행은 interrupted가 되는데 세션 id가 없어, 그 대화를
+ * 이으면 "이어받을 세션이 없습니다"로 실패했다.
+ */
+describe('RunManager — 세션 알림', () => {
+  it('session 이벤트가 오면 프로세스가 끝나기 전에 onSession을 부른다', async () => {
+    const { manager, cleanup } = makeManager()
+    const onSession = vi.fn()
+    // hang은 init(세션 id)만 내고 끝나지 않는다 — "도는 중"에 불렸음을 본다.
+    const promise = manager.start({ ...spec('hang'), onSession })
+    try {
+      await vi.waitFor(() => expect(onSession).toHaveBeenCalledWith('r-hang', 'fake-session'))
+      expect(manager.isRunning('r-hang')).toBe(true)
+    } finally {
+      manager.cancel('r-hang')
+      await promise
+      cleanup()
+    }
+  })
+
+  it('같은 세션 id를 거듭 받아도 한 번만 부른다', async () => {
+    // claude는 init과 result 둘 다에 session_id를 싣는다 — 매번 부르면 DB 쓰기가 는다.
+    const { manager, cleanup } = makeManager()
+    const onSession = vi.fn()
+    await manager.start({ ...spec('success'), onSession })
+    expect(onSession).toHaveBeenCalledTimes(1)
+    expect(onSession).toHaveBeenCalledWith('r-success', 'fake-session')
+    cleanup()
+  })
+
+  it('빈 세션 id(init에 session_id가 없다)는 알리지 않고, 뒤에 온 진짜 id를 알린다', async () => {
+    // claude 어댑터는 init에 session_id가 없으면 ''를 싣는다. 알리면 저장이 "먼저 쓴 값이
+    // 이긴다"라 진짜 id가 막히고, 도는 중 앱이 꺼지면 ''가 남아 대화를 잇지 못한다.
+    const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-session-'))
+    const path = resolve(dir, 'fake-cli.mjs')
+    const lines = [
+      { type: 'system', subtype: 'init' },
+      { type: 'result', subtype: 'success', is_error: false, result: '끝', session_id: 'sess-real' }
+    ]
+    writeFileSync(path, [
+      'process.stdin.resume()',
+      "process.stdin.on('end', () => {",
+      ...lines.map((l) => `  process.stdout.write(${JSON.stringify(JSON.stringify(l) + '\n')})`),
+      '})'
+    ].join('\n'))
+    const { manager, cleanup } = makeManager()
+    const onSession = vi.fn()
+    try {
+      const outcome = await manager.start({ ...spec('empty-session'), extraArgs: [path], onSession })
+      expect(onSession.mock.calls).toEqual([['r-empty-session', 'sess-real']])
+      expect(outcome.externalSessionId).toBe('sess-real')
+    } finally {
+      cleanup()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('onSession이 던져도 run은 끝까지 가고 오류는 onError로 나간다', async () => {
+    // 스트림의 data 핸들러 안에서 불린다 — 새면 처리되지 않은 예외가 되어 메인
+    // 프로세스가 통째로 내려간다. 저장 실패는 이어가기를 못 할 뿐 실행의 문제가 아니다.
+    const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-run-'))
+    const errors: string[] = []
+    const manager = createRunManager({
+      adapters: { 'claude-code': claudeCodeAdapter, opencode: opencodeAdapter },
+      logDir: dir,
+      onEvent: () => {},
+      onError: (message) => errors.push(message)
+    })
+    try {
+      const outcome = await manager.start({
+        ...spec('success'),
+        onSession: () => { throw new Error('database is locked') }
+      })
+      expect(outcome.status).toBe('succeeded')
+      expect(outcome.externalSessionId).toBe('fake-session')
+      expect(errors.some((m) => m.includes('세션 id'))).toBe(true)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+/** pid가 살아 있는가. 신호 0은 존재만 본다(Windows에서도 된다) */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 앱 종료 경로의 트리 종료 (`docs/sdlc/conversation-fixes/` spec FR-18).
+ *
+ * will-quit의 `core.shutdown()` → `cancelAll()`은 동기로 돌아오고 곧바로 메인 프로세스가
+ * 끝난다. 비동기 taskkill은 그 순간 libuv의 job과 함께 죽어 손자가 남는다(실측). 그래서
+ * **돌아온 순간 이미 죽어 있어야 한다** — 기다려서 확인하면 비동기판도 통과한다.
+ */
+describe.runIf(process.platform === 'win32')('RunManager.cancelAll — 실제 Windows 프로세스 트리', () => {
+  let grandchild: number | null = null
+
+  afterEach(() => {
+    if (grandchild !== null && alive(grandchild)) process.kill(grandchild)
+    grandchild = null
+  })
+
+  it('돌아오기 전에 agent가 띄운 손자까지 죽인다 — 앱이 곧바로 끝나도 남지 않는다', async () => {
+    const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-shutdown-'))
+    const pidFile = resolve(dir, 'grandchild.pid')
+    const script = resolve(dir, 'fake-cli.mjs')
+    // 손자는 detached다 — libuv가 띄운 non-detached 손자는 job 때문에 직계와 함께 죽어
+    // 옛 코드로도 초록이 된다(terminate.test.ts와 같은 이유). Bash 도구의 손자가 이 모양이다.
+    writeFileSync(script, [
+      "import { spawn } from 'node:child_process'",
+      "import { writeFileSync } from 'node:fs'",
+      "const g = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', detached: true, windowsHide: true })",
+      `writeFileSync(${JSON.stringify(pidFile)}, String(g.pid))`,
+      'setInterval(() => {}, 1000)'
+    ].join('\n'))
+    const { manager, cleanup } = makeManager()
+    const run = manager.start({ ...spec('shutdown'), extraArgs: [script] })
+    try {
+      await vi.waitFor(() => {
+        const pid = Number(readFileSync(pidFile, 'utf8'))
+        expect(pid).toBeGreaterThan(0)
+        grandchild = pid
+      }, { timeout: 10_000 })
+      expect(alive(grandchild!)).toBe(true)
+
+      manager.cancelAll()
+
+      expect(alive(grandchild!)).toBe(false)
+      expect((await run).status).toBe('canceled')
+    } finally {
+      cleanup()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('RunManager — 실행 런처', () => {
   /**
    * **배선 잠금.** manager가 `agentCommand`를 거치지 않으면 이 run은 어느 OS에서도
@@ -200,6 +347,187 @@ describe('RunManager — 실행 런처', () => {
       cleanup()
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+/**
+ * 판정 순서 (`docs/sdlc/conversation-fixes/` spec FR-12). 순수 함수로 표를 고정한다 —
+ * 신호로 죽은 프로세스(종료 코드 null)는 OS마다 만드는 법이 달라 spawn으로는
+ * 한 플랫폼에서만 검증된다.
+ */
+describe('judgeStatus', () => {
+  const base = { canceled: false, timedOut: false, exitCode: 0, reportedStatus: null } as const
+
+  it('어댑터가 succeeded를 보고해도 종료 코드가 0이 아니면 failed다', () => {
+    // opencode는 text 줄마다 succeeded를 합성한다(설계 §7). 보고를 먼저 보면
+    // 중간 텍스트를 낸 뒤 exit 1로 죽은 run이 성공이 된다.
+    expect(judgeStatus({ ...base, exitCode: 1, reportedStatus: 'succeeded' })).toBe('failed')
+  })
+
+  it('신호로 죽어 종료 코드가 null이면 succeeded 보고가 있어도 failed다', () => {
+    expect(judgeStatus({ ...base, exitCode: null, reportedStatus: 'succeeded' })).toBe('failed')
+  })
+
+  it('정상 종료면 어댑터의 보고가 이긴다 — claude의 is_error는 exit 0이어도 실패다', () => {
+    expect(judgeStatus({ ...base, reportedStatus: 'failed' })).toBe('failed')
+    expect(judgeStatus({ ...base, reportedStatus: 'succeeded' })).toBe('succeeded')
+  })
+
+  it('정상 종료에 보고가 없으면 succeeded다', () => {
+    expect(judgeStatus(base)).toBe('succeeded')
+  })
+
+  it('취소가 타임아웃보다, 타임아웃이 종료 코드보다 먼저다', () => {
+    expect(judgeStatus({ ...base, canceled: true, timedOut: true, exitCode: null })).toBe('canceled')
+    expect(judgeStatus({ ...base, timedOut: true, reportedStatus: 'succeeded' })).toBe('failed')
+  })
+})
+
+/**
+ * 판정과 실패 이유를 실제 spawn으로 본다 (spec FR-12·FR-13). 가짜 CLI는 그 자리에서
+ * 만든 한 번짜리 스크립트다 — `node <스크립트>`로 띄우므로 Windows에서도 실제로 돈다.
+ */
+describe('RunManager — 판정과 실패 이유', () => {
+  interface FakeScript {
+    lines: unknown[]
+    stderr?: string
+    exitCode: number
+  }
+
+  function withScript(script: FakeScript) {
+    const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-judge-'))
+    const path = resolve(dir, 'fake-cli.mjs')
+    // stdin을 끝까지 읽고 나서 쓴다. process.exit()은 파이프 버퍼를 버리므로
+    // exitCode만 정하고 자연 종료시킨다 (fake-claude.mjs와 같은 이유).
+    writeFileSync(path, [
+      'process.stdin.resume()',
+      "process.stdin.on('end', () => {",
+      ...script.lines.map((l) => `  process.stdout.write(${JSON.stringify(JSON.stringify(l) + '\n')})`),
+      script.stderr ? `  process.stderr.write(${JSON.stringify(script.stderr)})` : '',
+      `  process.exitCode = ${script.exitCode}`,
+      '})'
+    ].join('\n'))
+    const made = makeManager()
+    return {
+      ...made,
+      run: (agentKind: 'claude-code' | 'opencode', extra: { preEvents?: RunEventInit[] } = {}) =>
+        made.manager.start({
+          ...spec('judge'), agentKind, extraArgs: [path],
+          ...(extra.preEvents ? { preEvents: extra.preEvents } : {})
+        }),
+      cleanup: () => {
+        made.cleanup()
+        rmSync(dir, { recursive: true, force: true })
+      }
+    }
+  }
+
+  const ocText = (text: string) => ({ type: 'text', sessionID: 'ses_x', part: { type: 'text', text } })
+  const ocError = (message: string) => ({
+    type: 'error', sessionID: 'ses_x',
+    error: { name: 'APIError', data: { message } }
+  })
+
+  it('opencode가 텍스트를 낸 뒤 exit 1로 끝나면 failed다', async () => {
+    const t = withScript({ lines: [ocText('중간까지 했습니다')], exitCode: 1 })
+    try {
+      const outcome = await t.run('opencode')
+      expect(outcome.status).toBe('failed')
+      // 결과 텍스트는 버리지 않는다 — 어디까지 했는지는 여전히 쓸모 있다.
+      expect(outcome.resultText).toBe('중간까지 했습니다')
+    } finally { t.cleanup() }
+  })
+
+  it('claude가 성공 result를 낸 뒤 비정상 종료해도 failed다', async () => {
+    // spec §5의 우려 — 지금까지 succeeded였던 이 경우가 failed가 된다. 그 편이 맞다.
+    const t = withScript({
+      lines: [{ type: 'result', subtype: 'success', is_error: false, result: '끝남', session_id: 's' }],
+      exitCode: 3
+    })
+    try {
+      expect((await t.run('claude-code')).status).toBe('failed')
+    } finally { t.cleanup() }
+  })
+
+  it('실패하면 errorMessage는 마지막 error 이벤트의 메시지다 — stderr보다 먼저다', async () => {
+    // json 모드의 opencode는 오류를 stderr가 아니라 stdout의 error 줄로 낸다.
+    const t = withScript({
+      lines: [ocError('첫 오류'), ocText('중간'), ocError('Error from provider: 403')],
+      stderr: 'stderr에 남은 것',
+      exitCode: 1
+    })
+    try {
+      const outcome = await t.run('opencode')
+      expect(outcome.status).toBe('failed')
+      expect(outcome.errorMessage).toBe('Error from provider: 403')
+    } finally { t.cleanup() }
+  })
+
+  it('claude의 MCP 연결 경고는 실패 이유가 되지 않는다 — 진짜 원인(stderr)을 가리면 안 된다', async () => {
+    // claude 어댑터의 error 이벤트는 init의 mcp_servers가 connected가 아닐 때의 경고
+    // 하나뿐이다 — run을 실패시키지 않는다(claudeCode.ts). 사내 프록시 환경에서는 이
+    // 경고가 늘 붙으므로, 이것이 실패 이유 자리를 차지하면 SSO 만료·Bedrock 403 같은
+    // 다른 이유로 실패한 run이 전부 "MCP에 연결하지 못했습니다"로 기록된다.
+    const t = withScript({
+      lines: [
+        {
+          type: 'system', subtype: 'init', session_id: 's',
+          mcp_servers: [{ name: 'onedesk', status: 'failed' }]
+        },
+        { type: 'result', subtype: 'success', is_error: true, result: 'API Error: 403', session_id: 's' }
+      ],
+      stderr: 'Bedrock 게이트웨이가 403을 돌려줬다',
+      exitCode: 1
+    })
+    try {
+      const outcome = await t.run('claude-code')
+      expect(outcome.status).toBe('failed')
+      expect(outcome.errorMessage).toBe('Bedrock 게이트웨이가 403을 돌려줬다')
+      // 경고 자체는 여전히 화면(이벤트)에 남는다.
+      expect(t.events.some((e) => e.type === 'error' && e.message.includes('onedesk'))).toBe(true)
+    } finally { t.cleanup() }
+  })
+
+  it('error 이벤트가 없으면 errorMessage는 stderr 앞 2000자다', async () => {
+    const t = withScript({ lines: [], stderr: 'x'.repeat(2500), exitCode: 1 })
+    try {
+      const outcome = await t.run('opencode')
+      expect(outcome.errorMessage).toBe('x'.repeat(2000))
+    } finally { t.cleanup() }
+  })
+
+  it('성공이면 error 이벤트가 있어도 errorMessage를 채우지 않는다', async () => {
+    // claude의 MCP 연결 실패처럼 run을 실패시키지 않는 경고가 error로 온다.
+    const t = withScript({ lines: [ocError('경고일 뿐'), ocText('다 했습니다')], exitCode: 0 })
+    try {
+      const outcome = await t.run('opencode')
+      expect(outcome.status).toBe('succeeded')
+      expect(outcome.errorMessage).toBeNull()
+    } finally { t.cleanup() }
+  })
+
+  it('spawn조차 못 하면 그 오류가 실패 이유다', async () => {
+    // stderr가 비어 있어 예전에는 errorMessage가 null인 "이유 없는 실패"였다.
+    const { manager, cleanup } = makeManager()
+    try {
+      const outcome = await manager.start({
+        ...spec('no-such'), executable: resolve(tmpdir(), 'one-desk-no-such-cli'), extraArgs: []
+      })
+      expect(outcome.status).toBe('failed')
+      expect(outcome.errorMessage).toMatch(/ENOENT/)
+    } finally { cleanup() }
+  })
+
+  it('실행 전에 흘린 error(preEvents)는 실패 이유가 되지 않는다', async () => {
+    // 맥락 파일을 못 읽었다는 알림은 run을 실패시키지 않는 경고다 (core/execution.ts).
+    // 이것이 실패 이유 자리를 차지하면 진짜 원인(stderr)이 가려진다.
+    const t = withScript({ lines: [], stderr: '진짜 원인', exitCode: 1 })
+    try {
+      const outcome = await t.run('opencode', {
+        preEvents: [{ type: 'error', runId: 'r-judge', at: 0, message: '맥락 파일을 읽을 수 없어 빠졌습니다' }]
+      })
+      expect(outcome.errorMessage).toBe('진짜 원인')
+    } finally { t.cleanup() }
   })
 })
 

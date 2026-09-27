@@ -1,4 +1,5 @@
 import type { ContextItemView, Run } from '@shared/models'
+import { representativeTurn } from '@shared/inbox'
 
 /**
  * 한 대화. run 목록에서 파생하며 **일부만 저장된다** (설계 §2).
@@ -11,7 +12,20 @@ export interface Conversation {
   id: string
   /** 오래된 순 — 대화록은 위에서 아래로 읽는다 */
   runs: Run[]
+  /**
+   * **가장 최근에 만든 턴.** 이어갈 때의 agent·cwd·권한 기본값, 목록 정렬처럼 "마지막에
+   * 무엇을 보냈나"가 필요한 자리에 쓴다. **대화의 상태로 읽지 말 것** — 그것은 `state`다.
+   */
   last: Run
+  /**
+   * **대표 턴** — 대화의 지금 상태를 정한다 (`docs/sdlc/conversation-fixes/` spec FR-1·FR-3).
+   * 시작하지 못하고 취소된 예약을 건너뛴 가장 최근 턴이다. 도크 목록의 상태 점·답변 필요
+   * 표시·자동 확인 판정이 이것을 본다. 규칙은 core의 인박스·배지와 같은 한 함수
+   * (`shared/inbox.ts`의 `representativeTurn`)다 — 따로 적으면 배지와 도크가 다른 턴을 본다.
+   */
+  state: Run
+  /** 지금 도는 턴. running이 있으면 그것, 없으면 pending, 둘 다 없으면 null이다 (FR-3) */
+  active: Run | null
   /** 폴백 사다리로 정한 이름 (FR-11) */
   title: string
   /** 사용자가 직접 붙인 이름인가. 이름 바꾸기 폼의 초기값을 정한다 */
@@ -103,6 +117,12 @@ export function groupConversations(runs: Run[]): Conversation[] {
       id,
       runs: ordered,
       last: ordered[ordered.length - 1]!,
+      // representativeTurn은 최신순을 받는다 — list가 useRuns의 최신순 그대로다.
+      state: representativeTurn(list)!,
+      // 대화당 running은 하나뿐이고(RunQueue의 groupKey) 예약도 하나뿐이다(설계 §3-2).
+      active: ordered.find((r) => r.status === 'running')
+        ?? ordered.find((r) => r.status === 'pending')
+        ?? null,
       // 사용자가 붙인 이름 > 담긴 이슈·메모 > repo > 첫 지시 (FR-11).
       title: named || titleFromContext(collectContext(ordered)) || titleOf(ordered[0]!),
       named: named !== '',

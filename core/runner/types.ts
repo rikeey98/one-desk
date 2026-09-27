@@ -68,6 +68,17 @@ export interface AgentAdapter {
    */
   parseLine(line: string, runId: string): RunEventInit[]
   /**
+   * 이 어댑터가 낸 `error` 이벤트가 **실패 이유**인가 (`docs/sdlc/conversation-fixes/` spec FR-13).
+   *
+   * manager는 실패한 run의 errorMessage를 "마지막 error 이벤트 → stderr" 순으로 채우는데,
+   * **error 이벤트의 뜻이 어댑터마다 다르다.** opencode는 json 모드에서 오류를 stdout의
+   * error 줄로만 낸다(stderr는 비어 있다) — true다. claude의 error 이벤트는 MCP 연결
+   * 경고뿐이고 run을 실패시키지 않는다 — 실패 이유로 쓰면 진짜 원인(stderr)을 가리므로
+   * 켜지 않는다. 없으면 false다. spawn 오류는 어댑터가 아니라 manager가 내므로 이 값과
+   * 무관하게 실패 이유가 된다.
+   */
+  errorEventsAreFailureReasons?: boolean
+  /**
    * preflight를 통과한 뒤, 실제로 쓸 cwd와 권한으로 마지막 확인을 한다.
    *
    * **필요한 어댑터만 구현한다.** claude는 권한 플래그를 우리가 전부 소유하므로

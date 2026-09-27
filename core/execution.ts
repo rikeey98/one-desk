@@ -41,9 +41,67 @@ export interface ExecutionOptions {
 export function createExecutionService(opts: ExecutionOptions) {
   const onError = opts.onError ?? consoleErrorSink
 
+  /**
+   * 행은 만들었지만 아직 큐에 넣지 않은 run → 취소 요청을 받았는가
+   * (`docs/sdlc/conversation-fixes/` spec FR-7).
+   *
+   * launch는 행을 만들어 먼저 알린 뒤 실행 파일 확인·실행 전 확인·MCP 준비를 await한다.
+   * 그 틈의 run은 큐에도 manager에도 없어, 표식이 없으면 취소가 아무 데도 닿지 않고
+   * 턴은 그대로 돈다. **launch의 모든 출구에서 지운다**(try/finally) — 남으면 실패한
+   * run마다 항목이 쌓인다. 동작으로는 드러나지 않으므로(끝난 run의 취소는 어차피 아무것도
+   * 하지 않는다) `launchingCount`가 테스트에서 지킨다.
+   */
+  const launching = new Map<string, boolean>()
+
+  /**
+   * 사용자가 **실행 중에** 멈춘 run. 그 프로세스가 끝날 때 뿌리 표시를 다시 판정한다
+   * (spec FR-8 — `finish` 참고). 누른 순간의 판정만으로는 두 취소가 겹칠 때 아무도
+   * 찍지 않는다. **`finish`가 지운다** — 종료 기록이 도는 유일한 출구다.
+   */
+  const stopRequested = new Set<string>()
+
   function notify(run: Run): Run {
     opts.onRunUpdate?.(run)
     return run
+  }
+
+  /**
+   * 사용자가 취소한 턴이 속한 대화를 인박스에서 내린다 — **그 대화에 취소 대상 말고
+   * 활성 턴(running·pending)이 없을 때만** (spec FR-8).
+   *
+   * 다른 턴이 아직 돌거나 기다리면 그 턴의 결과가 인박스를 정한다. 찍어 버리면 2턴이
+   * 도는 중 예약한 3턴을 취소했을 뿐인데 2턴의 답변 필요·실패가 인박스에도 배지에도
+   * 뜨지 않는다. **찍는 자리는 여전히 뿌리다**(C-1) — 턴 id에 찍으면 아무 일도 없다.
+   */
+  function archiveRootIfIdle(target: Run): void {
+    const rootId = target.rootRunId ?? target.id
+    const busy = opts.runs.activeTurnIds(rootId).some((id) => id !== target.id)
+    if (busy) return
+    notify(opts.runs.markReviewed(rootId, 'archived'))
+  }
+
+  /**
+   * 시작하지 못한 run을 사용자의 취소로 끝낸다 — 대기열에서 뺀 run과 launch 중에 취소
+   * 요청을 받은 run이 같이 쓴다. 대표 턴 규칙(`shared/inbox.ts`)이 건너뛰는 "시작하지
+   * 못하고 취소된 턴"(`startedAt` null)이 여기서 만들어진다.
+   *
+   * 슬롯을 쥔 적이 없으므로 큐에는 돌려줄 것이 없다. 하지만 prepare()는 enqueue보다
+   * 먼저 끝나므로 이 run도 이미 토큰을 쥐고 있을 수 있다 — 반드시 폐기한다.
+   */
+  function finishUnstarted(runId: string): Run {
+    releaseMcp(runId)
+    const finished = notify(opts.runs.markFinished(runId, {
+      status: 'canceled',
+      resultText: null,
+      externalSessionId: null,
+      needsAnswer: false,
+      exitCode: null,
+      errorMessage: null,
+      // 실패·취소 경로에는 사용량이 없다 — 0이 아니라 null이다.
+      usage: null
+    }))
+    archiveRootIfIdle(finished)
+    return finished
   }
 
   /**
@@ -72,15 +130,33 @@ export function createExecutionService(opts: ExecutionOptions) {
    * 여기서 던지면 슬롯이 영구히 줄어든다.
    */
   function finish(runId: string, input: FinishRunInput): void {
+    const stopped = stopRequested.delete(runId)
     try {
-      notify(opts.runs.markFinished(runId, input))
-    } catch (err) {
-      // 기록할 곳이 없다(유령 run)거나 DB 오류로 기록 자체가 실패했다. 어느
-      // 쪽이든 던지지 않고 슬롯만 돌려준다 — 흔적을 안 남기면 이 run이 DB에
-      // running으로 남아 다음 재시작의 reapStale이 정리할 때까지 아무도 모른다.
-      // core/가 나중에 별도 데몬으로 떨어지면 stderr가 자연스러운 로그
-      // 목적지이므로 지금부터 onError로 남긴다.
-      onError(`[execution] run 종료 기록 실패 — 이 run은 DB에 running으로 남는다 (runId=${runId})`, err)
+      let finished: Run
+      try {
+        finished = notify(opts.runs.markFinished(runId, input))
+      } catch (err) {
+        // 기록할 곳이 없다(유령 run)거나 DB 오류로 기록 자체가 실패했다. 어느
+        // 쪽이든 던지지 않고 슬롯만 돌려준다 — 흔적을 안 남기면 이 run이 DB에
+        // running으로 남아 다음 재시작의 reapStale이 정리할 때까지 아무도 모른다.
+        // core/가 나중에 별도 데몬으로 떨어지면 stderr가 자연스러운 로그
+        // 목적지이므로 지금부터 onError로 남긴다.
+        onError(`[execution] run 종료 기록 실패 — 이 run은 DB에 running으로 남는다 (runId=${runId})`, err)
+        return
+      }
+      // **사용자가 멈춘 턴이 실제로 멈췄으면 뿌리 표시를 다시 판정한다** (spec FR-8).
+      // 누른 순간에는 다른 활성 턴이 있어 찍지 않았어도, 그 사이 그 턴들이 전부 사용자의
+      // 취소로 끝났을 수 있다 — 도는 턴을 멈추고 그 프로세스가 내려가기 전에 예약까지
+      // 취소하면 두 번의 판정이 서로를 "활성"으로 보고 아무도 찍지 않는다. 멈춘 턴이
+      // 끝나는 여기가 마지막 판정 자리다. 멈추지 못하고 제 결과로 끝났으면(취소가 늦었다)
+      // 찍지 않는다 — 그 결과가 인박스를 정한다.
+      if (stopped && finished.status === 'canceled') {
+        try {
+          archiveRootIfIdle(finished)
+        } catch (err) {
+          onError(`[execution] 멈춘 턴의 대화를 인박스에서 내리지 못했다 (runId=${runId})`, err)
+        }
+      }
     } finally {
       releaseMcp(runId)
       opts.queue.release(runId)
@@ -184,6 +260,10 @@ export function createExecutionService(opts: ExecutionOptions) {
       // 이 한 줄이 빠지면 MCP가 통째로 꺼진다.
       mcp: spec.mcp,
       timeoutMs: spec.timeoutMs,
+      // 세션 id를 도는 중에 남긴다 (spec FR-16). 종료 기록만 기다리면 첫 턴이 도는 중
+      // 앱이 꺼졌을 때 그 대화를 이을 수 없다 — reapStale은 이 값을 건드리지 않는다.
+      // 던지는 것은 manager가 삼켜 onError로 보낸다(스트림 핸들러 안이라 새면 앱이 죽는다).
+      onSession: (id, sessionId) => opts.runs.saveExternalSessionId(id, sessionId),
       ...(spec.preEvents.length > 0 ? { preEvents: spec.preEvents } : {}),
       ...(opts.extraArgs ? { extraArgs: opts.extraArgs } : {})
     }).then(
@@ -259,9 +339,31 @@ export function createExecutionService(opts: ExecutionOptions) {
     })
     notify(created)
 
+    // 여기서부터 enqueue까지는 큐에도 manager에도 없다 — 취소는 표식으로만 닿는다 (FR-7).
+    launching.set(created.id, false)
+    try {
+      return await prepareAndEnqueue(spec, created, assembled, missing)
+    } finally {
+      launching.delete(created.id)
+    }
+  }
+
+  /**
+   * launch의 뒷부분 — 행을 만든 뒤 실행 파일 확인·실행 전 확인·MCP 준비를 거쳐 큐에 넣는다.
+   *
+   * **await 뒤마다(그리고 enqueue 직전에) 취소 요청을 먼저 본다** (spec FR-7). 요청이
+   * 있으면 그 단계의 결과가 실패여도 취소로 끝낸다 — 사용자가 멈추라고 한 턴이
+   * 읽을 필요 없는 오류 문구로 인박스·배지에 오르면 안 된다.
+   */
+  async function prepareAndEnqueue(
+    spec: LaunchSpec, created: Run, assembled: string, missing: Asset[]
+  ): Promise<Run> {
+    const cancelRequested = () => launching.get(created.id) === true
+
     // preflight는 큐에 넣기 전에 본다. 실행 파일이 없는 run이 슬롯을 잡았다
     // 놓는 낭비가 없고, "preflight 실패는 startedAt이 null"이라는 성질도 남는다.
     const preflight = await opts.resolveExecutable(spec.agentKind, spec.workspaceId)
+    if (cancelRequested()) return finishUnstarted(created.id)
     if (!preflight.ok || !preflight.executable) {
       return notify(opts.runs.markFinished(created.id, {
         status: 'failed',
@@ -285,6 +387,7 @@ export function createExecutionService(opts: ExecutionOptions) {
         cwd: spec.cwd,
         permission: spec.permission
       })
+      if (cancelRequested()) return finishUnstarted(created.id)
       if (!verified.ok) {
         return notify(opts.runs.markFinished(created.id, {
           status: 'failed',
@@ -313,6 +416,8 @@ export function createExecutionService(opts: ExecutionOptions) {
         })
         mcp = { serverName: MCP_SERVER_NAME, ...prepared }
       } catch (err) {
+        // 취소 요청이 먼저다. finishUnstarted도 토큰을 폐기한다.
+        if (cancelRequested()) return finishUnstarted(created.id)
         // MCP 없이 조용히 진행하지 않는다 — agent는 이슈를 못 고치는 채로
         // "성공"으로 끝나고, 그 실패는 아무 데도 남지 않는다.
         // prepare()가 토큰을 등록한 뒤(예: 설정 파일 쓰기)에서 실패했을 수
@@ -331,6 +436,10 @@ export function createExecutionService(opts: ExecutionOptions) {
         }))
       }
     }
+
+    // MCP 준비(await) 뒤이자 enqueue 직전의 확인이다. prepare()가 토큰을 이미
+    // 등록했으므로 finishUnstarted가 폐기까지 맡는다.
+    if (cancelRequested()) return finishUnstarted(created.id)
 
     opts.queue.enqueue(created.id, () => beginRun(created.id, {
       agentKind: spec.agentKind,
@@ -435,14 +544,23 @@ export function createExecutionService(opts: ExecutionOptions) {
   }
 
   /**
-   * 대기 중이면 큐에서 빼고 canceled로 끝낸다. 실행 중이면 프로세스를 죽인다.
+   * **누른 그 턴을 멈춘다.** 셋 중 어디에 있느냐로 갈린다:
    *
-   * manager는 프로세스가 있는 run만 안다 — 대기 중인 run을 manager.cancel에
-   * 넘기면 아무 일도 일어나지 않고 사용자는 취소가 안 된다고 느낀다.
+   * - **launch 중**(행은 있고 큐에는 아직 없다) — 요청만 기록하고 돌아온다. launch가
+   *   다음 확인 자리에서 보고 큐에 넣지 않은 채 canceled로 끝낸다 (spec FR-7).
+   * - **대기 중** — 큐에서 빼고 canceled로 끝낸다. manager는 프로세스가 있는 run만
+   *   알아서, 대기 중인 run을 manager.cancel에 넘기면 아무 일도 일어나지 않는다.
+   * - **실행 중** — 프로세스를 죽인다. 같은 대화의 예약은 건드리지 않는다 — 사용자가
+   *   따로 보낸 지시라 앞 턴이 끝나면 이어서 뜬다 (FR-9).
+   * - **이미 끝났다**(프로세스가 없다) — 아무것도 하지 않는다. 턴이 실패·답변 필요로
+   *   끝나는 순간과 누른 순간이 겹치면 렌더러가 종료 push를 받기 전에 취소가 온다.
+   *   멈출 것이 없는 취소가 뿌리에 찍으면 방금 생긴 결과가 인박스에서 조용히 빠진다.
+   *   DB에는 아직 running이어도(manager가 결과를 돌려주고 기록하기 전의 틈) 마찬가지다.
    *
-   * 어느 쪽이든 **사용자가 스스로 한 일이므로 그 자리에서 확인 표시를 찍는다.**
-   * 그래야 인박스에 남는 canceled가 앱이 재시작하며 취소한 것만 남고,
-   * "대기 중 취소됨"이라는 이름이 정확해진다 (설계 §5).
+   * 어느 쪽이든 **사용자가 스스로 한 일이므로 확인 표시를 찍는다** — 단, **그 대화에
+   * 다른 활성 턴이 없을 때만**이다(FR-8, `archiveRootIfIdle`). 다른 턴이 남아 있으면
+   * 그 턴의 결과가 인박스를 정한다. 실행 중 턴은 **그 프로세스가 취소로 끝날 때 한 번 더**
+   * 판정한다(`finish`) — 그 사이 남은 턴까지 취소됐을 수 있다.
    *
    * **확인 표시는 취소하는 그 턴이 아니라 뿌리에 찍는다.** 인박스 소속
    * 판정이 뿌리의 reviewedAt 기준이기 때문이다(`run.ts`의 `inbox()`, 설계
@@ -453,34 +571,39 @@ export function createExecutionService(opts: ExecutionOptions) {
    * 이어가면 `create()`가 다시 풀어준다(설계 §5 재개 규칙).
    */
   function cancel(runId: string): void {
-    if (opts.queue.remove(runId)) {
-      // 슬롯을 쥔 적이 없으므로 큐에는 돌려줄 것이 없다. 하지만 prepare()는
-      // enqueue보다 먼저 끝나므로(launch 참고) 대기 중이던 이 run도 이미
-      // 토큰을 쥐고 있을 수 있다 — 반드시 폐기한다.
-      releaseMcp(runId)
-      const finished = opts.runs.markFinished(runId, {
-        status: 'canceled',
-        resultText: null,
-        externalSessionId: null,
-        needsAnswer: false,
-        exitCode: null,
-        errorMessage: null,
-        // 실패·취소 경로에는 사용량이 없다 — 0이 아니라 null이다.
-        usage: null
-      })
-      notify(finished)
-      notify(opts.runs.markReviewed(finished.rootRunId ?? finished.id, 'archived'))
+    if (launching.has(runId)) {
+      launching.set(runId, true)
       return
     }
 
-    // 실행 중이다. 종료 기록은 manager의 결과가 오면 finish가 쓴다.
-    // 확인 표시는 지금 찍는다 — markFinished는 reviewedAt을 건드리지 않으므로 살아남는다.
-    const target = opts.runs.get(runId)
-    notify(opts.runs.markReviewed(target.rootRunId ?? target.id, 'archived'))
+    if (opts.queue.remove(runId)) {
+      finishUnstarted(runId)
+      return
+    }
+
+    // 멈출 프로세스가 없다 — 이미 끝났거나 끝나는 중이다. 그 턴의 결과가 인박스를 정한다.
+    if (!opts.manager.isRunning(runId)) return
+
+    // 실행 중이다. 종료 기록은 manager의 결과가 오면 finish가 쓴다. 프로세스를 먼저
+    // 멈춘다 — 아래 DB 조회가 던져도 사용자가 멈춘 턴은 멈춰야 한다.
+    stopRequested.add(runId)
     opts.manager.cancel(runId)
+    // 확인 표시는 지금 찍는다 — markFinished는 reviewedAt을 건드리지 않으므로 살아남는다.
+    // 지금 찍지 못했으면(다른 활성 턴이 있다) 끝날 때 finish가 다시 판정한다.
+    archiveRootIfIdle(opts.runs.get(runId))
   }
 
-  return { start, resume, cancel }
+  /**
+   * 행은 만들었지만 아직 큐에 넣지 않은 run의 수. **진단·테스트용이다** — launch의
+   * 모든 출구가 표식을 치우는지(spec FR-7) 밖에서 볼 수 있는 유일한 자리다. 표식이 새면
+   * 동작은 같아 보이고(끝난 run의 취소는 어차피 아무것도 하지 않는다) 실패한 run마다
+   * 항목만 쌓인다.
+   */
+  function launchingCount(): number {
+    return launching.size
+  }
+
+  return { start, resume, cancel, launchingCount }
 }
 
 /** 맥락 항목이 이 workspace 소속인지 확인하며 실제 데이터를 모은다. */

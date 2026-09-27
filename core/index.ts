@@ -252,7 +252,10 @@ export function createCore(opts: CoreOptions) {
        * 그래서 `resolveAgentPath` → 어댑터 `preflight`를 그대로 탄다 —
        * `ONE_DESK_AGENT_PATH`가 잡혀 있으면 그것이 이기는 것까지 같다.
        *
-       * 프로세스를 띄우지 않는다. 파일 접근 검사와 PATH 탐색뿐이라 값싸다.
+       * 대부분 파일 접근 검사와 PATH 탐색뿐이라 값싸다. **예외는 opencode의 버전 확인**
+       * (`docs/sdlc/conversation-fixes/` spec FR-17)이다 — 처음 한 번은 `--version`을
+       * 띄우지만 (경로, 크기, mtime)으로 캐시하므로 그 뒤에는 stat만 한다. 그 캐시는
+       * 실행과 나눠 쓴다(같은 preflight다).
        */
       async checkAgents(workspaceId: string): Promise<AgentStatuses> {
         const ws = workspaces.list().find((w) => w.id === workspaceId) ?? null

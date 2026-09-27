@@ -138,7 +138,8 @@ export default function App() {
   }
 
   /**
-   * 인박스가 부르는 확인 표시. 인박스 항목은 대화의 마지막 턴이므로, 그 id를 그대로
+   * 인박스가 부르는 확인 표시. 인박스 항목은 대화의 대표 턴(`shared/inbox.ts`의
+   * `representativeTurn` — 마지막 턴이 아닐 수 있다)이므로, 그 id를 그대로
    * 찍으면 대화가 인박스에서 내려가지 않는다(Task 5의 판정은 root run의 reviewedAt
    * 기준). 뿌리로 변환해 review에 넘긴다.
    */
@@ -157,7 +158,7 @@ export default function App() {
   /**
    * 인박스 항목을 그 대화로 데려간다.
    *
-   * 항목은 대화의 마지막 턴이므로 여는 것은 그 뿌리다. 대화창이 대화록과
+   * 항목은 대화의 대표 턴이므로 여는 것은 그 뿌리다. 대화창이 대화록과
    * 입력을 함께 주므로 "로그 보기"와 "이어서 실행"이 하나로 합쳐졌다 (설계 §5).
    *
    * RunPanel의 draftPrompt effect는 대화가 있으면(!conversation이 아니면) 반영하지
@@ -334,6 +335,9 @@ export default function App() {
               draftPrompt={draftPrompt}
               draftCwd={draftCwd}
               focusConversationId={focusConversationId}
+              // 일회성 지시다 — Dock이 열고 나면 치운다. 남아 있으면 설정에 갔다 오는 것만으로
+              // (Dock 재마운트) 그 대화가 되살아난다 (docs/sdlc/conversation-fixes/ spec FR-22).
+              onFocusConsumed={() => setFocusConversationId(null)}
               // 담은 맥락은 그 턴에만 적용된다. 다음 실행은 빈 상태에서 시작한다.
               onRunStarted={() => { setChips([]); setDraftPrompt(''); setDraftCwd(null) }}
             />

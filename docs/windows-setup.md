@@ -150,7 +150,12 @@ Error from provider (Console): OpenCode's free tier can only be used from within
 헤드리스 agent에 전체 허용을 주는 것은 권한 단계를 만든 이유와 어긋나므로, 제대로
 쓰려면 `opencode auth login`으로 자격 증명을 넣어야 한다.
 
-#### ⚠️ 실패 원인이 화면에 남지 않는다 (미해결)
+#### ⚠️ 실패 원인이 화면에 남지 않는다 (2026-09-27 해결)
+
+> **2026-09-27: `docs/sdlc/conversation-fixes/` FR-12·FR-13이 고쳤다.** 어댑터가 error 줄을
+> error 이벤트로 내고, 실패한 run의 `errorMessage`가 그 메시지가 된다. text 줄마다 합성한
+> succeeded가 비정상 종료를 이기던 판정도 함께 바로잡혔다(종료 코드가 이긴다). 아래는
+> 당시 기록이다.
 
 위 403을 만났을 때 run은 `exitCode: 1`, `errorMessage: null`로 끝나고 대화록에는
 "아직 출력이 없습니다"만 남는다. opencode는 stdout에 `{"type":"error", ...}`를 또렷이
@@ -314,7 +319,7 @@ clone만으로는 따라오지 않는다. 맥에서 손으로 복사해야 하�
   draft다. 대화에 담긴 맥락을 대화록에 표시하는 작업.
 - **남은 5단계 과제:** diff 뷰어, 마크다운 렌더링, 검색/필터/정렬.
 - **이 장비에서 나온 것:** OpenCode 어댑터가 `{"type":"error"}` 줄을 버려 실패 원인이
-  화면에 남지 않는다(§3). 원인 없는 `failed`는 디버깅을 통째로 막으므로 diff 뷰어보다
+  화면에 남지 않는다(§3). *(2026-09-27 해결 — `docs/sdlc/conversation-fixes/` FR-13)* 원인 없는 `failed`는 디버깅을 통째로 막으므로 diff 뷰어보다
   먼저 다룰 값어치가 있다. e2e를 막던 픽스처 문제는 해결됐다(§5).
 - 착수 전에 `CLAUDE.md`를 읽을 것. 특히 "절대 지켜야 할 경계 세 가지"와 "밟으면
   조용히 깨지는 것들".

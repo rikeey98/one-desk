@@ -8,6 +8,9 @@ const EMPTY: readonly RunEvent[] = []
 /**
  * 선택한 run의 이벤트. 실시간 스트림은 스토어에 쌓이고,
  * 스토어가 비어 있으면(앱 재시작 등) 로그 파일에서 되살린다.
+ *
+ * 요청과 응답 사이에 push된 이벤트는 `hydrate`가 seq로 병합해 살린다 — 응답으로
+ * 스토어를 통째로 바꾸면 그 줄이 사라진다(`docs/sdlc/conversation-fixes/` spec FR-19).
  */
 export function useRunEvents(runId: string | null) {
   const store = useRunEventStore()

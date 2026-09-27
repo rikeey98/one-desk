@@ -36,10 +36,25 @@ export function createRunEventStore(opts: RunEventStoreOptions = {}) {
       notify()
     },
 
-    /** 로그 파일에서 읽어온 이벤트로 채운다 (종료된 run의 탭을 다시 열 때) */
+    /**
+     * 로그 파일에서 읽어온 이벤트로 채운다 (종료된 run의 탭을 다시 열 때).
+     *
+     * **교체가 아니라 seq 병합이다** (`docs/sdlc/conversation-fixes/` spec FR-19). 로그를
+     * 요청한 뒤 응답이 오기 전에 실시간 이벤트가 push될 수 있고, 그 이벤트는 파일에 아직
+     * 안 쓰였을 수 있다(로그 쓰기는 비동기다). 통째로 바꾸면 그 줄이 사라진다.
+     * 상한은 걸지 않는다 — 되살린 로그는 전부 보여 주던 것이 지금 동작이다.
+     */
     hydrate(runId: string, events: RunEvent[]): void {
-      byRun.set(runId, [...events].sort((a, b) => a.seq - b.seq))
-      seen.set(runId, new Set(events.map((e) => e.seq)))
+      const ids = seen.get(runId) ?? new Set<number>()
+      const merged = [...(byRun.get(runId) ?? [])]
+      for (const event of events) {
+        if (ids.has(event.seq)) continue
+        ids.add(event.seq)
+        merged.push(event)
+      }
+      merged.sort((a, b) => a.seq - b.seq)
+      byRun.set(runId, merged)
+      seen.set(runId, ids)
       notify()
     },
 

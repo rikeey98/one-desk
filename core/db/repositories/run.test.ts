@@ -184,29 +184,56 @@ describe('RunRepository', () => {
       return runs.create({ ...baseInput(), logPath })
     }
 
-    it('로그 파일의 JSONL을 이벤트 배열로 읽는다', () => {
+    it('로그 파일의 JSONL을 이벤트 배열로 읽는다', async () => {
       const logPath = join(dir, 'stream.jsonl')
       writeFileSync(logPath, [
         JSON.stringify({ type: 'session', runId: 'r', seq: 0, at: 1, sessionId: 's' }),
         JSON.stringify({ type: 'text', runId: 'r', seq: 1, at: 2, text: '안녕' })
       ].join('\n') + '\n')
 
-      const events = runs.readLog(runWithLog(logPath).id)
+      const events = await runs.readLog(runWithLog(logPath).id)
       expect(events).toHaveLength(2)
       expect(events[1]).toMatchObject({ type: 'text', text: '안녕' })
     })
 
-    it('로그 파일이 없으면 빈 배열을 준다', () => {
+    it('로그 파일이 없으면 빈 배열을 준다', async () => {
       // 취소되거나 spawn 전에 끝난 run은 파일이 없을 수 있다
-      expect(runs.readLog(runWithLog(join(dir, '없는.jsonl')).id)).toEqual([])
+      expect(await runs.readLog(runWithLog(join(dir, '없는.jsonl')).id)).toEqual([])
     })
 
-    it('깨진 줄이 있어도 나머지를 읽는다', () => {
+    it('깨진 줄이 있어도 나머지를 읽는다', async () => {
       const logPath = join(dir, 'stream.jsonl')
       writeFileSync(logPath, '{깨진 줄\n' + JSON.stringify({ type: 'text', runId: 'r', seq: 1, at: 2, text: '살아남음' }) + '\n')
-      const events = runs.readLog(runWithLog(logPath).id)
+      const events = await runs.readLog(runWithLog(logPath).id)
       expect(events).toHaveLength(1)
       expect(events[0]).toMatchObject({ text: '살아남음' })
+    })
+
+    it('파일을 비동기로 읽는다 — 동기로 읽으면 메인 프로세스가 통째로 멈춘다', async () => {
+      // `docs/sdlc/conversation-fixes/` spec FR-19. 긴 로그를 readFileSync로 읽는 동안
+      // 같은 프로세스의 MCP 서버와 IPC가 전부 멈춘다. 반환값이 Promise라는 것만으로는
+      // 부족하다 — async 함수 안에서 readFileSync를 불러도 Promise가 나온다.
+      //
+      // 그래서 **마이크로태스크만으로는 끝나지 않아야 한다**를 본다. 동기로 읽으면 결과가
+      // 이미 정해진 Promise라 마이크로태스크 몇 번이면 풀린다. 진짜 I/O는 이벤트 루프로
+      // 돌아가야 완료되므로 그 사이에 풀릴 수 없다. (호출 직후 파일을 지우는 식으로
+      // 보면 경합이다 — 스레드 풀이 먼저 열 수 있고, Windows는 열린 파일도 지운다.)
+      const logPath = join(dir, 'stream.jsonl')
+      writeFileSync(logPath, JSON.stringify({ type: 'text', runId: 'r', seq: 0, at: 1, text: '읽힘' }) + '\n')
+      const id = runWithLog(logPath).id
+
+      let settled = false
+      const pending = runs.readLog(id).then((events) => { settled = true; return events })
+      for (let i = 0; i < 20; i++) await Promise.resolve()
+      expect(settled).toBe(false)
+
+      expect(await pending).toHaveLength(1)
+    })
+
+    it('없는 것 말고 읽기 실패는 삼키지 않는다', async () => {
+      // 디렉토리를 가리키면(EISDIR) "로그 없음"이 아니라 오류다 — 빈 배열로 바꾸면
+      // 화면은 로그가 원래 없던 run으로 보인다.
+      await expect(runs.readLog(runWithLog(dir).id)).rejects.toThrow()
     })
   })
 
@@ -295,8 +322,8 @@ describe('RunRepository', () => {
 
     it('전체와 workspace별 건수를 센다', () => {
       const other = createWorkspaceRepository(db).create({ name: 'ws2' }).id
-      // 셋 다 ACTIONABLE인 것으로 고른다 — 완료·미확인은 배지가 세지 않으므로
-      // (spec FR-4) 그것으로 채우면 이 테스트가 workspace별 집계가 아니라
+      // 셋 다 배지가 세는 카테고리(INBOX_RULES의 badge)로 고른다 — 완료·미확인은
+      // 배지가 세지 않으므로 (spec FR-4) 그것으로 채우면 이 테스트가 workspace별 집계가 아니라
       // 카테고리 필터를 재확인하는 것이 된다.
       finished('failed')
       finished('interrupted')
@@ -375,7 +402,7 @@ describe('RunRepository', () => {
       })
     }
 
-    /** 배지가 세는 카테고리로 끝낸다 (shared/inbox.ts의 ACTIONABLE). */
+    /** 배지가 세는 카테고리로 끝낸다 (shared/inbox.ts의 INBOX_RULES). */
     function fail(id: string, sessionId = 'sess') {
       runs.markFinished(id, {
         status: 'failed', resultText: null, externalSessionId: sessionId,
@@ -420,7 +447,7 @@ describe('RunRepository', () => {
     })
 
     it('건수도 대화 단위로 센다', () => {
-      // 마지막 턴을 ACTIONABLE로 끝낸다 — 완료·미확인은 배지가 세지 않으므로
+      // 마지막 턴을 배지가 세는 카테고리로 끝낸다 — 완료·미확인은 배지가 세지 않으므로
       // (FR-4) succeed로 두면 "대화 단위로 센다"가 아니라 "0이다"를 확인하게 된다.
       const a = runs.create(baseInput())
       succeed(a.id)
@@ -431,6 +458,74 @@ describe('RunRepository', () => {
 
       expect(runs.inboxCounts().total).toBe(2)
       expect(runs.inboxCounts().byWorkspace[workspaceId]).toBe(2)
+    })
+
+    /** 시작하지 못한 채 취소된 예약 턴. startedAt이 null로 남는다. */
+    function dropPending(id: string) {
+      runs.markFinished(id, {
+        status: 'canceled', resultText: null, externalSessionId: null,
+        needsAnswer: false, exitCode: null, errorMessage: null, usage: null
+      })
+    }
+
+    /**
+     * **시작하지 못하고 취소된 예약은 앞 턴의 결과를 가리지 않는다**
+     * (`docs/sdlc/conversation-fixes/` spec FR-1·FR-2).
+     *
+     * 마지막으로 만든 턴을 그대로 쓰면 2턴의 실패가 3턴 예약의 canceled에 가려
+     * "대기 중 취소됨"(배지가 세지 않음)이 된다 — 사람이 봐야 할 실패가 사라진다.
+     * 목록과 배지가 같은 턴을 보는지 둘 다 확인한다(`lastTurnsOf`가 공유한다).
+     */
+    it('시작하지 못하고 취소된 마지막 턴은 건너뛰고 앞 턴이 대화를 대표한다', () => {
+      const first = runs.create(baseInput())
+      succeed(first.id)
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+      runs.markStarted(second.id)
+      fail(second.id)
+      const third = runs.create({ ...baseInput(), parentRunId: second.id })
+      dropPending(third.id)
+
+      const items = runs.inbox()
+      expect(items).toHaveLength(1)
+      expect(items[0]!.id).toBe(second.id)
+      // 배지도 같은 턴(실패)을 본다. select에서 startedAt이 빠지면 여기서 드러난다 —
+      // 그 컬럼이 없으면 예약을 건너뛰지 못해 0이 된다.
+      expect(runs.inboxCounts().total).toBe(1)
+    })
+
+    it('앱 재시작 뒤 끊긴 턴이 취소된 예약에 가려 배지에서 빠지지 않는다', () => {
+      // 2턴이 도는 중에 3턴을 예약한 채로 앱이 꺼졌다. reapStale은 2턴을
+      // interrupted, 3턴을 canceled(startedAt null)로 만든다.
+      const first = runs.create(baseInput())
+      succeed(first.id)
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+      runs.markStarted(second.id)
+      runs.create({ ...baseInput(), parentRunId: second.id })
+
+      runs.reapStale()
+
+      expect(runs.inbox().map((r) => r.id)).toEqual([second.id])
+      expect(runs.inboxCounts().total).toBe(1)
+    })
+
+    it('시작한 뒤 취소된 턴은 건너뛰지 않는다', () => {
+      // 돌다가 멈춘 것이다 — 그 턴이 대화의 지금 상태다.
+      const first = runs.create(baseInput())
+      fail(first.id)
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+      runs.markStarted(second.id)
+      dropPending(second.id)
+
+      expect(runs.inbox().map((r) => r.id)).toEqual([second.id])
+      expect(runs.inboxCounts().total).toBe(0)
+    })
+
+    it('모든 턴이 시작하지 못하고 취소됐으면 가장 최근 턴을 보여준다', () => {
+      const first = runs.create(baseInput())
+      dropPending(first.id)
+
+      expect(runs.inbox().map((r) => r.id)).toEqual([first.id])
+      expect(runs.inboxCounts().total).toBe(0)
     })
 
     it('확인한 대화에 새 턴이 생기면 뿌리의 확인 표시가 풀려 다시 인박스에 뜬다 (CT-3)', () => {
@@ -451,7 +546,7 @@ describe('RunRepository', () => {
       expect(root.reviewedAt).toBeNull()
       expect(root.reviewedKind).toBeNull()
 
-      // 배지까지 되살아나는지 보려면 마지막 턴이 ACTIONABLE이어야 한다(FR-4).
+      // 배지까지 되살아나는지 보려면 마지막 턴이 배지가 세는 카테고리여야 한다(FR-4).
       fail(second.id)
       const items = runs.inbox()
       expect(items).toHaveLength(1)
@@ -649,6 +744,121 @@ describe('RunRepository', () => {
     it('세션을 가진 run이 하나도 없으면 null이다', () => {
       const first = runs.create(baseInput())
       expect(runs.latestSessionRun(first.id)).toBeNull()
+    })
+  })
+
+  /**
+   * 도는 중에 세션 id를 저장한다 (`docs/sdlc/conversation-fixes/` spec FR-16).
+   * 종료 때에야 저장하면 첫 턴이 앱 종료로 끊긴 대화를 이을 수 없다.
+   */
+  describe('saveExternalSessionId', () => {
+    it('실행 중인 run에 세션 id를 남긴다 — 종료를 기다리지 않는다', () => {
+      const created = runs.create(baseInput())
+      runs.markStarted(created.id)
+
+      runs.saveExternalSessionId(created.id, 'sess-early')
+
+      const saved = runs.get(created.id)
+      expect(saved.externalSessionId).toBe('sess-early')
+      expect(saved.status).toBe('running')
+    })
+
+    it('이미 값이 있으면 덮지 않는다', () => {
+      const created = runs.create(baseInput())
+      runs.saveExternalSessionId(created.id, 'sess-1')
+      runs.saveExternalSessionId(created.id, 'sess-2')
+      expect(runs.get(created.id).externalSessionId).toBe('sess-1')
+    })
+
+    it('다른 run은 건드리지 않는다', () => {
+      const a = runs.create(baseInput())
+      const b = runs.create(baseInput())
+      runs.saveExternalSessionId(a.id, 'sess-a')
+      expect(runs.get(b.id).externalSessionId).toBeNull()
+    })
+
+    it('빈 세션 id는 남기지 않는다 — 먼저 쓴 값이 이기므로 진짜 id를 막는다', () => {
+      // claude 어댑터는 init에 session_id가 없으면 빈 문자열을 싣는다. ''가 먼저 들어가면
+      // 뒤에 오는 진짜 id가 "이미 값이 있다"에 막히고, latestSessionRun(isNotNull)이 그
+      // 턴을 골라 앞 턴의 유효한 세션까지 가린다.
+      const created = runs.create(baseInput())
+      runs.saveExternalSessionId(created.id, '')
+      expect(runs.get(created.id).externalSessionId).toBeNull()
+      runs.saveExternalSessionId(created.id, 'sess-real')
+      expect(runs.get(created.id).externalSessionId).toBe('sess-real')
+    })
+
+    it('종료 기록이 세션 id를 모르면(null) 도는 중에 남긴 값을 지우지 않는다', () => {
+      // manager.start가 거부되는 경로(세션을 배운 뒤 flush·로그 닫기에서 던짐)는 종료를
+      // externalSessionId: null로 기록한다. 그대로 덮으면 이을 수 있던 대화가 끊긴다.
+      const created = runs.create(baseInput())
+      runs.markStarted(created.id)
+      runs.saveExternalSessionId(created.id, 'sess-early')
+
+      runs.markFinished(created.id, {
+        status: 'failed', resultText: null, externalSessionId: null,
+        needsAnswer: false, exitCode: null, errorMessage: '스트림을 닫다 실패했다', usage: null
+      })
+
+      expect(runs.get(created.id).externalSessionId).toBe('sess-early')
+    })
+
+    it('종료 기록이 세션 id를 알면 그것이 남는다', () => {
+      const created = runs.create(baseInput())
+      runs.saveExternalSessionId(created.id, 'sess-init')
+      runs.markFinished(created.id, {
+        status: 'succeeded', resultText: '끝', externalSessionId: 'sess-result',
+        needsAnswer: false, exitCode: 0, errorMessage: null, usage: null
+      })
+      expect(runs.get(created.id).externalSessionId).toBe('sess-result')
+    })
+
+    it('reapStale은 저장한 세션 id를 지우지 않는다 — 끊긴 첫 턴에서 이어받을 수 있다', () => {
+      const first = runs.create(baseInput())
+      runs.markStarted(first.id)
+      runs.saveExternalSessionId(first.id, 'sess-early')
+
+      runs.reapStale()
+
+      const reaped = runs.get(first.id)
+      expect(reaped.status).toBe('interrupted')
+      expect(reaped.externalSessionId).toBe('sess-early')
+      expect(runs.latestSessionRun(first.id)?.id).toBe(first.id)
+    })
+  })
+
+  /** 취소가 뿌리에 확인 표시를 찍을지 정한다 (`docs/sdlc/conversation-fixes/` spec FR-8). */
+  describe('activeTurnIds', () => {
+    it('그 대화의 running·pending 턴만 준다', () => {
+      const first = runs.create(baseInput())
+      runs.markStarted(first.id)
+      runs.markFinished(first.id, {
+        status: 'succeeded', resultText: null, externalSessionId: 'sess',
+        needsAnswer: false, exitCode: 0, errorMessage: null, usage: null
+      })
+      const second = runs.create({ ...baseInput(), parentRunId: first.id })
+      runs.markStarted(second.id)
+      const third = runs.create({ ...baseInput(), parentRunId: second.id })
+
+      expect(runs.activeTurnIds(first.id).sort()).toEqual([second.id, third.id].sort())
+    })
+
+    it('뿌리 자신이 돌고 있으면 뿌리도 포함한다', () => {
+      const root = runs.create(baseInput())
+      runs.markStarted(root.id)
+      expect(runs.activeTurnIds(root.id)).toEqual([root.id])
+    })
+
+    it('다른 대화의 활성 턴은 섞이지 않는다', () => {
+      const mine = runs.create(baseInput())
+      runs.markFinished(mine.id, {
+        status: 'failed', resultText: null, externalSessionId: null,
+        needsAnswer: false, exitCode: 1, errorMessage: 'x', usage: null
+      })
+      const other = runs.create(baseInput())
+      runs.markStarted(other.id)
+
+      expect(runs.activeTurnIds(mine.id)).toEqual([])
     })
   })
 

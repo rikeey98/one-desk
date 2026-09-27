@@ -24,6 +24,15 @@ describe('opencodeAdapter.verifyRunnable', () => {
     expect(result.reason).toContain('/tmp/work')
   })
 
+  it('거부 이유는 멈춘다고 하지 않는다 — 1.18.x는 ask를 조용히 거부하고 끝난다', async () => {
+    // `docs/sdlc/conversation-fixes/` spec FR-14. 예전 문구("답할 사람이 없어 멈춥니다")는
+    // 틀린 증상을 가리켜, 사용자가 멈춘 적 없는 run에서 원인을 찾게 만든다.
+    const probe = probeReturning({ webfetch: 'ask' })
+    const result = await opencodeAdapter.verifyRunnable(input, probe)
+    expect(result.reason).not.toContain('멈춥니다')
+    expect(result.reason).toContain('거부')
+  })
+
   it('ask가 여럿이면 전부 알려준다', async () => {
     const probe = probeReturning({ bash: 'ask', webfetch: 'ask' })
     const result = await opencodeAdapter.verifyRunnable(input, probe)

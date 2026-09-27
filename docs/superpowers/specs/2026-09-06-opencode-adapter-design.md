@@ -130,7 +130,17 @@ question  read  skill  task  todowrite  webfetch  websearch
 3. MCP 도구 이름 같은 임의 키에 `ask`가 걸릴 수 있다.
 
 셋 다 증상이 같다 — **헤드리스 실행이 아무 말 없이 영원히 멈추고 동시 실행
-슬롯을 계속 점유한다.** 그래서 preflight가 마지막에 한 번 확인한다.
+슬롯을 계속 점유한다.**[^ask-0927] 그래서 preflight가 마지막에 한 번 확인한다.
+
+[^ask-0927]: **2026-09-27 정정: 멈추지 않는다.** 위 문장의 증상은 틀렸다. 1.18.x의
+    `opencode run`은 권한 `ask`를 **자동 거부하고 조용히 exit 0으로 끝난다** — 남는
+    것은 그 도구 호출의 실패뿐이고 슬롯은 점유되지 않는다(소스 `run.ts`
+    v1.18.30:801-822, 1.18.27과 바이트 동일). 결론은 그대로다: 거부가 조용하므로
+    **agent가 그 도구를 못 쓴 run이 성공으로 기록되고** 사용자는 이유를 알 길이 없다.
+    이 검사는 그것을 실행 전의 명시적 실패로 바꾸므로 여전히 필수다. 아래 거부
+    메시지의 "멈춥니다"도 같은 이유로 코드에서 "그 도구가 말없이 거부된 채
+    끝납니다"로 고쳤다(`core/runner/adapters/opencode.ts`). 근거와 범위는
+    `docs/sdlc/conversation-fixes/` spec FR-14.
 
 **run의 cwd에서, 실제로 실행에 쓸 환경변수를 그대로 실어 `opencode debug config`를
 돌린다.** 해결된 `permission`에 `ask`가 하나라도 있으면 실행을 거부하고 어떤 키인지
@@ -267,6 +277,9 @@ MCP 서버가 함께 올라온다. 권한 구멍은 아니고 agent에게 여분
 > (`docs/sdlc/run-info/spec.md` §8). 덧붙여 그 403은 `{"type":"error", …}` 한 줄로
 >오는데 `parseLine`의 `switch`에 그 분기가 없어 버려진다 — 이벤트 없이 종료 코드만
 > 1이 되어 **사용자는 이유 없는 실패를 본다.** 별도 수정거리다.
+>
+> **2026-09-27: 그 수정거리는 `docs/sdlc/conversation-fixes/` FR-13이 고쳤다** — 어댑터가
+> error 줄을 error 이벤트로 내고, 실패한 run의 `errorMessage`가 그 메시지가 된다.
 
 ```bash
 opencode run --format json -m opencode/nemotron-3.5-lightning-free \

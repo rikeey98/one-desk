@@ -16,8 +16,8 @@ function shows(category: InboxCategory, action: 'open' | 'restart' | 'confirm' |
   switch (action) {
     // 대화창이 로그와 이어서 실행을 함께 주므로 "대화 열기" 하나로 충분하다
     // (설계 §5 — 옛 "로그 보기"·"이어서 실행" 두 조건의 합집합). dropped라고
-    // 예외로 숨기지 않는다 — 항목은 run이 아니라 대화이고, 마지막 턴이 시작
-    // 전에 취소됐어도 앞의 턴들에는 대화록이 있다. 1턴짜리 대화가 시작도 못
+    // 예외로 숨기지 않는다 — 항목은 run이 아니라 대화이고, 대표 턴이 시작
+    // 전에 취소됐어도(모든 턴이 그랬을 때만 그렇다 — representativeTurn) 대화록이 있다. 1턴짜리 대화가 시작도 못
     // 하고 dropped됐다면 열었을 때 Transcript의 pending 이른 반환은 걸리지
     // 않는다 — 그건 status === 'pending'에만 걸리고 취소된 턴은 이미
     // 'canceled'다. 대신 사용자 프롬프트와 "canceled" 상태 칩이 그려진다

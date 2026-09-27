@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import type { Database } from '../open'
 import { asset, issue, memo, repo, run, runContextItem } from '../schema'
@@ -9,7 +9,7 @@ import type {
   Permission, InboxCounts
 } from '@shared/models'
 import type { RunEvent, RunUsage } from '@shared/events'
-import { ACTIONABLE, inboxCategory } from '@shared/inbox'
+import { INBOX_RULES, inboxCategory, representativeTurn } from '@shared/inbox'
 
 /** db.transaction()의 콜백이 받는 runner. db와 같은 쿼리 빌더 API를 갖는다. */
 type Runner = Parameters<Parameters<Database['transaction']>[0]>[0]
@@ -106,8 +106,11 @@ export function createRunRepository(db: Database) {
   /**
    * 인박스에 들어올 수 있는 상태 (설계 §4).
    * canceled가 들어 있는 이유: 3a부터 앱이 재시작하며 대기 중이던 run을 취소한다.
-   * 사용자가 스스로 취소한 것은 execution.cancel이 reviewedAt을 찍어 제외되므로,
-   * 여기 남는 canceled는 앱이 취소한 것뿐이다.
+   * 사용자가 스스로 취소한 턴은 대화를 대표하지 않는다 — 그 대화에 다른 활성 턴이
+   * 없으면 execution.cancel이 뿌리에 reviewedAt을 찍어 대화째 빠지고, 있으면 그 턴의
+   * 결과가 대화를 대표한다(`docs/sdlc/conversation-fixes/` spec FR-8, 시작하지 못한
+   * 취소는 `representativeTurn`이 건너뛴다). 타임아웃은 canceled가 아니라 failed다
+   * (FR-10). 그래서 여기 남는 canceled는 앱이 취소한 것뿐이다.
    */
   const INBOX_STATUSES: RunStatus[] = ['succeeded', 'failed', 'interrupted', 'canceled']
 
@@ -223,16 +226,23 @@ export function createRunRepository(db: Database) {
   }
 
   /**
-   * 미확인 대화마다 마지막 턴 하나씩을 골라낸다. `inbox()`와 `inboxCounts()`가
-   * "대화별로 묶어 마지막 턴을 고른다"는 같은 규칙을 공유하는 자리다 — 따로
+   * 미확인 대화마다 **대표 턴** 하나씩을 골라낸다. `inbox()`와 `inboxCounts()`가
+   * "대화별로 묶어 대표 턴을 고른다"는 같은 규칙을 공유하는 자리다 — 따로
    * 짜면 배지와 목록이 어긋날 수 있다 (설계 §5).
+   *
+   * 대표 턴은 "마지막으로 만든 턴"이 아니다. 시작하지 못하고 취소된 예약은 건너뛴다
+   * — 그러지 않으면 2턴의 실패가 3턴 예약의 canceled에 가려 배지에서 빠진다
+   * (`docs/sdlc/conversation-fixes/` spec FR-1·FR-2). 규칙은 `shared/inbox.ts`의
+   * `representativeTurn` 하나이고 renderer의 도크 목록도 그것을 쓴다.
    *
    * **컬럼은 호출자가 고른다.** `inbox()`는 화면에 그릴 전체 run이 필요하지만
    * `inboxCounts()`는 세기만 하면 되므로, `select`로 필요한 컬럼만 읽게 한다
    * — 배지 갱신마다 `assembled_prompt`까지 포함한 전체 행을 나르는 비용을
-   * 없앤다 (리뷰 I-2).
+   * 없앤다 (리뷰 I-2). 대표 턴 판정에 `startedAt`이 필요하다.
    */
-  function lastTurnsOf<T extends { id: string; rootRunId: string | null; status: RunStatus }>(
+  function lastTurnsOf<T extends {
+    id: string; rootRunId: string | null; status: RunStatus; startedAt: number | null
+  }>(
     rootIds: string[],
     select: (rootIds: string[]) => T[]
   ): T[] {
@@ -240,24 +250,33 @@ export function createRunRepository(db: Database) {
     const rows = select(rootIds)
 
     const rootOf = new Set(rootIds)
-    const lastTurn = new Map<string, T>()
+    // 최신순으로 들어오므로 대화별 목록도 최신순이다 — representativeTurn의 입력 순서다.
+    const turnsOf = new Map<string, T[]>()
     for (const row of rows) {
       const key = row.rootRunId ?? row.id
       // 뿌리가 이미 확인된 대화의 턴이 섞여 들어올 수 있다 — 걸러낸다.
       if (!rootOf.has(key)) continue
-      if (!lastTurn.has(key)) lastTurn.set(key, row)
+      const list = turnsOf.get(key)
+      if (list) list.push(row)
+      else turnsOf.set(key, [row])
     }
-    return [...lastTurn.values()].filter((r) => INBOX_STATUSES.includes(r.status))
+    const picked: T[] = []
+    for (const turns of turnsOf.values()) {
+      const turn = representativeTurn(turns)
+      if (turn && INBOX_STATUSES.includes(turn.status)) picked.push(turn)
+    }
+    return picked
   }
 
-  /** 두 쿼리가 함께 쓰는 정렬 — 최신순이므로 대화별 첫 행이 마지막 턴이다. */
+  /** 두 쿼리가 함께 쓰는 정렬 — 최신순이므로 대화별 목록이 대표 턴 판정의 입력 순서가 된다. */
   const byLatest = [desc(run.createdAt), desc(sql`rowid`)] as const
 
   /**
    * 지금 사용자의 손이 필요한 대화만 모은다 (설계 §5).
    *
    * **단위는 run이 아니라 대화다.** 미확인 판정은 root run의 reviewedAt으로
-   * 하고, 보여줄 내용은 그 대화의 마지막 턴에서 가져온다. 턴마다 한 줄씩
+   * 하고, 보여줄 내용은 그 대화의 대표 턴(`representativeTurn` — 시작하지 못하고 취소된
+   * 턴을 건너뛴 가장 최근 턴)에서 가져온다. 턴마다 한 줄씩
    * 쌓이면 긴 대화 하나가 인박스를 덮어버린다.
    *
    * 모든 workspace를 가로지른다 — 어디에 쌓였는지는 사이드바 배지가 보여준다.
@@ -300,6 +319,25 @@ export function createRunRepository(db: Database) {
         // createdAt만으로는 같은 밀리초의 순서가 흔들린다. rowid가 갈라준다.
         .orderBy(desc(run.createdAt), desc(sql`rowid`)).get()
       return row ? hydrate([row])[0]! : null
+    },
+
+    /**
+     * 그 대화에서 아직 끝나지 않은 턴(running·pending)의 id.
+     *
+     * 취소가 뿌리에 확인 표시를 찍을지 정한다 (`docs/sdlc/conversation-fixes/` spec
+     * FR-8) — 다른 활성 턴이 남아 있으면 그 턴의 결과가 인박스를 정해야 하므로 찍지
+     * 않는다. launch 중인 턴(행은 있고 큐에는 아직 없다)도 DB에서는 pending이라 함께
+     * 걸린다. 대화당 running 하나 + 예약 하나라 결과는 많아야 둘이다.
+     */
+    activeTurnIds(rootRunId: string): string[] {
+      return db.select({ id: run.id }).from(run)
+        .where(and(
+          // 낡은 행은 root_run_id가 null이고 그때는 자기 자신이 뿌리다.
+          or(eq(run.rootRunId, rootRunId), and(isNull(run.rootRunId), eq(run.id, rootRunId))),
+          inArray(run.status, ['running', 'pending'])
+        ))
+        .all()
+        .map((r) => r.id)
     },
 
     create(input: CreateRunInput): Run {
@@ -351,10 +389,45 @@ export function createRunRepository(db: Database) {
       return get(id)
     },
 
+    /**
+     * 도는 중에 알게 된 세션 id를 곧바로 남긴다 (`docs/sdlc/conversation-fixes/` spec FR-16).
+     *
+     * 종료 기록(`markFinished`)만 기다리면 첫 턴이 도는 중 앱이 꺼졌을 때 행은
+     * interrupted가 되는데 세션 id가 없어 — `latestSessionRun`이 그 턴을 못 집어 —
+     * 대화를 이으면 "이어받을 세션이 없습니다"로 실패한다. `reapStale`은 이 컬럼을
+     * 건드리지 않으므로 여기 남긴 값이 재시작 뒤에도 산다.
+     *
+     * **이미 값이 있으면 덮지 않는다.** 처음 알린 세션이 이 턴의 세션이고, 같은 id를
+     * 거듭 받는 것(claude는 init과 result 둘 다에 싣는다)은 쓰기 없이 지나간다.
+     * 행을 돌려주지 않는다 — 화면이 볼 값이 아니라 이어가기의 재료다.
+     *
+     * **빈 문자열은 세션이 아니다.** claude 어댑터는 init에 `session_id`가 없으면 ''를
+     * 싣는다(manager의 `learnSession`도 거른다). 먼저 쓴 값이 이기므로 ''가 들어가면 진짜
+     * id가 막히고, `latestSessionRun`(isNotNull)이 그 턴을 골라 앞 턴의 세션까지 가린다.
+     */
+    saveExternalSessionId(id: string, sessionId: string): void {
+      if (sessionId === '') return
+      db.update(run).set({ externalSessionId: sessionId })
+        .where(and(eq(run.id, id), isNull(run.externalSessionId))).run()
+    },
+
+    /**
+     * 종료를 기록한다.
+     *
+     * **세션 id가 null이면 있던 값을 지우지 않는다** (`saveExternalSessionId`와 짝). 도는
+     * 중에 남긴 세션을 종료 기록이 모를 수 있다 — manager.start가 세션을 배운 뒤 거부되면
+     * 실행 서비스는 `externalSessionId: null`로 끝낸다. 덮으면 이을 수 있던 대화가 끊긴다.
+     * 값이 있으면 그것이 이긴다(스트림이 마지막에 알려 준 세션이다).
+     */
     markFinished(id: string, input: FinishRunInput): Run {
-      const { usage, ...rest } = input
+      const { usage, externalSessionId, ...rest } = input
       db.update(run)
-        .set({ ...rest, ...usageColumns(usage), endedAt: Date.now() })
+        .set({
+          ...rest,
+          ...(externalSessionId !== null ? { externalSessionId } : {}),
+          ...usageColumns(usage),
+          endedAt: Date.now()
+        })
         .where(eq(run.id, id)).run()
       return get(id)
     },
@@ -363,12 +436,24 @@ export function createRunRepository(db: Database) {
      * 종료된 run의 로그를 파일에서 되살린다.
      * 메모리 스토어는 상한이 있고 앱 재시작이면 비어 있으므로, 지난 run의 탭을
      * 다시 열 때는 여기가 유일한 출처다. 깨진 줄은 건너뛴다.
+     *
+     * **비동기로 읽는다** (`docs/sdlc/conversation-fixes/` spec FR-19). 이 저장소는 메인
+     * 프로세스에서 돌고 같은 프로세스에 MCP 서버가 있다 — 긴 로그를 동기로 읽는 동안
+     * IPC와 agent의 MCP 호출이 전부 멈춘다. 파일이 없는 것(취소됐거나 spawn 전에 끝난
+     * run)만 빈 배열이고, 그 밖의 읽기 실패는 그대로 던진다 — 삼키면 로그가 원래 없던
+     * run처럼 보인다.
      */
-    readLog(id: string): RunEvent[] {
+    async readLog(id: string): Promise<RunEvent[]> {
       const { logPath } = get(id)
-      if (!existsSync(logPath)) return []
+      let text: string
+      try {
+        text = await readFile(logPath, 'utf8')
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
+        throw err
+      }
       const events: RunEvent[] = []
-      for (const line of readFileSync(logPath, 'utf8').split('\n')) {
+      for (const line of text.split('\n')) {
         if (!line.trim()) continue
         try {
           events.push(JSON.parse(line) as RunEvent)
@@ -419,7 +504,7 @@ export function createRunRepository(db: Database) {
     inbox,
 
     /**
-     * 목록과 같은 "대화별로 묶어 마지막 턴을 고른다" 규칙으로 센다 — 따로
+     * 목록과 같은 "대화별로 묶어 대표 턴을 고른다" 규칙으로 센다 — 따로
      * 세면 배지와 목록이 어긋난다. 다만 **hydrate는 하지 않는다.**
      *
      * `emitInbox()`가 run 행이 바뀔 때마다(시작·종료·확인·취소) 이걸 부른다
@@ -434,9 +519,9 @@ export function createRunRepository(db: Database) {
       const rootIds = unreviewedRootIds()
       const items = lastTurnsOf(rootIds, (ids) => db.select({
         id: run.id, workspaceId: run.workspaceId, rootRunId: run.rootRunId,
-        // 카테고리 판정에 needs_answer가 필요하다. 컬럼 하나가 늘 뿐
-        // assembled_prompt는 여전히 읽지 않는다 (spec NFR-1).
-        status: run.status, needsAnswer: run.needsAnswer
+        // 카테고리 판정에 needs_answer가, 대표 턴 판정에 started_at이 필요하다.
+        // 컬럼이 늘 뿐 assembled_prompt는 여전히 읽지 않는다 (spec NFR-1).
+        status: run.status, needsAnswer: run.needsAnswer, startedAt: run.startedAt
       }).from(run)
         .where(or(inArray(run.rootRunId, ids), inArray(run.id, ids)))
         .orderBy(...byLatest).all())
@@ -448,7 +533,7 @@ export function createRunRepository(db: Database) {
         // 완료·미확인까지 세면 숫자가 대화 수만큼 단조 증가해 빨간 원이 무의미해진다.
         // 이 판정은 renderer의 자동 확인과 **같은 표**(shared/inbox.ts)에서 온다 —
         // 따로 적으면 어느 쪽에도 안 걸리는 카테고리가 생긴다.
-        if (!ACTIONABLE[inboxCategory(item)]) continue
+        if (!INBOX_RULES[inboxCategory(item)].badge) continue
         byWorkspace[item.workspaceId] = (byWorkspace[item.workspaceId] ?? 0) + 1
         total += 1
       }

@@ -70,6 +70,31 @@ describe('runEvent 스토어', () => {
     expect(store.getSnapshot('a')).toHaveLength(3)
   })
 
+  it('로그를 읽는 사이에 push된 이벤트를 지우지 않는다 — 교체가 아니라 seq 병합이다', () => {
+    // `docs/sdlc/conversation-fixes/` spec FR-19. useRunEvents는 스토어가 비어 있을 때
+    // 로그 파일을 요청한다. 응답이 오기 전에 실시간 이벤트가 push되고, 그 이벤트는
+    // 파일에 아직 안 쓰였을 수 있다(로그 쓰기는 비동기다). 교체하면 그 줄이 사라진다.
+    const store = createRunEventStore()
+    store.push(ev('a', 3))
+
+    store.hydrate('a', [ev('a', 0), ev('a', 1), ev('a', 2)])
+
+    expect(store.getSnapshot('a').map((e) => e.seq)).toEqual([0, 1, 2, 3])
+  })
+
+  it('병합할 때 양쪽에 있는 seq는 하나만 남긴다', () => {
+    const store = createRunEventStore()
+    store.push(ev('a', 1))
+    store.push(ev('a', 2))
+
+    store.hydrate('a', [ev('a', 0), ev('a', 1), ev('a', 2)])
+
+    expect(store.getSnapshot('a').map((e) => e.seq)).toEqual([0, 1, 2])
+    // 병합 뒤에도 같은 seq가 스트림으로 또 오면 무시한다.
+    store.push(ev('a', 0))
+    expect(store.getSnapshot('a')).toHaveLength(3)
+  })
+
   it('해제한 구독자에게는 알리지 않는다', async () => {
     const store = createRunEventStore()
     const listener = vi.fn()

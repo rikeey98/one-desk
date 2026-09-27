@@ -54,6 +54,59 @@ describe('groupConversations', () => {
 })
 
 /**
+ * 대화의 상태를 정하는 턴 (`docs/sdlc/conversation-fixes/` spec FR-1·FR-3).
+ *
+ * `last`는 "가장 최근에 만든 턴"이고 `state`는 **대표 턴**이다 — 시작하지 못하고 취소된
+ * 예약을 건너뛴다. 둘을 가르지 않으면 2턴의 실패가 3턴 예약의 취소에 가려 도크 목록의
+ * 점이 "canceled"가 되고, 배지(core)와 도크가 서로 다른 턴을 본다.
+ */
+describe('대화의 대표 턴과 활성 턴', () => {
+  it('시작하지 못하고 취소된 예약은 state가 건너뛰지만 last는 그 턴이다', () => {
+    const [conv] = groupConversations([
+      makeRun({ id: 'a3', rootRunId: 'a1', createdAt: 30, status: 'canceled', startedAt: null }),
+      makeRun({ id: 'a2', rootRunId: 'a1', createdAt: 20, status: 'failed', startedAt: 20 }),
+      makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10, status: 'succeeded', startedAt: 10 })
+    ])
+    expect(conv!.state.id).toBe('a2')
+    expect(conv!.last.id).toBe('a3')
+  })
+
+  it('시작한 뒤 취소된 턴은 state가 건너뛰지 않는다', () => {
+    const [conv] = groupConversations([
+      makeRun({ id: 'a2', rootRunId: 'a1', createdAt: 20, status: 'canceled', startedAt: 20 }),
+      makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10, status: 'failed', startedAt: 10 })
+    ])
+    expect(conv!.state.id).toBe('a2')
+  })
+
+  it('끝난 대화에는 활성 턴이 없다', () => {
+    const [conv] = groupConversations([
+      makeRun({ id: 'a1', rootRunId: 'a1', status: 'succeeded', startedAt: 1 })
+    ])
+    expect(conv!.active).toBeNull()
+  })
+
+  it('활성 턴은 실행 중인 턴이 예약보다 앞선다', () => {
+    // 2턴이 도는 중에 3턴을 예약했다. "가장 최근 턴"은 예약이지만, 멈출 대상으로
+    // 먼저 떠오르는 것은 돌고 있는 턴이다(도크 헤더의 취소가 이것을 겨눈다 — FR-11).
+    const [conv] = groupConversations([
+      makeRun({ id: 'a3', rootRunId: 'a1', createdAt: 30, status: 'pending' }),
+      makeRun({ id: 'a2', rootRunId: 'a1', createdAt: 20, status: 'running', startedAt: 20 }),
+      makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10, status: 'succeeded', startedAt: 10 })
+    ])
+    expect(conv!.active?.id).toBe('a2')
+  })
+
+  it('실행 중인 턴이 없으면 예약이 활성 턴이다', () => {
+    const [conv] = groupConversations([
+      makeRun({ id: 'a2', rootRunId: 'a1', createdAt: 20, status: 'pending' }),
+      makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10, status: 'succeeded', startedAt: 10 })
+    ])
+    expect(conv!.active?.id).toBe('a2')
+  })
+})
+
+/**
  * 제목의 폴백 사다리 (`docs/sdlc/conversation-lifecycle/` FR-11).
  *
  * 사용자가 붙인 이름 > 담긴 이슈·메모 > repo 이름 > 첫 지시의 첫 줄.
