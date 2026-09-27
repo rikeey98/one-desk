@@ -1,4 +1,4 @@
-import { app, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { CHANNELS } from '@shared/channels'
 import { revealDir } from '@core/app/reveal'
 import type { Core } from '@core/index'
@@ -14,5 +14,13 @@ export function registerAppHandlers(core: Core) {
   ipcMain.handle(CHANNELS.appReveal, async (_e, target: unknown) => {
     const failure = await shell.openPath(revealDir(target, core.paths()))
     if (failure) throw new Error(failure)
+  })
+  // 경로를 고르는 것은 사람이고, 고른 경로의 검증은 여느 때처럼 repos.create가 한다.
+  // 부모 창을 주어야 대화상자가 앱 창 뒤로 숨지 않는다(모달).
+  ipcMain.handle(CHANNELS.appPickDirectory, async (e): Promise<string | null> => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    const options = { properties: ['openDirectory' as const] }
+    const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
+    return result.canceled ? null : (result.filePaths[0] ?? null)
   })
 }

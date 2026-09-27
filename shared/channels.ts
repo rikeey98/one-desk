@@ -47,6 +47,8 @@ export const CHANNELS = {
   appInfo: 'app:info',
   /** 정해진 두 위치(data·logs)만 파일 탐색기로 연다 */
   appReveal: 'app:reveal',
+  /** repo 등록 — OS의 폴더 선택 대화상자를 띄운다 */
+  appPickDirectory: 'app:pickDirectory',
   runsMarkReviewed: 'runs:markReviewed',
   runsResume: 'runs:resume'
 } as const

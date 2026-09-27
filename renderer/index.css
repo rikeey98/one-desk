@@ -205,8 +205,12 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .add-repo-form:focus-within { border-color: var(--accent-border-soft); }
 .add-repo-form input { min-width: 0; padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px; font: inherit; font-size: .75rem; background: var(--bg); color: var(--text); }
 /* 이름은 짧고 경로는 길다. 폭을 똑같이 주면 경로가 늘 잘린다. */
-.add-repo-form input:first-of-type { flex: none; width: 100%; }
-.add-repo-form input:nth-of-type(2) { flex: none; width: 100%; font-family: ui-monospace, monospace; font-size: .6875rem; }
+.add-repo-form > input { flex: none; width: 100%; }
+/* 경로 칸과 폴더 선택 버튼이 한 줄이다. 칸이 남는 폭을 다 쓴다. */
+.add-repo-path { display: flex; align-items: stretch; gap: 4px; }
+.add-repo-path input { flex: 1; font-family: ui-monospace, monospace; font-size: .6875rem; }
+.add-repo-form .add-repo-pick { display: inline-flex; align-items: center; justify-content: center; width: auto; padding: 0 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text-secondary); }
+.add-repo-form .add-repo-pick:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
 .add-repo-form input:focus { outline: none; border-color: var(--accent-border); background: var(--bg); }
 .add-repo-form input:disabled { opacity: .5; }
 .add-repo-form button { flex: none; width: 100%; padding: 6px 14px; border: 1px solid var(--accent-strong); border-radius: 6px; background: var(--accent); color: var(--on-accent); font: inherit; font-size: .75rem; font-weight: 600; cursor: pointer; transition: background .12s; }

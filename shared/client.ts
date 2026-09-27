@@ -154,6 +154,8 @@ export interface OneDeskClient {
     info(): Promise<AppInfo>
     /** 정해진 두 위치만 파일 탐색기로 연다. 경로가 아니라 이름을 받는다 (spec NFR-3) */
     reveal(target: RevealTarget): Promise<void>
+    /** 폴더 선택 대화상자. 고른 절대 경로를, 취소하면 null을 돌려준다 */
+    pickDirectory(): Promise<string | null>
   }
   events: {
     onRunEvent(cb: (event: RunEvent) => void): Unsubscribe

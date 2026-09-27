@@ -29,6 +29,8 @@ const FAKE_DELAY_MS = '1500'
 
 export interface AppSession {
   page: Page
+  /** main 프로세스 핸들. 네이티브 대화상자처럼 클릭할 수 없는 것을 대신 세울 때 쓴다 */
+  electron: ElectronApplication
   /** 이 세션의 임시 데이터 디렉토리 */
   dataDir: string
   /** repo로 등록할 임시 작업 디렉토리 */
@@ -163,6 +165,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<AppSession
 
   return {
     page,
+    electron: app,
     dataDir,
     repoDir,
     close

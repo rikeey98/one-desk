@@ -92,7 +92,8 @@ const client: OneDeskClient = {
   },
   app: {
     info: () => call<AppInfo>(CHANNELS.appInfo),
-    reveal: (target) => call<void>(CHANNELS.appReveal, target)
+    reveal: (target) => call<void>(CHANNELS.appReveal, target),
+    pickDirectory: () => call<string | null>(CHANNELS.appPickDirectory)
   },
   events: {
     // contextBridge는 함수를 프록시로 넘기므로 이 클로저가 렌더러에서 호출 가능하다.
