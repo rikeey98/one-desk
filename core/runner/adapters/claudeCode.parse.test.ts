@@ -595,20 +595,51 @@ describe('claudeCodeAdapter.parseLine — usage', () => {
     })
   })
 
-  it('iterations가 없으면 최상위 값으로 컨텍스트를 잰다', () => {
+  it('iterations가 없으면 컨텍스트를 모른다 — 최상위 합으로 대신하지 않는다 (docs/sdlc/context-occupancy/)', () => {
+    // 최상위는 턴 안의 모든 요청을 더한 값이다. 도구를 쓴 턴이면 점유의 몇 배라 링이 100%로
+    // 튀었다가 가벼운 턴에 다시 떨어진다. 틀린 비율보다 "모름"이 낫다.
     const out = claudeCodeAdapter.parseLine(resultLine({
       input_tokens: 2, output_tokens: 4,
       cache_read_input_tokens: 15428, cache_creation_input_tokens: 37917
     }), 'r1')
-    expect(out.find((e) => e.type === 'usage')).toMatchObject({
-      usage: { contextTokens: 53347 }
-    })
+    const ev = out.find((e) => e.type === 'usage')
+    // 토큰 합계는 그대로 싣는다 — 모르는 것은 점유뿐이다.
+    expect(ev).toMatchObject({ usage: { contextTokens: null, cacheReadTokens: 15428 } })
+  })
+
+  it('iterations가 빈 배열이어도 컨텍스트를 모른다', () => {
+    const out = claudeCodeAdapter.parseLine(resultLine({
+      input_tokens: 2, cache_read_input_tokens: 100, iterations: []
+    }), 'r1')
+    expect(out.find((e) => e.type === 'usage')).toMatchObject({ usage: { contextTokens: null } })
   })
 
   it('modelUsage에서 컨텍스트 창 크기를 뽑는다', () => {
     const out = claudeCodeAdapter.parseLine(resultLine(
       { input_tokens: 1, output_tokens: 1 },
       { modelUsage: { 'claude-opus-5[1m]': { contextWindow: 1000000, costUSD: 0.5 } } }
+    ), 'r1')
+    expect(out.find((e) => e.type === 'usage')).toMatchObject({
+      usage: { contextWindow: 1000000 }
+    })
+  })
+
+  it.each([
+    ['보조 모델이 앞', ['haiku', 'opus']],
+    ['보조 모델이 뒤', ['opus', 'haiku']]
+  ])('모델이 여럿이면 프롬프트를 가장 많이 처리한 모델의 창을 쓴다 — 순서와 무관하다 (%s)', (_, order) => {
+    // 보조 모델(작은 창)이 앞에 와도 대화를 실제로 돈 모델의 창으로 나눠야 한다.
+    const entries: Record<string, [string, Record<string, number>]> = {
+      haiku: ['claude-haiku-4-5', {
+        inputTokens: 300, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, contextWindow: 200000
+      }],
+      opus: ['claude-opus-5[1m]', {
+        inputTokens: 2, cacheReadInputTokens: 15428, cacheCreationInputTokens: 37917, contextWindow: 1000000
+      }]
+    }
+    const out = claudeCodeAdapter.parseLine(resultLine(
+      { input_tokens: 1, output_tokens: 1 },
+      { modelUsage: Object.fromEntries(order.map((k) => entries[k]!)) }
     ), 'r1')
     expect(out.find((e) => e.type === 'usage')).toMatchObject({
       usage: { contextWindow: 1000000 }

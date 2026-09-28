@@ -53,7 +53,10 @@ function promptSize(u: Record<string, unknown>): number | null {
  *
  * **`contextTokens`는 `iterations`의 마지막 하나로 잰다.** 최상위 `usage`는 턴 안의
  * 모든 요청을 더한 값이라, 도구를 여러 번 쓴 턴에서 그것으로 창 대비 비율을 그리면
- * 100%를 넘는다 (spec §3-2). `iterations`가 없는 버전에서는 최상위로 폴백한다.
+ * 100%를 넘는다 (spec §3-2). **`iterations`가 없으면 점유를 모른다(null)** — 예전에는
+ * 최상위로 폴백했는데, 그러면 도구를 쓴 턴마다 링이 100% 가까이 튀었다가 가벼운 턴에
+ * 다시 떨어졌다(`docs/sdlc/context-occupancy/`). 틀린 비율보다 모름이 낫다 — 화면은 앞
+ * 턴의 점유를 그대로 보인다.
  */
 function resultUsage(line: Record<string, unknown>): RunUsage | null {
   const u = obj(line['usage'])
@@ -62,11 +65,6 @@ function resultUsage(line: Record<string, unknown>): RunUsage | null {
   const iterations = Array.isArray(u['iterations']) ? u['iterations'] : []
   const last = obj(iterations[iterations.length - 1])
 
-  // modelUsage의 키는 모델 이름이고 값이 창 크기를 들고 있다. 이름을 리터럴로
-  // 박지 않는다 — 모델마다 달라진다.
-  const models = obj(line['modelUsage'])
-  const first = models ? obj(Object.values(models)[0]) : null
-
   return emptyUsage({
     inputTokens: num(u['input_tokens']),
     outputTokens: num(u['output_tokens']),
@@ -74,9 +72,31 @@ function resultUsage(line: Record<string, unknown>): RunUsage | null {
     cacheWriteTokens: num(u['cache_creation_input_tokens']),
     reasoningTokens: num(obj(u['output_tokens_details'])?.['thinking_tokens']),
     costUsd: num(line['total_cost_usd']),
-    contextTokens: promptSize(last ?? u),
-    contextWindow: num(first?.['contextWindow'])
+    contextTokens: last ? promptSize(last) : null,
+    contextWindow: mainContextWindow(obj(line['modelUsage']))
   })
+}
+
+/**
+ * `modelUsage`에서 대화를 실제로 돈 모델의 창 크기. 키는 모델 이름이라 리터럴로 박지 않는다.
+ *
+ * 한 턴에 보조 모델(작은 창)이 같이 쓰이면 항목이 여럿이다. **목록의 첫 항목을 쓰지 않는다** —
+ * 보조 모델이 앞에 오면 창을 5배 작게 잡아 비율이 부푼다. `parseLine`은 앞 줄(init의 모델)을
+ * 기억하지 못하므로, **프롬프트(입력 + 캐시 읽기 + 캐시 쓰기)를 가장 많이 처리한 모델**을 고른다
+ * — 대화를 싣고 도는 모델이 그것이다. 동률이면 앞의 것이다.
+ */
+function mainContextWindow(models: Record<string, unknown> | null): number | null {
+  if (!models) return null
+  let best: { prompt: number; window: number | null } | null = null
+  for (const value of Object.values(models)) {
+    const m = obj(value)
+    if (!m) continue
+    const prompt = (num(m['inputTokens']) ?? 0)
+      + (num(m['cacheReadInputTokens']) ?? 0)
+      + (num(m['cacheCreationInputTokens']) ?? 0)
+    if (!best || prompt > best.prompt) best = { prompt, window: num(m['contextWindow']) }
+  }
+  return best?.window ?? null
 }
 
 /** 도구 입력에서 파일 경로를 뽑는다. 5단계의 스냅샷 트리거가 이걸 쓴다. */

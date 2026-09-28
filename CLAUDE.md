@@ -357,7 +357,10 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 `usage.iterations`의 마지막, opencode는 마지막 `step_finish`), **캐시를 빼면 안 된다** —
 실측에서 `input_tokens`가 2인데 캐시 읽기 15,428 + 캐시 쓰기 37,917이라 실제 프롬프트는
 53,347토큰이었다. 병합 규칙도 그래서 필드마다 다르다(`mergeUsage`): 토큰·비용은 더하고,
-모델·컨텍스트는 마지막 non-null이 이긴다.
+모델·컨텍스트는 마지막 non-null이 이긴다. **`iterations`가 없으면 점유는 null이다 — 최상위
+`usage`로 폴백하지 말 것**(`docs/sdlc/context-occupancy/`): 최상위는 턴 안의 요청을 전부 더한 값이라
+도구를 쓴 턴마다 링이 `>99%`로 튀었다가 가벼운 턴에 떨어졌다. 창 크기도 `modelUsage`의 첫 항목이
+아니라 프롬프트를 가장 많이 처리한 모델의 것이다 — 보조 모델(200k)이 앞에 오면 비율이 5배로 부푼다.
 
 **`--effort`는 어느 CLI도 스트림으로 되돌려 주지 않는다.** claude는 `--effort`를,
 opencode는 `--variant`를 받지만 `init`에도 `result`에도 그 값이 없다(2026-09-21 실측).
@@ -707,6 +710,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/prompt-history/` | 입력칸의 ↑로 이전 지시 불러오기 — intent·spec·plan. 비었을 때만·이 대화만(intent의 결정), 불러온 글을 고치면 초안(FR-2), 피커 억제(FR-6) |
 | `docs/sdlc/input-triggers/` | `@` 파일 참조 — intent(OpenCode 트리거·UI 조사)·spec·plan. claude가 `@경로`를 권한 밖에서 펼친다는 실측표(spec §6), 멘션이 곧 맥락인 이유(§7의 6), 중화 두 겹(FR-12·§7의 2), 읽기 거부 규칙(FR-10·FR-13) |
 | `docs/sdlc/asset-missing/` | 사라진 asset 정리 — spec. 폴더 이름을 바꾼 skill이 두 줄로 남던 원인(설계 §3-4), 안 쓴 것만 지우는 규칙(FR-1), 루트가 없는 repo는 정리하지 않는 이유(FR-4) |
+| `docs/sdlc/context-occupancy/` | 컨텍스트 링이 턴마다 100% 가까이 튀던 결함 — spec. `iterations` 폴백을 버린 이유(FR-1), 창 크기를 고르는 모델(FR-2), run-info §8 개정 |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |
 | `docs/diagrams/` | 아키텍처 다이어그램 — `one-desk-architecture.html`(단독 실행 가능)과 그것을 만든 archify 사양 `one-desk.architecture.json`. `main`에 들어가면 `.github/workflows/pages.yml`이 GitHub Pages로 올린다 |
