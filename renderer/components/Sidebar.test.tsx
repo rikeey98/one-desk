@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { Sidebar } from './Sidebar'
 import type { OneDeskClient } from '@shared/client'
-import type { InboxCounts, McpStatus, Workspace } from '@shared/models'
+import type { InboxCounts, McpStatus, PlanUsage, Workspace } from '@shared/models'
 
 function makeWorkspace(name: string, id: string): Workspace {
   return {
@@ -50,6 +50,7 @@ function renderSidebar(over: {
   counts?: InboxCounts
   countsError?: string | null
   mcpStatus?: McpStatus
+  planUsage?: PlanUsage | null
   onDeleted?: (id: string) => void
   client?: OneDeskClient
 } = {}) {
@@ -68,6 +69,7 @@ function renderSidebar(over: {
         counts={over.counts ?? { total: 0, byWorkspace: {} }}
         countsError={over.countsError ?? null}
         mcpStatus={over.mcpStatus ?? { state: 'listening', port: 12345 }}
+        planUsage={over.planUsage ?? null}
         onDeleted={over.onDeleted ?? vi.fn()}
       />
     </ClientProvider>
@@ -148,6 +150,7 @@ function renderSidebarRaw(mcpStatus: McpStatus) {
           counts={{ total: 0, byWorkspace: {} }}
           countsError={null}
           mcpStatus={status}
+          planUsage={null}
         />
       </ClientProvider>
     )
@@ -184,6 +187,33 @@ describe('MCP 상태 줄', () => {
     rerender({ state: 'listening', port: 999 })
     expect(screen.queryByText(/MCP 시작 중/)).not.toBeInTheDocument()
     expect(screen.getByText(/MCP :999/)).toBeInTheDocument()
+  })
+})
+
+describe('요금제 사용률 줄 (docs/sdlc/plan-usage/ FR-5)', () => {
+  const now = Date.now()
+  const usage: PlanUsage = {
+    fiveHour: { utilization: 0.06, resetsAt: now + 3_600_000 },
+    sevenDay: { utilization: 0.02, resetsAt: now + 100 * 3_600_000 },
+    limited: false,
+    observedAt: now
+  }
+
+  it('값이 있으면 두 창의 사용률을 보이고 자세한 것은 title에 담는다', () => {
+    renderSidebar({ planUsage: usage })
+    const row = screen.getByText('요금제 5h 6% · 7d 2%')
+    expect(row.getAttribute('title')).toContain('마지막 확인 방금')
+    expect(row).not.toHaveClass('plan-usage-warn')
+  })
+
+  it('값이 없으면 줄이 없다 — 0%로 채우지 않는다', () => {
+    renderSidebar({ planUsage: null })
+    expect(screen.queryByText(/요금제/)).toBeNull()
+  })
+
+  it('경고면 경고색 클래스다', () => {
+    renderSidebar({ planUsage: { ...usage, limited: true } })
+    expect(screen.getByText(/한도 도달/)).toHaveClass('plan-usage-warn')
   })
 })
 

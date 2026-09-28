@@ -1,16 +1,17 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { AddForm } from './AddForm'
+import { planUsageView } from '../planUsage'
 import { RenameField } from './RenameField'
 import { DeleteByName } from './DeleteByName'
 import { useClient } from '../client/ClientProvider'
 import { IconPencil, IconTrash } from './icons'
-import type { InboxCounts, McpStatus, Workspace } from '@shared/models'
+import type { InboxCounts, McpStatus, PlanUsage, Workspace } from '@shared/models'
 
 /** workspace 목록은 App이 useWorkspaces()로 한 번만 조회해 내려준다 — 이 컴포넌트가
  * 자기 인스턴스를 따로 가지면 다른 인스턴스(App→InboxPanel 등)가 새 workspace를
  * 모르게 된다(App.tsx의 주석 참고). */
 export function Sidebar({
-  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectInbox, onSelectSettings, counts, countsError, mcpStatus, onDeleted, repoTree
+  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectInbox, onSelectSettings, counts, countsError, mcpStatus, planUsage, onDeleted, repoTree
 }: {
   workspaces: Workspace[]
   /** 고른 workspace 아래에 들여쓰기로 붙는 repo 목록(App이 RepoStrip을 넘긴다).
@@ -31,6 +32,8 @@ export function Sidebar({
   countsError: string | null
   /** MCP 서버의 기동 상태. 하단 줄이 이걸 보여준다. */
   mcpStatus: McpStatus
+  /** Claude 요금제 사용률. 없으면(null) 줄이 없다 — App의 usePlanUsage 하나를 받는다 */
+  planUsage: PlanUsage | null
 }) {
   const client = useClient()
 
@@ -147,7 +150,29 @@ export function Sidebar({
         설정
       </button>
       <McpStatusRow status={mcpStatus} />
+      {planUsage && <PlanUsageRow usage={planUsage} />}
     </nav>
+  )
+}
+
+/**
+ * 사이드바 하단의 요금제 사용률 줄 (`docs/sdlc/plan-usage/` FR-5). 계정의 것이라 MCP 줄 곁이다.
+ *
+ * 1분마다 다시 그린다 — 리셋 시각이 지난 창을 `—`로, "마지막 확인 N분 전"을 맞게 보이려면
+ * 새 값이 없어도 시계가 흘러야 한다.
+ */
+function PlanUsageRow({ usage }: { usage: PlanUsage }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 60_000)
+    return () => clearInterval(timer)
+  }, [usage])
+  const view = planUsageView(usage, now)
+  return (
+    <div className={view.warn ? 'plan-usage plan-usage-warn' : 'plan-usage'} title={view.title}>
+      {view.label}
+    </div>
   )
 }
 

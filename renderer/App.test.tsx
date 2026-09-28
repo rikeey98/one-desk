@@ -300,6 +300,9 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
     mcp: {
       status: vi.fn(async () => mcpStatus)
     },
+    account: {
+      planUsage: vi.fn(async () => null)
+    },
     app: {
       info: vi.fn(async () => ({ version: '0.0.0-test', dataDir: '/data', dbFile: '/data/one-desk.db', logDir: '/data/logs' })),
       reveal: vi.fn(async () => {})
@@ -315,7 +318,8 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
         listeners.push(cb)
         return () => {}
       }),
-      onMcpStatus: vi.fn(() => () => {})
+      onMcpStatus: vi.fn(() => () => {}),
+      onPlanUsage: vi.fn(() => () => {})
     }
   } as unknown as OneDeskClient
 }
@@ -1184,6 +1188,55 @@ describe('MCP 상태 배선', () => {
 
     act(() => { for (const cb of push) cb({ state: 'listening', port: 5555 }) })
     expect(await screen.findByText(/MCP :5555/)).toBeInTheDocument()
+  })
+})
+
+/** 요금제 사용률 (docs/sdlc/plan-usage/ FR-4) — App의 usePlanUsage → Sidebar 한 줄을 지킨다. */
+describe('요금제 사용률 배선', () => {
+  const soon = () => Date.now() + 3_600_000
+  const usage = (fiveHour: number) => ({
+    fiveHour: { utilization: fiveHour, resetsAt: soon() },
+    sevenDay: { utilization: 0.02, resetsAt: soon() },
+    limited: false,
+    observedAt: Date.now()
+  })
+
+  it('창보다 먼저 받은 값을 읽어 사이드바에 보인다', async () => {
+    const client = makeClient()
+    client.account.planUsage = vi.fn(async () => usage(0.33))
+    renderApp(client)
+    expect(await screen.findByText('요금제 5h 33% · 7d 2%')).toBeInTheDocument()
+  })
+
+  it('구독으로 들어온 값이 사이드바에 반영된다', async () => {
+    const push: Array<(u: ReturnType<typeof usage>) => void> = []
+    const client = makeClient()
+    client.events.onPlanUsage = vi.fn((cb: (u: ReturnType<typeof usage>) => void) => {
+      push.push(cb)
+      return () => {}
+    })
+    renderApp(client)
+    await screen.findByText(/MCP :/)
+    expect(screen.queryByText(/요금제/)).toBeNull()
+
+    act(() => { for (const cb of push) cb(usage(0.5)) })
+    expect(await screen.findByText('요금제 5h 50% · 7d 2%')).toBeInTheDocument()
+  })
+
+  it('늦게 도착한 읽기가 그 사이 push된 새 값을 덮지 않는다', async () => {
+    let resolveRead: (u: ReturnType<typeof usage>) => void = () => {}
+    const push: Array<(u: ReturnType<typeof usage>) => void> = []
+    const client = makeClient()
+    client.account.planUsage = vi.fn(() => new Promise<ReturnType<typeof usage>>((r) => { resolveRead = r }))
+    client.events.onPlanUsage = vi.fn((cb: (u: ReturnType<typeof usage>) => void) => {
+      push.push(cb)
+      return () => {}
+    })
+    renderApp(client)
+    await screen.findByText(/MCP :/)
+    act(() => { for (const cb of push) cb(usage(0.7)) })
+    await act(async () => { resolveRead(usage(0.1)) })
+    expect(screen.getByText('요금제 5h 70% · 7d 2%')).toBeInTheDocument()
   })
 })
 

@@ -653,12 +653,67 @@ describe('claudeCodeAdapter.parseLine — usage', () => {
     expect(out.find((e) => e.type === 'result')).toBeDefined()
   })
 
-  it('rate_limit_event는 아무 이벤트도 내지 않는다', () => {
+  it('rate_limit_event는 아무 이벤트도 내지 않는다 — 요금제 사용률은 parsePlanUsage로만 읽는다', () => {
     // 개인 구독 정보다 — 파싱하지 않는 것이 결정이고, 그 금지를 여기서 고정한다(spec §7).
     const out = claudeCodeAdapter.parseLine(JSON.stringify({
       type: 'rate_limit_event', session_id: 's1',
       rate_limit_info: { status: 'allowed', unifiedWindows: { five_hour: { utilization: 0.03 } } }
     }), 'r1')
     expect(out).toEqual([])
+  })
+})
+
+/** 요금제 사용률 (`docs/sdlc/plan-usage/` FR-2·FR-3). 실측(2.1.283) 모양 그대로다. */
+describe('claudeCodeAdapter.parsePlanUsage', () => {
+  const line = (info: Record<string, unknown>) => JSON.stringify({
+    type: 'rate_limit_event', uuid: 'u1', session_id: 's1', rate_limit_info: info
+  })
+  const measured = {
+    status: 'allowed', resetsAt: 1790608200, rateLimitType: 'five_hour',
+    overageStatus: 'rejected', overageDisabledReason: 'out_of_credits', isUsingOverage: false,
+    unifiedWindows: {
+      five_hour: { utilization: 0.06, resetsAt: 1790608200 },
+      seven_day: { utilization: 0.02, resetsAt: 1791180000 }
+    }
+  }
+
+  it('창마다 사용률과 리셋 시각(ms)을 읽는다 — 초과 사용·크레딧 상태는 싣지 않는다', () => {
+    expect(claudeCodeAdapter.parsePlanUsage!(line(measured))).toEqual({
+      fiveHour: { utilization: 0.06, resetsAt: 1790608200_000 },
+      sevenDay: { utilization: 0.02, resetsAt: 1791180000_000 },
+      limited: false
+    })
+  })
+
+  it('status가 rejected면 막힌 것이다', () => {
+    expect(claudeCodeAdapter.parsePlanUsage!(line({ ...measured, status: 'rejected' })))
+      .toMatchObject({ limited: true })
+  })
+
+  it('모양이 어긋난 창은 null이다 — 반쯤 맞는 값을 싣지 않는다', () => {
+    const out = claudeCodeAdapter.parsePlanUsage!(line({
+      ...measured,
+      unifiedWindows: { five_hour: { utilization: '6%', resetsAt: 1 }, seven_day: { utilization: 0.02 } }
+    }))
+    expect(out).toEqual({ fiveHour: null, sevenDay: null, limited: false })
+  })
+
+  it('창이 하나도 없으면 null이다', () => {
+    expect(claudeCodeAdapter.parsePlanUsage!(line({ status: 'allowed' }))).toBeNull()
+  })
+
+  it.each([
+    ['다른 종류의 줄', JSON.stringify({ type: 'result', usage: {} })],
+    ['깨진 줄', '{"type":"rate_limit_event",'],
+    ['JSON이 아닌 줄', 'hello']
+  ])('%s은 null이다', (_, text) => {
+    expect(claudeCodeAdapter.parsePlanUsage!(text)).toBeNull()
+  })
+
+  it('글자로만 걸러지지 않는다 — 그 이름을 말한 assistant 줄은 아니다', () => {
+    const text = JSON.stringify({
+      type: 'assistant', message: { content: [{ type: 'text', text: '"type":"rate_limit_event" 줄이 온다' }] }
+    })
+    expect(claudeCodeAdapter.parsePlanUsage!(text)).toBeNull()
   })
 })

@@ -9,6 +9,7 @@ import { opencodeAdapter } from './adapters/opencode'
 import { consoleErrorSink } from '../errors'
 import type { RunEvent, RunEventInit, RunUsage } from '@shared/events'
 import { emptyUsage } from './adapters/common'
+import type { PlanUsage } from '@shared/models'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FAKE = resolve(HERE, 'fixtures/fake-claude.mjs')
@@ -38,7 +39,9 @@ vi.mock('./logWriter', async (importOriginal) => {
   }
 })
 
-function makeManager(extra: Partial<Pick<RunManagerOptions, 'onError' | 'rawLogMaxBytes'>> = {}) {
+function makeManager(
+  extra: Partial<Pick<RunManagerOptions, 'onError' | 'rawLogMaxBytes' | 'onPlanUsage'>> = {}
+) {
   const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-run-'))
   const events: RunEvent[] = []
   const manager = createRunManager({
@@ -46,6 +49,7 @@ function makeManager(extra: Partial<Pick<RunManagerOptions, 'onError' | 'rawLogM
     logDir: dir,
     onEvent: (e) => events.push(e),
     onError: consoleErrorSink,
+    onPlanUsage: () => {},
     ...extra
   })
   return { manager, events, dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
@@ -188,7 +192,8 @@ describe('RunManager', () => {
       adapters: { 'claude-code': claudeCodeAdapter, opencode: claudeCodeAdapter },
       logDir: dir,
       onEvent: () => {},
-      onError: (message) => errors.push(message)
+      onError: (message) => errors.push(message),
+      onPlanUsage: () => {}
     })
     // 로그 파일이 놓일 자리에 같은 이름의 디렉토리를 미리 만들어 둔다.
     mkdirSync(manager.logPathFor('r-success'), { recursive: true })
@@ -270,7 +275,8 @@ describe('RunManager — 세션 알림', () => {
       adapters: { 'claude-code': claudeCodeAdapter, opencode: opencodeAdapter },
       logDir: dir,
       onEvent: () => {},
-      onError: (message) => errors.push(message)
+      onError: (message) => errors.push(message),
+      onPlanUsage: () => {}
     })
     try {
       const outcome = await manager.start({
@@ -582,7 +588,7 @@ describe('RunManager — 원본 줄 로그', () => {
   const status = { type: 'system', subtype: 'status', status: 'compacting', session_id: 's' }
   const rateLimit = {
     type: 'rate_limit_event', session_id: 's',
-    rate_limit_info: { status: 'allowed', resetsAt: 1790000000, unifiedWindows: { five_hour: { utilization: 0.03 } } }
+    rate_limit_info: { status: 'allowed', resetsAt: 1790000000, unifiedWindows: { five_hour: { utilization: 0.03, resetsAt: 1790000000 } } }
   }
   const result = { type: 'result', subtype: 'success', is_error: false, result: '끝', session_id: 's' }
   const BROKEN = '이건 JSON이 아니다 {'
@@ -621,6 +627,39 @@ describe('RunManager — 원본 줄 로그', () => {
       expect(stream).not.toContain('SIG-')
       expect(stream).toContain('먼저 파일을 본다')
       expect(stream).not.toContain('compacting')
+    } finally { t.cleanup() }
+  })
+
+  it('rate_limit_event는 onPlanUsage로만 나간다 — 이벤트·정규화 로그·원본 로그 어디에도 없다 (plan-usage FR-1·FR-3)', async () => {
+    const seen: PlanUsage[] = []
+    const t = withScript(
+      { lines: [init, rateLimit, result], exitCode: 0 },
+      { onPlanUsage: (u) => seen.push(u) }
+    )
+    try {
+      const before = Date.now()
+      const outcome = await t.run('claude-code')
+      expect(seen).toEqual([{
+        fiveHour: { utilization: 0.03, resetsAt: 1790000000_000 }, sevenDay: null,
+        limited: false, observedAt: expect.any(Number)
+      }])
+      expect(seen[0]!.observedAt).toBeGreaterThanOrEqual(before)
+      expect(readFileSync(outcome.logPath, 'utf8')).not.toContain('rate_limit')
+      expect(readFileSync(t.manager.rawLogPathFor('r-judge'), 'utf8')).not.toContain('rate_limit')
+      expect(JSON.stringify(t.events)).not.toContain('utilization')
+    } finally { t.cleanup() }
+  })
+
+  it('onPlanUsage가 던져도 run은 끝까지 돌고 오류는 onError로 간다', async () => {
+    const errors: string[] = []
+    const t = withScript(
+      { lines: [init, rateLimit, result], exitCode: 0 },
+      { onPlanUsage: () => { throw new Error('터짐') }, onError: (m) => errors.push(m) }
+    )
+    try {
+      const outcome = await t.run('claude-code')
+      expect(outcome.status).toBe('succeeded')
+      expect(errors.some((m) => m.includes('요금제'))).toBe(true)
     } finally { t.cleanup() }
   })
 

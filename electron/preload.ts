@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { OneDeskClient, Unsubscribe } from '@shared/client'
-import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult } from '@shared/models'
+import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult } from '@shared/models'
 import type { RunEvent } from '@shared/events'
 
 /**
@@ -95,6 +95,9 @@ const client: OneDeskClient = {
   mcp: {
     status: () => call<McpStatus>(CHANNELS.mcpStatus)
   },
+  account: {
+    planUsage: () => call<PlanUsage | null>(CHANNELS.accountPlanUsage)
+  },
   app: {
     info: () => call<AppInfo>(CHANNELS.appInfo),
     reveal: (target) => call<void>(CHANNELS.appReveal, target),
@@ -126,6 +129,11 @@ const client: OneDeskClient = {
       const listener = (_e: IpcRendererEvent, status: McpStatus) => cb(status)
       ipcRenderer.on(EVENT_CHANNELS.mcpStatusUpdate, listener)
       return () => { ipcRenderer.off(EVENT_CHANNELS.mcpStatusUpdate, listener) }
+    },
+    onPlanUsage(cb: (usage: PlanUsage) => void): Unsubscribe {
+      const listener = (_e: IpcRendererEvent, usage: PlanUsage) => cb(usage)
+      ipcRenderer.on(EVENT_CHANNELS.planUsageUpdate, listener)
+      return () => { ipcRenderer.off(EVENT_CHANNELS.planUsageUpdate, listener) }
     }
   }
 }

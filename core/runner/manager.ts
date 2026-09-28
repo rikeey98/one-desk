@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
-import type { AgentKind, Permission, RunStatus } from '@shared/models'
+import type { AgentKind, Permission, PlanUsage, RunStatus } from '@shared/models'
 import type { RunEvent, RunEventInit, RunUsage } from '@shared/events'
 import type { AgentAdapter, McpRunConfig } from './types'
 import { createLineSplitter } from './stream'
@@ -25,6 +25,13 @@ export interface RunManagerOptions {
    * 새는데 어떤 테스트도 빨개지지 않는다. 필수로 두면 typecheck가 막는다.
    */
   onError: ErrorSink
+  /**
+   * 계정의 요금제 사용률을 받은 순간 부른다 (`docs/sdlc/plan-usage/` FR-3). **저장하지 않는 값이라
+   * 이벤트가 아니다** — 이벤트면 `stream.jsonl`에 쓰이고 run 이벤트로 흐른다.
+   *
+   * 필수인 이유는 `onError`와 같다 — core/index.ts의 배선 한 줄을 지우면 컴파일이 깨져야 한다.
+   */
+  onPlanUsage: (usage: PlanUsage) => void
   /**
    * `raw.jsonl`의 run당 상한(바이트). **테스트가 작게 주는 통로다** — 실제 실행은 비워
    * 두고 `RAW_LOG_MAX_BYTES`(32 MiB)를 쓴다(spec FR-3).
@@ -263,6 +270,19 @@ export function createRunManager(opts: RunManagerOptions) {
       if (failureReason && raw.type === 'error' && raw.message) lastError = raw.message
     }
 
+    /**
+     * 요금제 사용률을 넘긴다 (plan-usage FR-3). **실패를 삼킨다** — `learnSession`과 같은 이유로,
+     * 스트림 data 핸들러 안이라 새면 메인 프로세스가 내려간다. 잃는 것은 사이드바 한 줄뿐이다.
+     */
+    function readPlanUsage(line: string) {
+      try {
+        const plan = adapter.parsePlanUsage?.(line)
+        if (plan) opts.onPlanUsage({ ...plan, observedAt: Date.now() })
+      } catch (err) {
+        opts.onError(`[manager] 요금제 사용량을 넘기지 못했습니다 (runId=${spec.runId})`, err)
+      }
+    }
+
     // 프로세스보다 먼저 흘린다. seq가 0부터라 로그의 맨 앞에 온다.
     for (const raw of spec.preEvents ?? []) emit(raw)
 
@@ -291,6 +311,7 @@ export function createRunManager(opts: RunManagerOptions) {
       // stderr와 preEvents는 쓰지 않는다(FR-5) — 프로세스의 stdout 줄만이다. 예외 하나
       // (`rate_limit_event`, spec §7-A)는 writer가 뺀다(`RAW_LOG_EXCLUDED_TYPES`).
       rawLog.write(line)
+      readPlanUsage(line)
       for (const raw of adapter.parseLine(line, spec.runId)) {
         emitFromProcess(raw, adapter.errorEventsAreFailureReasons === true)
       }

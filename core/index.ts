@@ -36,7 +36,7 @@ import { createMcpHost } from './mcp/host'
 import { consoleErrorSink, type ErrorSink } from './errors'
 import type { AgentAdapter } from './runner/types'
 import type { RunEvent } from '@shared/events'
-import type { AgentKind, InboxCounts, McpStatus, QueueSnapshot, Run } from '@shared/models'
+import type { AgentKind, InboxCounts, McpStatus, PlanUsage, QueueSnapshot, Run } from '@shared/models'
 
 /**
  * agent 종류 → 어댑터. **밖으로 꺼낸 이유는 테스트가 이 한 줄을 볼 수 있게
@@ -82,6 +82,7 @@ const RUN_UPDATE = 'run-update'
 const QUEUE_UPDATE = 'queue-update'
 const INBOX_UPDATE = 'inbox-update'
 const MCP_STATUS = 'mcp-status'
+const PLAN_USAGE = 'plan-usage'
 
 export function createCore(opts: CoreOptions) {
   const onError = opts.onError ?? consoleErrorSink
@@ -196,11 +197,18 @@ export function createCore(opts: CoreOptions) {
     onChange: (snapshot) => emitter.emit(QUEUE_UPDATE, snapshot)
   })
 
+  let planUsage: PlanUsage | null = null
   const manager = createRunManager({
     adapters,
     logDir,
     onEvent: (event) => emitter.emit(RUN_EVENT, event),
-    onError
+    onError,
+    // 계정의 것이라 run이 아니라 앱에 매단다. **메모리의 마지막 값 하나뿐이다** — 저장하지 않는다
+    // (docs/sdlc/plan-usage/ FR-1). 여러 run이 동시에 돌면 마지막으로 온 것이 이긴다(FR-6).
+    onPlanUsage: (usage) => {
+      planUsage = usage
+      emitter.emit(PLAN_USAGE, usage)
+    }
   })
 
   /**
@@ -524,6 +532,17 @@ export function createCore(opts: CoreOptions) {
     onMcpStatus(cb: (status: McpStatus) => void): () => void {
       emitter.on(MCP_STATUS, cb)
       return () => { emitter.off(MCP_STATUS, cb) }
+    },
+
+    /** 마지막으로 받은 요금제 사용률. 앱을 켠 뒤 claude 실행이 없었으면 null (docs/sdlc/plan-usage/) */
+    planUsage(): PlanUsage | null {
+      return planUsage
+    },
+
+    /** 요금제 사용률이 올 때마다 준다. 읽기와 둘 다 있는 이유는 onMcpStatus와 같다 */
+    onPlanUsage(cb: (usage: PlanUsage) => void): () => void {
+      emitter.on(PLAN_USAGE, cb)
+      return () => { emitter.off(PLAN_USAGE, cb) }
     },
 
     /**

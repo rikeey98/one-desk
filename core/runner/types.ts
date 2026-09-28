@@ -1,4 +1,4 @@
-import type { AgentKind, Permission } from '@shared/models'
+import type { AgentKind, Permission, PlanUsage } from '@shared/models'
 import type { RunEventInit } from '@shared/events'
 
 export interface PreflightResult {
@@ -78,6 +78,14 @@ export interface AgentAdapter {
    * 무관하게 실패 이유가 된다.
    */
   errorEventsAreFailureReasons?: boolean
+  /**
+   * stdout 한 줄에서 계정의 요금제 사용률을 읽는다 (`docs/sdlc/plan-usage/` FR-3). 아니면 null.
+   *
+   * **`parseLine`과 따로다** — 이벤트가 되면 manager가 `stream.jsonl`에 쓰고 run 이벤트로 흘린다.
+   * 이 값은 저장하지 않는다(FR-1). 구독 한도 개념이 있는 어댑터(claude)만 구현한다.
+   * `observedAt`은 manager가 채운다.
+   */
+  parsePlanUsage?(line: string): Omit<PlanUsage, 'observedAt'> | null
   /**
    * preflight를 통과한 뒤, 실제로 쓸 cwd와 권한으로 마지막 확인을 한다.
    *

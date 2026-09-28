@@ -12,6 +12,27 @@ export type McpStatus =
   | { state: 'starting' }
   | { state: 'listening'; port: number }
   | { state: 'failed'; message: string }
+
+/** 요금제 한도 창 하나 (`docs/sdlc/plan-usage/`). */
+export interface PlanWindow {
+  /** 0~1 */
+  utilization: number
+  /** epoch ms. CLI는 초로 주고 어댑터가 바꾼다 */
+  resetsAt: number
+}
+
+/**
+ * Claude 구독의 5시간·7일 한도 사용률 — **계정의 것이고 저장하지 않는다**(spec FR-1). core가 메모리에
+ * 마지막 값 하나만 쥔다. 초과 사용·크레딧 상태는 싣지 않는다(FR-2).
+ */
+export interface PlanUsage {
+  fiveHour: PlanWindow | null
+  sevenDay: PlanWindow | null
+  /** 지금 한도에 막혔는가 (`status: rejected`) */
+  limited: boolean
+  /** 앱이 이 값을 받은 시각(epoch ms) */
+  observedAt: number
+}
 export type IssueStatus = 'open' | 'doing' | 'done'
 /** 이슈가 어디서 왔는가 */
 export type IssueSource = 'customer' | 'plan' | 'meeting' | 'dev'

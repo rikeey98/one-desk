@@ -58,7 +58,8 @@ function setup(options: SetupOptions = {}) {
     adapters: { 'claude-code': claudeCodeAdapter, opencode: claudeCodeAdapter },
     logDir,
     onEvent: () => {},
-    onError: consoleErrorSink
+    onError: consoleErrorSink,
+    onPlanUsage: () => {}
   })
   const queue = createRunQueue({ limit: options.limit ?? 3 })
   const service = createExecutionService({

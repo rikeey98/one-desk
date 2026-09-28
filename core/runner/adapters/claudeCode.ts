@@ -3,6 +3,7 @@ import type { AgentAdapter, PreflightResult, ResolvedRunSpec, SpawnSpec } from '
 import { claudeCodePermissionArgs } from '../permission'
 import { findExecutable, isBatchShim, type LookupOptions } from '../executable'
 import type { RunEventInit, RunUsage, ToolEffect } from '@shared/events'
+import type { PlanUsage, PlanWindow } from '@shared/models'
 import {
   emptyUsage, reasoningText, stripNeedsAnswer, summarize, toolResultText, withLoopbackBypass
 } from './common'
@@ -34,6 +35,15 @@ function obj(value: unknown): Record<string, unknown> | null {
 
 function num(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+/** 한도 창 하나. 사용률(0~1)과 리셋 시각(초)이 둘 다 수여야 싣는다 — 반쯤 맞는 창은 거짓말이다. */
+function planWindow(value: unknown): PlanWindow | null {
+  const w = obj(value)
+  const utilization = num(w?.['utilization'])
+  const resetsAt = num(w?.['resetsAt'])
+  if (utilization === null || resetsAt === null) return null
+  return { utilization, resetsAt: resetsAt * 1000 }
 }
 
 /** 프롬프트 크기 = 비캐시 입력 + 캐시에서 읽은 것 + 캐시에 쓴 것. 셋 다 모델이 읽은 토큰이다. */
@@ -227,6 +237,31 @@ export const claudeCodeAdapter = {
       env: withLoopbackBypass(process.env),
       cwd: spec.cwd
     }
+  },
+
+  /**
+   * `rate_limit_event`의 5시간·7일 한도 사용률 (`docs/sdlc/plan-usage/`). 저장하지 않는 값이라
+   * `parseLine`이 아니라 여기서 읽는다(FR-3). 초과 사용·크레딧 상태는 버린다(FR-2).
+   *
+   * 모든 stdout 줄에 불리므로 JSON.parse 전에 글자로 한 번 거른다. 판정은 파싱한 `type`이다 —
+   * 그 이름을 말한 assistant 줄이 걸리면 안 된다.
+   */
+  parsePlanUsage(line: string): Omit<PlanUsage, 'observedAt'> | null {
+    if (!line.includes('rate_limit_event')) return null
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(line)
+    } catch {
+      return null
+    }
+    const root = obj(parsed)
+    if (root?.['type'] !== 'rate_limit_event') return null
+    const info = obj(root['rate_limit_info'])
+    const windows = obj(info?.['unifiedWindows'])
+    const fiveHour = planWindow(windows?.['five_hour'])
+    const sevenDay = planWindow(windows?.['seven_day'])
+    if (!windows) return null
+    return { fiveHour, sevenDay, limited: info?.['status'] === 'rejected' }
   },
 
   parseLine(line: string, runId: string): RawEvent[] {

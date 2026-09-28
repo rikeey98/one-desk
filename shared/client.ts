@@ -8,7 +8,7 @@ import type {
   ListQuery, StartRunInput, QueueSnapshot,
   UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses, AgentProbes,
   InboxCounts,
-  McpStatus, ResumeRunInput,
+  McpStatus, PlanUsage, ResumeRunInput,
   Asset, CreateAuthoredAssetInput, GuardedUpdateAssetInput, AssetUpdateResult, ListAssetQuery,
   GlobalRoots, CommandTarget, CommandListResult,
   UpdateRepoInput, AppInfo, RevealTarget, AssetBody, FileSearchInput, FileSearchResult
@@ -163,6 +163,13 @@ export interface OneDeskClient {
     /** 지금 상태를 한 번 읽는다. 창이 기동보다 늦게 떴을 때 필요하다. */
     status(): Promise<McpStatus>
   }
+  account: {
+    /**
+     * 마지막으로 받은 Claude 요금제 사용률. 앱을 켠 뒤 claude 실행이 없었거나 구독이 아니면 null.
+     * 저장하지 않는 값이다 (`docs/sdlc/plan-usage/` FR-1).
+     */
+    planUsage(): Promise<PlanUsage | null>
+  }
   app: {
     /** 정보 탭 — 앱 버전과 core가 실제로 여는 위치 */
     info(): Promise<AppInfo>
@@ -178,5 +185,7 @@ export interface OneDeskClient {
     onInboxUpdate(cb: (counts: InboxCounts) => void): Unsubscribe
     /** 창이 기동보다 먼저 떴을 때 필요하다. status()와 짝이다. */
     onMcpStatus(cb: (status: McpStatus) => void): Unsubscribe
+    /** planUsage()와 짝이다 — 창이 뜬 뒤 도착한 값을 받는다. */
+    onPlanUsage(cb: (usage: PlanUsage) => void): Unsubscribe
   }
 }

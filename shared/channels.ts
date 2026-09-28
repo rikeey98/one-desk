@@ -45,6 +45,8 @@ export const CHANNELS = {
   runsInbox: 'runs:inbox',
   runsInboxCounts: 'runs:inboxCounts',
   mcpStatus: 'mcp:status',
+  /** 계정의 요금제 사용률 — 메모리의 마지막 값 (docs/sdlc/plan-usage/) */
+  accountPlanUsage: 'account:planUsage',
   appInfo: 'app:info',
   /** 정해진 두 위치(data·logs)만 파일 탐색기로 연다 */
   appReveal: 'app:reveal',
@@ -64,7 +66,8 @@ export const EVENT_CHANNELS = {
   runUpdate: 'event:runUpdate',
   queueUpdate: 'event:queueUpdate',
   inboxUpdate: 'event:inboxUpdate',
-  mcpStatusUpdate: 'event:mcpStatus'
+  mcpStatusUpdate: 'event:mcpStatus',
+  planUsageUpdate: 'event:planUsage'
 } as const
 
 export type EventChannelName = (typeof EVENT_CHANNELS)[keyof typeof EVENT_CHANNELS]

@@ -24,6 +24,7 @@ export function registerRunHandlers(core: Core, getWindow: GetWindow) {
     (_e, rootRunId: string, title: string) => core.conversations.rename(rootRunId, title)
   )
   ipcMain.handle(CHANNELS.mcpStatus, () => core.mcpStatus())
+  ipcMain.handle(CHANNELS.accountPlanUsage, () => core.planUsage())
 
   // core의 이벤트를 렌더러로 중계한다. 데몬화 시 바뀌는 곳은 여기 한 지점뿐이다.
   core.onRunEvent((event) => {
@@ -40,5 +41,8 @@ export function registerRunHandlers(core: Core, getWindow: GetWindow) {
   })
   core.onMcpStatus((status) => {
     getWindow()?.webContents.send(EVENT_CHANNELS.mcpStatusUpdate, status)
+  })
+  core.onPlanUsage((usage) => {
+    getWindow()?.webContents.send(EVENT_CHANNELS.planUsageUpdate, usage)
   })
 }

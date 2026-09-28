@@ -48,6 +48,25 @@ emit({
   plugins: []
 })
 
+// 요금제 사용률 줄 (docs/sdlc/plan-usage/). **옵트인이다** — 기본 시나리오에 넣으면 사이드바에 줄이
+// 하나 늘어 기존 e2e가 기대지 않은 화면이 된다. 값을 주면 그 사용률(5시간), '1'이면 6%이고 리셋은 늘
+// 지금부터 한 시간 뒤다(지난 리셋은 화면이 `—`로 그린다). 모양은 claude 2.1.283 실측 그대로다.
+const planUsage = process.env.ONE_DESK_FAKE_PLAN_USAGE
+if (planUsage) {
+  const now = Math.floor(Date.now() / 1000)
+  emit({
+    type: 'rate_limit_event', uuid: 'fake-uuid', session_id: 'fake-session',
+    rate_limit_info: {
+      status: 'allowed', resetsAt: now + 3600, rateLimitType: 'five_hour',
+      overageStatus: 'rejected', overageDisabledReason: 'out_of_credits', isUsingOverage: false,
+      unifiedWindows: {
+        five_hour: { utilization: planUsage === '1' ? 0.06 : Number(planUsage), resetsAt: now + 3600 },
+        seven_day: { utilization: 0.02, resetsAt: now + 6 * 86400 }
+      }
+    }
+  })
+}
+
 // probe 테스트의 "모델 호출이 나갔다" 신호. init 200ms 뒤에도 살아 있으면 마커를 쓴다 —
 // probe가 init 직후 죽이면 이 파일은 생기지 않아야 한다. 환경변수가 없으면 아무것도 안 한다.
 const marker = process.env.ONE_DESK_PROBE_MARKER

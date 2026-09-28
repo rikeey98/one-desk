@@ -463,6 +463,10 @@ select.pill { padding-right: 4px; cursor: pointer; text-overflow: ellipsis; }
 .mcp-status-listening .mcp-dot { background: var(--success); }
 .mcp-status-failed { opacity: 1; color: var(--danger-text); cursor: help; }
 .mcp-status-failed .mcp-dot { background: var(--danger); }
+/* MCP 줄 아래의 요금제 사용률 (docs/sdlc/plan-usage/ FR-5). 자세한 것은 title — 그래서 help 커서다.
+   80%를 넘거나 막혔으면 --warn(두 스킴 다 4.5:1을 넘는다). */
+.plan-usage { padding: 4px 9px 0 22px; font-size: .6875rem; color: var(--text-muted); cursor: help; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plan-usage-warn { color: var(--warn); }
 
 /* 대화록 — 턴 (설계 §4-1, docs/sdlc/conversation-timeline/ spec FR-12·FR-13, 치수는 §4).
    접힌 턴은 버블 · 상태 줄 · 활동 요약 · 답 칸 · 오류 카드 · 끝줄이고, 펼치면 요약 대신 활동이

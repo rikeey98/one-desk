@@ -193,6 +193,42 @@ describe('createCore', () => {
     close(core)
   })
 
+  it('run이 요금제 사용률을 내면 읽기와 구독 둘 다로 보이고, DB에는 남지 않는다 (plan-usage FR-1·FR-4)', async () => {
+    const keys = ['ONE_DESK_AGENT_PATH', 'ONE_DESK_AGENT_LAUNCHER', 'ONE_DESK_FAKE_PLAN_USAGE'] as const
+    const previous = keys.map((k) => process.env[k])
+    process.env['ONE_DESK_AGENT_PATH'] = FAKE_AGENT
+    // 셔뱅이 없는 .mjs다 — Windows는 런처 없이 띄우지 못한다(driver.ts와 같은 통로).
+    process.env['ONE_DESK_AGENT_LAUNCHER'] = process.execPath
+    process.env['ONE_DESK_FAKE_PLAN_USAGE'] = '0.42'
+    try {
+      const dataDir = makeDataDir()
+      const core = open(dataDir)
+      expect(core.planUsage()).toBeNull()
+      const seen: unknown[] = []
+      core.onPlanUsage((u) => seen.push(u))
+
+      const ws = core.workspaces.create({ name: 'ws' }).id
+      const run = await core.execution.start({
+        workspaceId: ws, agentKind: 'claude-code', cwd: dataDir,
+        permission: 'edit', userPrompt: 'x', context: []
+      })
+      await vi.waitFor(() => expect(core.runs.get(run.id).endedAt).toBeTypeOf('number'))
+
+      expect(core.planUsage()).toMatchObject({ fiveHour: { utilization: 0.42 }, sevenDay: { utilization: 0.02 } })
+      expect(seen).toEqual([core.planUsage()])
+      close(core)
+
+      // 저장하지 않는다 — 다시 켜면 다음 실행까지 없다.
+      expect(open(dataDir).planUsage()).toBeNull()
+    } finally {
+      keys.forEach((k, i) => {
+        const v = previous[i]
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      })
+    }
+  })
+
   it('실행이 시작되면 MCP 서버가 127.0.0.1에 뜬다', async () => {
     const previous = process.env['ONE_DESK_AGENT_PATH']
     process.env['ONE_DESK_AGENT_PATH'] = FAKE_AGENT
