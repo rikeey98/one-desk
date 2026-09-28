@@ -4,6 +4,8 @@ import { createWorkspaceRepository } from './workspace'
 import { createRepoRepository } from './repo'
 import { createAssetRepository, type AssetRepository } from './asset'
 import type { Database } from '../open'
+import { createRunRepository } from './run'
+import { runContextItem } from '../schema'
 
 let db: Database
 let assets: AssetRepository
@@ -292,4 +294,74 @@ describe('createAuthored — instructions', () => {
     expect(() => assets.createAuthored({ workspaceId, kind: 'instructions', name: 'CLAUDE.md' }))
       .toThrow(/지시 파일/)
   })
+})
+
+describe('pruneUnusedMissing (docs/sdlc/asset-missing/)', () => {
+  const other = { ...found, name: '베타', filePath: '/tmp/api/b/SKILL.md' }
+  const global = { ...found, name: '글로벌', filePath: '/home/g/skills/c/SKILL.md' }
+
+  /** run 하나를 만들어 그 asset을 담은 것으로 기록한다 */
+  function attach(assetId: string): void {
+    const runs = createRunRepository(db)
+    runs.create({
+      workspaceId, agentKind: 'claude-code', model: null, effort: null, cwd: '/tmp/api',
+      permission: 'edit', userPrompt: 'x', assembledPrompt: 'x', logPath: '/tmp/x',
+      context: [{ type: 'asset', id: assetId }]
+    })
+  }
+
+  it('이번 스캔에 안 보였고 어떤 run에도 담긴 적 없는 행만 지운다', () => {
+    assets.upsertDiscovered({ workspaceId, repoId, seenAt: 100, found: [found, other] })
+    const used = assets.list({ workspaceId }).find((a) => a.name === '베타')!
+    attach(used.id)
+    assets.createAuthored({ workspaceId, kind: 'skill', name: '내 것' })
+    assets.upsertDiscovered({ workspaceId, repoId, seenAt: 200, found: [] })
+
+    assets.pruneUnusedMissing({ workspaceId, seenAt: 200 })
+
+    expect(assets.list({ workspaceId }).map((a) => a.name).sort()).toEqual(['내 것', '베타'])
+  })
+
+  it('담긴 기록 중에 item_id가 NULL인 행이 있어도 지운다 — NOT IN과 NULL 함정', () => {
+    assets.upsertDiscovered({ workspaceId, repoId, seenAt: 100, found: [found] })
+    db.insert(runContextItem).values({ runId: seedRunId(), itemType: 'asset', itemId: null }).run()
+
+    assets.pruneUnusedMissing({ workspaceId, seenAt: 200 })
+
+    expect(assets.list({ workspaceId })).toEqual([])
+  })
+
+  it('repoId를 주면 그 repo의 행만 본다 — 부분 스캔이 글로벌을 지우지 않는다', () => {
+    assets.upsertDiscovered({ workspaceId, repoId, seenAt: 100, found: [found] })
+    assets.upsertDiscovered({ workspaceId, repoId: null, seenAt: 100, found: [global] })
+
+    assets.pruneUnusedMissing({ workspaceId, seenAt: 200, repoId })
+
+    expect(assets.list({ workspaceId }).map((a) => a.name)).toEqual(['글로벌'])
+  })
+
+  it('repoId가 null이면 글로벌 행만 본다', () => {
+    assets.upsertDiscovered({ workspaceId, repoId, seenAt: 100, found: [found] })
+    assets.upsertDiscovered({ workspaceId, repoId: null, seenAt: 100, found: [global] })
+
+    assets.pruneUnusedMissing({ workspaceId, seenAt: 200, repoId: null })
+
+    expect(assets.list({ workspaceId }).map((a) => a.name)).toEqual(['알파'])
+  })
+
+  it('다른 workspace의 행은 건드리지 않는다', () => {
+    const otherWs = createWorkspaceRepository(db).create({ name: 'ws2' }).id
+    assets.upsertDiscovered({ workspaceId: otherWs, repoId: null, seenAt: 100, found: [global] })
+
+    assets.pruneUnusedMissing({ workspaceId, seenAt: 200 })
+
+    expect(assets.list({ workspaceId: otherWs })).toHaveLength(1)
+  })
+
+  function seedRunId(): string {
+    return createRunRepository(db).create({
+      workspaceId, agentKind: 'claude-code', model: null, effort: null, cwd: '/tmp/api',
+      permission: 'edit', userPrompt: 'x', assembledPrompt: 'x', logPath: '/tmp/x', context: []
+    }).id
+  }
 })

@@ -56,14 +56,25 @@ describe('AssetPanel', () => {
     expect(screen.getByRole('heading', { name: 'AGENTS' })).toBeInTheDocument()
   })
 
-  it('이번 스캔에서 안 보인 파일에 "없음" 배지를 붙인다', async () => {
+  it('이번 스캔에서 안 보인 파일은 목록에서 빠지고 "사라진 파일" 토글 안에서 "없음"으로 보인다 (docs/sdlc/asset-missing/)', async () => {
+    // 스캔이 담긴 적 없는 것은 지웠으므로 여기 남은 사라진 행은 과거 run 때문에 남긴 것이다.
     renderPanel(makeClient([
       asset({ id: 'a1', name: '있음', lastSeenAt: 2000 }),
       asset({ id: 'a2', name: '사라짐', lastSeenAt: 1000 })
     ]))
-    await screen.findByText('사라짐')
+    await screen.findByText('있음')
+    expect(screen.queryByRole('listitem', { name: '사라짐' })).toBeNull()
+    expect(screen.getByRole('heading', { name: 'SKILLS' }).parentElement).toHaveTextContent('1')
+
+    await userEvent.click(screen.getByRole('button', { name: /사라진 파일/ }))
     expect(screen.getByRole('listitem', { name: '사라짐' })).toHaveTextContent('없음')
     expect(screen.getByRole('listitem', { name: '있음' })).not.toHaveTextContent('없음')
+  })
+
+  it('사라진 파일이 없으면 토글도 없다', async () => {
+    renderPanel(makeClient([asset({ id: 'a1', name: '있음', lastSeenAt: 2000 })]))
+    await screen.findByText('있음')
+    expect(screen.queryByRole('button', { name: /사라진 파일/ })).toBeNull()
   })
 
   it('authored에는 "없음"이 절대 붙지 않는다', async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { makeTestDb } from '../db/repositories/testing'
@@ -216,5 +216,33 @@ describe('스캔 한 번의 시각', () => {
     const second = ctx.assets.list({ workspaceId: ctx.workspaceId })[0]!.lastSeenAt!
 
     expect(second).toBeGreaterThan(first)
+  })
+})
+
+describe('사라진 asset 정리 (docs/sdlc/asset-missing/)', () => {
+  it('폴더 이름이 바뀐 skill은 새 이름 하나만 남는다 — 안 쓴 옛 행은 지운다', async () => {
+    writeSkill(dir, 'old-skill')
+    ctx.repos.create({ workspaceId: ctx.workspaceId, name: 'api', path: dir })
+    await ctx.service.scanWorkspace(ctx.workspaceId)
+    renameSync(join(dir, '.claude', 'skills', 'old-skill'), join(dir, '.claude', 'skills', 'new-skill'))
+
+    await ctx.service.scanWorkspace(ctx.workspaceId)
+
+    // 폴더만 바꿨으니 frontmatter 이름은 그대로다 — 경로로 본다.
+    expect(ctx.assets.list({ workspaceId: ctx.workspaceId }).map((a) => a.filePath))
+      .toEqual([join(dir, '.claude', 'skills', 'new-skill', 'SKILL.md')])
+  })
+
+  it('repo 하나만 훑는 부분 스캔도 그 repo의 안 쓴 옛 행을 지운다', async () => {
+    writeSkill(dir, 'old-skill')
+    const repoId = ctx.repos.create({ workspaceId: ctx.workspaceId, name: 'api', path: dir }).id
+    await ctx.service.scanRepo(ctx.workspaceId, repoId)
+    renameSync(join(dir, '.claude', 'skills', 'old-skill'), join(dir, '.claude', 'skills', 'new-skill'))
+
+    await ctx.service.scanRepo(ctx.workspaceId, repoId)
+
+    // 폴더만 바꿨으니 frontmatter 이름은 그대로다 — 경로로 본다.
+    expect(ctx.assets.list({ workspaceId: ctx.workspaceId }).map((a) => a.filePath))
+      .toEqual([join(dir, '.claude', 'skills', 'new-skill', 'SKILL.md')])
   })
 })

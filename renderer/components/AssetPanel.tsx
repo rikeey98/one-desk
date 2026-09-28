@@ -5,7 +5,7 @@ import { AssetDetail } from './AssetDetail'
 import { useAssets } from '../hooks/useAssets'
 import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextChip } from '../context'
-import { IconCollapse, IconRefresh } from './icons'
+import { IconChevronDown, IconChevronRight, IconCollapse, IconRefresh } from './icons'
 import type { Asset, AssetKind, Repo } from '@shared/models'
 
 /**
@@ -50,6 +50,7 @@ export function AssetPanel({
   const { assets, error, rescan, refresh } = useAssets(workspaceId, repos.map((r) => r.id).join(','), repoId)
   // 새로 만들 asset의 종류. 이름만 받는 AddForm과 짝을 이룬다.
   const [newKind, setNewKind] = useState<AssetKind>('skill')
+  const [showMissing, setShowMissing] = useState(false)
 
   const open = openId ? assets.find((a) => a.id === openId) ?? null : null
 
@@ -69,8 +70,51 @@ export function AssetPanel({
 
   const origin = (a: Asset): string => originOf(a, repos)
 
+  // 사라진 파일의 행은 목록에서 뺀다 (docs/sdlc/asset-missing/). 스캔이 어떤 run에도 담긴 적 없는
+  // 것은 이미 지웠으므로 여기 남은 것은 과거 run의 기록 때문에 남긴 행이다 — 접힌 토글 안에서만 보인다.
+  // 섞어 두면 폴더 이름을 바꾼 skill이 옛 이름·새 이름 두 줄로 보인다.
+  const missing = assets.filter((a) => isMissing(a, latestSeenAt))
+  const present = assets.filter((a) => !isMissing(a, latestSeenAt))
+
+  const row = (a: Asset) => {
+    const picked = chipKeys.has(chipKey({ type: 'asset', id: a.id }))
+    // 지시 파일은 보기 전용이다 — CLI가 실행할 때 알아서 읽으므로 담으면 같은
+    // 본문이 두 번 들어간다. 버튼을 숨기는 것이 아니라 렌더하지 않는다
+    // (docs/sdlc/repo-instructions/ FR-8). core도 거부한다(FR-9).
+    const attachable = a.kind !== 'instructions'
+    return (
+      <li key={a.id} className="item" aria-label={a.name}>
+        {attachable
+          ? (
+              <button
+                type="button"
+                className={picked ? 'item-pick item-picked' : 'item-pick'}
+                aria-label={`${a.name} 맥락에 담기`}
+                aria-pressed={picked}
+                onClick={() => onToggleContext({ type: 'asset', id: a.id, label: a.name })}
+              >
+                {picked ? '✓' : ''}
+              </button>
+            )
+          : <span className="item-pick item-pick-none" aria-hidden="true" />}
+        {/* 이름·설명·경로는 평문이다. 외부 repo의 파일에서 왔으므로
+            마크다운으로 그리지 않는다 (설계 §6-3). */}
+        <button
+          type="button"
+          className="item-open"
+          onClick={() => onOpen?.(a.id)}
+        >{a.name}</button>
+        <span className="asset-desc">{a.description ?? ''}</span>
+        <span className="item-meta">
+          <span className="asset-origin" title={a.filePath ?? ''}>{origin(a)}</span>
+          {isMissing(a, latestSeenAt) && <span className="chip-badge">없음</span>}
+        </span>
+      </li>
+    )
+  }
+
   const group = (kind: AssetKind, title: string) => {
-    const items = assets.filter((a) => a.kind === kind)
+    const items = present.filter((a) => a.kind === kind)
     return (
       <section className="asset-group">
         {/* 개수는 h3 밖에 둔다 — 제목의 접근성 이름이 "SKILLS 3"이 되면 안 된다. */}
@@ -79,44 +123,7 @@ export function AssetPanel({
           <span className="group-count">{items.length}</span>
         </div>
         {items.length === 0 && <div className="panel-empty">없습니다</div>}
-        <ul className="item-list">
-          {items.map((a) => {
-            const picked = chipKeys.has(chipKey({ type: 'asset', id: a.id }))
-            // 지시 파일은 보기 전용이다 — CLI가 실행할 때 알아서 읽으므로 담으면 같은
-            // 본문이 두 번 들어간다. 버튼을 숨기는 것이 아니라 렌더하지 않는다
-            // (docs/sdlc/repo-instructions/ FR-8). core도 거부한다(FR-9).
-            const attachable = a.kind !== 'instructions'
-            return (
-              <li key={a.id} className="item" aria-label={a.name}>
-                {attachable
-                  ? (
-                      <button
-                        type="button"
-                        className={picked ? 'item-pick item-picked' : 'item-pick'}
-                        aria-label={`${a.name} 맥락에 담기`}
-                        aria-pressed={picked}
-                        onClick={() => onToggleContext({ type: 'asset', id: a.id, label: a.name })}
-                      >
-                        {picked ? '✓' : ''}
-                      </button>
-                    )
-                  : <span className="item-pick item-pick-none" aria-hidden="true" />}
-                {/* 이름·설명·경로는 평문이다. 외부 repo의 파일에서 왔으므로
-                    마크다운으로 그리지 않는다 (설계 §6-3). */}
-                <button
-                  type="button"
-                  className="item-open"
-                  onClick={() => onOpen?.(a.id)}
-                >{a.name}</button>
-                <span className="asset-desc">{a.description ?? ''}</span>
-                <span className="item-meta">
-                  <span className="asset-origin" title={a.filePath ?? ''}>{origin(a)}</span>
-                  {isMissing(a, latestSeenAt) && <span className="chip-badge">없음</span>}
-                </span>
-              </li>
-            )
-          })}
-        </ul>
+        <ul className="item-list">{items.map(row)}</ul>
       </section>
     )
   }
@@ -149,13 +156,33 @@ export function AssetPanel({
       {group('agent', 'AGENTS')}
       {/* repo 루트의 CLAUDE.md·AGENTS.md. repo를 고르면 그 repo 것만 보인다 (FR-12). */}
       {group('instructions', 'INSTRUCTIONS')}
+      {missing.length > 0 && (
+        <section className="asset-group asset-missing">
+          <button
+            type="button"
+            className="asset-missing-toggle"
+            aria-expanded={showMissing}
+            onClick={() => setShowMissing((v) => !v)}
+          >
+            {showMissing ? <IconChevronDown /> : <IconChevronRight />}
+            사라진 파일 <span className="group-count">{missing.length}</span>
+          </button>
+          {showMissing && (
+            <>
+              <div className="panel-empty">지난 실행에 담았던 기록이 있어 남겨 둔 항목입니다</div>
+              <ul className="item-list">{missing.map(row)}</ul>
+            </>
+          )}
+        </section>
+      )}
     </>
   )
 
   return (
     <Panel
       title="Skills / Agents"
-      count={assets.length}
+      // 사라진 파일은 세지 않는다 — 목록에 보이는 것만 센다.
+      count={present.length}
       // 이슈·메모와 같이 열리면 세 칸을 통째로 쓴다. 이 prop이 빠져 있던 동안은
       // 상세가 좁은 세 번째 칸 안에서만 보였다.
       expanded={Boolean(expanded)}

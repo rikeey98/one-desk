@@ -873,6 +873,8 @@ button.tl-tool:hover, button.tl-file:hover { background: var(--bg-hover); }
 .icon-button:hover { background: var(--bg-muted); color: var(--text); }
 .asset-group { margin-top: 10px; }
 .asset-group-head { display: flex; align-items: center; gap: 6px; padding: 0 6px; margin-bottom: 3px; }
+/* 과거 run 때문에 남긴 사라진 파일 (docs/sdlc/asset-missing/). 기본은 접혀 있다. */
+.asset-missing-toggle { display: flex; align-items: center; gap: 6px; padding: 2px 6px; border: 0; background: transparent; color: var(--text-muted); font: inherit; font-size: .6875rem; cursor: pointer; }
 .asset-group h3 { margin: 0; font-size: .6875rem; letter-spacing: .07em; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; }
 .asset-group .item-open { flex: 0 1 auto; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-weight: 600; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .asset-desc { flex: 1; min-width: 0; font-size: .75rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

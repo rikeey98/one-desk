@@ -479,7 +479,7 @@ junction/심링크가 밖을 가리키는 것을 못 막는다. `..` 검사 테�
 
 **스캔은 `authored` 행을 건드리면 안 된다.** `source`로 갈라 보지 않으면 앱에서 쓴 asset이 첫 스캔에 전부 "없음"이 된다 — 파일이 없으니 당연히 안 보인다. 같은 이유로 화면의 "없음" 판정도 `source === 'discovered'`를 먼저 본다.
 
-**사라진 asset을 지우지 않는다.** `last_seen_at`으로 "없음"만 표시한다. 지우면 그 asset을 첨부했던 과거 run의 기록이 끊긴다(전체 설계 §232).
+**사라진 asset은 어떤 run에도 담긴 적 없을 때만 지운다** (`docs/sdlc/asset-missing/`, 2026-09-28 — 예전에는 전부 남겼다). 담긴 적 있는 것은 과거 run의 기록이 끊기지 않게 남기되(전체 설계 §232) 목록에서 빼고 접힌 `사라진 파일 N` 토글 안에서만 보인다. 전부 남기던 동안은 폴더 이름을 바꾼 skill이 옛 이름·새 이름 두 줄로 보였다. `pruneUnusedMissing`의 "담긴 id" 서브쿼리는 **`item_id IS NOT NULL`을 걸어야 한다** — `NOT IN (…, NULL)`은 참이 되지 않아 NULL 행 하나가 정리를 통째로 멈춘다. **repo 루트가 없으면 그 repo는 정리하지 않는다**(드라이브를 뺀 것일 수 있다).
 
 **한 번의 스캔은 시각 하나를 찍는다 — 배치마다 `Date.now()`를 따로 찍지 말 것.** 화면의 "없음"은 그 workspace에서 가장 최근에 본 `lastSeenAt`보다 오래된 discovered asset이다(엄격 비교). `scanWorkspace`가 repo 하나·글로벌 루트 하나마다 시각을 새로 찍으면, 먼저 훑은 repo의 asset이 나중에 훑은 글로벌보다 몇 ms 오래돼 **방금 본 파일에 "없음"이 붙는다.** 글로벌 skill이 많은 장비일수록 걷는 데 1ms를 넘겨 잘 나고, 단위 테스트는 임시 디렉토리가 작아 시각이 같아져 조용히 초록이다 — `core/assets/service.test.ts`는 그래서 `Date.now`를 호출마다 1ms씩 흐르는 시계로 바꿔 결정적으로 잡는다. `scanRepo`(등록·경로 변경)는 그 repo만 훑는 부분 스캔이라 이 규칙 밖이다 — 그 뒤에는 같은 workspace의 나머지(글로벌 포함)가 상대적으로 오래돼 다음 전체 스캔까지 "없음"으로 보일 수 있다. 설계 §3-2("등록할 때 — 그 repo만")가 정한 것이라 코드에서 바꾸지 않았다.
 
@@ -706,6 +706,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/command-cache-auth/` | 로그인한 뒤에도 슬래시 커맨드 실패가 남던 결함 — spec·plan(backlog §1에서 뗌). 실패 캐시에 인증 상태를 적는 규칙(FR-2~4), slash-commands FR-13 개정 |
 | `docs/sdlc/prompt-history/` | 입력칸의 ↑로 이전 지시 불러오기 — intent·spec·plan. 비었을 때만·이 대화만(intent의 결정), 불러온 글을 고치면 초안(FR-2), 피커 억제(FR-6) |
 | `docs/sdlc/input-triggers/` | `@` 파일 참조 — intent(OpenCode 트리거·UI 조사)·spec·plan. claude가 `@경로`를 권한 밖에서 펼친다는 실측표(spec §6), 멘션이 곧 맥락인 이유(§7의 6), 중화 두 겹(FR-12·§7의 2), 읽기 거부 규칙(FR-10·FR-13) |
+| `docs/sdlc/asset-missing/` | 사라진 asset 정리 — spec. 폴더 이름을 바꾼 skill이 두 줄로 남던 원인(설계 §3-4), 안 쓴 것만 지우는 규칙(FR-1), 루트가 없는 repo는 정리하지 않는 이유(FR-4) |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |
 | `docs/diagrams/` | 아키텍처 다이어그램 — `one-desk-architecture.html`(단독 실행 가능)과 그것을 만든 archify 사양 `one-desk.architecture.json`. `main`에 들어가면 `.github/workflows/pages.yml`이 GitHub Pages로 올린다 |

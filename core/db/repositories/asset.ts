@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { and, eq, inArray, isNull, or } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, isNull, lt, notInArray, or } from 'drizzle-orm'
 import type { Database } from '../open'
-import { asset } from '../schema'
+import { asset, runContextItem } from '../schema'
 import type {
   Asset, CreateAuthoredAssetInput, GuardedUpdateAssetInput, AssetUpdateResult, ListAssetQuery
 } from '@shared/models'
@@ -189,6 +189,33 @@ export function createAssetRepository(db: Database) {
       )).run()
 
       return { ok: true, asset: getById(input.id) }
+    },
+
+    /**
+     * 이번 스캔(`seenAt`)에 안 보였고 **어떤 run에도 담긴 적 없는** discovered 행을 지운다
+     * (docs/sdlc/asset-missing/ — 설계 §3-4의 "지우지 않는다"를 좁혔다).
+     *
+     * 사라진 행을 남기던 이유는 그 asset을 담았던 과거 run의 기록이 끊기지 않게 하려는
+     * 것이었다(전체 설계 §232). 담긴 적 없는 행은 끊을 기록이 없다 — 남기면 폴더 이름을
+     * 바꾼 skill이 옛 이름과 새 이름 두 줄로 보인다. 담긴 적 있는 행은 남기고 화면이 숨긴다.
+     *
+     * `repoId`로 범위를 정한다 — 문자열이면 그 repo, `null`이면 글로벌(`repo_id` NULL), 주지
+     * 않으면 workspace 전부. repo 하나만 훑는 부분 스캔이 글로벌·다른 repo의 행을 "안 보였다"로
+     * 지우면 안 된다. authored는 대상이 아니다.
+     */
+    pruneUnusedMissing(input: { workspaceId: string; seenAt: number; repoId?: string | null }): void {
+      // **NULL을 빼야 한다** — `NOT IN (…, NULL)`은 SQL에서 참이 되지 않아, 담긴 기록에
+      // item_id가 NULL인 행이 하나라도 있으면 아무것도 지우지 않는다.
+      const used = db.select({ id: runContextItem.itemId }).from(runContextItem)
+        .where(and(eq(runContextItem.itemType, 'asset'), isNotNull(runContextItem.itemId)))
+      db.delete(asset).where(and(
+        eq(asset.workspaceId, input.workspaceId),
+        eq(asset.source, 'discovered'),
+        or(isNull(asset.lastSeenAt), lt(asset.lastSeenAt, input.seenAt)),
+        input.repoId === undefined ? undefined
+          : input.repoId === null ? isNull(asset.repoId) : eq(asset.repoId, input.repoId),
+        notInArray(asset.id, used)
+      )).run()
     },
 
     remove(id: string): void {

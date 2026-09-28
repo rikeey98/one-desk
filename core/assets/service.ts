@@ -1,4 +1,13 @@
+import { stat } from 'node:fs/promises'
 import { scanRepo as walk, scanDir } from './scan'
+
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory()
+  } catch {
+    return false
+  }
+}
 import type { AssetRepository } from '../db/repositories/asset'
 import type { RepoRepository } from '../db/repositories/repo'
 
@@ -29,9 +38,17 @@ export interface AssetServiceDeps {
  * 오래돼, 방금 본 파일에 "없음"이 붙는다 — 글로벌 skill이 많은 장비일수록 잘 난다.
  */
 export function createAssetService(deps: AssetServiceDeps) {
+  /**
+   * repo 하나를 훑고, 이번에 안 보인 그 repo의 행 중 **어떤 run에도 담긴 적 없는 것**을 지운다
+   * (docs/sdlc/asset-missing/). 폴더 이름을 바꾼 skill이 옛 이름과 새 이름 두 줄로 남지 않게 한다.
+   *
+   * **repo 루트가 없으면 정리하지 않는다** — 드라이브를 뺐거나 폴더를 잠시 옮긴 것일 수 있고,
+   * 그때마다 그 repo의 asset이 전부 지워지면 돌아와도 담기 표시가 풀린 채 새 행으로 생긴다.
+   */
   async function scanOne(workspaceId: string, repoId: string, path: string, seenAt: number): Promise<void> {
     const found = await walk(path)
     deps.assets.upsertDiscovered({ workspaceId, repoId, seenAt, found })
+    if (await isDirectory(path)) deps.assets.pruneUnusedMissing({ workspaceId, seenAt, repoId })
   }
 
   async function scanWorkspace(workspaceId: string): Promise<void> {
@@ -44,12 +61,16 @@ export function createAssetService(deps: AssetServiceDeps) {
       const found = await scanDir(root)
       deps.assets.upsertDiscovered({ workspaceId, repoId: null, seenAt, found })
     }
+    // 글로벌도 같은 규칙으로 정리한다. 글로벌 루트는 없는 것이 흔하다(쓰지 않는 CLI의 경로) —
+    // 그래서 repo와 달리 루트가 없어도 정리한다.
+    deps.assets.pruneUnusedMissing({ workspaceId, seenAt, repoId: null })
   }
 
   return {
     async scanRepo(workspaceId: string, repoId: string): Promise<void> {
       const target = deps.repos.list(workspaceId).find((r) => r.id === repoId)
       if (!target) return
+      // 부분 스캔이다 — scanOne이 **그 repo의 행만** 정리한다. 글로벌·다른 repo는 훑지 않았다.
       await scanOne(workspaceId, repoId, target.path, Date.now())
     },
 
