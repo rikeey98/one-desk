@@ -163,7 +163,7 @@ export const run = sqliteTable('run', {
 
 export const runContextItem = sqliteTable('run_context_item', {
   runId: text('run_id').notNull().references(() => run.id, { onDelete: 'cascade' }),
-  itemType: text('item_type', { enum: ['repo', 'issue', 'memo', 'asset'] }).notNull(),
+  itemType: text('item_type', { enum: ['repo', 'issue', 'memo', 'asset', 'file'] }).notNull(),
   // itemId가 nullable이고 외래키가 없는 것은 의도된 판단이다 (설계 §5).
   // cascade를 붙이면 이슈를 지웠을 때 그 이슈를 첨부했던 과거 run의 기록이
   // 조용히 사라진다. 무엇이 첨부됐었는지는 itemType과 assembledPrompt에 남는다.

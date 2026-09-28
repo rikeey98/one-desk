@@ -65,6 +65,11 @@ export function IconFolder(props: SVGProps<SVGSVGElement>) {
   return <Icon {...props}><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 1.5h4.5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z" /></Icon>
 }
 
+/** 파일 — 모서리가 접힌 종이. `@` 피커의 줄 머리다(docs/sdlc/input-triggers/ FR-2). */
+export function IconFile(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><path d="M4.5 2h4.5l3 3v8a1 1 0 0 1-1 1h-6.5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zM9 2v3h3" /></Icon>
+}
+
 export function IconExternalLink(props: SVGProps<SVGSVGElement>) {
   return <Icon {...props}><path d="M9 3h4v4M13 3 7.5 8.5M12 9.5V12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h2.5" /></Icon>
 }

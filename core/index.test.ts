@@ -1,8 +1,9 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { execFileSync } from 'node:child_process'
 import { createAdapters, createCore, type Core } from './index'
 import { DEFAULT_CONCURRENCY_LIMIT } from './db/repositories/setting'
 import type { InboxCounts, McpStatus, Run } from '@shared/models'
@@ -299,6 +300,24 @@ describe('createAdapters', () => {
 
   it('claude-code 매핑은 그대로다', () => {
     expect(createAdapters()['claude-code'].kind).toBe('claude-code')
+  })
+})
+
+describe('@ 파일 검색 배선 (docs/sdlc/input-triggers/)', () => {
+  it('core.files.search가 등록된 repo의 git 목록에서 찾는다', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    const repoPath = join(dataDir, 'repo')
+    mkdirSync(join(repoPath, 'notes'), { recursive: true })
+    execFileSync('git', ['init', '-q'], { cwd: repoPath })
+    writeFileSync(join(repoPath, 'notes', 'a.txt'), 'x')
+    const repoId = (await core.repos.create({ workspaceId, name: 'api', path: repoPath })).id
+
+    const result = await core.files.search({ workspaceId, repoId, query: 'a.txt' })
+
+    expect(result).toEqual({ ok: true, files: [{ path: 'notes/a.txt' }], truncated: false })
+    close(core)
   })
 })
 
@@ -821,6 +840,55 @@ describe('core.workspaces.probeAgents (docs/sdlc/agent-setup/)', () => {
     // 조회가 RunManager를 타지 않았다는 관측 가능한 증거다.
     expect(existsSync(join(dataDir, 'logs'))).toBe(false)
     close(core)
+  })
+
+  it('다시 확인은 workspace의 모든 repo cwd 커맨드 캐시를 비운다 (command-cache-auth FR-1)', async () => {
+    // 첫 repo만 비우면, 실행 패널에서 다른 repo를 고른 사람에게는 그 cwd의 옛 실패가 남는다.
+    const dataDir = makeDataDir()
+    const spawnLog = join(dataDir, 'spawns.jsonl')
+    const counting = join(dataDir, 'counting-claude.mjs')
+    writeFileSync(counting, [
+      '#!/usr/bin/env node',
+      "import { appendFileSync } from 'node:fs'",
+      `appendFileSync(${JSON.stringify(spawnLog)}, JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2) }) + '\\n')`,
+      `await import(${JSON.stringify(pathToFileURL(FAKE_AGENT).href)})`,
+      ''
+    ].join('\n'), { mode: 0o755 })
+    const probeSpawnsIn = (cwd: string): number => existsSync(spawnLog)
+      ? readFileSync(spawnLog, 'utf8').trim().split('\n').filter((line) => {
+          const { cwd: at, args } = JSON.parse(line) as { cwd: string; args: string[] }
+          return at === cwd && args[args.indexOf('--tools') + 1] === ''
+        }).length
+      : 0
+
+    const core = open(dataDir)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    const first = join(dataDir, 'repo-a')
+    const second = join(dataDir, 'repo-b')
+    mkdirSync(first)
+    mkdirSync(second)
+    await core.repos.create({ workspaceId, name: 'a', path: first })
+    await core.repos.create({ workspaceId, name: 'b', path: second })
+
+    // 셔뱅이 없는 .mjs다 — Windows는 런처 없이 띄우지 못한다(driver.ts와 같은 통로).
+    const previousLauncher = process.env['ONE_DESK_AGENT_LAUNCHER']
+    process.env['ONE_DESK_AGENT_LAUNCHER'] = process.execPath
+    try {
+      await withAgentPath(counting, async () => {
+        await core.commands.list({ workspaceId, cwd: first })
+        await core.commands.list({ workspaceId, cwd: second })
+        expect(probeSpawnsIn(realpathSync(second))).toBe(1)
+
+        await core.workspaces.probeAgents(workspaceId, true)
+        await core.commands.list({ workspaceId, cwd: second })
+
+        expect(probeSpawnsIn(realpathSync(second))).toBe(2)
+      })
+    } finally {
+      if (previousLauncher === undefined) delete process.env['ONE_DESK_AGENT_LAUNCHER']
+      else process.env['ONE_DESK_AGENT_LAUNCHER'] = previousLauncher
+      close(core)
+    }
   })
 
   it('checkAgents는 그대로다 — 느린 칸이 빠른 칸을 대신하지 않는다', async () => {

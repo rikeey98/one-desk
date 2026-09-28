@@ -136,6 +136,14 @@ describe('ConversationHeader — 이 대화에 담긴 것 (ConversationPanel에�
     )
   })
 
+  it('@로 담은 파일은 `파일 · 상대 경로`로 보인다 (docs/sdlc/input-triggers/ FR-17)', () => {
+    const { container } = renderHeader(conv(makeRun({ id: 'f1', contextItems: [
+      { type: 'file', id: 'r1:notes/a.txt', label: 'notes/a.txt' }
+    ] })))
+    expect([...appliedRow(container)!.querySelectorAll('.applied-chip')].map((e) => e.textContent))
+      .toEqual(['파일 · notes/a.txt'])
+  })
+
   it('보기 전용이다 — 줄 안에 누를 것이 없다', () => {
     const { container } = renderHeader(applied())
     expect(within(appliedRow(container)!).queryAllByRole('button')).toEqual([])

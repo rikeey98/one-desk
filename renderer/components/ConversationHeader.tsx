@@ -9,7 +9,7 @@ import type { ContextItemType, Repo } from '@shared/models'
 
 /** 담긴 항목의 종류 이름. asset의 skill·agent 구분은 이번 범위 밖이다 (conversation-context spec). */
 const TYPE_LABELS: Record<ContextItemType, string> = {
-  repo: 'repo', issue: '이슈', memo: '메모', asset: 'asset'
+  repo: 'repo', issue: '이슈', memo: '메모', asset: 'asset', file: '파일'
 }
 
 /** 링이 경고 색으로 바뀌는 점유 (spec FR-36) */

@@ -1,5 +1,5 @@
 import type { CommandDescription, CommandPlugin, ProbeResult } from './types'
-import type { CommandInfo, CommandListResult, CommandTarget } from '@shared/models'
+import type { AgentAuth, CommandInfo, CommandListResult, CommandTarget } from '@shared/models'
 
 export type { CommandTarget } from '@shared/models'
 
@@ -10,7 +10,16 @@ export interface CommandServiceDeps {
    */
   probe: (target: CommandTarget) => Promise<ProbeResult>
   describe: (input: { cwd: string; plugins: CommandPlugin[] }) => Promise<Map<string, CommandDescription>>
+  /**
+   * claude의 인증 상태(`auth status`). **실패를 캐시할 때와 그 실패를 다시 내줄 때만** 부른다
+   * (docs/sdlc/command-cache-auth/ FR-2·FR-3). 판정은 `core/agent/auth.ts` 한 곳이다 — 여기서
+   * 다시 구현하지 않는다(NFR-2). 필수인 이유: 빠뜨리면 로그인한 뒤에도 실패가 남는 결함이
+   * 조용히 되살아난다.
+   */
+  checkAuth: (target: CommandTarget) => Promise<AgentAuthState>
 }
+
+export type AgentAuthState = AgentAuth['state']
 
 /** 지도에 없는 이름(내장 커맨드)도 목록에는 남는다 — 설명 없이(FR-3). */
 const UNDESCRIBED: CommandDescription = { description: null, usesArguments: false }
@@ -32,6 +41,12 @@ interface Entry {
   /** init이 해석해 준 모델 이름. 없으면 null */
   model: string | null
   version: string | null
+  /**
+   * 실패를 캐시한 순간 인증이 `ok`였는가. 성공이면 null.
+   * `false`인 실패만 다음 조회에서 인증을 다시 묻는다(FR-3) — 로그인한 채 난 실패는
+   * 지금처럼 새로고침 전까지 남는다(FR-4, slash-commands FR-13).
+   */
+  failedWhileLoggedIn: boolean | null
 }
 
 /** 커맨드 목록을 빼고 남은 것. `agentInfo`가 돌려준다 */
@@ -60,8 +75,32 @@ export function createCommandService(deps: CommandServiceDeps) {
     return {
       list: { commands, error: probed.error },
       model: probed.model,
-      version: probed.version
+      version: probed.version,
+      failedWhileLoggedIn: probed.error ? await isLoggedIn(target) : null
     }
+  }
+
+  /** 던지거나 `unknown`이면 "로그인하지 않았다"로 본다(FR-6) — 목록 조회를 실패시키지 않는다. */
+  async function isLoggedIn(target: CommandTarget): Promise<boolean> {
+    try {
+      return (await deps.checkAuth(target)) === 'ok'
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * `list`·`agentInfo`가 함께 쓰는 입구. 캐시가 **로그인하지 않은 채 난 실패**이면
+   * 인증을 다시 묻고, 이제 로그인돼 있으면 그 실패를 버리고 다시 얻는다(FR-3).
+   */
+  async function entryFor(target: CommandTarget): Promise<Entry> {
+    const cached = cache.get(target.cwd)
+    if (!cached) return fetchOnce(target)
+    if (cached.failedWhileLoggedIn !== false) return cached
+    if (!(await isLoggedIn(target))) return cached
+    // 기다리는 사이 다른 입구가 이미 바꿔 놓았으면 그것을 쓴다.
+    if (cache.get(target.cwd) === cached) cache.delete(target.cwd)
+    return cache.get(target.cwd) ?? fetchOnce(target)
   }
 
   function fetchOnce(target: CommandTarget): Promise<Entry> {
@@ -81,11 +120,12 @@ export function createCommandService(deps: CommandServiceDeps) {
   }
 
   return {
-    /** 캐시에 있으면 CLI를 띄우지 않는다. 없으면 얻어서 담는다. 실패의 재시도도 refresh가 맡는다. */
+    /**
+     * 캐시에 있으면 CLI를 띄우지 않는다. 없으면 얻어서 담는다. 실패의 재시도는 refresh가 맡되,
+     * 로그인하지 않은 채 난 실패는 로그인이 확인되는 순간 버린다(command-cache-auth FR-3).
+     */
     list(target: CommandTarget): Promise<CommandListResult> {
-      const cached = cache.get(target.cwd)
-      if (cached) return Promise.resolve(cached.list)
-      return fetchOnce(target).then((e) => e.list)
+      return entryFor(target).then((e) => e.list)
     },
 
     /**
@@ -95,9 +135,7 @@ export function createCommandService(deps: CommandServiceDeps) {
      * probe가 있으면 설정 화면은 CLI를 띄우지 않는다 — 그 반대도 같다.
      */
     agentInfo(target: CommandTarget): Promise<ProbedAgentInfo> {
-      const cached = cache.get(target.cwd)
-      const entry = cached ? Promise.resolve(cached) : fetchOnce(target)
-      return entry.then((e) => ({ model: e.model, version: e.version, error: e.list.error }))
+      return entryFor(target).then((e) => ({ model: e.model, version: e.version, error: e.list.error }))
     },
 
     /**

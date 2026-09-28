@@ -816,6 +816,16 @@ button.tl-tool:hover, button.tl-file:hover { background: var(--bg-hover); }
 .command-option[aria-selected="true"] { background: var(--accent-bg-strong); }
 .command-option span { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .command-warning { font-size: .75rem; color: var(--warn-text); margin: 6px 0; }
+/* `@` 파일 피커 (docs/sdlc/input-triggers/ FR-2). 경로는 모노(`\`가 `₩`로 보이지 않게). 긴 디렉토리는
+   앞이 아니라 끝이 잘리되 파일명은 늘 보인다 — 파일명 칸은 줄지 않는다. `direction: rtl`은 쓰지 않는다
+   (경로의 `/`·`.` 위치가 뒤집혀 보인다). */
+.file-picker-group { font-size: .6875rem; color: var(--text-muted); margin: 2px 8px 4px; }
+.file-picker-note { font-size: .6875rem; color: var(--text-muted); margin: 0 8px 4px; }
+.file-option { align-items: center; gap: 8px; }
+.file-option-icon { flex: none; color: var(--text-muted); }
+.command-option .file-option-path { display: flex; min-width: 0; color: var(--text); font-family: var(--font-mono); font-size: .75rem; }
+.command-option .file-option-dir { min-width: 0; color: var(--text-muted); }
+.command-option .file-option-name { flex: none; color: var(--text); }
 /* 설정 화면의 탭. 도크에는 이제 탭이 없으므로(세로 목록이 됐다) 앱 안에서 "탭"은
    여기 하나뿐이다. */
 /* 설정 화면. 가운데 한 열(최대 760px)에 탭은 분절 컨트롤, 탭 내용은 흰 카드다. */

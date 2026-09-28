@@ -133,6 +133,21 @@ describe('RunRepository', () => {
       .toEqual([{ type: 'issue', id: issueId, label: '버그' }])
   })
 
+  it('file 맥락은 repo 상대 경로가 이름이고, 그 repo를 지우면 빠진다 (docs/sdlc/input-triggers/ FR-15·FR-16)', () => {
+    const repoId = createRepoRepository(db).create({ workspaceId, name: 'web', path: '/tmp/web' }).id
+    const created = runs.create({ ...baseInput(), context: [
+      { type: 'issue', id: issueId }, { type: 'file', id: `${repoId}:notes/a:b.txt` }
+    ] })
+    // 경로에 `:`가 있어도 첫 `:`로만 가른다 — repo id(UUID)에는 `:`가 없다.
+    expect(runs.get(created.id).contextItems).toEqual([
+      { type: 'issue', id: issueId, label: '버그' },
+      { type: 'file', id: `${repoId}:notes/a:b.txt`, label: 'notes/a:b.txt' }
+    ])
+
+    createRepoRepository(db).remove(repoId)
+    expect(runs.get(created.id).contextItems).toEqual([{ type: 'issue', id: issueId, label: '버그' }])
+  })
+
   it('앱 재시작 시 running은 interrupted로, pending은 canceled로 정리한다', () => {
     const a = runs.create(baseInput())
     runs.markStarted(a.id)

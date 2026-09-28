@@ -64,7 +64,9 @@ export function ConversationPanel({
       const next = await client.runs.resume({
         conversationId: conversation.id,
         userPrompt: run.userPrompt,
-        context: run.contextItems.map(({ type, id }) => ({ type, id })),
+        // 파일은 빼고 보낸다 — 원문 지시문의 `@`가 다시 가져오고, 요청으로 오면 core가 거부한다
+        // (docs/sdlc/input-triggers/ FR-9·FR-18).
+        context: run.contextItems.filter((item) => item.type !== 'file').map(({ type, id }) => ({ type, id })),
         model: run.model,
         effort: run.effort,
         permission: run.permission

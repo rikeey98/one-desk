@@ -37,8 +37,10 @@ function makeClient(opts: {
   start?: ReturnType<typeof vi.fn>
   resume?: ReturnType<typeof vi.fn>
   commands?: OneDeskClient['commands']
+  files?: OneDeskClient['files']
 } = {}): OneDeskClient {
   return {
+    files: opts.files ?? { search: vi.fn().mockResolvedValue({ ok: true, files: [], truncated: false }) },
     // workspaces도 repos와 같은 이유로 이제 App이 useWorkspaces()로 조회해 prop으로
     // 내려준다(App.tsx의 주석 참고) — RunPanel은 더 이상 client.workspaces.list를
     // 직접 부르지 않는다. 그래서 여기 list()는 항상 빈 배열이고, 실제 workspace는
@@ -1269,5 +1271,240 @@ describe('RunPanel — 입력 카드', () => {
       renderPanel(makeClient(), repos, [], vi.fn(), { inputRef })
       expect(inputRef.current).toBe(screen.getByRole('textbox', { name: '지시' }))
     })
+  })
+})
+
+describe('RunPanel — ↑로 이전 지시 불러오기 (docs/sdlc/prompt-history/)', () => {
+  /** 오래된 것부터 준 지시로 이어 가는 대화를 만든다(runs.list처럼 최신순으로 넘긴다). */
+  function historyConversation(prompts: string[]): Conversation {
+    const runs = prompts.map((userPrompt, i) => makeRun({
+      id: `h${i}`, rootRunId: 'h0', parentRunId: i === 0 ? null : `h${i - 1}`,
+      createdAt: (i + 1) * 10, userPrompt
+    }))
+    return groupConversations(runs.reverse())[0]!
+  }
+
+  it('빈 입력칸에서 ↑는 이 대화의 지시를 최근 것부터 불러오고, ↓로 빈 칸까지 돌아온다', async () => {
+    renderPanel(makeClient(), repos, [], vi.fn(), { conversation: historyConversation(['첫 지시', '둘째 지시']) })
+    const box = screen.getByRole('textbox', { name: '지시' })
+    await userEvent.click(box)
+
+    await userEvent.keyboard('{ArrowUp}')
+    expect(box).toHaveValue('둘째 지시')
+    await userEvent.keyboard('{ArrowUp}')
+    expect(box).toHaveValue('첫 지시')
+    await userEvent.keyboard('{ArrowDown}')
+    expect(box).toHaveValue('둘째 지시')
+    await userEvent.keyboard('{ArrowDown}')
+    expect(box).toHaveValue('')
+  })
+
+  it('불러온 글의 끝에 캐럿을 둔다', async () => {
+    renderPanel(makeClient(), repos, [], vi.fn(), { conversation: historyConversation(['첫 지시']) })
+    const box = screen.getByRole('textbox', { name: '지시' }) as HTMLTextAreaElement
+    await userEvent.click(box)
+
+    await userEvent.keyboard('{ArrowUp}')
+
+    expect(box.selectionStart).toBe('첫 지시'.length)
+  })
+
+  it('쓰던 글이 있으면 ↑가 입력칸을 바꾸지 않는다', async () => {
+    renderPanel(makeClient(), repos, [], vi.fn(), { conversation: historyConversation(['첫 지시']) })
+    const box = screen.getByRole('textbox', { name: '지시' })
+
+    await userEvent.type(box, '쓰던 글')
+    await userEvent.keyboard('{ArrowUp}')
+
+    expect(box).toHaveValue('쓰던 글')
+  })
+
+  it('불러온 글을 고치면 그 뒤의 ↑는 history가 아니다', async () => {
+    renderPanel(makeClient(), repos, [], vi.fn(), { conversation: historyConversation(['첫 지시', '둘째 지시']) })
+    const box = screen.getByRole('textbox', { name: '지시' })
+    await userEvent.click(box)
+
+    await userEvent.keyboard('{ArrowUp}')
+    await userEvent.type(box, '!')
+    await userEvent.keyboard('{ArrowUp}')
+
+    expect(box).toHaveValue('둘째 지시!')
+  })
+
+  it('불러온 글을 다 지우면 빈 입력칸이라 ↑가 다시 가장 최근 지시부터다', async () => {
+    renderPanel(makeClient(), repos, [], vi.fn(), { conversation: historyConversation(['첫 지시', '둘째 지시']) })
+    const box = screen.getByRole('textbox', { name: '지시' })
+    await userEvent.click(box)
+
+    await userEvent.keyboard('{ArrowUp}{ArrowUp}')
+    await userEvent.clear(box)
+    await userEvent.keyboard('{ArrowUp}')
+
+    expect(box).toHaveValue('둘째 지시')
+  })
+
+  it('수식키와 함께 누른 ↑는 history가 아니다', async () => {
+    renderPanel(makeClient(), repos, [], vi.fn(), { conversation: historyConversation(['첫 지시']) })
+    const box = screen.getByRole('textbox', { name: '지시' })
+    await userEvent.click(box)
+
+    await userEvent.keyboard('{Shift>}{ArrowUp}{/Shift}')
+
+    expect(box).toHaveValue('')
+  })
+
+  it('새 대화 칸에는 history가 없다', async () => {
+    renderPanel(makeClient())
+    const box = screen.getByRole('textbox', { name: '지시' })
+    await userEvent.click(box)
+
+    await userEvent.keyboard('{ArrowUp}')
+
+    expect(box).toHaveValue('')
+  })
+
+  it('/로 시작하는 지시를 불러와도 피커가 열리지 않고 다음 ↑가 더 오래된 지시로 간다', async () => {
+    const commands = {
+      list: vi.fn().mockResolvedValue({ commands: [{ name: 'review', description: null, usesArguments: false }], error: null }),
+      refresh: vi.fn()
+    }
+    renderPanel(makeClient({ commands }), repos, [], vi.fn(),
+      { conversation: historyConversation(['첫 지시', '/review'] ) })
+    const box = screen.getByRole('textbox', { name: '지시' })
+    await userEvent.click(box)
+
+    await userEvent.keyboard('{ArrowUp}')
+    expect(box).toHaveValue('/review')
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    await userEvent.keyboard('{ArrowUp}')
+    expect(box).toHaveValue('첫 지시')
+  })
+
+  it('피커가 열려 있으면 ↑는 피커가 갖고 입력칸은 그대로다', async () => {
+    const commands = {
+      list: vi.fn().mockResolvedValue({ commands: [
+        { name: 'alpha', description: null, usesArguments: false },
+        { name: 'beta', description: null, usesArguments: false }
+      ], error: null }),
+      refresh: vi.fn()
+    }
+    renderPanel(makeClient({ commands }), repos, [], vi.fn(), { conversation: historyConversation(['첫 지시']) })
+    const box = screen.getByRole('textbox', { name: '지시' })
+
+    await userEvent.type(box, '/')
+    await screen.findByRole('option', { name: '/alpha' })
+    await userEvent.keyboard('{ArrowUp}')
+
+    expect(box).toHaveValue('/')
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+  })
+
+  it('보내면 입력칸이 비고 다시 ↑하면 가장 최근 지시부터다', async () => {
+    const client = makeClient()
+    renderPanel(client, repos, [], vi.fn(), { conversation: historyConversation(['첫 지시', '둘째 지시']) })
+    const box = screen.getByRole('textbox', { name: '지시' })
+    await userEvent.click(box)
+
+    await userEvent.keyboard('{ArrowUp}{ArrowUp}')
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
+    await waitFor(() => expect(box).toHaveValue(''))
+    await userEvent.click(box)
+    await userEvent.keyboard('{ArrowUp}')
+
+    expect(client.runs.resume).toHaveBeenCalledWith(expect.objectContaining({ userPrompt: '첫 지시' }))
+    expect(box).toHaveValue('둘째 지시')
+  })
+})
+
+describe('RunPanel — @ 파일 참조 (docs/sdlc/input-triggers/)', () => {
+  const twoRepos: Repo[] = [
+    ...repos,
+    { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 1, createdAt: 0 }
+  ]
+  /** 작업 디렉토리가 둘째 repo인 opencode 대화 — 첫 repo로 떨어지면 잡히게 */
+  function webConversation(prompts: string[] = ['첫 지시']): Conversation {
+    const runs = prompts.map((userPrompt, i) => makeRun({
+      id: `w${i}`, rootRunId: 'w0', parentRunId: i === 0 ? null : `w${i - 1}`, createdAt: (i + 1) * 10,
+      userPrompt, agentKind: 'opencode', cwd: '/tmp/web'
+    }))
+    return groupConversations(runs.reverse())[0]!
+  }
+  const filesApi = () => ({
+    search: vi.fn().mockResolvedValue({
+      ok: true, files: [{ path: 'notes/a.txt' }, { path: 'notes/b.txt' }], truncated: false
+    })
+  })
+
+  it('@를 치면 작업 디렉토리 repo의 id로 검색하고 `파일 참조` 목록을 보인다 — opencode여도', async () => {
+    const files = filesApi()
+    renderPanel(makeClient({ files }), twoRepos, [], vi.fn(), { conversation: webConversation() })
+
+    await userEvent.type(screen.getByRole('textbox', { name: '지시' }), '봐 @no')
+
+    expect(await screen.findByRole('option', { name: 'notes/a.txt' })).toBeInTheDocument()
+    expect(screen.getByRole('listbox', { name: '파일 참조' })).toBeInTheDocument()
+    expect(files.search).toHaveBeenLastCalledWith({ workspaceId: 'w1', repoId: 'r2', query: 'no' })
+  })
+
+  it('Enter·Tab은 `@경로 `를 넣고 실행하지 않는다', async () => {
+    const client = makeClient({ files: filesApi() })
+    renderPanel(client, twoRepos, [], vi.fn(), { conversation: webConversation() })
+    const box = screen.getByRole('textbox', { name: '지시' })
+
+    await userEvent.type(box, '@no')
+    await screen.findByRole('option', { name: 'notes/a.txt' })
+    await userEvent.keyboard('{Enter}')
+    expect(box).toHaveValue('@notes/a.txt ')
+    expect(screen.queryByRole('listbox', { name: '파일 참조' })).toBeNull()
+
+    await userEvent.type(box, '@no')
+    await screen.findByRole('option', { name: 'notes/b.txt' })
+    await userEvent.keyboard('{ArrowDown}{Tab}')
+    expect(box).toHaveValue('@notes/a.txt @notes/b.txt ')
+    expect(client.runs.resume).not.toHaveBeenCalled()
+  })
+
+  it('피커가 열린 동안 ↑는 선택을 옮기고 history를 넘기지 않는다', async () => {
+    renderPanel(makeClient({ files: filesApi() }), twoRepos, [], vi.fn(), { conversation: webConversation(['예전 지시']) })
+    const box = screen.getByRole('textbox', { name: '지시' })
+
+    await userEvent.type(box, '@')
+    await screen.findByRole('option', { name: 'notes/a.txt' })
+    await userEvent.keyboard('{ArrowUp}')
+
+    expect(box).toHaveValue('@')
+    expect(screen.getByRole('option', { name: 'notes/b.txt' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('Esc로 닫고, 다시 치면 열린다', async () => {
+    renderPanel(makeClient({ files: filesApi() }), twoRepos, [], vi.fn(), { conversation: webConversation() })
+    const box = screen.getByRole('textbox', { name: '지시' })
+
+    await userEvent.type(box, '@n')
+    await screen.findByRole('listbox', { name: '파일 참조' })
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('listbox', { name: '파일 참조' })).toBeNull()
+    await userEvent.type(box, 'o')
+    expect(await screen.findByRole('listbox', { name: '파일 참조' })).toBeInTheDocument()
+  })
+
+  it('작업 디렉토리가 등록된 repo가 아니면 이유를 보이고 검색하지 않는다', async () => {
+    const files = filesApi()
+    const elsewhere = groupConversations([makeRun({ id: 'x0', cwd: '/tmp/gone' })])[0]!
+    renderPanel(makeClient({ files }), twoRepos, [], vi.fn(), { conversation: elsewhere })
+
+    await userEvent.type(screen.getByRole('textbox', { name: '지시' }), '@a')
+
+    expect(await screen.findByText('작업 디렉토리가 등록된 repo가 아닙니다')).toHaveAttribute('role', 'alert')
+    expect(files.search).not.toHaveBeenCalled()
+  })
+
+  it('글자에 붙은 @(이메일)에서는 열리지 않는다', async () => {
+    const files = filesApi()
+    renderPanel(makeClient({ files }), twoRepos, [], vi.fn(), { conversation: webConversation() })
+
+    await userEvent.type(screen.getByRole('textbox', { name: '지시' }), 'a@b')
+
+    expect(screen.queryByRole('listbox', { name: '파일 참조' })).toBeNull()
   })
 })

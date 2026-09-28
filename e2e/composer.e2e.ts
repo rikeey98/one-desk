@@ -187,4 +187,30 @@ describe('입력부와 도크', () => {
     await expect.poll(() => page.locator('.dock-conv').count(), { timeout: 10_000 }).toBe(0)
     await header.locator('.conv-title', { hasText: '새 대화' }).waitFor({ state: 'visible', timeout: 10_000 })
   })
+
+  it('빈 입력칸의 ↑는 이 대화에서 보낸 지시를 불러오고 ↓로 빈 칸에 돌아온다 (docs/sdlc/prompt-history/)', async () => {
+    const app = await launchApp()
+    const page = await prepare(app, 'hist-ws')
+    const prompt = page.getByRole('textbox', { name: '지시' })
+
+    await send(page, '첫 지시')
+    await waitConvStatus(page, '첫 지시', 'succeeded', 20_000)
+    await send(page, '둘째 지시')
+    await waitConvStatus(page, '첫 지시', 'succeeded', 20_000)
+
+    await prompt.click()
+    await prompt.press('ArrowUp')
+    await expect.poll(() => prompt.inputValue(), { timeout: 5_000 }).toBe('둘째 지시')
+    await prompt.press('ArrowUp')
+    await expect.poll(() => prompt.inputValue(), { timeout: 5_000 }).toBe('첫 지시')
+    await prompt.press('ArrowDown')
+    await prompt.press('ArrowDown')
+    await expect.poll(() => prompt.inputValue(), { timeout: 5_000 }).toBe('')
+
+    // 새 대화 칸에는 history가 없다 — 범위는 이 대화뿐이다.
+    await page.getByRole('button', { name: '새 대화', exact: true }).click()
+    await prompt.click()
+    await prompt.press('ArrowUp')
+    expect(await prompt.inputValue()).toBe('')
+  })
 })

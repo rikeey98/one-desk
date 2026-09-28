@@ -4,6 +4,7 @@ import type { Database } from './db/open'
 import { issue, memo, repo, asset } from './db/schema'
 import { assemblePrompt, type AssetForPrompt } from './context/assemble'
 import { readAssetBody } from './assets/body'
+import type { FileService, ResolvedMentions } from './files/service'
 import type { FinishRunInput, RunRepository } from './db/repositories/run'
 import type { RunManager } from './runner/manager'
 import type { RunQueue } from './runner/queue'
@@ -36,6 +37,11 @@ export interface ExecutionOptions {
   onRunUpdate?: (run: Run) => void
   /** 테스트에서 가짜 CLI를 주입하는 통로 */
   extraArgs?: string[]
+  /**
+   * 지시문의 `@경로` 해석 (docs/sdlc/input-triggers/ §5-3). 없으면 아무것도 해석하지 않는다 —
+   * 멘션은 전부 중화되어 CLI에 간다(펼치지 못한다).
+   */
+  files?: Pick<FileService, 'resolveMentions'>
 }
 
 export function createExecutionService(opts: ExecutionOptions) {
@@ -309,13 +315,33 @@ export function createExecutionService(opts: ExecutionOptions) {
     timeoutMs: number | null
   }
 
+  /**
+   * 작업 디렉토리의 repo에서 멘션을 해석한다. 작업 디렉토리가 등록된 repo가 아니면 해석하지
+   * 않는다 — 멘션은 전부 중화된다(spec §5-3의 3).
+   */
+  async function resolveFileMentions(spec: LaunchSpec): Promise<ResolvedMentions> {
+    if (!opts.files) return { files: [], resolvedStarts: [] }
+    const cwdRepo = opts.db.select().from(repo)
+      .where(and(eq(repo.workspaceId, spec.workspaceId), eq(repo.path, spec.cwd))).get() ?? null
+    return opts.files.resolveMentions(cwdRepo, spec.userPrompt)
+  }
+
   async function launch(spec: LaunchSpec): Promise<Run> {
     const { repos, issues, memos, assets } = collectContext(opts.db, spec)
     const { resolved, missing } = await resolveAssets(assets)
+    // 지시문의 `@경로` (spec §5-3). 읽기·상한에 걸리면 여기서 던진다 — run 행을 만들기 전이다.
+    const mentions = await resolveFileMentions(spec)
 
     const assembled = assemblePrompt({
-      repos, issues, memos, assets: resolved, userPrompt: spec.userPrompt
+      repos, issues, memos, assets: resolved, userPrompt: spec.userPrompt,
+      files: mentions.files.map((f) => ({ repoName: f.repoName, path: f.path, content: f.content })),
+      resolvedMentions: mentions.resolvedStarts
     })
+    // 기록은 멘션마다 한 행이다 (FR-15). 요청의 맥락에는 file이 올 수 없다(collectContext가 막는다).
+    const context: ContextItemRef[] = [
+      ...spec.context,
+      ...mentions.files.map((f) => ({ type: 'file' as const, id: `${f.repoId}:${f.path}` }))
+    ]
 
     // 로그 경로가 run id를 포함하므로 id를 먼저 정한다.
     // 경로 계산은 manager가 단일 출처다 — 여기서 따로 조립하면 어긋난다.
@@ -333,7 +359,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       userPrompt: spec.userPrompt,
       assembledPrompt: assembled,
       logPath,
-      context: spec.context,
+      context,
       ...(spec.parentRunId ? { parentRunId: spec.parentRunId } : {}),
       timeoutMs: spec.timeoutMs
     })
@@ -608,6 +634,11 @@ export function createExecutionService(opts: ExecutionOptions) {
 
 /** 맥락 항목이 이 workspace 소속인지 확인하며 실제 데이터를 모은다. */
 function collectContext(db: Database, input: { workspaceId: string; context: ContextItemRef[] }) {
+  // 파일은 지시문의 `@`에서만 온다 (docs/sdlc/input-triggers/ FR-9). 요청으로도 받으면 두 통로가
+  // 생겨 글자와 담긴 것이 어긋난다 — "다시 보내기"가 file 항목을 거르는 이유다.
+  if (input.context.some((c) => c.type === 'file')) {
+    throw new Error('파일은 지시문의 @로만 담을 수 있습니다')
+  }
   const ids = (type: string) =>
     input.context.filter((c) => c.type === type).map((c) => c.id)
 

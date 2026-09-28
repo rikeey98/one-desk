@@ -6,6 +6,7 @@ import { registerIssueHandlers } from './issues'
 import { registerMemoHandlers } from './memos'
 import { registerAssetHandlers } from './assets'
 import { registerCommandHandlers } from './commands'
+import { registerFileHandlers } from './files'
 import { registerSettingHandlers } from './settings'
 import { registerRunHandlers } from './runs'
 import { registerAppHandlers } from './app'
@@ -24,6 +25,7 @@ export function registerIpc(core: Core, getWindow: GetWindow) {
   registerMemoHandlers(core)
   registerAssetHandlers(core)
   registerCommandHandlers(core)
+  registerFileHandlers(core)
   registerSettingHandlers(core)
   registerRunHandlers(core, getWindow)
   registerAppHandlers(core)

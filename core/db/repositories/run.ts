@@ -129,7 +129,7 @@ export function createRunRepository(db: Database) {
    *
    * 종류당 한 번만 부른다(`inArray`) — run마다 부르면 N+1이 된다.
    */
-  function livingNames(type: ContextItemType, ids: string[]): Map<string, string> {
+  function livingNames(type: Exclude<ContextItemType, 'file'>, ids: string[]): Map<string, string> {
     if (ids.length === 0) return new Map()
     // 이름 컬럼은 종류마다 다르다 — repo·asset은 name, issue·memo는 title.
     const rows = type === 'repo'
@@ -146,6 +146,21 @@ export function createRunRepository(db: Database) {
     return new Map(rows.map((r) => [r.id, r.name]))
   }
 
+  /**
+   * 파일 맥락의 이름 (docs/sdlc/input-triggers/ FR-16). id는 `<repoId>:<repo 상대 경로>`이고 repo id(UUID)에는
+   * `:`가 없어 첫 `:`로 가른다. **repo가 살아 있으면 상대 경로가 이름**이고, 지워졌으면 다른 종류처럼
+   * 뺀다. 파일이 디스크에서 사라졌는지는 보지 않는다 — 기록은 "그때 무엇을 실었나"다.
+   */
+  function livingFileNames(ids: string[]): Map<string, string> {
+    if (ids.length === 0) return new Map()
+    const split = ids.map((id) => {
+      const at = id.indexOf(':')
+      return { id, repoId: at < 0 ? id : id.slice(0, at), path: at < 0 ? '' : id.slice(at + 1) }
+    })
+    const living = livingNames('repo', [...new Set(split.map((s) => s.repoId))])
+    return new Map(split.filter((s) => s.path && living.has(s.repoId)).map((s) => [s.id, s.path]))
+  }
+
   function loadContext(runIds: string[]): Map<string, ContextItemView[]> {
     const map = new Map<string, ContextItemView[]>()
     if (runIds.length === 0) return map
@@ -158,7 +173,8 @@ export function createRunRepository(db: Database) {
       repo: livingNames('repo', idsOf('repo')),
       issue: livingNames('issue', idsOf('issue')),
       memo: livingNames('memo', idsOf('memo')),
-      asset: livingNames('asset', idsOf('asset'))
+      asset: livingNames('asset', idsOf('asset')),
+      file: livingFileNames(idsOf('file'))
     }
 
     for (const row of rows) {

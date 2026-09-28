@@ -298,7 +298,11 @@ export interface ListQuery {
 export type RunStatus =
   | 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'interrupted'
 
-export type ContextItemType = 'repo' | 'issue' | 'memo' | 'asset'
+/**
+ * `file`은 지시문의 `@경로`에서만 생긴다 — 요청(`ContextItemRef`)으로 오면 core가 거부한다
+ * (docs/sdlc/input-triggers/ FR-9). 그 id는 `<repoId>:<repo 상대 경로>`다(FR-15).
+ */
+export type ContextItemType = 'repo' | 'issue' | 'memo' | 'asset' | 'file'
 
 export interface ContextItemRef {
   type: ContextItemType
@@ -430,6 +434,26 @@ export type AssetBody =
   | { ok: true; content: string }
   | { ok: false; reason: string }
 export type AssetSource = 'discovered' | 'authored'
+
+/** `@` 피커의 한 줄. repo 상대 경로이고 구분자는 늘 `/`다 (docs/sdlc/input-triggers/ §5-1) */
+export interface FileHit {
+  path: string
+}
+
+/**
+ * 파일 검색 결과. 못 찾는 **이유**(git 저장소가 아님 등)는 던지지 않고 `ok: false`로 온다 —
+ * preload가 IPC 오류의 클래스를 벗기므로(`AssetBody`와 같다).
+ */
+export type FileSearchResult =
+  | { ok: true; files: FileHit[]; truncated: boolean }
+  | { ok: false; reason: string }
+
+/** 렌더러는 경로를 넘기지 않는다 — repo id와 질의뿐이다 */
+export interface FileSearchInput {
+  workspaceId: string
+  repoId: string
+  query: string
+}
 
 export interface Asset {
   id: string

@@ -11,7 +11,7 @@ import type {
   McpStatus, ResumeRunInput,
   Asset, CreateAuthoredAssetInput, GuardedUpdateAssetInput, AssetUpdateResult, ListAssetQuery,
   GlobalRoots, CommandTarget, CommandListResult,
-  UpdateRepoInput, AppInfo, RevealTarget, AssetBody
+  UpdateRepoInput, AppInfo, RevealTarget, AssetBody, FileSearchInput, FileSearchResult
 } from './models'
 import type { RunEvent } from './events'
 
@@ -115,6 +115,13 @@ export interface OneDeskClient {
      * **id로만 요청한다** — 경로를 넘기는 통로는 없다 (docs/sdlc/repo-instructions/ FR-3).
      */
     readBody(id: string): Promise<AssetBody>
+  }
+  files: {
+    /**
+     * `@` 피커의 검색 (docs/sdlc/input-triggers/ §5-1). **경로를 넘기지 않는다** — repo id로만
+     * 받고, core가 그 repo의 git 목록에서 찾는다.
+     */
+    search(input: FileSearchInput): Promise<FileSearchResult>
   }
   commands: {
     list(target: CommandTarget): Promise<CommandListResult>

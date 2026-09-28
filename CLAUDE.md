@@ -107,11 +107,19 @@ effort는 claude만 다섯 단계 드롭다운이고 opencode의 `--variant`는 
 
 **슬래시 커맨드가 붙었다** (`docs/sdlc/slash-commands/`). Claude Code 실행 입력에서 `/`로
 커맨드를 검색하고 ↑↓·Enter/Tab으로 삽입한다. 목록은 cwd마다 한 번 얻어 core에 캐시하며,
-실패 결과도 수동 새로고침 전까지 유지한다. probe는 init 직후 SIGKILL로 종료한다 — 일반 실행의
+실패 결과도 수동 새로고침 전까지 유지하되, **로그인하지 않은 채 난 실패는 로그인이 확인되는 순간 버린다**(`docs/sdlc/command-cache-auth/` — 실패할 때 인증 상태를 적어 두고 그 실패를 다시 내줄 때만 `auth status`를 묻는다. 설정의 `다시 확인`은 workspace의 모든 repo cwd를 비운다). probe는 init 직후 SIGKILL로 종료한다 — 일반 실행의
 SIGTERM 유예를 쓰면 모델 호출까지 진행할 수 있다. OpenCode에서는 피커와 조회를 비활성화한다.
 슬래시 프롬프트는 커맨드를 맨 앞에 두고 맥락·답변 필요 안내를 뒤에 붙인다. 마이그레이션 없음.
 `e2e/slash.e2e.ts`가 IPC부터 실제 CLI stdin까지, 선택 실행하는 `e2e/slash-real.e2e.ts`가
 실제 Claude의 첫 턴·resume 커맨드 확장을 검증한다.
+
+**`@`로 작업 디렉토리의 파일을 짚는다** (`docs/sdlc/input-triggers/`). 마이그레이션 없음 —
+`run_context_item.item_type`에 CHECK가 없어 `'file'`만 타입에 더했다. 입력칸에서 `@`를 치면(두 agent 모두)
+작업 디렉토리 repo의 `git ls-files -co --exclude-standard` 목록에서 퍼지로 고르고, 고르면 `@경로 ` 글자가 들어간다.
+**지시문의 멘션이 곧 맥락이다** — 파일 칩은 없고, 보낼 때 core가 원문을 다시 해석해 파일을 읽어 `<files>`에
+싣고(`file` 맥락 id는 `<repoId>:<상대 경로>`), 대화 헤더에 `파일 · 경로`로 보인다. 읽기 거부(repo 밖·바이너리·
+UTF-8 아님·256 KiB/턴 512 KiB/20개 초과)는 run 행을 만들기 전에 전송을 막는다. **맥락 본문의 `@`가 이제
+`&#64;`로 조립된다** — 이 기능 이전부터 있던 구멍을 같이 막았다(아래 함정 절).
 
 **대화에 수명 주기와 정체성이 생겼다** (`docs/sdlc/conversation-lifecycle/`). **첫 실행에
 마이그레이션 `0008`이 돈다** — `run.title`·`run.closed_at` 두 컬럼 추가(백필 없음). 증상은
@@ -433,6 +441,27 @@ succeeded가 exit 1을 이겼다** — 중간 답을 내고 죽은 run이 성공
 
 **사내 프록시가 잡힌 환경에서는 루프백을 예외로 못박아야 한다.** MCP 서버는 항상 `127.0.0.1`인데 `NO_PROXY`에 루프백이 빠져 있으면 agent의 MCP 요청이 프록시로 나가 30초 뒤 타임아웃으로 죽는다. **같은 포트에 `curl`은 401을 받는데 agent만 못 붙는 증상**으로 나타난다 — 그게 이 원인을 가리키는 신호다. `claudeCode.ts`의 `withLoopbackBypass`가 기존 값을 보존하며 `127.0.0.1`·`localhost`·`::1`을 더한다. NO_PROXY는 목적지만 정하므로 원격 호출에는 영향이 없다.
 
+**claude는 프롬프트의 `@경로`를 도구 권한 밖에서 펼친다 — 조립기의 중화를 지우지 말 것** (`docs/sdlc/input-triggers/`
+spec §6 실측, claude 2.1.283). `--tools ""`로 도구를 하나도 주지 않아도, `@`가 줄머리이거나 공백류(탭 포함) 바로
+뒤면 그 파일을 읽어 첨부로 넣고, `@../x`·절대 경로로 **repo 밖**까지 읽는다. `<context>` 태그 안이든 `&lt;` 뒤든
+마찬가지다. `x@…`·`(@…`·`"@…`는 펼치지 않고, `＠`(U+FF20)·`&#64;`도 펼치지 않는다. 그래서 두 겹이다: 지시문은
+`shared/mentions.ts`의 `rewriteMentions`가 해석된 멘션의 `@`만 떼고 나머지 멘션의 `@`를 `＠`로 바꾸고, 맥락
+본문은 `assemble.ts`의 `esc`가 모든 `@`를 `&#64;`로 바꾼다. **멘션의 경계(`(^|\s)@`)를 좁히면 중화에 구멍이
+난다** — 그 경계가 claude가 펼치는 조건 그대로다. `ONE_DESK_REAL_CLI=1 pnpm test realCli`의 `core/files/realCli.test.ts`가
+진짜 claude로 이것을 본다(중화를 끄면 repo 안팎의 비밀 문장을 둘 다 답한다 — 실측). opencode `run`은 `@`를 펼치지 않는다.
+
+**`@` 피커와 보낼 때의 해석은 같은 목록 함수를 쓴다** (`core/files/list.ts`의 `listRepoFiles`). 따로 두면 피커에
+없는 `.env`가 손으로 치면 실린다. 해석은 캐시가 아니라 **새 목록**이다(피커를 연 뒤 만든 파일도 잡는다). 파일
+읽기는 `core/files/read.ts` 하나이고, repo 밖 판정은 **양쪽 realpath**다 — 정규화한 문자열만 보면 루트 안의
+junction/심링크가 밖을 가리키는 것을 못 막는다. `..` 검사 테스트는 **없는 이름**으로 해야 한다 — 임시 폴더에 우연히
+있는 이름이면 realpath 검사가 대신 막아 `..` 검사를 지워도 초록이었다(실측). `file` 맥락이 요청(`ContextItemRef`)으로
+오면 core가 거부한다 — "다시 보내기"가 `file` 항목을 걸러 보내는 이유다. git이 아닌 repo에서는 `@`가 아무것도
+싣지 않는다(폴백으로 디렉토리를 훑지 않는다 — `.gitignore`를 못 따른다).
+
+**에이전트의 Bash 도구로 소스를 쓸 때 역슬래시 두 개가 하나로 접힌다** — heredoc·python 인라인으로 쓴 TS에서
+`'C:\\Windows'`가 `'C:\Windows'`가 되어 `\W`가 이스케이프로 먹혔다(input-triggers 구현 중 실측). 역슬래시가 든
+소스는 Write/Edit 도구로 쓴다.
+
 **`execFileSync`는 이벤트 루프를 막는다 — 같은 프로세스의 서버를 죽인다.** MCP 서버가 붙어 있는 테스트에서 CLI를 동기로 띄우면 서버가 연결을 하나도 받지 못해 클라이언트가 30초 타임아웃으로 죽는다. **제품이 멀쩡한데 `status: failed`가 나온다.** 실제로 이 함정에 빠져 존재하지 않는 결함을 한참 쫓았다 — `core/mcp/realCli.test.ts`가 비동기 `spawn`을 쓰는 이유다.
 
 **픽스처에 서버 이름을 리터럴로 박지 않는다.** `fake-claude-mcp.mjs`가 `.mcpServers.onedesk`를 하드코딩하고 있어서 `MCP_SERVER_NAME`을 바꾸자 `cfg`가 `undefined`가 되고 e2e가 통째로 깨졌다. **단위 테스트 412개는 전부 초록이었다.** 지금은 `Object.values(...)[0]`로 유일한 값을 집는다.
@@ -523,6 +552,8 @@ hover하고 바로 누르면 가끔 깨진다 — 눌리지 않은 click이 스�
 **main도 막는다 — 렌더러 한 겹에 기대지 않는다** (`electron/main.ts`, spec FR-24). 앱 창이 원격 문서로 넘어가면 preload가 그 문서에도 붙는다. 새 창 요청(`setWindowOpenHandler`)은 `externalLinkOf`를 통과한 것만 `shell.openExternal`하고 창은 어느 쪽이든 만들지 않는다. 창 안 탐색(`will-navigate`)은 `isAppNavigation(target, appUrl)`이 통과시킨 것만이다 — 개발 서버면 같은 origin(Vite의 전체 새로고침), `file:`이면 **같은 문서**. `file:`의 origin은 전부 불투명한 `"null"`이라 origin을 비교하면 디스크의 아무 파일로나 넘어간다(`links.test`의 "file: 앱에서 다른 file: 문서는 막는다"). **다운로드도 막는다**(`session.defaultSession`의 `will-download`) — Chromium은 Windows·Linux에서 Alt+클릭한 링크를 새 창도 탐색도 아닌 다운로드로 처리해 위 두 가드를 비켜 간다(`nav-guard.e2e`의 "Alt+클릭한 링크는 내려받지 않는다"). 판정을 `shared/links.ts`에 두는 이유는 `core/app/reveal.ts`와 같다 — main에는 단위 테스트가 없고, 렌더러와 main이 같은 함수를 써야 한다. 실제 창 동작은 `e2e/nav-guard.e2e.ts`가 렌더러의 거름을 거치지 않고 `window.open`·`location`을 직접 불러 본다.
 
 **답의 마크다운은 파싱 전에 예산을 잰다 — 파서가 던지면 앱 창 전체가 빈다** (`renderer/markdownBudget.ts`, spec FR-20 다듬음). `- ` 1,000번(2KB)이나 `>` 3,000번이면 mdast → hast 재귀가 스택을 넘기고, 렌더 중에 던진 오류를 받을 경계가 없으면 React 19가 루트를 통째로 내린다 — 답은 DB에 남으므로 그 대화를 열 때마다 빈 화면이다. 시간도 흔한 모양에서 제곱으로 는다(여는 기호 없는 `a_ ` × 33,000 = 15초). 그래서 `fitsMarkdownBudget`이 선형으로 재 넘으면 평문(`.md-plain`)이고, 그것을 빠져나간 오류는 `Markdown`의 오류 경계가 그 답만 평문으로 떨어뜨린다. **예산은 코드 울타리를 쫓지 않는다** — 울타리 판정이 파서와 한 번이라도 어긋나면(HTML 블록 안의 ```, 목록 항목과 같이 닫히는 울타리) 그 뒤를 세지 않아 판정 전체가 뚫린다. 대가로 빈 줄 없이 수백 줄 이어지는 코드와 서식 있는 수백 행의 표는 평문으로 떨어진다(spec §8의 6). `markdownBudget.test`·`Markdown.test`의 "무너뜨리는 입력"·`Markdown.boundary.test`가 고정한다.
+
+**입력칸의 ↑↓는 이 대화의 지시를 불러온다 — 입력칸이 비었을 때만이다** (`renderer/promptHistory.ts`, `docs/sdlc/prompt-history/`). 규칙은 순수 함수 둘(`historyOf`·`stepHistory`)에 있고 `RunPanel`은 적용만 한다. history로 보는 것은 비었거나 **불러온 글을 손대지 않았을 때**뿐이다 — 한 글자라도 고치면 초안이고 그 뒤의 ↑↓는 줄 이동이다(`onChange`가 index를 되돌리는 것이 그 규칙의 절반이다 — 지우면 "불러온 글을 다 지우면…"이 빨개진다). 피커가 열려 있으면 피커가 먼저 갖고, 불러온 글이 `/`로 시작해도 피커를 열지 않는다(`setDismissed(true)` — 열리면 다음 ↑를 피커가 먹는다). 새 대화 칸에는 history가 없다. 넘기기 상태는 저장하지 않는다.
 
 **초안은 `main.tsx`의 스토어가 쥔다 — RunPanel의 `useState`로 되돌리지 말 것** (`renderer/store/drafts.ts`·`DraftContext.tsx`, spec FR-31). Dock은 인박스·설정에 가면 언마운트되고 `ConversationPanel`은 대화를 바꿀 때마다 key로 재마운트된다 — 그 아래 어디에 두든 쓰던 지시가 사라진다(설정 화면 FR-11과 같은 이유). App state에 두면 한 글자마다 App 전체가 다시 그려진다. 키는 대화 id, 새 대화면 `new:<workspaceId>`이고 도크의 `ConversationPanel` key도 같은 값이다 — `'new'`로 두면 새 대화 칸이 workspace를 넘어 옛 인스턴스로 남는다(`Dock.test`의 "workspace가 바뀌면 새 대화 칸도 새로 시작한다"). **전송이 성공하면 effect를 기다리지 않고 그 자리에서 비운다** — 새 대화의 첫 턴이면 `onStarted`가 입력부를 갈아끼우는데, 두 갱신이 한 번에 그려지면 방금 보낸 지시가 새 대화 칸에 되살아난다(`RunPanel.test`의 "전송이 성공한 그 순간 입력부가 갈아끼워져도 초안이 비워진다"). `useDraftStore()`는 Provider가 없으면 던진다 — 모듈 전역 기본값을 두면 Provider 한 줄을 빠뜨려도 조용히 돌고 테스트끼리 초안이 샌다. `main.tsx`의 그 한 줄은 단위 테스트가 못 잡으므로(각 테스트가 제 Provider를 세운다) `e2e/composer.e2e.ts`의 인박스 왕복이 맡는다. `useState`로 되돌리면 `RunPanel.test`의 "다시 마운트해도 쓰던 지시가 남는다"와 `App.test`의 "쓰던 지시는 인박스에 다녀와도 남는다"가 빨개진다. 남은 틈 하나: "다시 실행" 뒤 그 지시를 고치다 인박스에 다녀오면 고친 글이 원래 지시로 되돌아간다(App이 `draftPrompt`를 쥐고 있고 RunPanel의 그 effect가 마운트마다 돈다 — spec FR-31 다듬음).
 
@@ -672,6 +703,10 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/conversation-fixes/` | 대화의 확인된 결함 묶음 — intent·spec·plan. 대표 턴(spec FR-1), 두 칸짜리 인박스 표(FR-4), 취소가 뿌리에 찍는 조건(FR-8), 종료 코드가 이기는 판정(FR-12), OpenCode 버전 게이트(FR-17), Windows 트리 종료(FR-18) |
 | `docs/sdlc/conversation-timeline/` | OpenCode처럼 읽히는 대화 화면 — intent·spec·plan. 턴 투영이 순수 함수인 이유(spec FR-1), 접힌 턴의 여섯 칸(FR-12)과 로그를 읽지 않는 이유(FR-14), 열림을 도구 id에 매다는 이유(FR-15 다듬음), 마크다운 보안·파싱 예산과 main의 탐색 가드(FR-20~24), 멈추는 자리 셋(FR-29)·예약 칩(FR-30)·초안 스토어(FR-31), 대화 헤더와 컨텍스트 링(FR-33~36), 최대화와 Esc(FR-38·39), 바닥 따라가기(FR-42), 상태 이름 표(FR-45), 치수(§4), 리뷰가 남긴 과제(§8). plan의 완료 증명에 단계별 변이 결과와 번들 크기 |
 | `docs/sdlc/conversation-events/` | 대화가 버리던 데이터 — intent·spec·plan. 두 CLI가 이미 보내는 것의 실측 표(spec §2 — 스키마·기록·바이너리, 리뷰의 정정 포함), 이벤트 모델(§3), 원본 줄 로그와 상한(FR-1~6), 필드별 상한(FR-10), claude detail을 모양으로 가르는 표(FR-14)·공지 문구(FR-18), opencode detail(FR-24)·거부 공지(FR-26), 창(FR-29~34), 투영과 화면(FR-35~53), 크기 추정(§5), 우려에 대한 결정(§7-A), 리뷰가 남긴 과제(§9). plan의 완료 증명에 기준선·변이 결과·로그 크기 |
+| `docs/sdlc/command-cache-auth/` | 로그인한 뒤에도 슬래시 커맨드 실패가 남던 결함 — spec·plan(backlog §1에서 뗌). 실패 캐시에 인증 상태를 적는 규칙(FR-2~4), slash-commands FR-13 개정 |
+| `docs/sdlc/prompt-history/` | 입력칸의 ↑로 이전 지시 불러오기 — intent·spec·plan. 비었을 때만·이 대화만(intent의 결정), 불러온 글을 고치면 초안(FR-2), 피커 억제(FR-6) |
+| `docs/sdlc/input-triggers/` | `@` 파일 참조 — intent(OpenCode 트리거·UI 조사)·spec·plan. claude가 `@경로`를 권한 밖에서 펼친다는 실측표(spec §6), 멘션이 곧 맥락인 이유(§7의 6), 중화 두 겹(FR-12·§7의 2), 읽기 거부 규칙(FR-10·FR-13) |
+| `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |
 | `docs/diagrams/` | 아키텍처 다이어그램 — `one-desk-architecture.html`(단독 실행 가능)과 그것을 만든 archify 사양 `one-desk.architecture.json`. `main`에 들어가면 `.github/workflows/pages.yml`이 GitHub Pages로 올린다 |
 

@@ -236,6 +236,28 @@ describe('ConversationPanel', () => {
       await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith(next))
     })
 
+    it('@로 담은 파일은 맥락에서 빼고 보낸다 — 원문 지시문의 @가 다시 가져온다 (docs/sdlc/input-triggers/ FR-18)', async () => {
+      const withFile = groupConversations([
+        makeRun({
+          id: 'a2', rootRunId: 'a1', createdAt: 20, status: 'failed', startedAt: 15,
+          userPrompt: '@notes/a.txt 다시', externalSessionId: null,
+          contextItems: [
+            { type: 'issue', id: 'i1', label: '토큰 만료 버그' },
+            { type: 'file', id: 'r1:notes/a.txt', label: 'notes/a.txt' }
+          ]
+        }),
+        makeRun({ id: 'a1', rootRunId: 'a1', createdAt: 10 })
+      ])[0]!
+      const resume = vi.fn().mockResolvedValue(makeRun({ id: 'a3', rootRunId: 'a1', status: 'pending' }))
+      renderPanel(withFile, { resume })
+
+      await userEvent.click(screen.getByRole('button', { name: '다시 보내기' }))
+      expect(resume).toHaveBeenCalledWith(expect.objectContaining({
+        userPrompt: '@notes/a.txt 다시',
+        context: [{ type: 'issue', id: 'i1' }]
+      }))
+    })
+
     it('실패하면 이유를 보이고 버튼을 다시 풀어 준다', async () => {
       const resume = vi.fn().mockRejectedValue(new Error('이어받을 세션이 없습니다'))
       const { onStarted } = renderPanel(failed(), { resume })

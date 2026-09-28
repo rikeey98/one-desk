@@ -17,6 +17,9 @@ import type { AgentKind, Run } from '@shared/models'
 import type { PreflightResult, VerifyRunnableInput } from './runner/types'
 import type { McpHost } from './mcp/host'
 import { consoleErrorSink, type ErrorSink } from './errors'
+import { createFileService, type FileService } from './files/service'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync } from 'node:fs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FAKE = resolve(HERE, 'runner/fixtures/fake-claude.mjs')
@@ -38,6 +41,8 @@ interface SetupOptions {
     agentKind: AgentKind,
     input: VerifyRunnableInput
   ) => Promise<PreflightResult>
+  /** `@` 파일 참조의 해석 (docs/sdlc/input-triggers/). 없으면 멘션이 전부 중화된다 */
+  files?: Pick<FileService, 'resolveMentions'>
 }
 
 function setup(options: SetupOptions = {}) {
@@ -61,6 +66,7 @@ function setup(options: SetupOptions = {}) {
     ...(options.mcp ? { mcp: options.mcp } : {}),
     ...(options.onError ? { onError: options.onError } : {}),
     ...(options.verifyRunnable ? { verifyRunnable: options.verifyRunnable } : {}),
+    ...(options.files ? { files: options.files } : {}),
     resolveExecutable: options.preflight ?? (async () => ({ ok: true, executable: process.execPath })),
     onRunUpdate: (run) => {
       updates.push(run)
@@ -1909,6 +1915,133 @@ describe('지시 파일은 맥락에 담을 수 없다 (docs/sdlc/repo-instructi
         permission: 'edit', userPrompt: 'x', context: [{ type: 'asset', id }]
       })).rejects.toThrow(/지시 파일/)
       expect(ctx.runs.list(ctx.workspaceId)).toHaveLength(0)
+    } finally {
+      rmSync(ctx.logDir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('@ 파일 참조 (docs/sdlc/input-triggers/)', () => {
+  /** 진짜 git 저장소를 작업 디렉토리로 등록한다. 테스트 프로세스의 동기 git은 괜찮다 — 앱 밖이다. */
+  function withGitRepo(files: Record<string, string | Buffer>, options: { gitignore?: string } = {}) {
+    const listCalls: string[] = []
+    const real = createFileService({ getRepo: () => { throw new Error('검색은 쓰지 않는다') } })
+    const counting: Pick<FileService, 'resolveMentions'> = {
+      resolveMentions: (repo, prompt) => { listCalls.push(prompt); return real.resolveMentions(repo, prompt) }
+    }
+    const ctx = setup({ files: counting })
+    const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-mention-'))
+    execFileSync('git', ['init', '-q'], { cwd: dir })
+    if (options.gitignore) writeFileSync(resolve(dir, '.gitignore'), options.gitignore)
+    for (const [rel, content] of Object.entries(files)) {
+      mkdirSync(dirname(resolve(dir, rel)), { recursive: true })
+      writeFileSync(resolve(dir, rel), content)
+    }
+    const repoId = createRepoRepository(ctx.db).create({ workspaceId: ctx.workspaceId, name: 'notes-repo', path: dir }).id
+    const start = (userPrompt: string, extra: { agentKind?: AgentKind } = {}) => ctx.service.start({
+      workspaceId: ctx.workspaceId, agentKind: extra.agentKind ?? 'claude-code', cwd: dir,
+      permission: 'edit', userPrompt, context: []
+    })
+    // 가짜 CLI가 그 디렉토리를 cwd로 쥐고 도는 동안 Windows는 지우지 못한다(EBUSY) — 끝나길 기다린다.
+    const cleanup = async () => {
+      await vi.waitFor(() => {
+        expect(ctx.runs.list(ctx.workspaceId).every((r) => r.endedAt !== null)).toBe(true)
+      }, { timeout: 15_000 })
+      rmSync(ctx.logDir, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
+    }
+    return { ctx, dir, repoId, start, cleanup, listCalls }
+  }
+
+  it('요청 맥락에 file이 오면 거부되고 run 행이 생기지 않는다 (FR-9)', async () => {
+    const ctx = setup()
+    try {
+      await expect(ctx.service.start({
+        workspaceId: ctx.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+        permission: 'edit', userPrompt: 'x', context: [{ type: 'file', id: `${ctx.repoId}:package.json` }]
+      })).rejects.toThrow('파일은 지시문의 @로만 담을 수 있습니다')
+      expect(ctx.runs.list(ctx.workspaceId)).toHaveLength(0)
+    } finally {
+      rmSync(ctx.logDir, { recursive: true, force: true })
+    }
+  })
+
+  it('지시문의 @경로를 읽어 <files>에 싣고, file 맥락을 기록하며, 저장된 지시는 원문이다 (FR-8·FR-12·FR-15)', async () => {
+    const t = withGitRepo({ 'notes/a.txt': 'PELICAN 문장' })
+    try {
+      const run = await t.start('@notes/a.txt를 요약하고 @../secret 은 무시')
+      const saved = t.ctx.runs.get(run.id)
+
+      expect(saved.userPrompt).toBe('@notes/a.txt를 요약하고 @../secret 은 무시')
+      expect(saved.assembledPrompt).toContain('<file repo="notes-repo" path="notes/a.txt">PELICAN 문장</file>')
+      expect(saved.assembledPrompt).toContain('<task>\nnotes/a.txt를 요약하고 ＠../secret 은 무시\n</task>')
+      expect(saved.contextItems).toContainEqual({ type: 'file', id: `${t.repoId}:notes/a.txt`, label: 'notes/a.txt' })
+    } finally {
+      await t.cleanup()
+    }
+  })
+
+  it('무시된 파일(.env)은 손으로 쳐도 싣지 않고 중화한다 (spec §7의 3)', async () => {
+    const t = withGitRepo({ '.env': 'SECRET=1' }, { gitignore: '.env\n' })
+    try {
+      const run = await t.start('@.env 봐')
+      const saved = t.ctx.runs.get(run.id)
+
+      expect(saved.assembledPrompt).not.toContain('SECRET=1')
+      expect(saved.assembledPrompt).toContain('＠.env 봐')
+      expect(saved.contextItems.filter((c) => c.type === 'file')).toEqual([])
+    } finally {
+      await t.cleanup()
+    }
+  })
+
+  it('바이너리 멘션은 전송을 거부하고 run 행이 생기지 않는다. 이유에 경로가 있다 (FR-10)', async () => {
+    const t = withGitRepo({ 'img.bin': Buffer.from([0x61, 0x00, 0x62]) })
+    try {
+      await expect(t.start('@img.bin 봐')).rejects.toThrow('바이너리 파일은 담을 수 없습니다: img.bin')
+      expect(t.ctx.runs.list(t.ctx.workspaceId)).toHaveLength(0)
+    } finally {
+      await t.cleanup()
+    }
+  })
+
+  it('opencode여도 조립 결과가 같다 — 앱이 읽어 싣는다', async () => {
+    const t = withGitRepo({ 'a.txt': 'A 내용' })
+    try {
+      const claude = t.ctx.runs.get((await t.start('@a.txt 봐')).id)
+      const opencode = t.ctx.runs.get((await t.start('@a.txt 봐', { agentKind: 'opencode' })).id)
+
+      expect(opencode.assembledPrompt).toBe(claude.assembledPrompt)
+      expect(opencode.assembledPrompt).toContain('A 내용')
+    } finally {
+      await t.cleanup()
+    }
+  })
+
+  it('이어 가는 턴(resume)도 대화의 작업 디렉토리에서 해석한다', async () => {
+    const t = withGitRepo({ 'b.txt': 'B 내용' })
+    try {
+      const first = await t.start('처음')
+      await vi.waitFor(() => expect(t.ctx.runs.get(first.id).endedAt).toBeTypeOf('number'), { timeout: 15_000 })
+      const next = await t.ctx.service.resume({
+        conversationId: first.id, userPrompt: '@b.txt 도 봐', context: [],
+        model: null, effort: null, permission: 'edit'
+      })
+
+      expect(t.ctx.runs.get(next.id).assembledPrompt).toContain('B 내용')
+    } finally {
+      await t.cleanup()
+    }
+  })
+
+  it('파일 해석이 없으면 멘션은 전부 중화된다 — 펼칠 길을 남기지 않는다', async () => {
+    const ctx = setup()
+    try {
+      const run = await ctx.service.start({
+        workspaceId: ctx.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+        permission: 'edit', userPrompt: '@package.json 봐', context: []
+      })
+      expect(ctx.runs.get(run.id).assembledPrompt).toContain('＠package.json 봐')
     } finally {
       rmSync(ctx.logDir, { recursive: true, force: true })
     }

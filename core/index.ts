@@ -17,7 +17,8 @@ import { runCli } from './agent/exec'
 import { probeCommands } from './commands/probe'
 import { describeCommands } from './commands/describe'
 import type { GlobalRoots } from './db/repositories/setting'
-import type { UpdateRepoInput, AppPaths } from '@shared/models'
+import type { UpdateRepoInput, AppPaths, FileSearchInput } from '@shared/models'
+import { createFileService } from './files/service'
 import { createIssueRepository } from './db/repositories/issue'
 import { createMemoRepository } from './db/repositories/memo'
 import { createRunRepository } from './db/repositories/run'
@@ -117,7 +118,15 @@ export function createCore(opts: CoreOptions) {
       if (result.error) onError('커맨드 목록 조회 실패', new Error(result.error))
       return result
     },
-    describe: (input) => describeCommands({ ...input, homeDir: opts.homeDir })
+    describe: (input) => describeCommands({ ...input, homeDir: opts.homeDir }),
+    // 실패를 캐시할 때 적어 두고, 로그인한 뒤 그 실패를 버리는 데 쓴다
+    // (docs/sdlc/command-cache-auth/ FR-2·FR-3). 실행 파일 해석은 probe와 같은 길이다.
+    checkAuth: async ({ workspaceId }) => {
+      const workspace = workspaces.list().find((w) => w.id === workspaceId) ?? null
+      const resolved = await claudeCodeAdapter.preflight(resolveAgentPath('claude-code', workspace))
+      if (!resolved.ok || !resolved.executable) return 'unknown'
+      return (await checkAuth('claude-code', resolved.executable, runCli)).state
+    }
   })
 
   const assetService = createAssetService({
@@ -194,6 +203,12 @@ export function createCore(opts: CoreOptions) {
     onError
   })
 
+  /**
+   * `@` 파일 참조 (docs/sdlc/input-triggers/). 피커의 검색과 보낼 때의 해석이 **같은 서비스**다 —
+   * 같은 git 목록을 봐야 피커에 없는 `.env`가 손으로 치면 실리는 일이 없다.
+   */
+  const files = createFileService({ getRepo: (id) => repos.get(id) })
+
   const execution = createExecutionService({
     db,
     runs,
@@ -201,6 +216,8 @@ export function createCore(opts: CoreOptions) {
     queue,
     mcp,
     onError,
+    // 이 한 줄이 빠지면 멘션이 전부 중화될 뿐 아무것도 실리지 않는다 — 실패가 조용하다.
+    files,
     resolveExecutable: async (agentKind, workspaceId) => {
       const ws = workspaces.list().find((w) => w.id === workspaceId) ?? null
       return adapters[agentKind].preflight(resolveAgentPath(agentKind, ws))
@@ -278,13 +295,17 @@ export function createCore(opts: CoreOptions) {
       async probeAgents(workspaceId: string, refresh = false): Promise<AgentProbes> {
         if (refresh) {
           modelCatalog.refresh()
-          const cwd = repos.list(workspaceId)[0]?.path
-          if (cwd) commands.invalidate(cwd)
+          // 첫 repo만이 아니다 — 실행 패널에서 다른 repo를 골랐으면 그 cwd의 옛 실패가
+          // 남는다(docs/sdlc/command-cache-auth/ FR-1). 비우기만 하고 띄우지는 않는다.
+          for (const repo of repos.list(workspaceId)) commands.invalidate(repo.path)
         }
         return agentProbes.probeAgents(workspaceId)
       }
     },
     commands,
+    files: {
+      search: (input: FileSearchInput) => files.search(input)
+    },
 
     /**
      * repo 저장소에 "등록하면 곧바로 훑는다"만 얹는다 (설계 §3-2).

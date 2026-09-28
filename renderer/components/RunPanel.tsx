@@ -8,7 +8,7 @@ import { draftKeyOf, isBlankDraft } from '../store/drafts'
 import { PERMISSION_LABELS } from '../permission'
 import { AGENT_KINDS, AGENT_LABELS } from '../agents'
 import { runShortcutLabel } from '../shortcut'
-import type { AgentKind, CommandInfo, Permission, Repo, Run, Workspace } from '@shared/models'
+import type { AgentKind, CommandInfo, FileHit, Permission, Repo, Run, Workspace } from '@shared/models'
 import type { Conversation } from '../conversation'
 import type { ContextChip } from '../context'
 import { ModelField } from './ModelField'
@@ -16,6 +16,10 @@ import { CopyButton } from './CopyButton'
 import { repoLabel } from './ConversationList'
 import { IconClose, IconSend, IconStop } from './icons'
 import { EFFORT_OPTIONS } from '../effort'
+import { historyOf, stepHistory, NO_HISTORY } from '../promptHistory'
+import { findMentionToken, insertMention } from '@shared/mentions'
+import { FilePicker } from './FilePicker'
+import { useFileSearch } from '../hooks/useFileSearch'
 
 /** 예약 칩에 보일 지시 — 첫 줄만. 전체는 칩의 title로 읽는다 (spec FR-30). */
 function firstLineOf(text: string): string {
@@ -135,6 +139,9 @@ export function RunPanel({
   const [cursor, setCursor] = useState(0)
   const [dismissed, setDismissed] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
+  // ↑↓로 불러온 history의 몇 번째인가 (docs/sdlc/prompt-history/). 저장하지 않는다 — 다시
+  // 마운트하면 처음부터다(spec FR-5). 규칙은 전부 `promptHistory.ts`에 있다.
+  const [historyIndex, setHistoryIndex] = useState(NO_HISTORY)
   // 피커의 listbox와 option id. textarea가 aria-controls/aria-activedescendant로 가리켜야
   // 스크린리더가 ↑↓로 무엇이 골라지는지 읽는다 — 시각적 하이라이트만으로는 전달되지 않는다.
   const listboxId = useId()
@@ -149,6 +156,29 @@ export function RunPanel({
   const picked = token ? filtered[pickedIndex] : undefined
   const argumentWarning = agentKind === 'claude-code' && commandState.commands.some((command) =>
     command.usesArguments && prompt.trimStart().split(/\s+/).includes(`/${command.name}`))
+
+  // `@` 파일 참조 (docs/sdlc/input-triggers/). **두 agent 모두에서 열린다** — 파일은 앱이 읽어 맥락으로
+  // 싣으므로 CLI가 `@`를 펼치는지와 무관하다. `/`와 한 번에 하나만 열린다(첫 글자가 다르다).
+  // 검색은 작업 디렉토리에 해당하는 repo에서 한다 — 렌더러는 경로가 아니라 repo id를 넘긴다(§5-1).
+  const mention = !dismissed && !token ? findMentionToken(prompt, cursor) : null
+  const cwdRepo = repos.find((r) => r.path === effectiveCwd) ?? null
+  const fileState = useFileSearch(workspaceId, cwdRepo?.id ?? null, mention?.query ?? '', mention !== null)
+  const mentionReason = mention && !cwdRepo
+    ? (effectiveCwd ? '작업 디렉토리가 등록된 repo가 아닙니다' : '작업 디렉토리를 먼저 고르세요')
+    : null
+  const fileListboxId = `${listboxId}-files`
+  const fileOptionId = (index: number) => `${listboxId}-f${index}`
+  const pickedFileIndex = Math.min(selectedIndex, Math.max(0, fileState.files.length - 1))
+  const pickedFile = mention ? fileState.files[pickedFileIndex] : undefined
+
+  function pickFile(file: FileHit) {
+    if (!mention) return
+    const inserted = insertMention(prompt, mention, file.path)
+    setPrompt(inserted.text)
+    setCursor(inserted.cursor)
+    setDismissed(true)
+    pendingCursor.current = inserted.cursor
+  }
 
   function pickCommand(command: CommandInfo) {
     if (!token) return
@@ -313,6 +343,7 @@ export function RunPanel({
             context: chips.map(({ type, id }) => ({ type, id }))
           })
       setPrompt('')
+      setHistoryIndex(NO_HISTORY)
       // 스토어도 여기서 바로 비운다 — 위 effect에만 맡기지 않는다. 새 대화의 첫 턴이면
       // onStarted가 도크를 그 대화로 넘기며 이 입력부를 갈아끼우는데, 두 갱신이 한 번에
       // 그려지면 이 인스턴스는 빈 입력을 그려 보지도 못하고 사라져 effect가 돌지 않는다
@@ -338,6 +369,40 @@ export function RunPanel({
           setSelectedIndex(filtered.length ? (pickedIndex + direction + filtered.length) % filtered.length : 0)
         } else if (e.key === 'Tab') completeCommand()
         else if (filtered[pickedIndex]) pickCommand(filtered[pickedIndex])
+        return
+      }
+    }
+    // `@` 피커도 같은 자리에서 키를 먼저 갖는다 — Enter가 실행이 되지 않고 ↑↓가 history를 넘기지
+    // 않는다(FR-4). Tab은 Enter와 같다(디렉토리로 파고들지 않는다).
+    if (mention) {
+      if (['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) {
+        e.preventDefault()
+        e.stopPropagation()
+        const count = fileState.files.length
+        if (e.key === 'Escape') setDismissed(true)
+        else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          const direction = e.key === 'ArrowDown' ? 1 : -1
+          setSelectedIndex(count ? (pickedFileIndex + direction + count) % count : 0)
+        } else if (fileState.files[pickedFileIndex]) pickFile(fileState.files[pickedFileIndex])
+        return
+      }
+    }
+    // 피커가 열려 있으면 위에서 이미 돌아갔다 — ↑↓는 피커가 갖는다(spec FR-2의 2).
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown')
+      && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      const step = stepHistory(
+        { entries: historyOf(conversation), index: historyIndex, text: prompt },
+        e.key === 'ArrowUp' ? 'up' : 'down'
+      )
+      if (step) {
+        e.preventDefault()
+        setHistoryIndex(step.index)
+        setPrompt(step.text)
+        setCursor(step.text.length)
+        // 불러온 글이 `/`로 시작해도 피커를 열지 않는다 — 열리면 다음 ↑를 피커가 먹어
+        // 넘기기가 멈춘다(spec FR-6). 고치기 시작하면 onChange가 되살린다.
+        setDismissed(true)
+        pendingCursor.current = step.text.length
         return
       }
     }
@@ -436,6 +501,18 @@ export function RunPanel({
             }}
           />
         )}
+        {mention && (
+          <FilePicker
+            id={fileListboxId}
+            optionId={fileOptionId}
+            files={fileState.files}
+            selectedIndex={pickedFileIndex}
+            loading={!mentionReason && fileState.loading}
+            reason={mentionReason ?? fileState.reason}
+            truncated={fileState.truncated}
+            onPick={pickFile}
+          />
+        )}
         {/* 테두리 없이 카드에 녹는다 — 포커스는 카드의 테두리가 보인다(:focus-within). 피커는
             이 칸의 anchor-name에 붙어 위로 열린다(FR-32 — 바꾸지 않는다). */}
         <textarea
@@ -443,12 +520,14 @@ export function RunPanel({
           className="run-prompt"
           aria-label="지시"
           aria-autocomplete="list"
-          aria-controls={token ? listboxId : undefined}
-          aria-activedescendant={picked ? optionId(picked.name) : undefined}
+          aria-controls={token ? listboxId : mention ? fileListboxId : undefined}
+          aria-activedescendant={picked ? optionId(picked.name) : pickedFile ? fileOptionId(pickedFileIndex) : undefined}
           value={prompt}
           placeholder={`무엇을 시킬지 적으세요. ${runShortcutLabel(navigator.platform)}로 실행합니다.`}
           onChange={(e) => {
             setPrompt(e.target.value)
+            // 고친 글은 초안이다 — 그 뒤의 ↑↓는 줄 이동이다(spec FR-2의 4).
+            setHistoryIndex(NO_HISTORY)
             setCursor(e.target.selectionStart)
             setDismissed(false)
             setSelectedIndex(0)
