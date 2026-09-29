@@ -419,6 +419,14 @@ select.pill { padding-right: 4px; cursor: pointer; text-overflow: ellipsis; }
 /* 상태·축·repo 한 줄. 좁으면 줄바꿈한다. */
 .detail-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
 .detail-meta .repo-tags { margin-bottom: 0; }
+/* 상세의 id 알약 — `#` + 앞 8자리, 누르면 전체 id 복사. id는 모노
+   (--font-mono — 숫자와 글자 폭이 고르다). */
+.copy-pill { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border); border-radius: 5px; background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-size: .6875rem; padding: 2px 7px; transition: background .12s, color .12s; }
+.copy-pill:hover { background: var(--bg-hover); color: var(--text); }
+.copy-pill-text { font-family: var(--font-mono); }
+/* 메타 줄 오른쪽 끝의 도장 — 시각 한 줄 + id 알약 (docs/sdlc/timestamps/ FR-8). 날짜·시·분은 title이라 help 커서다. */
+.detail-stamp { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; }
+.detail-times { font-size: .6875rem; color: var(--text-muted); cursor: help; white-space: nowrap; }
 /* 본문이 길면 .detail이 스크롤 컨테이너(.panel-split-detail)를 넘치고, 그러면 삭제가
    접힌 아래로 밀려 "삭제 기능이 없다"로 읽힌다 — 바닥에 붙여 항상 손에 닿게 한다.
    배경은 .panel과 같은 값이어야 글자가 비쳐 보이지 않는다. */

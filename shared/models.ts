@@ -92,6 +92,11 @@ export interface Issue {
   triagedAt: number | null
   /** 사람이 상세를 연 시각. updatedAt과 분리돼 있다 — agent는 이것을 못 올린다. */
   seenAt: number | null
+  /**
+   * 마지막으로 doing이 된 시각. **저장소가 파생하고** 되돌려도 지우지 않는다. 0009 이전 이슈는 null
+   * (`docs/sdlc/timestamps/` FR-1·FR-3).
+   */
+  startedAt: number | null
 }
 
 export interface Memo {

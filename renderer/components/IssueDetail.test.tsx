@@ -10,7 +10,7 @@ function makeIssue(over: Partial<Issue> = {}): Issue {
   return {
     id: 'i1', workspaceId: 'w1', title: '토큰 만료', body: '원본', status: 'open',
     repoIds: [], createdAt: 0, updatedAt: 100, closedAt: null,
-    source: null, kind: null, priority: null, triagedAt: null, seenAt: null, ...over
+    source: null, kind: null, priority: null, triagedAt: null, seenAt: null, startedAt: null, ...over
   }
 }
 
@@ -68,6 +68,32 @@ const errorAlert = (): HTMLElement | null => alertWith('form-error')
 
 beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }) })
 afterEach(() => { vi.useRealTimers() })
+
+describe('IssueDetail — id', () => {
+  const ID = '3f2a9c1e-7b44-4d2a-9e1f-0c5d8a6b7e90'
+
+  it('짧은 id를 보이고, 누르면 전체 id를 복사한다', async () => {
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    renderDetail(makeClient(), makeIssue({ id: ID }))
+    const button = screen.getByRole('button', { name: '이슈 id 복사' })
+    expect(button).toHaveTextContent('#3f2a9c1e')
+    expect(button).toHaveAttribute('title', expect.stringContaining(ID))
+    await act(async () => { fireEvent.click(button) })
+    expect(writeText).toHaveBeenCalledWith(ID)
+  })
+
+  it('만듦·시작·완료 시각을 한 줄로 보인다 — 없는 것은 뺀다 (docs/sdlc/timestamps/ FR-8)', () => {
+    const year = new Date().getFullYear()
+    renderDetail(makeClient(), makeIssue({
+      createdAt: new Date(year, 8, 28, 9).getTime(),
+      startedAt: null,
+      closedAt: new Date(year, 8, 29, 14, 3).getTime()
+    }))
+    const line = screen.getByText('만듦 9월 28일 · 완료 9월 29일')
+    expect(line.getAttribute('title')).toContain('14:03')
+  })
+})
 
 describe('IssueDetail', () => {
   it('제목과 본문을 보여준다', () => {

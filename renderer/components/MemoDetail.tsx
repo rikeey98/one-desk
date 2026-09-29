@@ -4,6 +4,7 @@ import { useDebouncedSave } from '../hooks/useDebouncedSave'
 import { ConflictBanner } from './ConflictBanner'
 import { ConfirmButton } from './ConfirmButton'
 import { RepoTags } from './RepoTags'
+import { DetailStamp } from './CopyButton'
 import type { Memo, Repo } from '@shared/models'
 
 export function MemoDetail({ memo, repos, onChanged, onDeleted, onRequestClose }: {
@@ -154,7 +155,11 @@ export function MemoDetail({ memo, repos, onChanged, onDeleted, onRequestClose }
         onChange={(e) => { setTitle(e.target.value); titleSave.schedule(e.target.value) }}
         onBlur={() => { void titleSave.flush() }}
       />
-      <RepoTags repos={repos} picked={repoIds} onChange={changeRepos} />
+      <div className="detail-meta">
+        <RepoTags repos={repos} picked={repoIds} onChange={changeRepos} />
+        {/* IssueDetail과 대칭 — agent가 MCP(get_memo·update_memo)로 짚는 이름이다. */}
+        <DetailStamp kind="메모" id={memo.id} times={[['만듦', memo.createdAt]]} />
+      </div>
       <textarea
         aria-label="본문"
         className="detail-body"

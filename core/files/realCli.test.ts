@@ -50,7 +50,7 @@ describe.skipIf(!ENABLED)('진짜 claude — @ 중화', () => {
       issues: [{
         id: 'i1', workspaceId: 'w1', title: '참고', body: '본문에서 @inside.txt 참고',
         status: 'doing', repoIds: [], createdAt: 0, updatedAt: 0, closedAt: null,
-        source: null, kind: null, priority: null, triagedAt: null, seenAt: null
+        source: null, kind: null, priority: null, triagedAt: null, seenAt: null, startedAt: null
       }],
       userPrompt: `@../outside.txt 와 @inside.txt 를 봐. ${QUESTION}`
     })

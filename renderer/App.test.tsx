@@ -47,7 +47,7 @@ function makeIssue(over: Partial<Issue> = {}): Issue {
   return {
     id: 'i1', workspaceId: 'w1', title: '이슈', body: '', status: 'open',
     repoIds: [], createdAt: 0, updatedAt: 0, closedAt: null,
-    source: null, kind: null, priority: null, triagedAt: null, seenAt: null, ...over
+    source: null, kind: null, priority: null, triagedAt: null, seenAt: null, startedAt: null, ...over
   }
 }
 

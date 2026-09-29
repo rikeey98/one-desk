@@ -130,6 +130,15 @@ UTF-8 아님·256 KiB/턴 512 KiB/20개 초과)는 run 행을 만들기 전에 �
 `—`다. 가짜 CLI는 `ONE_DESK_FAKE_PLAN_USAGE`가 있을 때만 그 줄을 낸다(기본 시나리오에 넣지 말 것 — 모든 e2e의
 사이드바가 바뀐다). `e2e/plan-usage.e2e.ts`가 IPC 왕복과 "로그에 없다"를 본다.
 
+**시각으로 정리할 수 있다** (`docs/sdlc/timestamps/`). **첫 실행에 마이그레이션 `0009`가 돈다** — `issue.started_at`
+하나(마지막으로 doing이 된 때, 백필 없음). `closedAt`·`startedAt`은 **상태가 실제로 바뀔 때만** 파생한다 — 충돌
+배너의 덮어쓰기와 MCP `update_issue`는 상태를 늘 함께 보내, 같은 값으로 다시 찍으면 "언제 완료했나"가 거짓이 된다
+(`issue.test`의 "같은 상태로 다시 저장해도…"). **MCP가 내보내는 시각은 전부 시간대가 붙은 ISO다**(`core/mcp/time.ts`) —
+epoch ms로 되돌리지 말 것, 모델이 요일을 계산하다 틀린다. `list_issues`·`list_memos`는 `since`·`until`(그 기간에
+만듦·시작·완료·수정 중 하나)을 받고, `list_conversations`(읽기 전용에서도)가 대화 요약을 준다 — 상태는
+`representativeTurn`이다(인박스와 같은 턴). 상세의 메타 줄 오른쪽 끝에 `만듦 · 시작 · 완료` 한 줄과 id 알약(`#` + 앞
+8자리, 누르면 전체 id 복사 — 이름 `이슈 id 복사`·`메모 id 복사`)이 선다. "누가 손댔나"(활동 기록)는 범위 밖이다(spec §4).
+
 **대화에 수명 주기와 정체성이 생겼다** (`docs/sdlc/conversation-lifecycle/`). **첫 실행에
 마이그레이션 `0008`이 돈다** — `run.title`·`run.closed_at` 두 컬럼 추가(백필 없음). 증상은
 셋이었지만 뿌리는 하나였다: 대화가 저장되지 않는 파생값이라 "끝났다"도 "무엇에 관한
@@ -721,6 +730,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/asset-missing/` | 사라진 asset 정리 — spec. 폴더 이름을 바꾼 skill이 두 줄로 남던 원인(설계 §3-4), 안 쓴 것만 지우는 규칙(FR-1), 루트가 없는 repo는 정리하지 않는 이유(FR-4) |
 | `docs/sdlc/context-occupancy/` | 컨텍스트 링이 턴마다 100% 가까이 튀던 결함 — spec. `iterations` 폴백을 버린 이유(FR-1), 창 크기를 고르는 모델(FR-2), run-info §8 개정 |
 | `docs/sdlc/plan-usage/` | Claude 요금제 사용률 — spec. `rate_limit_event` 실측(§1), 저장하지 않는 이유와 이벤트가 아닌 이유(FR-1·FR-3), 지난 리셋은 `—`(FR-5), run-info §7 좁힘 |
+| `docs/sdlc/timestamps/` | 시각으로 정리하기 — spec. `startedAt`과 상태가 바뀔 때만 파생(FR-1·2), MCP 시각 ISO·기간 거름·`list_conversations`(FR-4~7), 활동 기록을 뺀 이유(§4) |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |
 | `docs/diagrams/` | 아키텍처 다이어그램 — `one-desk-architecture.html`(단독 실행 가능)과 그것을 만든 archify 사양 `one-desk.architecture.json`. `main`에 들어가면 `.github/workflows/pages.yml`이 GitHub Pages로 올린다 |

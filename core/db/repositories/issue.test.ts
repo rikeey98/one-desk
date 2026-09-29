@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { makeTestDb } from './testing'
 import { createWorkspaceRepository } from './workspace'
 import { createRepoRepository } from './repo'
@@ -56,6 +56,61 @@ describe('IssueRepository', () => {
     issues.update({ id: created.id, status: 'done' })
     const reopened = issues.update({ id: created.id, status: 'open' })
     expect(reopened.closedAt).toBeNull()
+  })
+
+  /** 시작·완료 시각 (docs/sdlc/timestamps/ FR-1·FR-2) — 시계를 흘려 "다시 찍혔나"를 가른다 */
+  describe('startedAt과 상태가 실제로 바뀔 때만', () => {
+    let clock = 1_000
+    beforeEach(() => {
+      clock = 1_000
+      vi.spyOn(Date, 'now').mockImplementation(() => clock)
+    })
+    afterEach(() => { vi.restoreAllMocks() })
+
+    it('doing이 되면 startedAt을 찍고, 되돌려도 지우지 않는다', () => {
+      const created = issues.create({ workspaceId, title: '시작할것' })
+      expect(created.startedAt).toBeNull()
+      clock = 2_000
+      expect(issues.update({ id: created.id, status: 'doing' }).startedAt).toBe(2_000)
+      clock = 3_000
+      const done = issues.update({ id: created.id, status: 'done' })
+      expect(done.startedAt).toBe(2_000)
+      expect(done.closedAt).toBe(3_000)
+      clock = 4_000
+      expect(issues.update({ id: created.id, status: 'open' }).startedAt).toBe(2_000)
+    })
+
+    it('다시 doing이 되면 그 시각이다 — 마지막으로 시작한 때', () => {
+      const created = issues.create({ workspaceId, title: 'x' })
+      issues.update({ id: created.id, status: 'doing' })
+      issues.update({ id: created.id, status: 'open' })
+      clock = 5_000
+      expect(issues.update({ id: created.id, status: 'doing' }).startedAt).toBe(5_000)
+    })
+
+    it('같은 상태로 다시 저장해도 closedAt·startedAt을 다시 찍지 않는다 (덮어쓰기·MCP가 상태를 늘 보낸다)', () => {
+      const created = issues.create({ workspaceId, title: 'x' })
+      clock = 2_000
+      issues.update({ id: created.id, status: 'doing' })
+      clock = 3_000
+      expect(issues.update({ id: created.id, status: 'doing', body: '더 씀' }).startedAt).toBe(2_000)
+      clock = 4_000
+      issues.update({ id: created.id, status: 'done' })
+      clock = 5_000
+      expect(issues.update({ id: created.id, status: 'done', body: '고침' }).closedAt).toBe(4_000)
+    })
+
+    it('updateIfUnchanged도 같은 규칙이다', () => {
+      const created = issues.create({ workspaceId, title: 'x' })
+      clock = 2_000
+      const first = issues.updateIfUnchanged({ id: created.id, status: 'doing', expectedUpdatedAt: created.updatedAt })
+      if (!first.ok) throw new Error('충돌')
+      expect(first.issue.startedAt).toBe(2_000)
+      clock = 3_000
+      const again = issues.updateIfUnchanged({ id: created.id, status: 'doing', expectedUpdatedAt: first.issue.updatedAt })
+      if (!again.ok) throw new Error('충돌')
+      expect(again.issue.startedAt).toBe(2_000)
+    })
   })
 
   it('repoIds를 갱신하면 기존 태그를 대체한다', () => {

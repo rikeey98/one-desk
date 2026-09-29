@@ -5,13 +5,18 @@ import { MCP_SERVER_NAME } from './configFile'
 import type { RepoRepository } from '../db/repositories/repo'
 import type { IssueRepository } from '../db/repositories/issue'
 import type { MemoRepository } from '../db/repositories/memo'
+import type { RunRepository } from '../db/repositories/run'
 import type { RunContext } from './host'
 import type { Issue, IssueStatus, IssueSource, IssueKind, IssuePriority, Memo } from '@shared/models'
+import { parseBound, toIso } from './time'
+import { summarizeConversations } from './conversations'
 
 export interface McpHostDeps {
   repos: RepoRepository
   issues: IssueRepository
   memos: MemoRepository
+  /** `list_conversations`가 읽는다 (docs/sdlc/timestamps/ FR-7). 쓰지 않는다 */
+  runs: RunRepository
 }
 
 /** 도구 결과의 공통 형태. 던진 것은 isError로 바꿔 agent가 읽고 대응하게 한다. */
@@ -57,18 +62,24 @@ interface IssueSummary {
   id: string
   title: string
   status: IssueStatus
-  updatedAt: number
   repoIds: string[]
   source: IssueSource | null
   kind: IssueKind | null
   priority: IssuePriority | null
-  triagedAt: number | null
+  // 시각은 전부 시간대가 붙은 ISO다 (docs/sdlc/timestamps/ FR-4) — 모델은 epoch ms로 요일을 계산하다 틀린다.
+  createdAt: string
+  updatedAt: string
+  startedAt: string | null
+  closedAt: string | null
+  triagedAt: string | null
 }
 
 function issueSummary(row: Issue): IssueSummary {
   return {
-    id: row.id, title: row.title, status: row.status, updatedAt: row.updatedAt, repoIds: row.repoIds,
-    source: row.source, kind: row.kind, priority: row.priority, triagedAt: row.triagedAt
+    id: row.id, title: row.title, status: row.status, repoIds: row.repoIds,
+    source: row.source, kind: row.kind, priority: row.priority,
+    createdAt: toIso(row.createdAt)!, updatedAt: toIso(row.updatedAt)!, startedAt: toIso(row.startedAt),
+    closedAt: toIso(row.closedAt), triagedAt: toIso(row.triagedAt)
   }
 }
 
@@ -76,12 +87,51 @@ function issueSummary(row: Issue): IssueSummary {
 interface MemoSummary {
   id: string
   title: string
-  updatedAt: number
   repoIds: string[]
+  createdAt: string
+  updatedAt: string
 }
 
 function memoSummary(row: Memo): MemoSummary {
-  return { id: row.id, title: row.title, updatedAt: row.updatedAt, repoIds: row.repoIds }
+  return {
+    id: row.id, title: row.title, repoIds: row.repoIds,
+    createdAt: toIso(row.createdAt)!, updatedAt: toIso(row.updatedAt)!
+  }
+}
+
+/** get·create·update가 돌려주는 이슈 전체 — 본문까지, 시각만 ISO로 (FR-4) */
+function issueOut(row: Issue) {
+  return {
+    ...row,
+    createdAt: toIso(row.createdAt), updatedAt: toIso(row.updatedAt), closedAt: toIso(row.closedAt),
+    startedAt: toIso(row.startedAt), triagedAt: toIso(row.triagedAt), seenAt: toIso(row.seenAt)
+  }
+}
+
+/** issueOut과 대칭 */
+function memoOut(row: Memo) {
+  return { ...row, createdAt: toIso(row.createdAt), updatedAt: toIso(row.updatedAt) }
+}
+
+/** 기간 인자. 둘 다 선택이고 `until`은 그 시각 **전까지**다 (FR-6) */
+const RANGE = {
+  since: z.string().optional().describe('이 날짜(2026-09-28이면 그 날 0시) 또는 ISO 날짜시각부터'),
+  until: z.string().optional().describe('이 날짜 또는 ISO 날짜시각 전까지')
+}
+
+function readRange(args: { since?: string | undefined; until?: string | undefined }) {
+  return {
+    ...(args.since !== undefined ? { since: parseBound(args.since, 'since') } : {}),
+    ...(args.until !== undefined ? { until: parseBound(args.until, 'until') } : {})
+  }
+}
+
+/** 시각 중 하나라도 `[since, until)` 안이면 그 기간에 "무슨 일이 있었던" 항목이다 (FR-6) */
+function touchedIn(times: Array<number | null>, range: { since?: number; until?: number }): boolean {
+  if (range.since === undefined && range.until === undefined) return true
+  return times.some((t) => t !== null
+    && (range.since === undefined || t >= range.since)
+    && (range.until === undefined || t < range.until))
 }
 
 const ISSUE_STATUS_VALUES = ['open', 'doing', 'done'] as const
@@ -126,32 +176,48 @@ export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
   }, async () => reply(() => deps.repos.list(ctx.workspaceId)))
 
   server.registerTool('list_issues', {
-    description: '이 workspace의 이슈 요약 목록 (id·title·status·updatedAt·repoIds·source·kind·priority·triagedAt — 본문은 빠진다). source/kind/priority가 비어 있거나 triagedAt이 null이면 아직 분류되지 않은 이슈다. 본문이 필요하면 get_issue를 쓴다.',
+    description: '이 workspace의 이슈 요약 목록 (id·title·status·repoIds·source·kind·priority와 시각 createdAt·startedAt(마지막으로 doing이 된 때)·closedAt(done이 된 때)·updatedAt·triagedAt — 본문은 빠진다). 시각은 시간대가 붙은 ISO다. source/kind/priority가 비어 있거나 triagedAt이 null이면 아직 분류되지 않은 이슈다. since·until을 주면 그 기간에 만들어지거나 시작·완료·수정된 이슈만 준다 — "이번 주에 생긴 것·한 일" 정리에 쓴다. 본문이 필요하면 get_issue를 쓴다.',
     inputSchema: {
       status: ISSUE_STATUS.optional().describe('상태로 거른다'),
-      repoId: z.string().optional().describe('이 repo에 태그된 것과 공통 항목만')
+      repoId: z.string().optional().describe('이 repo에 태그된 것과 공통 항목만'),
+      ...RANGE
     }
-  }, async ({ status, repoId }) => reply(() => {
+  }, async ({ status, repoId, since, until }) => reply(() => {
+    const range = readRange({ since, until })
     const rows = deps.issues.list({ workspaceId: ctx.workspaceId, ...(repoId ? { repoId } : {}) })
+      .filter((r) => touchedIn([r.createdAt, r.startedAt, r.closedAt, r.updatedAt], range))
     return (status ? rows.filter((r) => r.status === status) : rows).map(issueSummary)
   }))
 
   server.registerTool('get_issue', {
     description: '이슈 하나의 본문 전체',
     inputSchema: { id: z.string() }
-  }, async ({ id }) => reply(() => loadIssue(deps, ctx, id)))
+  }, async ({ id }) => reply(() => issueOut(loadIssue(deps, ctx, id))))
 
   server.registerTool('list_memos', {
-    description: '이 workspace의 메모 요약 목록 (id·title·updatedAt·repoIds — 본문은 빠진다). 본문이 필요하면 get_memo를 쓴다.',
-    inputSchema: { repoId: z.string().optional().describe('이 repo에 태그된 것과 공통 항목만') }
-  }, async ({ repoId }) => reply(() =>
-    deps.memos.list({ workspaceId: ctx.workspaceId, ...(repoId ? { repoId } : {}) }).map(memoSummary)
-  ))
+    description: '이 workspace의 메모 요약 목록 (id·title·repoIds·createdAt·updatedAt — 본문은 빠진다). 시각은 시간대가 붙은 ISO다. since·until을 주면 그 기간에 만들어지거나 수정된 메모만 준다. 본문이 필요하면 get_memo를 쓴다.',
+    inputSchema: {
+      repoId: z.string().optional().describe('이 repo에 태그된 것과 공통 항목만'),
+      ...RANGE
+    }
+  }, async ({ repoId, since, until }) => reply(() => {
+    const range = readRange({ since, until })
+    return deps.memos.list({ workspaceId: ctx.workspaceId, ...(repoId ? { repoId } : {}) })
+      .filter((r) => touchedIn([r.createdAt, r.updatedAt], range))
+      .map(memoSummary)
+  }))
 
   server.registerTool('get_memo', {
     description: '메모 하나의 본문 전체',
     inputSchema: { id: z.string() }
-  }, async ({ id }) => reply(() => loadMemo(deps, ctx, id)))
+  }, async ({ id }) => reply(() => memoOut(loadMemo(deps, ctx, id))))
+
+  server.registerTool('list_conversations', {
+    description: '이 workspace에서 돌린 대화(agent 실행)의 요약 목록, 최신 활동순 — id·title·startedAt·lastActivityAt·status·needsAnswer·turns·closed·firstPrompt(첫 지시 앞부분)·lastAnswer(마지막 답 앞부분). 시각은 시간대가 붙은 ISO다. since·until을 주면 그 기간에 활동이 있던 대화만 준다 — "이번 주에 한 일" 정리에 쓴다. 지시·답 전체는 싣지 않는다.',
+    inputSchema: { ...RANGE }
+  }, async ({ since, until }) => reply(() =>
+    summarizeConversations(deps.runs.list(ctx.workspaceId), readRange({ since, until }))
+  ))
 
   // 읽기 전용은 여기서 끝난다. 파일은 못 고치는데 이슈 상태는 바꿀 수 있다면
   // "읽기 전용"이라는 표현을 신뢰할 수 없게 된다 (설계 §8).
@@ -167,14 +233,14 @@ export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
       kind: ISSUE_KIND.optional().describe('무슨 성격의 일인가'),
       priority: ISSUE_PRIORITY.optional().describe('얼마나 급한가')
     }
-  }, async ({ title, body, repoIds, source, kind, priority }) => reply(() => deps.issues.create({
+  }, async ({ title, body, repoIds, source, kind, priority }) => reply(() => issueOut(deps.issues.create({
     workspaceId: ctx.workspaceId, title, body,
     ...(repoIds ? { repoIds } : {}),
     // 셋을 다 주면 triagedAt이 파생돼 사람의 훑기를 건너뛴다 (설계 §6).
     ...(source ? { source } : {}),
     ...(kind ? { kind } : {}),
     ...(priority ? { priority } : {})
-  })))
+  }))))
 
   server.registerTool('update_issue', {
     description: '이슈의 상태·본문·분류를 고친다',
@@ -190,14 +256,14 @@ export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
     // 소속 확인이 먼저다. 저장소의 update는 id만 보므로 여기서 막지 않으면
     // 다른 workspace의 이슈가 고쳐진다.
     loadIssue(deps, ctx, id)
-    return deps.issues.update({
+    return issueOut(deps.issues.update({
       id,
       ...(status ? { status } : {}),
       ...(body !== undefined ? { body } : {}),
       ...(source ? { source } : {}),
       ...(kind ? { kind } : {}),
       ...(priority ? { priority } : {})
-    })
+    }))
   }))
 
   server.registerTool('create_memo', {
@@ -207,9 +273,9 @@ export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
       body: z.string().default(''),
       repoIds: z.array(z.string()).optional().describe('태그할 repo. 같은 workspace여야 한다')
     }
-  }, async ({ title, body, repoIds }) => reply(() => deps.memos.create({
+  }, async ({ title, body, repoIds }) => reply(() => memoOut(deps.memos.create({
     workspaceId: ctx.workspaceId, title, body, ...(repoIds ? { repoIds } : {})
-  })))
+  }))))
 
   server.registerTool('update_memo', {
     description: '메모의 제목이나 본문을 고친다',
@@ -220,9 +286,9 @@ export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
     }
   }, async ({ id, title, body }) => reply(() => {
     loadMemo(deps, ctx, id)
-    return deps.memos.update({
+    return memoOut(deps.memos.update({
       id, ...(title !== undefined ? { title } : {}), ...(body !== undefined ? { body } : {})
-    })
+    }))
   }))
 
   return server

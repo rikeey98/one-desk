@@ -151,7 +151,7 @@ export function createCore(opts: CoreOptions) {
   runs.reapStale()
 
   const mcp = createMcpHost({
-    deps: { repos, issues, memos },
+    deps: { repos, issues, memos, runs },
     configDir: join(opts.dataDir, 'mcp'),
     execPath: opts.execPath ?? process.execPath,
     // 번들되지 않는 원본 .mjs다 — import.meta.url 기준으로 찾는다.

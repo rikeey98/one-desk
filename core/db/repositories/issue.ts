@@ -5,7 +5,7 @@ import { issue, issueRepo, repo } from '../schema'
 import { NotFoundError } from '../../errors'
 import type {
   Issue, CreateIssueInput, UpdateIssueInput, ListQuery,
-  GuardedUpdateIssueInput, IssueUpdateResult, IssueSource, IssueKind, IssuePriority
+  GuardedUpdateIssueInput, IssueUpdateResult, IssueSource, IssueKind, IssuePriority, IssueStatus
 } from '@shared/models'
 
 /** db.transaction()의 콜백이 받는 runner. db와 같은 쿼리 빌더 API를 갖는다. */
@@ -65,6 +65,7 @@ export function createIssueRepository(db: Database) {
   /** buildPatch가 파생을 계산하려면 현재 축 값이 필요하다. */
   type Previous = {
     updatedAt: number
+    status: IssueStatus
     source: IssueSource | null
     kind: IssueKind | null
     priority: IssuePriority | null
@@ -82,10 +83,14 @@ export function createIssueRepository(db: Database) {
     }
     if (input.title !== undefined) patch['title'] = input.title
     if (input.body !== undefined) patch['body'] = input.body
-    if (input.status !== undefined) {
+    // closedAt·startedAt은 status에서 파생된다. 호출자가 따로 관리하면 둘이 어긋난다.
+    // **상태가 실제로 바뀔 때만** 건드린다 (docs/sdlc/timestamps/ FR-2) — 충돌 배너의 덮어쓰기와
+    // MCP update_issue는 상태를 늘 함께 보내, 같은 값으로 다시 찍으면 "언제 완료했나"가 거짓이 된다.
+    if (input.status !== undefined && input.status !== previous.status) {
       patch['status'] = input.status
-      // closedAt은 status에서 파생된다. 호출자가 따로 관리하면 둘이 어긋난다.
       patch['closedAt'] = input.status === 'done' ? Date.now() : null
+      // 마지막으로 doing이 된 때 (FR-1). 되돌려도 지우지 않는다 — "시작했던 일"은 사실이다.
+      if (input.status === 'doing') patch['startedAt'] = Date.now()
     }
 
     // triagedAt도 파생이다 (설계 §3). **축을 건드리는 갱신에서만 다시 계산한다** —
@@ -170,6 +175,7 @@ export function createIssueRepository(db: Database) {
         .select({
           workspaceId: issue.workspaceId,
           updatedAt: issue.updatedAt,
+          status: issue.status,
           source: issue.source,
           kind: issue.kind,
           priority: issue.priority
@@ -205,6 +211,7 @@ export function createIssueRepository(db: Database) {
             .select({
               workspaceId: issue.workspaceId,
               updatedAt: issue.updatedAt,
+              status: issue.status,
               source: issue.source,
               kind: issue.kind,
               priority: issue.priority

@@ -4,6 +4,7 @@ import { useDebouncedSave } from '../hooks/useDebouncedSave'
 import { ConflictBanner } from './ConflictBanner'
 import { ConfirmButton } from './ConfirmButton'
 import { RepoTags } from './RepoTags'
+import { DetailStamp } from './CopyButton'
 import {
   PRIORITY_ORDER, SOURCE_ORDER, KIND_ORDER,
   PRIORITY_LABELS, SOURCE_LABELS, KIND_LABELS
@@ -286,6 +287,8 @@ export function IssueDetail({ issue, repos, onChanged, onDeleted, onRequestClose
         picked={repoIds}
         onChange={changeRepos}
       />
+      {/* id는 agent가 MCP(get_issue·update_issue)로 이 이슈를 짚는 이름이다. 짧게 보이고 전체를 복사한다. */}
+      <DetailStamp kind="이슈" id={issue.id} times={[['만듦', issue.createdAt], ['시작', issue.startedAt], ['완료', issue.closedAt]]} />
       </div>
       <textarea
         aria-label="본문"

@@ -8,6 +8,7 @@ import { createRepoRepository } from '../db/repositories/repo'
 import { createIssueRepository } from '../db/repositories/issue'
 import { createMemoRepository } from '../db/repositories/memo'
 import { createWorkspaceRepository } from '../db/repositories/workspace'
+import { createRunRepository } from '../db/repositories/run'
 import { createMcpHost, type McpHost } from './host'
 import { rpc } from './testing'
 import type { Permission } from '@shared/models'
@@ -24,6 +25,7 @@ interface Fixture {
   repoA: string
   db: ReturnType<typeof makeTestDb>
   issues: ReturnType<typeof createIssueRepository>
+  runs: ReturnType<typeof createRunRepository>
 }
 
 let f: Fixture
@@ -34,6 +36,7 @@ beforeEach(() => {
   const repos = createRepoRepository(db)
   const issues = createIssueRepository(db)
   const memos = createMemoRepository(db)
+  const runs = createRunRepository(db)
 
   const wsA = workspaces.create({ name: 'A' }).id
   const wsB = workspaces.create({ name: 'B' }).id
@@ -42,13 +45,13 @@ beforeEach(() => {
 
   const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-mcptools-'))
   f = {
-    db, dir, wsA, wsB, repoA, issues,
+    db, dir, wsA, wsB, repoA, issues, runs,
     issueA: issues.create({ workspaceId: wsA, title: 'A의 이슈', body: '본문 A' }).id,
     issueB: issues.create({ workspaceId: wsB, title: 'B의 이슈', body: '본문 B' }).id,
     memoA: memos.create({ workspaceId: wsA, title: 'A의 메모', body: '메모 A' }).id,
     memoB: memos.create({ workspaceId: wsB, title: 'B의 메모', body: '메모 B' }).id,
     host: createMcpHost({
-      deps: { repos, issues, memos },
+      deps: { repos, issues, memos, runs },
       configDir: resolve(dir, 'mcp'),
     execPath: process.execPath,
     bridgePath: fileURLToPath(new URL('./bridge.mjs', import.meta.url))
@@ -101,7 +104,8 @@ describe('읽기 도구', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0]).not.toHaveProperty('body')
     expect(Object.keys(rows[0]).sort()).toEqual(
-      ['id', 'kind', 'priority', 'repoIds', 'source', 'status', 'title', 'triagedAt', 'updatedAt']
+      ['closedAt', 'createdAt', 'id', 'kind', 'priority', 'repoIds', 'source', 'startedAt', 'status', 'title',
+        'triagedAt', 'updatedAt']
     )
   })
 
@@ -141,7 +145,7 @@ describe('읽기 도구', () => {
     const rows = JSON.parse(text)
     expect(rows).toHaveLength(1)
     expect(rows[0]).not.toHaveProperty('body')
-    expect(Object.keys(rows[0]).sort()).toEqual(['id', 'repoIds', 'title', 'updatedAt'])
+    expect(Object.keys(rows[0]).sort()).toEqual(['createdAt', 'id', 'repoIds', 'title', 'updatedAt'])
   })
 
   it('get_memo는 본문을 준다', async () => {
@@ -160,9 +164,9 @@ describe('읽기 도구', () => {
     expect(text.replace(f.memoB, 'X')).toBe(missing.text.replace('없는-id', 'X'))
   })
 
-  it('읽기 전용 토큰에 읽기 도구 다섯 개가 있다', async () => {
+  it('읽기 전용 토큰에 읽기 도구 여섯 개가 있다', async () => {
     expect(new Set(await toolNames(f.wsA, 'read_only'))).toEqual(new Set([
-      'list_repos', 'list_issues', 'get_issue', 'list_memos', 'get_memo'
+      'list_repos', 'list_issues', 'get_issue', 'list_memos', 'get_memo', 'list_conversations'
     ]))
   })
 })
@@ -238,9 +242,9 @@ describe('권한이 도구 등록을 통제한다', () => {
     expect(names).not.toContain('update_memo')
   })
 
-  it('편집 허용과 전체 허용에는 아홉 개가 모두 있다', async () => {
+  it('편집 허용과 전체 허용에는 열 개가 모두 있다', async () => {
     for (const p of ['edit', 'full'] as const) {
-      expect(await toolNames(f.wsA, p)).toHaveLength(9)
+      expect(await toolNames(f.wsA, p)).toHaveLength(10)
     }
   })
 
@@ -299,5 +303,111 @@ describe('분류 축', () => {
     expect(row?.kind).toBe('feature')
     expect(row?.priority).toBe('week')
     expect(row?.triagedAt).not.toBeNull()
+  })
+})
+
+/** 시각으로 정리하기 (docs/sdlc/timestamps/ FR-4~FR-7) */
+describe('시각', () => {
+  const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$/
+
+  it('목록 요약의 시각은 시간대가 붙은 ISO다 — 같은 순간으로 되읽힌다', async () => {
+    const issue = f.issues.update({ id: f.issueA, status: 'doing' })
+    const [row] = JSON.parse((await call(f.wsA, 'read_only', 'list_issues')).text)
+    expect(row.createdAt).toMatch(ISO)
+    expect(Date.parse(row.createdAt)).toBe(issue.createdAt)
+    expect(Date.parse(row.startedAt)).toBe(issue.startedAt)
+    expect(Date.parse(row.updatedAt)).toBe(issue.updatedAt)
+    expect(row.closedAt).toBeNull()
+    const [memo] = JSON.parse((await call(f.wsA, 'read_only', 'list_memos')).text)
+    expect(memo.createdAt).toMatch(ISO)
+  })
+
+  it('get·create·update의 응답 시각도 ISO다', async () => {
+    const got = JSON.parse((await call(f.wsA, 'read_only', 'get_issue', { id: f.issueA })).text)
+    expect(got.createdAt).toMatch(ISO)
+    expect(got.seenAt).toBeNull()
+    const made = JSON.parse((await call(f.wsA, 'edit', 'create_memo', { title: '새 메모' })).text)
+    expect(made.createdAt).toMatch(ISO)
+    const done = JSON.parse((await call(f.wsA, 'edit', 'update_issue', { id: f.issueA, status: 'done' })).text)
+    expect(done.closedAt).toMatch(ISO)
+  })
+
+  it('since·until은 그 기간에 만들어지거나 시작·완료·수정된 것만 준다', async () => {
+    // 행의 시각을 직접 옮겨 기간을 만든다 — 같은 밀리초에 만든 둘을 가르려면 이것이 확실하다.
+    const day = (d: number) => new Date(2026, 8, d, 12).getTime()
+    f.db.$client.prepare('update issue set created_at = ?, updated_at = ? where id = ?').run(day(1), day(1), f.issueA)
+    const later = f.issues.create({ workspaceId: f.wsA, title: '나중 이슈' })
+    f.db.$client.prepare('update issue set created_at = ?, updated_at = ? where id = ?').run(day(10), day(10), later.id)
+    // 1일에 만들었지만 12일에 완료한 이슈 — 완료 시각으로 기간에 든다.
+    f.db.$client.prepare('update issue set closed_at = ? where id = ?').run(day(12), f.issueA)
+
+    const titles = async (args: Record<string, string>) =>
+      JSON.parse((await call(f.wsA, 'read_only', 'list_issues', args)).text).map((r: { title: string }) => r.title).sort()
+    expect(await titles({ since: '2026-09-09', until: '2026-09-11' })).toEqual(['나중 이슈'])
+    expect(await titles({ since: '2026-09-12' })).toEqual(['A의 이슈'])
+    expect(await titles({ until: '2026-09-02' })).toEqual(['A의 이슈'])
+    // until은 그 시각 전까지다 — 10일 0시까지면 10일 정오의 것은 빠진다.
+    expect(await titles({ since: '2026-09-09', until: '2026-09-10' })).toEqual([])
+  })
+
+  it('못 읽는 기간은 오류로 알린다', async () => {
+    const { isError, text } = await call(f.wsA, 'read_only', 'list_memos', { since: '지난주' })
+    expect(isError).toBe(true)
+    expect(text).toContain('since')
+  })
+
+  describe('list_conversations', () => {
+    function turn(workspaceId: string, prompt: string, parentRunId?: string) {
+      return f.runs.create({
+        workspaceId, agentKind: 'claude-code', model: null, effort: null, cwd: '/tmp',
+        permission: 'edit', userPrompt: prompt, assembledPrompt: '<task/>', logPath: '/tmp/x',
+        context: [], ...(parentRunId ? { parentRunId } : {})
+      })
+    }
+    function finish(id: string, resultText: string, needsAnswer = false) {
+      f.runs.markStarted(id)
+      f.runs.markFinished(id, {
+        status: 'succeeded', resultText, externalSessionId: null, needsAnswer,
+        exitCode: 0, errorMessage: null, usage: null
+      })
+    }
+
+    it('대화 하나당 한 줄 — 제목·턴 수·대표 턴의 상태와 답 앞부분, 다른 workspace는 없다', async () => {
+      const root = turn(f.wsA, '로그인 버그 고쳐\n자세한 설명')
+      finish(root.id, '고쳤습니다')
+      const second = turn(f.wsA, '테스트도 추가해', root.id)
+      finish(second.id, `추가했습니다 ${'가'.repeat(400)}`, true)
+      finish(turn(f.wsB, 'B의 대화').id, '끝')
+
+      const rows = JSON.parse((await call(f.wsA, 'read_only', 'list_conversations')).text)
+      expect(rows).toHaveLength(1)
+      const [c] = rows
+      expect(c).toMatchObject({
+        id: root.id, title: '로그인 버그 고쳐', turns: 2, status: 'succeeded', needsAnswer: true, closed: false,
+        firstPrompt: '로그인 버그 고쳐\n자세한 설명'
+      })
+      expect(c.lastAnswer.startsWith('추가했습니다')).toBe(true)
+      expect(c.lastAnswer.length).toBeLessThanOrEqual(301)
+      expect(c.startedAt).toMatch(ISO)
+      expect(Date.parse(c.lastActivityAt)).toBeGreaterThanOrEqual(Date.parse(c.startedAt))
+      // 지시·답 전체와 맥락은 싣지 않는다.
+      expect(c).not.toHaveProperty('assembledPrompt')
+    })
+
+    it('붙인 이름이 있으면 그것이 제목이고, 기간은 [시작, 마지막 활동]이 겹치면 든다', async () => {
+      const day = (d: number) => new Date(2026, 8, d, 12).getTime()
+      const old = turn(f.wsA, '옛 대화')
+      f.runs.rename(old.id, '9월 초 작업')
+      f.db.$client.prepare('update run set created_at = ?, started_at = ?, ended_at = ? where id = ?')
+        .run(day(1), day(1), day(3), old.id)
+      const now = turn(f.wsA, '지금 대화')
+      f.db.$client.prepare('update run set created_at = ? where id = ?').run(day(20), now.id)
+
+      const titles = async (args: Record<string, string>) =>
+        JSON.parse((await call(f.wsA, 'read_only', 'list_conversations', args)).text).map((r: { title: string }) => r.title)
+      expect(await titles({})).toEqual(['지금 대화', '9월 초 작업'])
+      expect(await titles({ since: '2026-09-02', until: '2026-09-05' })).toEqual(['9월 초 작업'])
+      expect(await titles({ since: '2026-09-15' })).toEqual(['지금 대화'])
+    })
   })
 })

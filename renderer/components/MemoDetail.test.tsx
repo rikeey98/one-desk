@@ -67,6 +67,27 @@ const errorAlert = (): HTMLElement | null => alertWith('form-error')
 beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }) })
 afterEach(() => { vi.useRealTimers() })
 
+describe('MemoDetail — id', () => {
+  const ID = '9d81c0aa-2e3f-4b5c-8d7e-6f1a2b3c4d5e'
+
+  it('짧은 id를 보이고, 누르면 전체 id를 복사한다 (IssueDetail과 대칭)', async () => {
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    renderDetail(makeClient(), makeMemo({ id: ID }))
+    const button = screen.getByRole('button', { name: '메모 id 복사' })
+    expect(button).toHaveTextContent('#9d81c0aa')
+    expect(button).toHaveAttribute('title', expect.stringContaining(ID))
+    await act(async () => { fireEvent.click(button) })
+    expect(writeText).toHaveBeenCalledWith(ID)
+  })
+
+  it('만든 날을 보인다 (IssueDetail과 대칭)', () => {
+    const year = new Date().getFullYear()
+    renderDetail(makeClient(), makeMemo({ createdAt: new Date(year, 8, 28, 9).getTime() }))
+    expect(screen.getByText('만듦 9월 28일')).toBeInTheDocument()
+  })
+})
+
 describe('MemoDetail', () => {
   it('제목과 본문을 보여준다', () => {
     renderDetail(makeClient())

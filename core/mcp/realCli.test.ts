@@ -19,6 +19,7 @@ import { makeTestDb } from '../db/repositories/testing'
 import { createRepoRepository } from '../db/repositories/repo'
 import { createIssueRepository } from '../db/repositories/issue'
 import { createMemoRepository } from '../db/repositories/memo'
+import { createRunRepository } from '../db/repositories/run'
 import { createWorkspaceRepository } from '../db/repositories/workspace'
 import { claudeCodeAdapter } from '../runner/adapters/claudeCode'
 import { createMcpHost, MCP_SERVER_NAME, type McpHost } from './host'
@@ -37,7 +38,8 @@ beforeEach(() => {
     deps: {
       repos: createRepoRepository(db),
       issues: createIssueRepository(db),
-      memos: createMemoRepository(db)
+      memos: createMemoRepository(db),
+      runs: createRunRepository(db)
     },
     configDir: resolve(dir, 'mcp'),
     execPath: process.execPath,

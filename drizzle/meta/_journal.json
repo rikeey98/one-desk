@@ -64,6 +64,13 @@
       "when": 1790168877373,
       "tag": "0008_lovely_klaw",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1790648716861,
+      "tag": "0009_brainy_firebird",
+      "breakpoints": true
     }
   ]
 }

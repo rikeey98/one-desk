@@ -54,7 +54,10 @@ export const issue = sqliteTable('issue', {
   triagedAt: integer('triaged_at'),
   // 사람이 상세를 연 시각. updatedAt과 분리한다 — updatedAt은 agent도 MCP로 올리므로
   // 그것으로 방치를 판정하면 agent가 건드린 이슈일수록 조용해진다.
-  seenAt: integer('seen_at')
+  seenAt: integer('seen_at'),
+  // 마지막으로 doing이 된 시각 (docs/sdlc/timestamps/ FR-1). closedAt처럼 저장소가 상태에서
+  // 파생하고, 되돌려도 지우지 않는다. 0009 이전 이슈는 null이다(지어내지 않는다).
+  startedAt: integer('started_at')
 }, (t) => [
   index('issue_workspace_status_idx').on(t.workspaceId, t.status),
   index('issue_triaged_idx').on(t.workspaceId, t.triagedAt)
