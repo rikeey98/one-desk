@@ -175,7 +175,7 @@ export function ConversationList({
         className={isNew ? 'dock-new dock-new-selected' : 'dock-new'}
         onClick={onPickNew}
       >
-        <IconPlus width="12" height="12" />
+        <IconPlus width="14" height="14" />
         새 대화
       </button>
       <ul className="dock-conv-list">{open.map(row)}</ul>

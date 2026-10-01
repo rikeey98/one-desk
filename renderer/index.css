@@ -304,9 +304,12 @@ body { margin: 0; background: var(--bg); color: var(--text); }
    (.repo-actions와 같은 이유·같은 방식). 폭 0이어도 Tab으로 닿는다. */
 .dock-conv-actions { display: flex; flex: 0 0 auto; gap: 1px; width: 0; overflow: hidden; opacity: 0; transition: opacity .12s; }
 .dock-conv-row:hover .dock-conv-actions, .dock-conv-row:focus-within .dock-conv-actions { width: auto; opacity: 1; }
-.dock-new { display: flex; align-items: center; gap: 5px; border: 1px dashed var(--border); border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: .6875rem; padding: 4px 7px; text-align: left; flex: 0 0 auto; }
-.dock-new:hover { background: var(--bg-hover); color: var(--text); }
-.dock-new-selected { border-style: solid; border-color: var(--accent-border); background: var(--accent-bg); color: var(--text); font-weight: 600; }
+/* 새 대화는 주 동작이다(2026-10-01, DESIGN.md "버튼") — 점선·11px·흐린 글자일 때는 빈 자리 표시처럼 읽혀
+   눈에 띄지 않았다. 파란 면 + 13px, 그리고 목록 스크롤 밖에 고정(sticky)이라 대화가 많아도 맨 위에 남는다.
+   아래 그림자는 고정된 버튼 밑으로 지나가는 목록 줄을 가린다. 지금 새 대화를 쓰는 중이면 바깥 고리로 가른다. */
+.dock-new { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 6px; flex: 0 0 auto; min-height: 32px; margin-bottom: 6px; padding: 6px 10px; border: 1px solid var(--accent-strong); border-radius: 6px; background: var(--accent); color: var(--on-accent); cursor: pointer; font: inherit; font-size: .8125rem; font-weight: 600; box-shadow: 0 6px 0 var(--bg); transition: background .12s; }
+.dock-new:hover, .dock-new:active { background: var(--accent-strong); }
+.dock-new-selected { box-shadow: 0 0 0 2px var(--accent-border), 0 6px 0 var(--bg); }
 .dock-closed-toggle { display: flex; align-items: center; gap: 5px; margin-top: 4px; border: 0; border-top: 1px solid var(--border); padding: 6px 7px 0; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: .625rem; text-align: left; flex: 0 0 auto; }
 .dock-closed-toggle:hover { color: var(--text); }
 .dock-closed-chevron { flex: 0 0 auto; color: var(--text-muted); }

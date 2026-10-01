@@ -128,7 +128,7 @@ one-desk는 사람이 **작업 중에** 쓰는 도구다(Operate). 화면은 목
   `--border-strong`.
 - **글자**: 본문 `--text`, 설명·메타 `--text-secondary`, 빈 상태 안내는 `--text-muted`.
   **안내문을 `opacity`로 흐리게 하지 않는다** — 4.5:1 아래로 떨어진다. 색 토큰을 쓴다.
-- **강조(파랑)**: 주 동작 버튼과 선택 상태에만. 선택된 탭·카드·칩은 `--accent-bg` 배경에
+- **강조(파랑)**: 주 동작 버튼(전송·저장·새 대화)과 선택 상태에만. 선택된 탭·카드·칩은 `--accent-bg` 배경에
   `--accent-border` 테두리. 파란 글자(`--accent-text`)는 "골라진 것"뿐이다 — 답 안의 링크는
   파란 글자가 아니라 밑줄로 가르고 hover에서만 파랗다. 사용자 버블의 바탕(`--accent-bg`)은
   "내가 한 말"을 가르는 면이지 선택 상태가 아니다.
@@ -196,7 +196,9 @@ workspace 아래에 그 workspace의 repo가 트리처럼 들여쓰기로 붙는
 
 ## Components
 
-- **버튼**: 주 동작만 파란 면이다 — 입력 카드의 전송(`.run-start`, 28px 원)과 설정 절의 저장.
+- **버튼**: 주 동작만 파란 면이다 — 입력 카드의 전송(`.run-start`, 28px 원), 설정 절의 저장, 그리고 도크 목록 맨 위의
+  `새 대화`(`.dock-new`, 2026-10-01 — 점선 보조 버튼일 때는 빈 자리 표시처럼 읽혀 찾지 못했다. 목록 스크롤 밖에 고정이고,
+  새 대화를 쓰는 중이면 `--accent-border` 바깥 고리로 가른다).
   나머지는 흰 배경 + 테두리. 모든 버튼에 hover·active·focus-visible·disabled가 있다. disabled는
   `opacity: .4` — **글자를 흐리는 데 opacity를 쓰지 않는다**(쓰는 곳은 disabled와, hover·포커스에
   드러나는 줄 끝 아이콘의 0/1뿐이다). 흐린 글자는 토큰(`--text-muted`/`--text-secondary`)이다. Chromium이 disabled `<select>`를 통째로 반투명하게 그리므로 잠긴 알약은
