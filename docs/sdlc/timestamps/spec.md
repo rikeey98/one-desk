@@ -43,6 +43,13 @@
 - **FR-8.** 이슈 상세의 id 알약 곁에 `만듦 9월 28일 · 시작 9월 28일 · 완료 9월 29일`(있는 것만), 메모 상세에 `만듦 9월 28일`.
   올해가 아니면 연도를 붙인다. `title`에 각 시각의 날짜·시·분. 수정 시각은 싣지 않는다 — agent 편집과 섞여 뜻이 흐리다.
 
+- **FR-9. 새 도구 `get_conversation({ id })`** (2026-10-01 추가 요청 — "agent가 턴 하나하나의 시각을 받을 수 있게").
+  읽기 전용에서도 된다. `id`는 `list_conversations`의 뿌리 id나 그 대화의 아무 턴 id다. 대화의 턴 전부를 **오래된 순**으로,
+  턴마다 `requestedAt`(지시를 보낸 때 = `run.created_at`)·`startedAt`(실행 시작)·`endedAt`(끝)과 `waitSeconds`(시작 − 보냄)·
+  `durationSeconds`(끝 − 시작, 초·소수 한 자리)·`status`·`needsAnswer`·`agent`·`model`(관측값, 없으면 요청값)·`prompt`(500자)·
+  `answer`(1,000자)·`error`(300자). 모르는 값은 null이다 — 시작하지 못하고 취소된 턴은 `startedAt`이 없다. 저장된 것을 읽기만
+  한다(새 컬럼 없음 — 세 시각은 원래 run 행에 있었다). 다른 workspace의 대화는 없는 id와 같은 말로 떨군다.
+
 ## 3. 우려
 
 1. `startedAt`은 "마지막으로 시작한 때"다 — 여러 번 doing을 오간 이슈의 첫 시작은 남지 않는다.

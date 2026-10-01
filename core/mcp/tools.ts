@@ -9,7 +9,7 @@ import type { RunRepository } from '../db/repositories/run'
 import type { RunContext } from './host'
 import type { Issue, IssueStatus, IssueSource, IssueKind, IssuePriority, Memo } from '@shared/models'
 import { parseBound, toIso } from './time'
-import { summarizeConversations } from './conversations'
+import { summarizeConversations, conversationDetail } from './conversations'
 
 export interface McpHostDeps {
   repos: RepoRepository
@@ -218,6 +218,16 @@ export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
   }, async ({ since, until }) => reply(() =>
     summarizeConversations(deps.runs.list(ctx.workspaceId), readRange({ since, until }))
   ))
+
+  server.registerTool('get_conversation', {
+    description: '대화 하나의 턴 전부, 오래된 순 — 턴마다 requestedAt(지시를 보낸 때)·startedAt(실행 시작)·endedAt(끝)·waitSeconds(기다린 초)·durationSeconds(걸린 초)·status·needsAnswer·agent·model·prompt(지시 앞부분)·answer(답 앞부분)·error. 시각은 시간대가 붙은 ISO다. id는 list_conversations의 id나 그 대화의 아무 턴 id. "언제 무엇을 시켰고 얼마나 걸렸나" 정리에 쓴다.',
+    inputSchema: { id: z.string() }
+  }, async ({ id }) => reply(() => {
+    // 토큰의 workspace 것만 본다 — 다른 workspace의 대화는 없는 id와 같은 말로 떨군다(loadIssue와 같은 원칙).
+    const detail = conversationDetail(deps.runs.list(ctx.workspaceId), id)
+    if (!detail) throw new NotFoundError(`대화를 찾을 수 없습니다: ${id}`)
+    return detail
+  }))
 
   // 읽기 전용은 여기서 끝난다. 파일은 못 고치는데 이슈 상태는 바꿀 수 있다면
   // "읽기 전용"이라는 표현을 신뢰할 수 없게 된다 (설계 §8).

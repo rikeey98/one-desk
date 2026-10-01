@@ -2,7 +2,7 @@
 
 workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 골라 CLI 코딩 agent(Claude Code, OpenCode)에게 넘겨 헤드리스로 실행한 뒤 결과를 앱에 기록하는 Electron 데스크톱 앱.
 
-**현재 상태:** 4단계 완료(MCP 서버 — 호스트/도구 아홉 개/권한별 등록/커맨드 배선), `main`에 병합됨(`a19b4fd`). 이슈·메모 본문 편집(설계 `2026-08-14-issue-memo-body-design.md`)도 `main`에 병합됨(`c91438e`) — 저장소의 `updateIfUnchanged`로 낙관적 잠금, 선택한 패널이 커지는 동적 3컬럼, 맥락 담기와 열기 분리, `IssueDetail`·`MemoDetail` 본문 편집기, 그리고 `e2e/body.e2e.ts`가 IPC 왕복(`client.issues.updateIfUnchanged` → preload → `ipcMain.handle` → 저장소)을 실제로 검증한다. **상태 편집은 상세에만 있다** — 목록의 상태 칩은 읽기 전용 배지다(§5·§9). 3b 리뷰가 4단계로 이월한 것 둘 다 해소됐다: `core/`의 `console.error`가 주입식 `onError`로 바뀌었고, `resume`의 catch는 DB 장애를 더 이상 뭉개지 않는다.
+**현재 상태:** 4단계 완료(MCP 서버 — 호스트/도구 아홉 개(지금은 열한 개)/권한별 등록/커맨드 배선), `main`에 병합됨(`a19b4fd`). 이슈·메모 본문 편집(설계 `2026-08-14-issue-memo-body-design.md`)도 `main`에 병합됨(`c91438e`) — 저장소의 `updateIfUnchanged`로 낙관적 잠금, 선택한 패널이 커지는 동적 3컬럼, 맥락 담기와 열기 분리, `IssueDetail`·`MemoDetail` 본문 편집기, 그리고 `e2e/body.e2e.ts`가 IPC 왕복(`client.issues.updateIfUnchanged` → preload → `ipcMain.handle` → 저장소)을 실제로 검증한다. **상태 편집은 상세에만 있다** — 목록의 상태 칩은 읽기 전용 배지다(§5·§9). 3b 리뷰가 4단계로 이월한 것 둘 다 해소됐다: `core/`의 `console.error`가 주입식 `onError`로 바뀌었고, `resume`의 catch는 DB 장애를 더 이상 뭉개지 않는다.
 
 **릴리스 파이프라인**(설계 `2026-08-14-release-pipeline-design.md`)이 붙었다. `v*` 태그를 밀면 GitHub Actions가 빌드해 draft 릴리스에 산출물을 올린다. **지금 빌드하는 것은 Windows portable `.exe`(x64) 하나뿐이다** — 받아서 쓰는 사람이 Windows뿐이고, release job이 `needs: build`라 다른 플랫폼이 깨지면 Windows 산출물까지 못 올라가기 때문이다(워크플로 matrix 주석에 되살리는 법이 적혀 있다). macOS는 개발 장비에서 `pnpm run pack`으로 언제든 만든다. **네이티브 모듈 때문에 크로스 컴파일은 불가능하므로** — `better-sqlite3`를 각 러너에서 그 플랫폼의 Electron ABI에 맞춰 컴파일한다. Windows 러너는 `windows-2022`로 고정돼 있다(최신 이미지의 Visual Studio 18을 node-gyp가 못 읽는다). **태그를 밀기 전에 `docs/releases/<태그>.md`(예: `v0.17.0.md`)에 그 버전의 변경 내용을 커밋해야 한다** — release job이 그 파일 + `.github/release-install.md`(설치 안내)로 본문을 조립하고, 파일이 없으면 실패한다(v0.16.0까지는 본문이 설치 안내와 compare 링크뿐이었다). 이 장비에는 `gh`가 없어 draft 본문을 나중에 고칠 수 없으니, 노트는 태그 전에 쓴다.
 
@@ -136,7 +136,8 @@ UTF-8 아님·256 KiB/턴 512 KiB/20개 초과)는 run 행을 만들기 전에 �
 (`issue.test`의 "같은 상태로 다시 저장해도…"). **MCP가 내보내는 시각은 전부 시간대가 붙은 ISO다**(`core/mcp/time.ts`) —
 epoch ms로 되돌리지 말 것, 모델이 요일을 계산하다 틀린다. `list_issues`·`list_memos`는 `since`·`until`(그 기간에
 만듦·시작·완료·수정 중 하나)을 받고, `list_conversations`(읽기 전용에서도)가 대화 요약을 준다 — 상태는
-`representativeTurn`이다(인박스와 같은 턴). 상세의 메타 줄 오른쪽 끝에 `만듦 · 시작 · 완료` 한 줄과 id 알약(`#` + 앞
+`representativeTurn`이다(인박스와 같은 턴). `get_conversation`(읽기 전용에서도)은 대화 하나의 턴을 오래된 순으로 펴서 턴마다
+보낸·시작·끝 시각과 기다린·걸린 초를 준다(spec FR-9 — 새 컬럼 없이 run 행의 `created_at`·`started_at`·`ended_at`). 상세의 메타 줄 오른쪽 끝에 `만듦 · 시작 · 완료` 한 줄과 id 알약(`#` + 앞
 8자리, 누르면 전체 id 복사 — 이름 `이슈 id 복사`·`메모 id 복사`)이 선다. "누가 손댔나"(활동 기록)는 범위 밖이다(spec §4).
 
 **이슈·메모·skill 패널을 repo마다 별도 창으로 연다** (`docs/sdlc/item-windows/`). 마이그레이션 없음. 패널 헤더의
@@ -772,7 +773,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/asset-missing/` | 사라진 asset 정리 — spec. 폴더 이름을 바꾼 skill이 두 줄로 남던 원인(설계 §3-4), 안 쓴 것만 지우는 규칙(FR-1), 루트가 없는 repo는 정리하지 않는 이유(FR-4) |
 | `docs/sdlc/context-occupancy/` | 컨텍스트 링이 턴마다 100% 가까이 튀던 결함 — spec. `iterations` 폴백을 버린 이유(FR-1), 창 크기를 고르는 모델(FR-2), run-info §8 개정 |
 | `docs/sdlc/plan-usage/` | Claude 요금제 사용률 — spec. `rate_limit_event` 실측(§1), 저장하지 않는 이유와 이벤트가 아닌 이유(FR-1·FR-3), 지난 리셋은 `—`(FR-5), run-info §7 좁힘 |
-| `docs/sdlc/timestamps/` | 시각으로 정리하기 — spec. `startedAt`과 상태가 바뀔 때만 파생(FR-1·2), MCP 시각 ISO·기간 거름·`list_conversations`(FR-4~7), 활동 기록을 뺀 이유(§4) |
+| `docs/sdlc/timestamps/` | 시각으로 정리하기 — spec. `startedAt`과 상태가 바뀔 때만 파생(FR-1·2), MCP 시각 ISO·기간 거름·`list_conversations`(FR-4~7)·턴별 시각 `get_conversation`(FR-9), 활동 기록을 뺀 이유(§4) |
 | `docs/sdlc/item-windows/` | 패널을 repo마다 별도 창으로 — spec·plan. 창의 단위와 고정(FR-1~3), 범위만 받는 IPC(FR-12), 모든 창의 가드(FR-14), 닫기 전 저장(FR-15·16), 바뀜 알림(FR-17~19), 본문 읽기/편집(FR-20~25), Cmd+Q 제약(§5). plan에 변이 표 |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |

@@ -82,3 +82,77 @@ export function summarizeConversations(
   }
   return rows.sort((a, b) => b.at - a.at).map((r) => r.summary)
 }
+
+/** `get_conversation`의 턴 한 줄에 싣는 글자 수 */
+const TURN_PROMPT_CHARS = 500
+const TURN_ANSWER_CHARS = 1000
+const TURN_ERROR_CHARS = 300
+
+/**
+ * `get_conversation`의 턴 하나 (docs/sdlc/timestamps/ FR-9). 시각은 ISO, 걸린 시간은 초다(소수 한 자리).
+ *
+ * - `requestedAt` — 지시를 보낸 때(행을 만든 때). 슬롯이 차 있거나 앞 턴이 돌면 여기서 기다린다.
+ * - `startedAt` — 실제로 실행이 시작된 때. 시작하지 못하고 취소된 턴은 null.
+ * - `endedAt` — 끝난 때(성공·실패·취소 모두). 아직 돌거나 기다리면 null.
+ * - `waitSeconds` = startedAt − requestedAt, `durationSeconds` = endedAt − startedAt. 모르면 null.
+ */
+export interface ConversationTurn {
+  id: string
+  requestedAt: string
+  startedAt: string | null
+  endedAt: string | null
+  waitSeconds: number | null
+  durationSeconds: number | null
+  status: RunStatus
+  needsAnswer: boolean
+  agent: Run['agentKind']
+  /** 실제로 돈 모델(관측값), 모르면 요청한 모델, 그것도 없으면 null(CLI 기본값) */
+  model: string | null
+  prompt: string
+  answer: string | null
+  error: string | null
+}
+
+export interface ConversationDetail {
+  id: string
+  title: string
+  closed: boolean
+  /** 오래된 순 */
+  turns: ConversationTurn[]
+}
+
+const seconds = (ms: number) => Math.round(ms / 100) / 10
+
+/**
+ * 대화 하나를 턴 단위로 편다. `id`는 뿌리 id(`list_conversations`의 id)든 그 대화의 아무 턴 id든 받는다.
+ * **`runs`는 이미 토큰의 workspace로 거른 목록이어야 한다** — 여기서 못 찾으면 null이고, 호출자가 없는 id와
+ * 같은 말로 떨군다(다른 workspace의 대화가 있는지 새지 않게).
+ */
+export function conversationDetail(runs: readonly Run[], id: string): ConversationDetail | null {
+  const hit = runs.find((r) => r.id === id)
+  if (!hit) return null
+  const rootId = hit.rootRunId ?? hit.id
+  const turns = runs.filter((r) => (r.rootRunId ?? r.id) === rootId).sort((a, b) => a.createdAt - b.createdAt)
+  const root = turns.find((t) => t.id === rootId) ?? turns[0]!
+  const firstLine = root.userPrompt.split('\n')[0] ?? ''
+  return {
+    id: rootId,
+    title: root.title ?? clip(firstLine, TITLE_CHARS),
+    closed: root.closedAt !== null,
+    turns: turns.map((t) => ({
+      id: t.id,
+      requestedAt: toIso(t.createdAt)!,
+      startedAt: toIso(t.startedAt),
+      endedAt: toIso(t.endedAt),
+      waitSeconds: t.startedAt === null ? null : seconds(t.startedAt - t.createdAt),
+      durationSeconds: t.startedAt === null || t.endedAt === null ? null : seconds(t.endedAt - t.startedAt),
+      status: t.status,
+      needsAnswer: t.needsAnswer,
+      agent: t.agentKind,
+      model: t.usage?.model ?? t.model,
+      prompt: clip(t.userPrompt, TURN_PROMPT_CHARS),
+      answer: t.resultText === null ? null : clip(t.resultText, TURN_ANSWER_CHARS),
+      error: t.errorMessage === null ? null : clip(t.errorMessage, TURN_ERROR_CHARS)
+    }))
+  }
+}

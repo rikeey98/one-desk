@@ -164,9 +164,9 @@ describe('읽기 도구', () => {
     expect(text.replace(f.memoB, 'X')).toBe(missing.text.replace('없는-id', 'X'))
   })
 
-  it('읽기 전용 토큰에 읽기 도구 여섯 개가 있다', async () => {
+  it('읽기 전용 토큰에 읽기 도구 일곱 개가 있다', async () => {
     expect(new Set(await toolNames(f.wsA, 'read_only'))).toEqual(new Set([
-      'list_repos', 'list_issues', 'get_issue', 'list_memos', 'get_memo', 'list_conversations'
+      'list_repos', 'list_issues', 'get_issue', 'list_memos', 'get_memo', 'list_conversations', 'get_conversation'
     ]))
   })
 })
@@ -242,9 +242,9 @@ describe('권한이 도구 등록을 통제한다', () => {
     expect(names).not.toContain('update_memo')
   })
 
-  it('편집 허용과 전체 허용에는 열 개가 모두 있다', async () => {
+  it('편집 허용과 전체 허용에는 열한 개가 모두 있다', async () => {
     for (const p of ['edit', 'full'] as const) {
-      expect(await toolNames(f.wsA, p)).toHaveLength(10)
+      expect(await toolNames(f.wsA, p)).toHaveLength(11)
     }
   })
 
@@ -392,6 +392,38 @@ describe('시각', () => {
       expect(Date.parse(c.lastActivityAt)).toBeGreaterThanOrEqual(Date.parse(c.startedAt))
       // 지시·답 전체와 맥락은 싣지 않는다.
       expect(c).not.toHaveProperty('assembledPrompt')
+    })
+
+    it('get_conversation은 턴마다 보낸·시작·끝 시각과 기다린·걸린 초를 오래된 순으로 준다 (timestamps FR-9)', async () => {
+      const at = (h: number, m: number, s = 0) => new Date(2026, 8, 30, h, m).getTime() + s * 1000
+      const root = turn(f.wsA, '로그인 버그 고쳐')
+      finish(root.id, '고쳤습니다')
+      f.db.$client.prepare('update run set created_at = ?, started_at = ?, ended_at = ? where id = ?')
+        .run(at(14, 3, 0), at(14, 3, 12), at(14, 4, 34.5), root.id)
+      const second = turn(f.wsA, '테스트도 추가해', root.id)
+      f.db.$client.prepare('update run set created_at = ? where id = ?').run(at(14, 10), second.id)
+
+      const detail = JSON.parse((await call(f.wsA, 'read_only', 'get_conversation', { id: second.id })).text)
+      expect(detail).toMatchObject({ id: root.id, title: '로그인 버그 고쳐', closed: false })
+      expect(detail.turns.map((t: { prompt: string }) => t.prompt)).toEqual(['로그인 버그 고쳐', '테스트도 추가해'])
+      const [first, next] = detail.turns
+      expect(first).toMatchObject({
+        id: root.id, status: 'succeeded', waitSeconds: 12, durationSeconds: 82.5, answer: '고쳤습니다', agent: 'claude-code'
+      })
+      expect(Date.parse(first.requestedAt)).toBe(at(14, 3, 0))
+      expect(Date.parse(first.startedAt)).toBe(at(14, 3, 12))
+      expect(Date.parse(first.endedAt)).toBe(at(14, 4, 34.5))
+      expect(first.requestedAt).toMatch(ISO)
+      // 아직 시작하지 않은 턴 — 모르는 것은 null이다
+      expect(next).toMatchObject({ status: 'pending', startedAt: null, endedAt: null, waitSeconds: null, durationSeconds: null })
+    })
+
+    it('get_conversation은 다른 workspace의 대화를 없는 id와 같은 말로 떨군다', async () => {
+      const b = turn(f.wsB, 'B의 대화')
+      const other = await call(f.wsA, 'read_only', 'get_conversation', { id: b.id })
+      expect(other.isError).toBe(true)
+      const missing = await call(f.wsA, 'read_only', 'get_conversation', { id: '없는-id' })
+      expect(other.text.replace(b.id, 'X')).toBe(missing.text.replace('없는-id', 'X'))
     })
 
     it('붙인 이름이 있으면 그것이 제목이고, 기간은 [시작, 마지막 활동]이 겹치면 든다', async () => {
