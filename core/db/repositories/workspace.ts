@@ -128,3 +128,5 @@ export function createWorkspaceRepository(db: Database) {
     }
   }
 }
+
+export type WorkspaceRepository = ReturnType<typeof createWorkspaceRepository>

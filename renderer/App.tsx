@@ -93,6 +93,9 @@ export default function App() {
     setOpenItem(null) // 다른 workspace의 항목을 열어둔 채로 둘 수 없다
   }
 
+  // 패널의 담기 토글. 패널 창에는 넘기지 않는다 (docs/sdlc/item-windows/ FR-8).
+  const contextPicker = useMemo(() => ({ keys: chipKeys, onToggle: toggleChip }), [chipKeys])
+
   function toggleChip(chip: ContextChip) {
     setChips((prev) => prev.some((c) => chipKey(c) === chipKey(chip))
       ? prev.filter((c) => chipKey(c) !== chipKey(chip))
@@ -296,8 +299,7 @@ export default function App() {
                 workspaceId={workspaceId}
                 repoId={repoId}
                 repos={repos}
-                chipKeys={chipKeys}
-                onToggleContext={toggleChip}
+                context={contextPicker}
                 expanded={openItem?.panel === 'issue'}
                 openId={openItem?.panel === 'issue' ? openItem.id : null}
                 onOpen={(id) => openIn('issue', id)}
@@ -306,8 +308,7 @@ export default function App() {
                 workspaceId={workspaceId}
                 repoId={repoId}
                 repos={repos}
-                chipKeys={chipKeys}
-                onToggleContext={toggleChip}
+                context={contextPicker}
                 expanded={openItem?.panel === 'memo'}
                 openId={openItem?.panel === 'memo' ? openItem.id : null}
                 onOpen={(id) => openIn('memo', id)}
@@ -316,8 +317,7 @@ export default function App() {
                 workspaceId={workspaceId}
                 repos={repos}
                 repoId={repoId}
-                chipKeys={chipKeys}
-                onToggleContext={toggleChip}
+                context={contextPicker}
                 expanded={openItem?.panel === 'asset'}
                 openId={openItem?.panel === 'asset' ? openItem.id : null}
                 onOpen={(id) => openIn('asset', id)}

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useDebouncedSave } from './useDebouncedSave'
+import { createPendingSaves } from '../store/pendingSaves'
+import { PendingSavesProvider } from '../store/PendingSavesContext'
 
 beforeEach(() => { vi.useFakeTimers() })
 afterEach(() => { vi.useRealTimers() })
@@ -112,5 +114,45 @@ describe('useDebouncedSave', () => {
     const { unmount } = renderHook(() => useDebouncedSave(save, 600))
     unmount()
     expect(save).not.toHaveBeenCalled()
+  })
+})
+
+describe('useDebouncedSave — 창의 저장 등록부 (docs/sdlc/item-windows/ FR-15·16b)', () => {
+  it('대기 중이거나 저장이 날아가는 동안만 등록부가 바쁘다', async () => {
+    const saves = createPendingSaves()
+    let finish!: () => void
+    const save = vi.fn(() => new Promise<void>((r) => { finish = r }))
+    const { result } = renderHook(() => useDebouncedSave(save, 600), {
+      wrapper: ({ children }) => <PendingSavesProvider saves={saves}>{children}</PendingSavesProvider>
+    })
+    expect(saves.busy()).toBe(false)
+    act(() => { result.current.schedule('a') })
+    expect(saves.busy()).toBe(true)
+    await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+    // 타이머가 저장을 띄웠지만 아직 안 끝났다
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(saves.busy()).toBe(true)
+    await act(async () => { finish(); await Promise.resolve() })
+    expect(saves.busy()).toBe(false)
+  })
+
+  it('save가 false를 돌려주면 flush도 false다 — 등록부의 flushAll도', async () => {
+    const saves = createPendingSaves()
+    const { result } = renderHook(() => useDebouncedSave(async () => false, 600), {
+      wrapper: ({ children }) => <PendingSavesProvider saves={saves}>{children}</PendingSavesProvider>
+    })
+    act(() => { result.current.schedule('a') })
+    let ok = true
+    await act(async () => { ok = await saves.flushAll() })
+    expect(ok).toBe(false)
+  })
+
+  it('언마운트되면 등록부에서 빠진다', () => {
+    const saves = createPendingSaves()
+    const { unmount } = renderHook(() => useDebouncedSave(async () => {}, 600), {
+      wrapper: ({ children }) => <PendingSavesProvider saves={saves}>{children}</PendingSavesProvider>
+    })
+    unmount()
+    expect(saves.busy()).toBe(false)
   })
 })

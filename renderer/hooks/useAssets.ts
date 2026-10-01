@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useClient } from '../client/ClientProvider'
+import { useItemChanged } from './useItemChanged'
 import type { Asset } from '@shared/models'
 
 /**
@@ -37,6 +38,9 @@ export function useAssets(workspaceId: string | null, repoKey = '', repoId: stri
       setError(err instanceof Error ? err.message : String(err))
     }
   }, [client, workspaceId])
+
+  // 다른 창에서 쓴 것과 스캔 결과 (docs/sdlc/item-windows/ FR-17·18).
+  useItemChanged(workspaceId ?? undefined, 'asset', refresh)
 
   return { assets, error, refresh, rescan }
 }

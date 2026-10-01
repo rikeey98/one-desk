@@ -5,7 +5,8 @@ import { IssueDetail } from './IssueDetail'
 import { TriageCard, type TriagePick } from './TriageCard'
 import { useIssues } from '../hooks/useIssues'
 import { useClient } from '../client/ClientProvider'
-import { chipKey, type ContextChip } from '../context'
+import { chipKey, type ContextPicker } from '../context'
+import { OpenWindowButton } from './OpenWindowButton'
 import { groupIssues, isStale, nextInQueue, triageQueue } from '../issueGroups'
 import { AXIS_LABELS, SOURCE_LABELS, KIND_LABELS, type GroupAxis } from '../issueAxes'
 import { ConfirmButton } from './ConfirmButton'
@@ -25,13 +26,17 @@ function AxisChips({ issue }: { issue: Issue }) {
 }
 
 export function IssuePanel({
-  workspaceId, repoId, repos, chipKeys, onToggleContext, expanded, openId, onOpen
+  workspaceId, repoId, repos, context, layout = 'columns', expanded, openId, onOpen
 }: {
   workspaceId: string
   repoId: string | null
   repos: Repo[]
-  chipKeys: Set<string>
-  onToggleContext: (chip: ContextChip) => void
+  /** 담기 토글. 패널 창에는 없다 — 없으면 토글을 그리지 않는다 (docs/sdlc/item-windows/ FR-8) */
+  context?: ContextPicker
+  /**
+   * `window`면 패널 창이다 — 목록과 상세가 나란히 서고(FR-7) "새 창으로 열기"가 없다. 기본은 앱 창의 세 칸.
+   */
+  layout?: 'columns' | 'window'
   expanded: boolean
   openId: string | null
   onOpen: (id: string) => void
@@ -189,18 +194,20 @@ export function IssuePanel({
             {!isCollapsed && (
               <ul className="item-list">
                 {group.issues.map((i) => {
-                  const picked = chipKeys.has(chipKey({ type: 'issue', id: i.id }))
+                  const picked = context?.keys.has(chipKey({ type: 'issue', id: i.id })) ?? false
                   return (
                     <li key={i.id} className={openId === i.id ? 'item item-active' : 'item'}>
-                      <button
-                        type="button"
-                        className={picked ? 'item-pick item-picked' : 'item-pick'}
-                        aria-label={`${i.title} 맥락에 담기`}
-                        aria-pressed={picked}
-                        onClick={() => onToggleContext({ type: 'issue', id: i.id, label: i.title })}
-                      >
-                        {picked ? '✓' : ''}
-                      </button>
+                      {context && (
+                        <button
+                          type="button"
+                          className={picked ? 'item-pick item-picked' : 'item-pick'}
+                          aria-label={`${i.title} 맥락에 담기`}
+                          aria-pressed={picked}
+                          onClick={() => context.onToggle({ type: 'issue', id: i.id, label: i.title })}
+                        >
+                          {picked ? '✓' : ''}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className={openId === i.id ? 'item-title item-open' : 'item-title'}
@@ -242,15 +249,25 @@ export function IssuePanel({
     </>
   )
 
+  const inWindow = layout === 'window'
+  // 패널 창에서는 항목을 열지 않아도 목록과 상세 칸이 나란하다(FR-7).
+  const split = expanded || inWindow
+
   return (
     <Panel
       title="Issues"
       count={issues.length}
       expanded={expanded}
-      action={expanded && openId && (
-        <button type="button" className="icon-button icon-button-sm" aria-label="축소" title="축소" onClick={() => onOpen(openId)}>
-          <IconCollapse />
-        </button>
+      window={inWindow}
+      action={(
+        <>
+          {expanded && openId && (
+            <button type="button" className="icon-button icon-button-sm" aria-label="축소" title="축소" onClick={() => onOpen(openId)}>
+              <IconCollapse />
+            </button>
+          )}
+          {!inWindow && <OpenWindowButton kind="issue" workspaceId={workspaceId} repoId={repoId} />}
+        </>
       )}
     >
       {listError && <div role="alert" className="form-error">{listError}</div>}
@@ -263,10 +280,11 @@ export function IssuePanel({
           첫 클릭으로 확장되며 버튼이 새 DOM 노드로 교체되고, 테스트가 들고 있던
           예전 참조로 두 번째 클릭을 해도 이벤트가 루트까지 버블링하지 못해
           무시됐다. */}
-      <div className={expanded ? 'panel-split' : undefined}>
-        <div className={expanded ? 'panel-split-list' : undefined}>{list}</div>
-        {expanded && (
+      <div className={split ? 'panel-split' : undefined}>
+        <div className={split ? 'panel-split-list' : undefined}>{list}</div>
+        {split && (
           <div className="panel-split-detail">
+            {!open && <div className="panel-empty">왼쪽에서 이슈를 고르세요</div>}
             {open && triaging && (
               <TriageCard
                 key={open.id}

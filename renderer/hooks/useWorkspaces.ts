@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useClient } from '../client/ClientProvider'
+import { useItemChanged } from './useItemChanged'
 import type { Workspace } from '@shared/models'
 
 export function useWorkspaces() {
@@ -21,6 +22,8 @@ export function useWorkspaces() {
   }, [client])
 
   useEffect(() => { void refresh() }, [refresh])
+  // 다른 창에서 이름을 바꾸거나 지운 것 (docs/sdlc/item-windows/ FR-18). 모든 workspace를 듣는다.
+  useItemChanged(null, 'workspace', refresh)
 
   return { workspaces, loading, error, refresh }
 }

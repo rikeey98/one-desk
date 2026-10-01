@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { OneDeskClient, Unsubscribe } from '@shared/client'
-import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult } from '@shared/models'
+import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult } from '@shared/models'
 import type { RunEvent } from '@shared/events'
 
 /**
@@ -101,7 +101,8 @@ const client: OneDeskClient = {
   app: {
     info: () => call<AppInfo>(CHANNELS.appInfo),
     reveal: (target) => call<void>(CHANNELS.appReveal, target),
-    pickDirectory: () => call<string | null>(CHANNELS.appPickDirectory)
+    pickDirectory: () => call<string | null>(CHANNELS.appPickDirectory),
+    openPanelWindow: (scope) => call<void>(CHANNELS.appOpenPanelWindow, scope)
   },
   events: {
     // contextBridge는 함수를 프록시로 넘기므로 이 클로저가 렌더러에서 호출 가능하다.
@@ -134,6 +135,11 @@ const client: OneDeskClient = {
       const listener = (_e: IpcRendererEvent, usage: PlanUsage) => cb(usage)
       ipcRenderer.on(EVENT_CHANNELS.planUsageUpdate, listener)
       return () => { ipcRenderer.off(EVENT_CHANNELS.planUsageUpdate, listener) }
+    },
+    onItemChanged(cb: (change: ItemChange) => void): Unsubscribe {
+      const listener = (_e: IpcRendererEvent, change: ItemChange) => cb(change)
+      ipcRenderer.on(EVENT_CHANNELS.itemChanged, listener)
+      return () => { ipcRenderer.off(EVENT_CHANNELS.itemChanged, listener) }
     }
   }
 }

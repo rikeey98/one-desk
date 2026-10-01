@@ -4,20 +4,25 @@ import { AddForm } from './AddForm'
 import { MemoDetail } from './MemoDetail'
 import { useMemos } from '../hooks/useMemos'
 import { useClient } from '../client/ClientProvider'
-import { chipKey, type ContextChip } from '../context'
+import { chipKey, type ContextPicker } from '../context'
+import { OpenWindowButton } from './OpenWindowButton'
 import { ConfirmButton } from './ConfirmButton'
 import { IconCollapse, IconTrash } from './icons'
 import type { Repo } from '@shared/models'
 
 export function MemoPanel({
-  workspaceId, repoId, repos, chipKeys, onToggleContext, expanded, openId, onOpen
+  workspaceId, repoId, repos, context, layout = 'columns', expanded, openId, onOpen
 }: {
   workspaceId: string
   repoId: string | null
   /** 이 workspace의 repo 전부. 상세에서 붙일 후보다 (IssuePanel과 대칭). */
   repos: Repo[]
-  chipKeys: Set<string>
-  onToggleContext: (chip: ContextChip) => void
+  /** 담기 토글. 패널 창에는 없다 — 없으면 토글을 그리지 않는다 (docs/sdlc/item-windows/ FR-8) */
+  context?: ContextPicker
+  /**
+   * `window`면 패널 창이다 — 목록과 상세가 나란히 서고(FR-7) "새 창으로 열기"가 없다. 기본은 앱 창의 세 칸.
+   */
+  layout?: 'columns' | 'window'
   expanded: boolean
   openId: string | null
   onOpen: (id: string) => void
@@ -67,18 +72,20 @@ export function MemoPanel({
       )}
       <ul className="item-list">
         {memos.map((m) => {
-          const picked = chipKeys.has(chipKey({ type: 'memo', id: m.id }))
+          const picked = context?.keys.has(chipKey({ type: 'memo', id: m.id })) ?? false
           return (
             <li key={m.id} className={openId === m.id ? 'item item-active' : 'item'}>
-              <button
-                type="button"
-                className={picked ? 'item-pick item-picked' : 'item-pick'}
-                aria-label={`${m.title} 맥락에 담기`}
-                aria-pressed={picked}
-                onClick={() => onToggleContext({ type: 'memo', id: m.id, label: m.title })}
-              >
-                {picked ? '✓' : ''}
-              </button>
+              {context && (
+                <button
+                  type="button"
+                  className={picked ? 'item-pick item-picked' : 'item-pick'}
+                  aria-label={`${m.title} 맥락에 담기`}
+                  aria-pressed={picked}
+                  onClick={() => context.onToggle({ type: 'memo', id: m.id, label: m.title })}
+                >
+                  {picked ? '✓' : ''}
+                </button>
+              )}
               {/* 담기 토글이 줄의 맨 앞이다 — 체크박스처럼 읽히도록.
                   클릭은 "열어본다"이고 맥락에 담는 것은 이 토글이 맡는다 (설계 §5). */}
               <button
@@ -105,25 +112,36 @@ export function MemoPanel({
     </>
   )
 
+  const inWindow = layout === 'window'
+  // 패널 창에서는 항목을 열지 않아도 목록과 상세 칸이 나란하다(FR-7). IssuePanel과 대칭.
+  const split = expanded || inWindow
+
   return (
     <Panel
       title="Memos"
       count={memos.length}
       expanded={expanded}
-      action={expanded && openId && (
-        <button type="button" className="icon-button icon-button-sm" aria-label="축소" title="축소" onClick={() => onOpen(openId)}>
-          <IconCollapse />
-        </button>
+      window={inWindow}
+      action={(
+        <>
+          {expanded && openId && (
+            <button type="button" className="icon-button icon-button-sm" aria-label="축소" title="축소" onClick={() => onOpen(openId)}>
+              <IconCollapse />
+            </button>
+          )}
+          {!inWindow && <OpenWindowButton kind="memo" workspaceId={workspaceId} repoId={repoId} />}
+        </>
       )}
     >
       {listError && <div role="alert" className="form-error">{listError}</div>}
       {deleteError && <div role="alert" className="form-error">{deleteError}</div>}
       {/* 감싸는 div의 엘리먼트 타입을 확장 여부와 무관하게 항상 유지한다.
           IssuePanel과 대칭 — 이유는 그쪽 주석 참고. */}
-      <div className={expanded ? 'panel-split' : undefined}>
-        <div className={expanded ? 'panel-split-list' : undefined}>{list}</div>
-        {expanded && (
+      <div className={split ? 'panel-split' : undefined}>
+        <div className={split ? 'panel-split-list' : undefined}>{list}</div>
+        {split && (
           <div className="panel-split-detail">
+            {!open && <div className="panel-empty">왼쪽에서 메모를 고르세요</div>}
             {open && (
               <MemoDetail
                 // key가 핵심이다. 다른 메모로 옮기면 상세를 통째로 다시 마운트해,

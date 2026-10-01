@@ -36,6 +36,9 @@ describe('이슈 본문', () => {
     await body.waitFor({ state: 'detached', timeout: 5_000 })
 
     await title.click()
+    // 본문이 생겼으니 다시 열면 읽기(마크다운)로 시작한다 (docs/sdlc/item-windows/ FR-21).
+    await page.locator('.detail-body-read').getByText(BODY).waitFor({ timeout: 5_000 })
+    await page.getByRole('button', { name: '원문 편집', exact: true }).click()
     // vitest의 expect에는 Playwright의 toHaveValue 매처가 없다(playwright-core만 쓰고
     // @playwright/test는 의존성에 없다) — expect.poll로 같은 재시도 의미를 살린다.
     await expect.poll(() => page.getByLabel('본문').inputValue(), { timeout: 5_000 }).toBe(BODY)

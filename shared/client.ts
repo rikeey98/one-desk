@@ -8,12 +8,13 @@ import type {
   ListQuery, StartRunInput, QueueSnapshot,
   UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses, AgentProbes,
   InboxCounts,
-  McpStatus, PlanUsage, ResumeRunInput,
+  McpStatus, PlanUsage, ResumeRunInput, ItemChange,
   Asset, CreateAuthoredAssetInput, GuardedUpdateAssetInput, AssetUpdateResult, ListAssetQuery,
   GlobalRoots, CommandTarget, CommandListResult,
   UpdateRepoInput, AppInfo, RevealTarget, AssetBody, FileSearchInput, FileSearchResult
 } from './models'
 import type { RunEvent } from './events'
+import type { PanelScope } from './panelWindow'
 
 export type Unsubscribe = () => void
 
@@ -177,6 +178,11 @@ export interface OneDeskClient {
     reveal(target: RevealTarget): Promise<void>
     /** 폴더 선택 대화상자. 고른 절대 경로를, 취소하면 null을 돌려준다 */
     pickDirectory(): Promise<string | null>
+    /**
+     * (종류, workspace, repo) 범위의 패널 창을 연다. 이미 열려 있으면 그 창을 앞으로 가져온다.
+     * **범위만 받는다** — URL·경로를 넘기는 통로가 아니다 (docs/sdlc/item-windows/ FR-12).
+     */
+    openPanelWindow(scope: PanelScope): Promise<void>
   }
   events: {
     onRunEvent(cb: (event: RunEvent) => void): Unsubscribe
@@ -187,5 +193,7 @@ export interface OneDeskClient {
     onMcpStatus(cb: (status: McpStatus) => void): Unsubscribe
     /** planUsage()와 짝이다 — 창이 뜬 뒤 도착한 값을 받는다. */
     onPlanUsage(cb: (usage: PlanUsage) => void): Unsubscribe
+    /** 이슈·메모·asset·repo·workspace가 바뀌었다. 모든 창이 받는다 (docs/sdlc/item-windows/ FR-17) */
+    onItemChanged(cb: (change: ItemChange) => void): Unsubscribe
   }
 }

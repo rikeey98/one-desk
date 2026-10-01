@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
+import { usePendingSaves } from '../store/PendingSavesContext'
 
 const DEFAULT_DELAY_MS = 600
 
@@ -16,13 +17,22 @@ const DEFAULT_DELAY_MS = 600
  * 처리되지 않은 프라미스 거부(unhandled rejection)로 남을 뿐, 화면 어디에도 뜨지
  * 않는다. 그러므로 save는 스스로 오류를 잡아 자기 오류 상태로 보관해야 한다 — 이
  * 훅은 디바운스 경로의 실패를 사용자에게 보여줄 방법이 없다.
+ *
+ * **save가 `false`를 돌려주면 "저장하지 못했다"다** (docs/sdlc/item-windows/ FR-16b). 오류를 스스로 잡아
+ * 화면에 둔 save도 실패는 결과로 알려야 한다 — 창 닫기가 그것을 보고 닫지 않는다. flush는 그 값을 그대로
+ * 돌려준다(대기 중인 것이 없으면 true).
+ *
+ * 창의 저장 등록부(`PendingSavesProvider`)가 있으면 거기에 올린다 — 대기 중이거나 저장이 날아가는 동안 창을
+ * 닫으면 `main.tsx`가 닫기를 미루고 흘려보낸다(FR-15).
  */
 export function useDebouncedSave(
-  save: (value: string) => Promise<void>,
+  save: (value: string) => Promise<boolean | void>,
   delayMs: number = DEFAULT_DELAY_MS
 ) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pending = useRef<string | null>(null)
+  // 날아가는 중인 저장. 값은 꺼냈지만 IPC가 아직 안 끝났다 — 이때 창이 닫히면 요청이 끝났는지 모른다.
+  const inFlight = useRef<Promise<boolean> | null>(null)
   // save가 매 렌더 새 함수여도 타이머를 다시 걸지 않게 최신 것만 들고 있는다.
   const latestSave = useRef(save)
   latestSave.current = save
@@ -31,12 +41,18 @@ export function useDebouncedSave(
     if (timer.current !== null) { clearTimeout(timer.current); timer.current = null }
   }, [])
 
-  const flush = useCallback(async () => {
+  const flush = useCallback(async (): Promise<boolean> => {
     clear()
     const value = pending.current
-    if (value === null) return
+    if (value === null) return inFlight.current ? inFlight.current : true
     pending.current = null
-    await latestSave.current(value)
+    const run = (async () => (await latestSave.current(value)) !== false)()
+    inFlight.current = run
+    try {
+      return await run
+    } finally {
+      if (inFlight.current === run) inFlight.current = null
+    }
   }, [clear])
 
   const schedule = useCallback((value: string) => {
@@ -54,6 +70,15 @@ export function useDebouncedSave(
   // 결과를 받을 컴포넌트가 없어 오류는 관측되지 않지만 쓰기를 잃는 쪽이 더 나쁘다.
   // ref만 읽으므로 이 effect는 마운트/언마운트에만 돈다.
   useEffect(() => () => { void flush() }, [flush])
+
+  const saves = usePendingSaves()
+  useEffect(() => {
+    if (!saves) return
+    return saves.register({
+      busy: () => pending.current !== null || inFlight.current !== null,
+      flush
+    })
+  }, [saves, flush])
 
   return { schedule, flush, cancel }
 }

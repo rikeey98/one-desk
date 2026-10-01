@@ -3,6 +3,7 @@ import { useClient } from '../client/ClientProvider'
 import { useDebouncedSave } from '../hooks/useDebouncedSave'
 import { ConflictBanner } from './ConflictBanner'
 import { ConfirmButton } from './ConfirmButton'
+import { BodyField } from './BodyField'
 import { RepoTags } from './RepoTags'
 import { DetailStamp } from './CopyButton'
 import {
@@ -111,9 +112,10 @@ export function IssueDetail({ issue, repos, onChanged, onDeleted, onRequestClose
     const result = await client.issues.updateIfUnchanged({
       id: issue.id, ...patch, expectedUpdatedAt: expected.current
     })
-    if (!result.ok) { showConflict(result.current); return }
+    if (!result.ok) { showConflict(result.current); return false }
     expected.current = result.issue.updatedAt
     onChanged()
+    return true
   }
 
   /**
@@ -159,16 +161,18 @@ export function IssueDetail({ issue, repos, onChanged, onDeleted, onRequestClose
 
   const bodySave = useDebouncedSave(async (value) => {
     // 배너가 떠 있으면 멈춘다. 계속 재시도하면 결국 덮어쓰기가 되어 잠금이 무의미해진다.
-    if (conflict) return
-    try { await persist({ body: value }) }
-    catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    // 저장하지 못했으면 false다 — 창 닫기가 그것을 보고 닫지 않는다 (item-windows FR-16b).
+    if (conflict) return false
+    try { return await persist({ body: value }) }
+    catch (err) { setError(err instanceof Error ? err.message : String(err)); return false }
   })
 
   // 제목도 같은 규칙을 쓴다. 훅을 따로 걸어 본문 타이머와 섞이지 않게 한다.
   const titleSave = useDebouncedSave(async (value) => {
-    if (conflict) return
-    try { await persist({ title: value }) }
-    catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    // 저장하지 못했으면 false다 — 창 닫기가 그것을 보고 닫지 않는다 (item-windows FR-16b).
+    if (conflict) return false
+    try { return await persist({ title: value }) }
+    catch (err) { setError(err instanceof Error ? err.message : String(err)); return false }
   })
 
   /**
@@ -290,11 +294,9 @@ export function IssueDetail({ issue, repos, onChanged, onDeleted, onRequestClose
       {/* id는 agent가 MCP(get_issue·update_issue)로 이 이슈를 짚는 이름이다. 짧게 보이고 전체를 복사한다. */}
       <DetailStamp kind="이슈" id={issue.id} times={[['만듦', issue.createdAt], ['시작', issue.startedAt], ['완료', issue.closedAt]]} />
       </div>
-      <textarea
-        aria-label="본문"
-        className="detail-body"
+      <BodyField
         value={body}
-        onChange={(e) => { setBody(e.target.value); bodySave.schedule(e.target.value) }}
+        onChange={(next) => { setBody(next); bodySave.schedule(next) }}
         onBlur={() => { void bodySave.flush() }}
       />
 

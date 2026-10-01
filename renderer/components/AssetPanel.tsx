@@ -4,7 +4,8 @@ import { AddForm } from './AddForm'
 import { AssetDetail } from './AssetDetail'
 import { useAssets } from '../hooks/useAssets'
 import { useClient } from '../client/ClientProvider'
-import { chipKey, type ContextChip } from '../context'
+import { chipKey, type ContextPicker } from '../context'
+import { OpenWindowButton } from './OpenWindowButton'
 import { IconChevronDown, IconChevronRight, IconCollapse, IconRefresh } from './icons'
 import type { Asset, AssetKind, Repo } from '@shared/models'
 
@@ -33,15 +34,19 @@ function originOf(item: Asset, repos: Repo[]): string {
 }
 
 export function AssetPanel({
-  workspaceId, repos, repoId, chipKeys, onToggleContext, expanded, openId, onOpen
+  workspaceId, repos, repoId, context, layout = 'columns', expanded, openId, onOpen
 }: {
   workspaceId: string | null
   /** 지금 workspace의 repo들. 목록이 바뀌면 asset을 다시 읽고, 출처 이름을 여기서 찾는다 */
   repos: Repo[]
   /** 고른 repo. 주면 글로벌·그 repo·앱에서 작성한 것만 보인다 */
   repoId: string | null
-  chipKeys: Set<string>
-  onToggleContext: (chip: ContextChip) => void
+  /** 담기 토글. 패널 창에는 없다 — 없으면 토글을 그리지 않는다 (docs/sdlc/item-windows/ FR-8) */
+  context?: ContextPicker
+  /**
+   * `window`면 패널 창이다 — 목록과 상세가 나란히 서고(FR-7) "새 창으로 열기"가 없다. 기본은 앱 창의 세 칸.
+   */
+  layout?: 'columns' | 'window'
   expanded?: boolean
   openId?: string | null
   onOpen?: (id: string) => void
@@ -77,31 +82,32 @@ export function AssetPanel({
   const present = assets.filter((a) => !isMissing(a, latestSeenAt))
 
   const row = (a: Asset) => {
-    const picked = chipKeys.has(chipKey({ type: 'asset', id: a.id }))
+    const picked = context?.keys.has(chipKey({ type: 'asset', id: a.id })) ?? false
     // 지시 파일은 보기 전용이다 — CLI가 실행할 때 알아서 읽으므로 담으면 같은
     // 본문이 두 번 들어간다. 버튼을 숨기는 것이 아니라 렌더하지 않는다
     // (docs/sdlc/repo-instructions/ FR-8). core도 거부한다(FR-9).
     const attachable = a.kind !== 'instructions'
+    // 패널 창에는 담기가 없다(FR-8) — 자리표시도 그리지 않는다.
     return (
       <li key={a.id} className="item" aria-label={a.name}>
-        {attachable
+        {context && (attachable
           ? (
               <button
                 type="button"
                 className={picked ? 'item-pick item-picked' : 'item-pick'}
                 aria-label={`${a.name} 맥락에 담기`}
                 aria-pressed={picked}
-                onClick={() => onToggleContext({ type: 'asset', id: a.id, label: a.name })}
+                onClick={() => context.onToggle({ type: 'asset', id: a.id, label: a.name })}
               >
                 {picked ? '✓' : ''}
               </button>
             )
-          : <span className="item-pick item-pick-none" aria-hidden="true" />}
+          : <span className="item-pick item-pick-none" aria-hidden="true" />)}
         {/* 이름·설명·경로는 평문이다. 외부 repo의 파일에서 왔으므로
             마크다운으로 그리지 않는다 (설계 §6-3). */}
         <button
           type="button"
-          className="item-open"
+          className={openId === a.id ? 'item-open item-open-active' : 'item-open'}
           onClick={() => onOpen?.(a.id)}
         >{a.name}</button>
         <span className="asset-desc">{a.description ?? ''}</span>
@@ -178,6 +184,16 @@ export function AssetPanel({
     </>
   )
 
+  const inWindow = layout === 'window'
+  const detail = open && (
+    <AssetDetail
+      key={open.id}
+      asset={open}
+      onChanged={() => { void refresh() }}
+      onDeleted={() => { onOpen?.(open.id); void refresh() }}
+    />
+  )
+
   return (
     <Panel
       title="Skills / Agents"
@@ -186,22 +202,29 @@ export function AssetPanel({
       // 이슈·메모와 같이 열리면 세 칸을 통째로 쓴다. 이 prop이 빠져 있던 동안은
       // 상세가 좁은 세 번째 칸 안에서만 보였다.
       expanded={Boolean(expanded)}
-      action={expanded && openId && (
-        <button type="button" className="icon-button icon-button-sm" aria-label="축소" title="축소" onClick={() => onOpen?.(openId)}>
-          <IconCollapse />
-        </button>
+      window={inWindow}
+      action={(
+        <>
+          {expanded && openId && (
+            <button type="button" className="icon-button icon-button-sm" aria-label="축소" title="축소" onClick={() => onOpen?.(openId)}>
+              <IconCollapse />
+            </button>
+          )}
+          {!inWindow && <OpenWindowButton kind="asset" workspaceId={workspaceId} repoId={repoId} />}
+        </>
       )}
     >
-      {expanded && open
+      {inWindow
+        // 패널 창: 목록과 상세가 나란하다(FR-7). 앱 창은 지금처럼 열면 상세가 목록을 대신한다.
         ? (
-            <AssetDetail
-              key={open.id}
-              asset={open}
-              onChanged={() => { void refresh() }}
-              onDeleted={() => { onOpen?.(open.id); void refresh() }}
-            />
+            <div className="panel-split">
+              <div className="panel-split-list">{list}</div>
+              <div className="panel-split-detail">
+                {detail || <div className="panel-empty">왼쪽에서 항목을 고르세요</div>}
+              </div>
+            </div>
           )
-        : list}
+        : (expanded && detail) || list}
     </Panel>
   )
 }

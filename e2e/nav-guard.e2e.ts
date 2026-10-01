@@ -119,6 +119,48 @@ describe('탐색 가드 — 창 안 탐색 (index.html을 file:로 연 앱)', ()
   })
 })
 
+/**
+ * 패널 창도 같은 가드를 받는다 (docs/sdlc/item-windows/ FR-14). 창을 만드는 길이 하나(`electron/windows.ts`의
+ * `createWindow`)라도 새 창에 가드 하나가 빠지면 그 창이 원격 문서로 넘어간다 — 실제 패널 창에서 본다.
+ */
+describe('탐색 가드 — 패널 창', () => {
+  it('패널 창도 새 창·원격 문서·다른 file: 문서로 넘어가지 않는다', async () => {
+    const app = await launchApp()
+    const { page } = app
+    await waitForApp(page)
+    await stubOpenExternal(app)
+    await page.getByPlaceholder('새 workspace 이름…').fill('guard-ws')
+    await page.getByPlaceholder('새 workspace 이름…').press('Enter')
+    await page.getByRole('button', { name: 'guard-ws', exact: true }).click()
+
+    const next = app.electron.waitForEvent('window')
+    await page.getByRole('button', { name: '메모 새 창으로 열기', exact: true }).click()
+    const win = await next
+    await win.getByRole('heading', { name: '메모 · guard-ws 전체' }).waitFor({ timeout: 10_000 })
+    expect(await windowCount(app)).toBe(2)
+
+    await win.evaluate(`(() => {
+      window.open('javascript:alert(1)')
+      window.open('file:///C:/Windows/win.ini')
+      window.open('https://example.com/panel')
+    })()`)
+    await expect.poll(() => openedUrls(app)).toEqual(['https://example.com/panel'])
+    expect(await windowCount(app)).toBe(2)
+
+    const before = win.url()
+    await win.evaluate(`(() => {
+      window.__stay = 1
+      setTimeout(() => { location.href = 'http://127.0.0.1:9/evil' }, 0)
+    })()`)
+    await win.waitForTimeout(SETTLE_MS)
+    expect(win.url()).toBe(before)
+    expect(await win.evaluate('window.__stay')).toBe(1)
+    await win.evaluate(`(() => { setTimeout(() => { location.href = 'other.html' }, 0) })()`)
+    await win.waitForTimeout(SETTLE_MS)
+    expect(win.url()).toBe(before)
+  })
+})
+
 /** out/renderer를 그대로 내주는 정적 서버. 개발 서버(ELECTRON_RENDERER_URL) 분기를 흉내 낸다. */
 async function serveRenderer(): Promise<{ server: Server; url: string }> {
   const types: Record<string, string> = {

@@ -1025,3 +1025,65 @@ describe('paths — 정보 탭', () => {
     close(core)
   })
 })
+
+describe('바뀜 알림과 패널 창 범위 (docs/sdlc/item-windows/)', () => {
+  /** 부팅 스캔은 기다리지 않는다 — 그것이 끝나며 내는 asset 알림이 단언에 섞이지 않게 잠깐 둔다(빈 임시 홈이라 빠르다). */
+  const settleBootScan = () => new Promise((r) => setTimeout(r, 150))
+
+  it('IPC 표면의 쓰기와 asset 재스캔이 알린다 — MCP deps도 같은 저장소 변수를 받는다', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    await settleBootScan()
+    const seen: string[] = []
+    core.onItemChanged((c) => { seen.push(`${c.kind}:${c.workspaceId === workspaceId}`) })
+
+    const issue = core.issues.create({ workspaceId, title: 'a' })
+    core.memos.create({ workspaceId, title: 'b' })
+    core.issues.remove(issue.id)
+    await core.assets.rescan(workspaceId)
+    core.workspaces.rename(workspaceId, 'ws2')
+
+    expect(seen).toEqual(['issue:true', 'memo:true', 'issue:true', 'asset:true', 'workspace:true'])
+  })
+
+  it('repo 등록은 repo와 (스캔이 끝난 뒤) asset을 알린다', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    await settleBootScan()
+    const seen: string[] = []
+    core.onItemChanged((c) => { seen.push(c.kind) })
+    await core.repos.create({ workspaceId, name: 'api', path: dataDir })
+    expect(seen).toEqual(['repo', 'asset'])
+  })
+
+  it('리스너가 던져도 쓰기는 성공한다', () => {
+    const core = open(makeDataDir())
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    core.onItemChanged(() => { throw new Error('boom') })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(core.issues.create({ workspaceId, title: 'a' }).title).toBe('a')
+    errors.mockRestore()
+  })
+
+  it('panelScope는 있는 workspace와 그 소속 repo만 받는다', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const ws = core.workspaces.create({ name: 'ws' }).id
+    const other = core.workspaces.create({ name: 'other' }).id
+    const repo = await core.repos.create({ workspaceId: ws, name: 'api', path: dataDir })
+    const foreign = await core.repos.create({ workspaceId: other, name: 'x', path: dataDir })
+
+    expect(core.panelScope({ kind: 'issue', workspaceId: ws, repoId: repo.id }))
+      .toEqual({ kind: 'issue', workspaceId: ws, repoId: repo.id })
+    expect(core.panelScope({ kind: 'asset', workspaceId: ws, repoId: null }))
+      .toEqual({ kind: 'asset', workspaceId: ws, repoId: null })
+    expect(() => core.panelScope({ kind: 'run', workspaceId: ws, repoId: null })).toThrow('열 수 없는 창')
+    expect(() => core.panelScope({ kind: 'issue', workspaceId: 'nope', repoId: null })).toThrow('workspace')
+    expect(() => core.panelScope({ kind: 'issue', workspaceId: ws, repoId: 'nope' })).toThrow()
+    expect(() => core.panelScope({ kind: 'issue', workspaceId: ws, repoId: foreign.id })).toThrow('repo가 아닙니다')
+    expect(() => core.panelScope({ kind: 'issue', workspaceId: ws })).toThrow()
+    expect(() => core.panelScope('#panel/issue')).toThrow()
+  })
+})

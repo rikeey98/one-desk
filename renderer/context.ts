@@ -14,3 +14,12 @@ export interface ContextChip {
 export function chipKey(chip: { type: ContextItemType; id: string }): string {
   return `${chip.type}:${chip.id}`
 }
+
+/**
+ * 패널의 담기 토글이 쓰는 것 — 담긴 것의 키와 토글. 앱 창의 도크가 쥔 state라 **패널 창에는 없다**
+ * (docs/sdlc/item-windows/ FR-8). 없으면 패널이 담기 토글을 그리지 않는다.
+ */
+export interface ContextPicker {
+  keys: Set<string>
+  onToggle: (chip: ContextChip) => void
+}

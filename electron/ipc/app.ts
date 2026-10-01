@@ -1,10 +1,11 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
-import { CHANNELS } from '@shared/channels'
+import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import { revealDir } from '@core/app/reveal'
 import type { Core } from '@core/index'
 import type { AppInfo } from '@shared/models'
+import type { Windows } from './index'
 
-export function registerAppHandlers(core: Core) {
+export function registerAppHandlers(core: Core, windows: Windows) {
   // 버전은 electron의 것이라 core가 모른다 — 여기서 합친다(경계 규칙 1).
   ipcMain.handle(CHANNELS.appInfo, (): AppInfo => ({
     ...core.paths(), version: app.getVersion()
@@ -22,5 +23,13 @@ export function registerAppHandlers(core: Core) {
     const options = { properties: ['openDirectory' as const] }
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
     return result.canceled ? null : (result.filePaths[0] ?? null)
+  })
+  // 범위의 검증은 core가 한다(없는 workspace·남의 repo는 던진다). 여기는 창을 여는 것뿐이다.
+  ipcMain.handle(CHANNELS.appOpenPanelWindow, (_e, scope: unknown) => {
+    windows.openPanelWindow(core.panelScope(scope))
+  })
+  // 바뀜 알림은 모든 창으로 간다 (docs/sdlc/item-windows/ FR-17·19).
+  core.onItemChanged((change) => {
+    for (const win of windows.getAllWindows()) win.webContents.send(EVENT_CHANNELS.itemChanged, change)
   })
 }

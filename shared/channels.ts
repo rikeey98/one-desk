@@ -52,6 +52,8 @@ export const CHANNELS = {
   appReveal: 'app:reveal',
   /** repo 등록 — OS의 폴더 선택 대화상자를 띄운다 */
   appPickDirectory: 'app:pickDirectory',
+  /** 이슈·메모·asset 패널을 repo마다 별도 창으로 연다 (docs/sdlc/item-windows/) */
+  appOpenPanelWindow: 'app:openPanelWindow',
   runsMarkReviewed: 'runs:markReviewed',
   runsResume: 'runs:resume',
   runsClose: 'runs:close',
@@ -67,7 +69,9 @@ export const EVENT_CHANNELS = {
   queueUpdate: 'event:queueUpdate',
   inboxUpdate: 'event:inboxUpdate',
   mcpStatusUpdate: 'event:mcpStatus',
-  planUsageUpdate: 'event:planUsage'
+  planUsageUpdate: 'event:planUsage',
+  /** 모든 창으로 간다 — 나머지는 앱 창에만 (docs/sdlc/item-windows/ FR-19) */
+  itemChanged: 'event:itemChanged'
 } as const
 
 export type EventChannelName = (typeof EVENT_CHANNELS)[keyof typeof EVENT_CHANNELS]

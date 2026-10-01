@@ -308,6 +308,7 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
       reveal: vi.fn(async () => {})
     },
     events: {
+      onItemChanged: vi.fn(() => () => {}),
       onRunEvent: vi.fn(() => () => {}),
       onRunUpdate: vi.fn((cb: (run: Run) => void) => {
         runListeners.push(cb)
@@ -757,14 +758,15 @@ describe('패널 확장', () => {
     expect(within(panel).queryByRole('button', { name: '축소' })).not.toBeInTheDocument()
 
     await userEvent.click(await within(panel).findByRole('button', { name: title }))
-    expect(within(panel).getByRole('textbox', { name: '본문' })).toBeInTheDocument()
+    // 상세가 섰는가 — 본문이 있으면 읽기로 시작하므로(item-windows FR-21) 편집칸이 아니라 보기 전환으로 본다.
+    expect(within(panel).getByRole('group', { name: '보기 방식' })).toBeInTheDocument()
     await userEvent.click(within(panel).getByRole('button', { name: '축소' }))
 
     expect(panel).not.toHaveClass('panel-expanded')
-    expect(within(panel).queryByRole('textbox', { name: '본문' })).not.toBeInTheDocument()
+    expect(within(panel).queryByRole('group', { name: '보기 방식' })).not.toBeInTheDocument()
     expect(within(panel).queryByRole('button', { name: '축소' })).not.toBeInTheDocument()
     await userEvent.click(within(panel).getByRole('button', { name: title }))
-    expect(within(panel).getByRole('textbox', { name: '본문' })).toBeInTheDocument()
+    expect(within(panel).getByRole('group', { name: '보기 방식' })).toBeInTheDocument()
   })
 
   it('이슈를 클릭하면 그 패널이 확장되고 상세가 뜬다', async () => {

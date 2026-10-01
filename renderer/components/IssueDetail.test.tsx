@@ -49,6 +49,9 @@ function renderDetail(client: OneDeskClient, issue = makeIssue(), over = {}) {
       <IssueDetail {...props} />
     </ClientProvider>
   )
+  // 본문이 있으면 읽기(마크다운)로 시작한다 (item-windows FR-21) — 이 파일의 테스트는 편집칸을 다루므로 편집으로 옮긴다.
+  const edit = screen.queryByRole('button', { name: '원문 편집' })
+  if (edit && edit.getAttribute('aria-pressed') === 'false') fireEvent.click(edit)
   return props
 }
 
@@ -553,5 +556,17 @@ describe('IssueDetail repo 태그', () => {
     expect(client.issues.update).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'i1', repoIds: ['r1'] })
     )
+  })
+})
+
+describe('IssueDetail 본문 읽기 (docs/sdlc/item-windows/ FR-20)', () => {
+  it('본문이 있으면 마크다운으로 읽힌다 — 상세가 BodyField를 쓴다', () => {
+    render(
+      <ClientProvider client={makeClient()}>
+        <IssueDetail issue={makeIssue({ body: '## 재현\n\n**로그인**' })} repos={[]} onChanged={vi.fn()} onDeleted={vi.fn()} onRequestClose={vi.fn()} />
+      </ClientProvider>
+    )
+    expect(screen.getByRole('heading', { name: '재현' })).toBeInTheDocument()
+    expect(screen.getByText('로그인').tagName).toBe('STRONG')
   })
 })

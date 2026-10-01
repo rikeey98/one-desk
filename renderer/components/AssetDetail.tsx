@@ -3,6 +3,7 @@ import { useClient } from '../client/ClientProvider'
 import { useDebouncedSave } from '../hooks/useDebouncedSave'
 import { ConflictBanner } from './ConflictBanner'
 import { ConfirmButton } from './ConfirmButton'
+import { BodyField } from './BodyField'
 import type { Asset } from '@shared/models'
 
 export function AssetDetail({ asset, onChanged, onDeleted }: {
@@ -49,22 +50,25 @@ export function AssetDetail({ asset, onChanged, onDeleted }: {
     const result = await client.assets.updateIfUnchanged({
       id: asset.id, ...patch, expectedUpdatedAt: expected.current
     })
-    if (!result.ok) { setConflict(result.current); return }
+    if (!result.ok) { setConflict(result.current); return false }
     expected.current = result.asset.updatedAt
     onChanged()
+    return true
   }
 
   const bodySave = useDebouncedSave(async (value) => {
     // 배너가 떠 있으면 멈춘다. 계속 재시도하면 결국 덮어쓰기가 되어 잠금이 무의미해진다.
-    if (conflict) return
-    try { await persist({ content: value }) }
-    catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    // 저장하지 못했으면 false다 — 창 닫기가 그것을 보고 닫지 않는다 (item-windows FR-16b).
+    if (conflict) return false
+    try { return await persist({ content: value }) }
+    catch (err) { setError(err instanceof Error ? err.message : String(err)); return false }
   })
 
   const nameSave = useDebouncedSave(async (value) => {
-    if (conflict) return
-    try { await persist({ name: value }) }
-    catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    // 저장하지 못했으면 false다 — 창 닫기가 그것을 보고 닫지 않는다 (item-windows FR-16b).
+    if (conflict) return false
+    try { return await persist({ name: value }) }
+    catch (err) { setError(err instanceof Error ? err.message : String(err)); return false }
   })
 
   return (
@@ -117,12 +121,10 @@ export function AssetDetail({ asset, onChanged, onDeleted }: {
 
       {/* 마크다운으로 그리지 않는다 — 외부 repo의 파일이라 신뢰할 수 없는 입력이다
           (설계 §6-3). */}
-      <textarea
-        aria-label="본문"
-        className="detail-body"
+      <BodyField
         value={body}
         readOnly={readOnly}
-        onChange={(e) => { setBody(e.target.value); bodySave.schedule(e.target.value) }}
+        onChange={(next) => { setBody(next); bodySave.schedule(next) }}
         onBlur={() => { void bodySave.flush() }}
       />
 

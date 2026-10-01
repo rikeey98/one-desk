@@ -36,6 +36,12 @@ export interface AppSession {
   /** repo로 등록할 임시 작업 디렉토리 */
   repoDir: string
   close(): Promise<void>
+  /**
+   * 같은 데이터 디렉토리로 앱을 다시 띄운다 — 앱이 스스로 끝났어도 된다(창을 다 닫아 종료한 경우).
+   * `page`·`electron`이 새 것으로 바뀐다. 닫기 직전에 친 글자가 DB에 남았는지처럼 재기동을 건너야 보이는
+   * 것을 볼 때 쓴다 (docs/sdlc/item-windows/ FR-16a).
+   */
+  relaunch(): Promise<void>
 }
 
 /**
@@ -105,7 +111,17 @@ async function launchElectron(
         ...(agentPath.endsWith('.mjs') ? { ONE_DESK_AGENT_LAUNCHER: process.execPath } : {})
       } as Record<string, string>
     })
-    return { app, page: await app.firstWindow() }
+    // 창을 닫을 때 저장이 대기 중이면 앱이 beforeunload로 닫기를 한 번 미룬다 (docs/sdlc/item-windows/ FR-15).
+    // Electron은 대화상자를 띄우지 않는데 Playwright는 그것을 대화상자로 보고 스스로 처리하려다 "No dialog is
+    // showing"으로 처리되지 않은 거부를 남긴다. 모든 창에서 우리가 받아 닫는다(머무르기 — 앱이 원하는 쪽이다).
+    // 실패는 삼킨다: 대화상자가 애초에 없었다.
+    const dismissDialogs = (p: Page) => {
+      p.on('dialog', (dialog) => { dialog.dismiss().catch(() => {}) })
+    }
+    app.on('window', dismissDialogs)
+    const page = await app.firstWindow()
+    dismissDialogs(page)
+    return { app, page }
   } catch (error) {
     await cleanup(app, [dataDir, repoDir])
     throw error
@@ -123,7 +139,8 @@ export async function launchApp(options: LaunchOptions = {}): Promise<AppSession
   const dataDir = mkdtempSync(join(tmpdir(), 'one-desk-e2e-data-'))
   const repoDir = mkdtempSync(join(tmpdir(), 'one-desk-e2e-repo-'))
 
-  const { app, page } = await launchElectron(dataDir, repoDir, options.agentPath ?? FAKE_AGENT, options.env)
+  const agentPath = options.agentPath ?? FAKE_AGENT
+  let current = await launchElectron(dataDir, repoDir, agentPath, options.env)
 
   let closed = false
 
@@ -136,7 +153,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<AppSession
   async function close(): Promise<void> {
     if (closed) return
     closed = true
-    await cleanup(app, [dataDir, repoDir])
+    await cleanup(current.app, [dataDir, repoDir])
   }
 
   // onTestFailed + onTestFinished 조합을 실측했더니 스크린샷이 안 남았다: 이 Vitest
@@ -152,7 +169,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<AppSession
     if (context.task.result?.state === 'fail') {
       try {
         mkdirSync(ARTIFACTS, { recursive: true })
-        await page.screenshot({ path: join(ARTIFACTS, `fail-${Date.now()}.png`) })
+        await session.page.screenshot({ path: join(ARTIFACTS, `fail-${Date.now()}.png`) })
       } catch (error) {
         // 스크린샷이 타임아웃/창 굳음 등으로 던지더라도 아래 close()는 반드시 돌아야
         // 한다 — 안 그러면 디버깅용 스크린샷 하나 놓치는 대가로 Electron 프로세스와
@@ -163,11 +180,23 @@ export async function launchApp(options: LaunchOptions = {}): Promise<AppSession
     await close()
   })
 
-  return {
-    page,
-    electron: app,
+  const session: AppSession = {
+    page: current.page,
+    electron: current.app,
     dataDir,
     repoDir,
-    close
+    close,
+    async relaunch() {
+      try {
+        await current.app.close()
+      } catch {
+        // 이미 스스로 끝났다 — 창을 다 닫으면 앱이 종료된다.
+      }
+      // 실패하면 launchElectron이 두 디렉토리를 치우고 던진다.
+      current = await launchElectron(dataDir, repoDir, agentPath, options.env)
+      session.page = current.page
+      session.electron = current.app
+    }
   }
+  return session
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useClient } from '../client/ClientProvider'
+import { useItemChanged } from './useItemChanged'
 import type { Issue } from '@shared/models'
 
 export function useIssues(workspaceId: string | null, repoId: string | null) {
@@ -43,6 +44,9 @@ export function useIssues(workspaceId: string | null, repoId: string | null) {
       void refresh()
     })
   }, [client, workspaceId, refresh])
+
+  // 다른 창이나 agent가 바꾼 것 (docs/sdlc/item-windows/ FR-18). workspace가 없으면 듣지 않는다.
+  useItemChanged(workspaceId ?? undefined, 'issue', refresh)
 
   return { issues, error, refresh }
 }

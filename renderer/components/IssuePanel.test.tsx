@@ -45,7 +45,7 @@ function renderPanel(issues: Issue[], over: {
       updateIfUnchanged: vi.fn()
     },
     // useIssues가 run 완료를 구독한다. 해제 함수를 돌려주지 않으면 언마운트가 터진다.
-    events: { onRunUpdate: () => () => {} }
+    events: { onRunUpdate: () => () => {}, onItemChanged: () => () => {} }
   } as unknown as OneDeskClient
 
   render(
@@ -54,8 +54,7 @@ function renderPanel(issues: Issue[], over: {
         workspaceId="ws"
         repoId={null}
         repos={over.repos ?? []}
-        chipKeys={new Set()}
-        onToggleContext={() => {}}
+        context={{ keys: new Set(), onToggle: () => {} }}
         expanded={over.expanded ?? false}
         openId={over.openId ?? null}
         onOpen={over.onOpen ?? (() => {})}
@@ -84,7 +83,7 @@ function renderControlledPanel(issues: Issue[], initialOpenId: string | null): P
       ...mocks,
       updateIfUnchanged: vi.fn()
     },
-    events: { onRunUpdate: () => () => {} }
+    events: { onRunUpdate: () => () => {}, onItemChanged: () => () => {} }
   } as unknown as OneDeskClient
 
   const opened: string[] = []
@@ -96,8 +95,7 @@ function renderControlledPanel(issues: Issue[], initialOpenId: string | null): P
         workspaceId="ws"
         repoId={null}
         repos={[]}
-        chipKeys={new Set()}
-        onToggleContext={() => {}}
+        context={{ keys: new Set(), onToggle: () => {} }}
         expanded={true}
         openId={openId}
         onOpen={(id) => { opened.push(id); setOpenId((prev) => (prev === id ? null : id)) }}
@@ -348,7 +346,8 @@ describe('IssuePanel 훑기', () => {
         remove: vi.fn()
       },
       events: {
-        onRunUpdate: (cb: (run: Run) => void) => { runUpdateCb = cb; return () => {} }
+        onRunUpdate: (cb: (run: Run) => void) => { runUpdateCb = cb; return () => {} },
+        onItemChanged: () => () => {}
       }
     } as unknown as OneDeskClient
 
@@ -358,8 +357,7 @@ describe('IssuePanel 훑기', () => {
           workspaceId="ws"
           repoId={null}
           repos={[]}
-          chipKeys={new Set()}
-          onToggleContext={() => {}}
+          context={{ keys: new Set(), onToggle: () => {} }}
           expanded={true}
           openId="a"
           onOpen={() => {}}

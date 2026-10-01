@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { AssetDetail } from './AssetDetail'
@@ -35,6 +35,9 @@ function renderDetail(a: Asset, over: Record<string, unknown> = {}) {
       <AssetDetail asset={a} onChanged={vi.fn()} onDeleted={vi.fn()} />
     </ClientProvider>
   )
+  // 본문이 있으면 읽기(마크다운)로 시작한다 (item-windows FR-21) — 이 파일의 테스트는 편집칸을 다루므로 편집(discovered는 원문 보기)으로 옮긴다.
+  const raw = screen.queryByRole('button', { name: a.source === 'discovered' ? '원문 보기' : '원문 편집' })
+  if (raw && raw.getAttribute('aria-pressed') === 'false') fireEvent.click(raw)
   return client
 }
 
@@ -128,4 +131,16 @@ describe('AssetDetail', () => {
     })
   })
 
+})
+
+describe('AssetDetail 본문 읽기 (docs/sdlc/item-windows/ FR-20)', () => {
+  it('discovered 본문은 읽어 온 뒤 마크다운으로 읽힌다', async () => {
+    render(
+      <ClientProvider client={makeClient({ readBody: vi.fn().mockResolvedValue({ ok: true, content: '# 규칙\n\n**하나**' }) })}>
+        <AssetDetail asset={asset({ source: 'discovered', filePath: '/tmp/a/SKILL.md', content: null, lastSeenAt: 1 })} onChanged={vi.fn()} onDeleted={vi.fn()} />
+      </ClientProvider>
+    )
+    expect(await screen.findByRole('heading', { name: '규칙' })).toBeInTheDocument()
+    expect(screen.getByText('하나').tagName).toBe('STRONG')
+  })
 })

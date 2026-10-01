@@ -125,3 +125,8 @@ export function IconClose(props: SVGProps<SVGSVGElement>) {
 export function IconCopy(props: SVGProps<SVGSVGElement>) {
   return <Icon {...props}><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5" /></Icon>
 }
+
+/** 새 창으로 열기 — 창 하나 위에 겹친 창(docs/sdlc/item-windows/). 외부 링크(`IconExternalLink`)와 갈린다. */
+export function IconNewWindow(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><path d="M5 2.5h8.5V10M5 2.5V5M13.5 10H11" /><rect x="2.5" y="5" width="8.5" height="8.5" rx="1" /></Icon>
+}

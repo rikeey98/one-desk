@@ -25,7 +25,8 @@ function makeClient(list: Asset[], over: Record<string, unknown> = {}): OneDeskC
       rescan: vi.fn().mockResolvedValue(list),
       readBody: vi.fn().mockResolvedValue({ ok: true, content: '' }),
       ...over
-    }
+    },
+    events: { onItemChanged: () => () => {} }
   } as unknown as OneDeskClient
 }
 
@@ -36,8 +37,7 @@ function renderPanel(client: OneDeskClient, props: Record<string, unknown> = {})
         workspaceId="w1"
         repos={[]}
         repoId={null}
-        chipKeys={new Set<string>()}
-        onToggleContext={vi.fn()}
+        context={{ keys: new Set<string>(), onToggle: vi.fn() }}
         {...props}
       />
     </ClientProvider>
@@ -100,7 +100,7 @@ describe('AssetPanel', () => {
 
   it('담기 토글을 누르면 맥락에 담긴다', async () => {
     const onToggleContext = vi.fn()
-    renderPanel(makeClient([asset({ name: '알파' })]), { onToggleContext })
+    renderPanel(makeClient([asset({ name: '알파' })]), { context: { keys: new Set<string>(), onToggle: onToggleContext } })
     await screen.findByText('알파')
     await userEvent.click(screen.getByRole('button', { name: '알파 맥락에 담기' }))
     expect(onToggleContext).toHaveBeenCalledWith({ type: 'asset', id: 'a1', label: '알파' })

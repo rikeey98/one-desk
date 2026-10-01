@@ -78,7 +78,7 @@ MCP 상태와 포트 · DB 파일 · 로그 디렉토리 · 앱 버전을 보여
 
 **문서 체계가 하나 늘었다.** 이 작업부터 `docs/sdlc/<기능>/`에 intent → spec → plan 세 artifact를 두고 각각 사람의 승인을 받는다. 기존 `docs/superpowers/{specs,plans}/`는 그대로 두고 새 작업만 이쪽을 쓴다.
 
-남은 5단계 과제는 diff 뷰어 하나다 — 그 재료(줄 번호 hunk, claude의 편집 전 원본 `before`)는 `conversation-events`가 로그에 남기기 시작했다(아래 절). **착수를 막던 환경변수 결정은 해소됐다**(아래 절). 본문 작업이 넷으로 쪼갠 것 중 첫째였으므로 나머지 셋(마크다운 렌더링 · 검색/필터/정렬 · run 완료 구독)도 후보로 남아 있다. 대화 기능은 이 목록과 별개로 진행돼 완료·병합됐다(위 절). 그중 **run 완료 구독은 이미 해소됐고** 마크다운 렌더링은 agent 답에만 붙었으므로(아래 대화 화면 절) 남은 것은 검색/필터/정렬과, 이슈·메모·asset 본문의 마크다운이다.
+남은 5단계 과제는 diff 뷰어 하나다 — 그 재료(줄 번호 hunk, claude의 편집 전 원본 `before`)는 `conversation-events`가 로그에 남기기 시작했다(아래 절). **착수를 막던 환경변수 결정은 해소됐다**(아래 절). 본문 작업이 넷으로 쪼갠 것 중 첫째였으므로 나머지 셋(마크다운 렌더링 · 검색/필터/정렬 · run 완료 구독)도 후보로 남아 있다. 대화 기능은 이 목록과 별개로 진행돼 완료·병합됐다(위 절). 그중 **run 완료 구독은 이미 해소됐고** 마크다운 렌더링은 agent 답에 붙은 뒤 이슈·메모·asset 본문의 읽기 화면에도 붙었으므로(`item-windows`) 남은 것은 검색/필터/정렬이다.
 
 **이슈 훑기**가 붙었다(설계 `2026-08-27-issue-triage-design.md`, 계획 `2026-08-27-issue-triage.md`). **첫 실행에 마이그레이션 `0003`이 돈다** — 컬럼 다섯 추가 + 기존 이슈의 `triaged_at` 백필. 이슈를 제목 한 줄로 던져 넣고 분류는 나중에 훑기로 몰아서 한다. 목록은 축(급함·출처·성격·repo)으로 묶고 접되 **접혀도 개수는 보이며**, 그룹 안은 `seenAt` 오래된 순이다. MCP `create_issue`가 축을 받으므로 agent가 회의 메모를 이슈로 쪼개며 분류까지 끝낼 수 있다.
 
@@ -138,6 +138,14 @@ epoch ms로 되돌리지 말 것, 모델이 요일을 계산하다 틀린다. `l
 만듦·시작·완료·수정 중 하나)을 받고, `list_conversations`(읽기 전용에서도)가 대화 요약을 준다 — 상태는
 `representativeTurn`이다(인박스와 같은 턴). 상세의 메타 줄 오른쪽 끝에 `만듦 · 시작 · 완료` 한 줄과 id 알약(`#` + 앞
 8자리, 누르면 전체 id 복사 — 이름 `이슈 id 복사`·`메모 id 복사`)이 선다. "누가 손댔나"(활동 기록)는 범위 밖이다(spec §4).
+
+**이슈·메모·skill 패널을 repo마다 별도 창으로 연다** (`docs/sdlc/item-windows/`). 마이그레이션 없음. 패널 헤더의
+`<종류> 새 창으로 열기`(이슈·메모·skill)가 **누른 순간의 (종류, workspace, repo)** 로 OS 창을 띄우고, 창은 그 범위에
+고정된다 — 앱 창에서 repo를 바꿔도 따라가지 않는다. 같은 범위는 창 하나다(다시 열면 앞으로 가져온다). 창은 같은 패널
+컴포넌트를 `layout="window"`로 그려 목록과 상세가 나란하고, **맥락 담기가 없다**(패널의 `context` prop이 선택이다 —
+App만 넘긴다). 창 제목은 `이슈 · api`(전체면 `<workspace> 전체`)이고 repo가 지워지면 "이 repo는 삭제됐습니다"다.
+같은 작업에서 **상세 본문에 `마크다운으로 보기 / 원문 편집` 전환**이 붙었다(앱 창도) — 본문이 있으면 읽기로 시작하고,
+SKILL.md의 frontmatter는 평문 칸으로 뗀다. 그리고 **창을 닫기 직전에 친 글자를 더는 잃지 않는다**(앱 창도 — 아래 함정 절).
 
 **대화에 수명 주기와 정체성이 생겼다** (`docs/sdlc/conversation-lifecycle/`). **첫 실행에
 마이그레이션 `0008`이 돈다** — `run.title`·`run.closed_at` 두 컬럼 추가(백필 없음). 증상은
@@ -328,6 +336,40 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 
 전부 실제로 겪은 것들이다.
 
+**창이 여럿이다 — push는 앱 창에만, 바뀜 알림만 모든 창으로 간다** (`docs/sdlc/item-windows/` FR-17~19).
+`registerIpc`가 받는 것은 창 하나가 아니라 `Windows`(`getMainWindow`·`getAllWindows`·`openPanelWindow`)다. run 이벤트·큐·
+인박스·MCP·요금제는 `getMainWindow`로만, `event:itemChanged`만 전부로 간다. 그 알림은 **core가 저장소를 만드는 자리에서
+감싼 래퍼**(`core/changes.ts`)가 낸다 — 감싼 것을 IPC 표면과 MCP `deps`가 같이 받으므로 agent가 고친 것도 창에 보인다.
+맨 저장소를 따로 만들어 어느 한쪽에 넘기지 말 것. `markSeen`·충돌로 끝난 쓰기·읽기는 알리지 않고, asset 스캔은 끝날 때
+한 번 알린다. 렌더러는 `useItemChanged`(같은 workspace·같은 종류)로 목록을 다시 읽는다 — 테스트의 가짜 클라이언트에
+`events.onItemChanged`가 없으면 그 훅을 쓰는 컴포넌트가 전부 던진다.
+
+**새 창은 `electron/windows.ts`의 `createWindow` 하나로 만든다** (FR-14). webPreferences·`setWindowOpenHandler`·
+`will-navigate`가 거기서 한 번에 붙는다 — 창을 따로 만들면 가드 하나만 빠져도 그 창이 원격 문서로 넘어가고 preload의
+앱 API가 그 문서에 붙는다. `nav-guard.e2e`의 "패널 창"이 실제 창으로 본다. 패널 창의 범위는 렌더러가 보낸 값을 믿지 않고
+`core.panelScope`가 검증한다(없는 workspace·남의 repo는 던진다). 해시(`#panel/<kind>/<ws>/<repo|all>`)를 만들고 읽는 것은
+`shared/panelWindow.ts` 한 쌍이다.
+
+**창을 닫는 것은 React 언마운트가 아니다 — 대기 중인 저장은 `beforeunload`가 흘려보낸다** (FR-15·16a·16b). 디바운스
+자동 저장의 "언마운트 때 흘려보내기"는 창 닫기에서 돌지 않아, 예전에는 앱을 끄기 600ms 안에 친 글자를 잃었다. 지금은
+`useDebouncedSave`가 창마다 하나인 등록부(`renderer/store/pendingSaves.ts`)에 자기를 올리고(대기 중 **또는 저장이 날아가는
+중**), `main.tsx`의 `guardUnload`가 바쁘면 닫기를 미루고 전부 흘려보낸 뒤 `window.close()`한다. **저장 콜백은 실패를
+`false`로 돌려준다** — 오류를 스스로 잡아 화면에 두는 save도 결과로는 실패를 알려야 닫기가 멈춘다(충돌 배너가 떠 있을 때도
+false다). Provider가 없으면 등록만 안 할 뿐 던지지 않는다 — 그래서 `main.tsx`의 그 줄은 e2e(`panel-window`의 FR-15·16a)가
+맡는다. e2e 드라이버는 모든 창의 `dialog`를 받아 닫는다: Playwright가 미뤄진 beforeunload를 대화상자로 보고 처리하려다
+"No dialog is showing" 거부를 남기기 때문이다. 창을 "X를 누른 것처럼" 닫으려면 `page.close()`가 아니라 main의
+`BrowserWindow.close()`를 부른다(`page.close()`는 기본으로 beforeunload를 건너뛴다).
+
+**macOS Cmd+Q는 저장 대기 중인 창이 있으면 한 번 취소된다** (spec §5-3, 알려진 제약). 창 하나가 `beforeunload`로 닫기를
+미루면 Electron은 종료 전체를 취소하고, 그 창은 저장 뒤 스스로 닫히지만 앱은 다시 종료를 시작하지 않는다. Windows의 창
+닫기는 `window-all-closed`로 이어져 문제가 없다. macOS로 받는 사람이 생기면 `before-quit`에서 다시 시작하는 길을 본다.
+
+**상세 본문은 읽기로 시작할 수 있다 — e2e와 단위 테스트는 편집칸을 쓰기 전에 `원문 편집`을 누른다** (FR-21). 본문이
+있는 항목을 열면 `BodyField`가 마크다운 읽기로 시작해 `textbox '본문'`이 없다. 새로 만든(빈) 항목은 편집으로 시작한다.
+discovered asset은 늘 읽기로 시작하고 전환 이름이 `원문 보기`다. 전환 그룹의 이름은 `보기 방식`이다 — `본문`을 품으면
+Playwright의 `getByLabel('본문')`이 부분 일치로 그것까지 잡는다. 읽기도 `Markdown`을 그대로 쓴다(asset 본문은 신뢰할 수
+없는 입력이다 — 아래 마크다운 항목의 규칙).
+
 **preload 경로는 `../preload/index.mjs`다.** `package.json`에 `"type": "module"`이 있어 electron-vite가 preload를 `.mjs`로 내보낸다. `.js`로 "고치면" **창은 정상적으로 뜨는데 `contextBridge`가 실행되지 않아 `window.oneDesk`가 영원히 `undefined`**가 된다. 흰 창만 보고는 못 잡는다.
 
 **`--output-format stream-json`은 `--verbose` 없이는 실행이 거부된다.** Claude Code 실측 확인.
@@ -508,7 +550,7 @@ junction/심링크가 밖을 가리키는 것을 못 막는다. `..` 검사 테�
 
 **asset 목록은 repo 목록이 바뀌면 다시 읽어야 한다.** `useAssets`가 `repoKey`(repo id를 이어붙인 문자열)를 의존성으로 받는 이유다. 이것이 빠지면 repo를 등록해도 asset이 화면에 나타나지 않는다 — 실제로 e2e가 여기서 걸렸다.
 
-**asset 본문은 신뢰할 수 없는 입력이다.** 외부 repo의 SKILL.md를 그대로 화면에 그리고 프롬프트에 싣는다. 조립기는 반드시 이스케이프하고, 화면은 평문으로 그린다. 마크다운은 agent 답에만 붙었다(`renderer/components/Markdown.tsx`, 아래 마크다운 항목) — asset 본문에 붙일 때는 그 컴포넌트를 쓰고 규칙을 우회하지 말 것. 렌더링에 구멍이 있으면 그 스크립트가 preload의 앱 API로 `runs.start({ permission: 'full' })`을 부를 수 있다.
+**asset 본문은 신뢰할 수 없는 입력이다.** 외부 repo의 SKILL.md를 그대로 화면에 그리고 프롬프트에 싣는다. 조립기는 반드시 이스케이프하고, 화면은 평문으로 그린다. 마크다운은 agent 답과 상세 본문의 읽기 화면(`BodyField`, `item-windows`)에 붙었다 — 둘 다 `renderer/components/Markdown.tsx`를 쓴다(아래 마크다운 항목). 규칙을 우회하는 렌더러를 따로 두지 말 것. 렌더링에 구멍이 있으면 그 스크립트가 preload의 앱 API로 `runs.start({ permission: 'full' })`을 부를 수 있다.
 
 **OpenCode는 설정을 병합하고, 우리가 이길 수 없는 자리가 있다.** 우선순위는 `OPENCODE_PERMISSION` 환경변수 > 프로젝트 `opencode.json` > `OPENCODE_CONFIG`가 가리키는 파일 > 전역 설정이고, `permission` 안에서 키 단위로 합쳐진다. **`"*"`는 구체 키를 이기지 못한다** — 소스 우선순위와 무관하게 구체적인 키가 와일드카드를 이긴다. 그래서 권한은 파일이 아니라 환경변수로 넘기고 알려진 키 15개를 전부 명시한다. 이름을 대지 않은 키는 남의 설정 값이 그대로 산다.
 
@@ -568,7 +610,7 @@ hover하고 바로 누르면 가끔 깨진다 — 눌리지 않은 click이 스�
 
 **권한 거부 공지는 로그에 두 번 올 수 있다 — 화면이 `toolUseId`로 한 번만 그린다** (spec FR-19·41·NFR-3). claude는 `system/permission_denied`(best-effort)와 `result.permission_denials`(권위 있는 기록) 둘로 알리고 `parseLine`은 한 줄만 보므로 둘 다 공지가 된다. manager에서 거르면 manager가 이벤트 내용을 판단하는 첫 자리가 된다 — 거르지 않았다. 공지는 거부된 도구의 실패 줄 바로 뒤, 같은 스코프에 선다(`timeline.test`의 "권한 거부는 그 도구의 실패 줄 바로 뒤에 한 번만 선다 — system과 result가 둘 다 알려도", e2e는 `권한 때문에 막힘: Bash`가 정확히 하나인지 본다). opencode는 오류 문구(영어 문장 — `OPENCODE_DENIED_BY_ASK`·`_BY_RULE`)로 판정하므로 CLI가 문구를 바꾸면 공지만 조용히 빠진다(도구 실패 줄은 남는다).
 
-**agent의 답은 마크다운이지만 HTML은 아니다 — 네 가지를 되살리지 말 것** (`renderer/components/Markdown.tsx`, spec FR-20~FR-26). agent 출력은 신뢰할 수 없는 입력이다 — 렌더링에 구멍이 있으면 그 스크립트가 preload의 앱 API로 `runs.start({ permission: 'full' })`을 부른다. (1) 원시 HTML을 요소로 되살리는 rehype의 raw 플러그인도, React의 innerHTML 주입 prop도 쓰지 않는다 — HTML은 글자로 보인다(`skipHtml`도 켜지 않는다: HTML 조각을 설명하는 답에서 조각이 사라지면 답이 거짓말이 된다). (2) 링크는 `shared/links.ts`의 `externalLinkOf`를 통과한 http(s)만 `<a target="_blank">`이고 나머지(`javascript:`·`file:`·상대 경로·`#조각`·`mailto:`·사용자 정보가 붙은 `github.com@evil.com`)는 글자다 — react-markdown의 기본 `urlTransform`은 끄고 `a`·`img` 컴포넌트에서 거른다. 통과한 링크의 `title`은 agent가 적은 제목이 아니라 실제 목적지다. (3) 이미지는 그리지 않는다(`[이미지: alt]` 글자). (4) 마크다운을 쓰는 곳은 답 칸과 펼친 턴의 text 블록 둘뿐이다 — 사용자 버블·도구 입력/출력·오류 카드는 평문이다. `Markdown.test`의 "적대적인 문서 전체에서 로드·실행·앱 안 탐색이 가능한 속성이 하나도 없다"가 DOM 전체를 훑어 고정한다(raw 플러그인을 끼우면 넷, `a`의 검사를 빼면 열셋이 빨개졌다). **완료 증명의 grep은 주석에도 걸린다** — `renderer/`의 주석에 그 두 이름이나 `window.oneDesk`를 그대로 적으면 `grep -rn "dangerouslySetInnerHTML\|rehype-raw" renderer/`와 위 경계 grep이 출력을 낸다(실제로 걸렸다 — `Markdown.tsx`의 설명이 이름을 풀어 쓰는 이유다).
+**agent의 답은 마크다운이지만 HTML은 아니다 — 네 가지를 되살리지 말 것** (`renderer/components/Markdown.tsx`, spec FR-20~FR-26). agent 출력은 신뢰할 수 없는 입력이다 — 렌더링에 구멍이 있으면 그 스크립트가 preload의 앱 API로 `runs.start({ permission: 'full' })`을 부른다. (1) 원시 HTML을 요소로 되살리는 rehype의 raw 플러그인도, React의 innerHTML 주입 prop도 쓰지 않는다 — HTML은 글자로 보인다(`skipHtml`도 켜지 않는다: HTML 조각을 설명하는 답에서 조각이 사라지면 답이 거짓말이 된다). (2) 링크는 `shared/links.ts`의 `externalLinkOf`를 통과한 http(s)만 `<a target="_blank">`이고 나머지(`javascript:`·`file:`·상대 경로·`#조각`·`mailto:`·사용자 정보가 붙은 `github.com@evil.com`)는 글자다 — react-markdown의 기본 `urlTransform`은 끄고 `a`·`img` 컴포넌트에서 거른다. 통과한 링크의 `title`은 agent가 적은 제목이 아니라 실제 목적지다. (3) 이미지는 그리지 않는다(`[이미지: alt]` 글자). (4) 마크다운을 쓰는 곳은 답 칸과 펼친 턴의 text 블록, 그리고 상세 본문의 읽기 화면(`BodyField`, `item-windows` FR-22) 셋뿐이다 — 사용자 버블·도구 입력/출력·오류 카드는 평문이다. `Markdown.test`의 "적대적인 문서 전체에서 로드·실행·앱 안 탐색이 가능한 속성이 하나도 없다"가 DOM 전체를 훑어 고정한다(raw 플러그인을 끼우면 넷, `a`의 검사를 빼면 열셋이 빨개졌다). **완료 증명의 grep은 주석에도 걸린다** — `renderer/`의 주석에 그 두 이름이나 `window.oneDesk`를 그대로 적으면 `grep -rn "dangerouslySetInnerHTML\|rehype-raw" renderer/`와 위 경계 grep이 출력을 낸다(실제로 걸렸다 — `Markdown.tsx`의 설명이 이름을 풀어 쓰는 이유다).
 
 **main도 막는다 — 렌더러 한 겹에 기대지 않는다** (`electron/main.ts`, spec FR-24). 앱 창이 원격 문서로 넘어가면 preload가 그 문서에도 붙는다. 새 창 요청(`setWindowOpenHandler`)은 `externalLinkOf`를 통과한 것만 `shell.openExternal`하고 창은 어느 쪽이든 만들지 않는다. 창 안 탐색(`will-navigate`)은 `isAppNavigation(target, appUrl)`이 통과시킨 것만이다 — 개발 서버면 같은 origin(Vite의 전체 새로고침), `file:`이면 **같은 문서**. `file:`의 origin은 전부 불투명한 `"null"`이라 origin을 비교하면 디스크의 아무 파일로나 넘어간다(`links.test`의 "file: 앱에서 다른 file: 문서는 막는다"). **다운로드도 막는다**(`session.defaultSession`의 `will-download`) — Chromium은 Windows·Linux에서 Alt+클릭한 링크를 새 창도 탐색도 아닌 다운로드로 처리해 위 두 가드를 비켜 간다(`nav-guard.e2e`의 "Alt+클릭한 링크는 내려받지 않는다"). 판정을 `shared/links.ts`에 두는 이유는 `core/app/reveal.ts`와 같다 — main에는 단위 테스트가 없고, 렌더러와 main이 같은 함수를 써야 한다. 실제 창 동작은 `e2e/nav-guard.e2e.ts`가 렌더러의 거름을 거치지 않고 `window.open`·`location`을 직접 불러 본다.
 
@@ -731,7 +773,9 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/context-occupancy/` | 컨텍스트 링이 턴마다 100% 가까이 튀던 결함 — spec. `iterations` 폴백을 버린 이유(FR-1), 창 크기를 고르는 모델(FR-2), run-info §8 개정 |
 | `docs/sdlc/plan-usage/` | Claude 요금제 사용률 — spec. `rate_limit_event` 실측(§1), 저장하지 않는 이유와 이벤트가 아닌 이유(FR-1·FR-3), 지난 리셋은 `—`(FR-5), run-info §7 좁힘 |
 | `docs/sdlc/timestamps/` | 시각으로 정리하기 — spec. `startedAt`과 상태가 바뀔 때만 파생(FR-1·2), MCP 시각 ISO·기간 거름·`list_conversations`(FR-4~7), 활동 기록을 뺀 이유(§4) |
+| `docs/sdlc/item-windows/` | 패널을 repo마다 별도 창으로 — spec·plan. 창의 단위와 고정(FR-1~3), 범위만 받는 IPC(FR-12), 모든 창의 가드(FR-14), 닫기 전 저장(FR-15·16), 바뀜 알림(FR-17~19), 본문 읽기/편집(FR-20~25), Cmd+Q 제약(§5). plan에 변이 표 |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
+| `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |
 | `docs/diagrams/` | 아키텍처 다이어그램 — `one-desk-architecture.html`(단독 실행 가능)과 그것을 만든 archify 사양 `one-desk.architecture.json`. `main`에 들어가면 `.github/workflows/pages.yml`이 GitHub Pages로 올린다 |
 

@@ -33,6 +33,15 @@ export interface PlanUsage {
   /** 앱이 이 값을 받은 시각(epoch ms) */
   observedAt: number
 }
+/**
+ * 무엇이 바뀌었는가 — 창 사이 동기화의 알림 (docs/sdlc/item-windows/ spec FR-17·18). 어느 행인지는 싣지
+ * 않는다: 받는 쪽은 그 workspace의 그 종류 목록을 다시 읽을 뿐이다.
+ */
+export interface ItemChange {
+  workspaceId: string
+  kind: 'issue' | 'memo' | 'asset' | 'repo' | 'workspace'
+}
+
 export type IssueStatus = 'open' | 'doing' | 'done'
 /** 이슈가 어디서 왔는가 */
 export type IssueSource = 'customer' | 'plan' | 'meeting' | 'dev'

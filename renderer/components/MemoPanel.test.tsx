@@ -39,7 +39,7 @@ function renderPanel(memos: Memo[], over: {
       updateIfUnchanged: vi.fn()
     },
     // useMemos가 run 완료를 구독한다. 해제 함수를 돌려주지 않으면 언마운트가 터진다.
-    events: { onRunUpdate: () => () => {} }
+    events: { onRunUpdate: () => () => {}, onItemChanged: () => () => {} }
   } as unknown as OneDeskClient
 
   render(
@@ -48,8 +48,7 @@ function renderPanel(memos: Memo[], over: {
         workspaceId="ws"
         repoId={null}
         repos={[]}
-        chipKeys={new Set()}
-        onToggleContext={() => {}}
+        context={{ keys: new Set(), onToggle: () => {} }}
         expanded={over.expanded ?? false}
         openId={over.openId ?? null}
         onOpen={over.onOpen ?? (() => {})}

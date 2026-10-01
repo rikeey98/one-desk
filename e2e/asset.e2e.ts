@@ -42,6 +42,8 @@ describe('asset 스캔', () => {
     await instruction.waitFor({ state: 'visible', timeout: 10_000 })
     expect(await page.getByRole('button', { name: 'CLAUDE.md 맥락에 담기' }).count()).toBe(0)
     await instruction.click()
+    // discovered는 읽기(마크다운)로 시작한다 — 원문은 고칠 수 없는 편집칸이다 (item-windows FR-20).
+    await page.getByRole('button', { name: '원문 보기', exact: true }).click()
     const body = page.getByRole('textbox', { name: '본문' })
     await expect.poll(() => body.inputValue(), { timeout: 10_000 }).toContain('e2e가 심은 규칙')
     expect(await body.getAttribute('readonly')).not.toBeNull()

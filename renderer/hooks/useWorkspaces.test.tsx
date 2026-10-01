@@ -21,7 +21,8 @@ function makeFailingClient(): OneDeskClient {
       list: vi.fn().mockRejectedValue(new Error('DB를 열 수 없습니다')),
       create: vi.fn(),
       remove: vi.fn()
-    }
+    },
+    events: { onItemChanged: () => () => {} }
   } as unknown as OneDeskClient
 }
 

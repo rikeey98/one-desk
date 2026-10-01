@@ -35,6 +35,8 @@ describe('패널 축소', () => {
       expect(await panel.getAttribute('class')).not.toContain('panel-expanded')
       expect(await panel.getByRole('button', { name: '축소', exact: true }).count()).toBe(0)
       await title.click()
+      // 본문이 생겼으니 다시 열면 읽기(마크다운)로 시작한다 (docs/sdlc/item-windows/ FR-21).
+      await panel.getByRole('button', { name: '원문 편집', exact: true }).click()
       await expect.poll(() => body.inputValue()).toBe(`${item.title} 본문 보존 확인`)
       await panel.getByRole('button', { name: '축소', exact: true }).click()
       await body.waitFor({ state: 'detached' })

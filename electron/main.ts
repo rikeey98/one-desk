@@ -1,11 +1,9 @@
-import { app, dialog, session, shell, BrowserWindow } from 'electron'
+import { app, dialog, session } from 'electron'
 import { isAbsolute, join } from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { createCore, type Core } from '@core/index'
-import { externalLinkOf, isAppNavigation } from '@shared/links'
 import { registerIpc } from './ipc'
+import { createMainWindow, getAllWindows, getMainWindow, openPanelWindow } from './windows'
 
-let mainWindow: BrowserWindow | null = null
 let core: Core | null = null
 
 function resolveMigrationsDir(): string {
@@ -22,72 +20,6 @@ function resolveBridgePath(): string {
   return app.isPackaged
     ? join(process.resourcesPath, 'mcp-bridge.mjs')
     : join(app.getAppPath(), 'core/mcp/bridge.mjs')
-}
-
-/**
- * 실행 중인 창. run 이벤트를 webContents.send로 흘릴 때 쓴다.
- * 창이 닫히면 null이 되므로 호출자는 항상 존재 여부를 확인해야 한다.
- * export하지 않는다 — 필요한 곳에는 registerIpc로 주입한다(순환 import 방지).
- */
-function getMainWindow(): BrowserWindow | null {
-  return mainWindow
-}
-
-function createWindow(): void {
-  mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    show: false,
-    autoHideMenuBar: true,
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
-      sandbox: false,
-      nodeIntegration: false,
-      contextIsolation: true
-    }
-  })
-
-  mainWindow.on('ready-to-show', () => {
-    mainWindow?.show()
-  })
-
-  mainWindow.on('closed', () => {
-    mainWindow = null
-  })
-
-  const devUrl = app.isPackaged ? undefined : process.env['ELECTRON_RENDERER_URL']
-  const indexFile = join(__dirname, '../renderer/index.html')
-  // 앱 자신의 주소. 아래 will-navigate가 이것 말고는 전부 막는다.
-  const appUrl = devUrl || pathToFileURL(indexFile).href
-
-  // 앱 창은 앱 문서 말고는 아무것도 열지 않는다 (docs/sdlc/conversation-timeline/ spec FR-24).
-  // 렌더러의 마크다운이 이미 거르지만(FR-22) 거기에만 기대지 않는다 — 앱 창이 원격 문서로
-  // 넘어가면 preload가 그 문서에도 붙어 window.oneDesk가 그 문서의 것이 된다. 판정은
-  // shared/links.ts 하나를 렌더러와 같이 쓴다(main에는 단위 테스트가 없어 거기서 고정한다).
-  //
-  // 새 창 요청: http(s)만 OS 브라우저로 넘기고 나머지(javascript:·file:·data:…)는 조용히
-  // 거부한다. 창은 어느 쪽이든 만들지 않는다.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    const link = externalLinkOf(url)
-    if (link !== null) {
-      shell.openExternal(link).catch((error: unknown) => {
-        console.error('one-desk: 외부 링크를 열지 못했습니다', link, error)
-      })
-    }
-    return { action: 'deny' }
-  })
-
-  // 창 안 탐색: 앱 문서(개발 서버는 같은 origin — Vite의 전체 새로고침, file:은 같은
-  // index.html)가 아니면 막는다. loadURL·loadFile 같은 프로그램 탐색에는 불리지 않는다.
-  mainWindow.webContents.on('will-navigate', (event) => {
-    if (!isAppNavigation(event.url, appUrl)) event.preventDefault()
-  })
-
-  if (devUrl) {
-    mainWindow.loadURL(devUrl)
-  } else {
-    mainWindow.loadFile(indexFile)
-  }
 }
 
 // e2e와 개발용으로 데이터 디렉토리를 갈아끼운다. app 이벤트 등록보다,
@@ -147,7 +79,7 @@ if (dataDirError) {
       return
     }
 
-    registerIpc(core, getMainWindow)
+    registerIpc(core, { getMainWindow, getAllWindows, openPanelWindow })
     // 다운로드는 막는다 (docs/sdlc/conversation-timeline/ spec FR-24 다듬음 — 리뷰가 찾은 것).
     // Chromium은 Windows·Linux에서 Alt+클릭한 링크를 새 창도 탐색도 아닌 **다운로드**로 처리하고,
     // 그 요청은 아래 창의 setWindowOpenHandler·will-navigate 어디에도 걸리지 않고 여기로 온다 —
@@ -156,7 +88,7 @@ if (dataDirError) {
     session.defaultSession.on('will-download', (event) => {
       event.preventDefault()
     })
-    createWindow()
+    createMainWindow()
 
     app.on('activate', () => {
       // macOS에서 dock 아이콘을 눌렀을 때. 창이 살아 있으면 새로 만들지 않고 포커스만 준다.
@@ -164,7 +96,7 @@ if (dataDirError) {
       if (existing) {
         existing.focus()
       } else {
-        createWindow()
+        createMainWindow()
       }
     })
   })

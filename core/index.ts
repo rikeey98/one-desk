@@ -18,6 +18,7 @@ import { probeCommands } from './commands/probe'
 import { describeCommands } from './commands/describe'
 import type { GlobalRoots } from './db/repositories/setting'
 import type { UpdateRepoInput, AppPaths, FileSearchInput } from '@shared/models'
+import { PANEL_KINDS, type PanelScope } from '@shared/panelWindow'
 import { createFileService } from './files/service'
 import { createIssueRepository } from './db/repositories/issue'
 import { createMemoRepository } from './db/repositories/memo'
@@ -33,10 +34,13 @@ import type { AgentProbes, AgentStatuses } from '@shared/models'
 import { createSettingRepository } from './db/repositories/setting'
 import { createRunQueue } from './runner/queue'
 import { createMcpHost } from './mcp/host'
+import {
+  notifyingIssues, notifyingMemos, notifyingAssets, notifyingRepos, notifyingWorkspaces, type Notify
+} from './changes'
 import { consoleErrorSink, type ErrorSink } from './errors'
 import type { AgentAdapter } from './runner/types'
 import type { RunEvent } from '@shared/events'
-import type { AgentKind, InboxCounts, McpStatus, PlanUsage, QueueSnapshot, Run } from '@shared/models'
+import type { AgentKind, InboxCounts, ItemChange, McpStatus, PlanUsage, QueueSnapshot, Run } from '@shared/models'
 
 /**
  * agent 종류 → 어댑터. **밖으로 꺼낸 이유는 테스트가 이 한 줄을 볼 수 있게
@@ -83,6 +87,7 @@ const QUEUE_UPDATE = 'queue-update'
 const INBOX_UPDATE = 'inbox-update'
 const MCP_STATUS = 'mcp-status'
 const PLAN_USAGE = 'plan-usage'
+const ITEM_CHANGED = 'item-changed'
 
 export function createCore(opts: CoreOptions) {
   const onError = opts.onError ?? consoleErrorSink
@@ -97,12 +102,22 @@ export function createCore(opts: CoreOptions) {
     migrationsDir: opts.migrationsDir
   })
 
-  const workspaces = createWorkspaceRepository(db)
-  const issues = createIssueRepository(db)
-  const memos = createMemoRepository(db)
-  const repos = createRepoRepository(db)
+  const emitter = new EventEmitter()
+
+  /**
+   * 바뀜 알림 (docs/sdlc/item-windows/ spec FR-17). 저장소를 **여기서 한 번** 감싸고, 감싼 것을 IPC 표면과
+   * MCP `deps`에 같이 넘긴다 — MCP 쪽만 맨 저장소를 받으면 agent가 고친 것이 패널 창에 안 보인다.
+   * 리스너가 던지면 삼킨다: 쓰기는 이미 끝났고, 알림 하나 때문에 그 쓰기가 실패로 보이면 안 된다.
+   */
+  const notify: Notify = (change) => {
+    try { emitter.emit(ITEM_CHANGED, change) } catch (err) { onError('바뀜 알림 실패', err) }
+  }
+  const workspaces = notifyingWorkspaces(createWorkspaceRepository(db), notify)
+  const issues = notifyingIssues(createIssueRepository(db), notify)
+  const memos = notifyingMemos(createMemoRepository(db), notify)
+  const repos = notifyingRepos(createRepoRepository(db), notify)
   const runs = createRunRepository(db)
-  const assetRows = createAssetRepository(db)
+  const assetRows = notifyingAssets(createAssetRepository(db), notify)
   const settings = createSettingRepository(db, opts.homeDir)
 
   const commands = createCommandService({
@@ -130,7 +145,7 @@ export function createCore(opts: CoreOptions) {
     }
   })
 
-  const assetService = createAssetService({
+  const rawAssetService = createAssetService({
     assets: assetRows,
     repos,
     // 설정에서 바뀌므로 매번 읽는다.
@@ -141,6 +156,26 @@ export function createCore(opts: CoreOptions) {
     // repo가 없는 workspace에도 글로벌은 보여야 하므로 workspace 저장소에서 받는다.
     workspaceIds: () => workspaces.list().map((w) => w.id)
   })
+
+  /**
+   * 스캔이 끝나면 그 workspace의 asset 목록이 바뀌었을 수 있다 — 한 번 알린다(FR-17). 스캔이 쓰는 저장소
+   * 메서드(upsert·prune·move)는 래퍼가 감싸지 않으므로 행마다 알리지 않는다.
+   */
+  const assetService = {
+    ...rawAssetService,
+    async scanAll() {
+      await rawAssetService.scanAll()
+      for (const w of workspaces.list()) notify({ workspaceId: w.id, kind: 'asset' })
+    },
+    async scanWorkspace(workspaceId: string) {
+      await rawAssetService.scanWorkspace(workspaceId)
+      notify({ workspaceId, kind: 'asset' })
+    },
+    async scanRepo(workspaceId: string, repoId: string) {
+      await rawAssetService.scanRepo(workspaceId, repoId)
+      notify({ workspaceId, kind: 'asset' })
+    }
+  }
 
   // 부팅 스캔 (설계 §3-2). await하지 않는다 — 앱이 뜨는 것을 막지 않는다.
   // 실패해도 앱은 정상이고 목록만 낡으므로 onError로 흘려보낸다.
@@ -189,8 +224,6 @@ export function createCore(opts: CoreOptions) {
     firstRepoPath: (workspaceId) => repos.list(workspaceId)[0]?.path ?? null
   })
 
-
-  const emitter = new EventEmitter()
 
   const queue = createRunQueue({
     limit: settings.concurrencyLimit(),
@@ -443,6 +476,29 @@ export function createCore(opts: CoreOptions) {
      */
     paths: (): AppPaths => ({ dataDir: opts.dataDir, dbFile, logDir }),
 
+    /**
+     * 패널 창을 열어도 되는 범위인가 (docs/sdlc/item-windows/ FR-12). 렌더러가 보낸 값을 그대로 믿지 않는다 —
+     * workspace가 있고, repo가 있으면 그 workspace 소속이어야 한다. 정규화한 범위를 돌려주고, 아니면 던진다.
+     * 창을 만드는 것은 electron의 일이라 판정만 여기 둔다(`reveal.ts`와 같은 구조).
+     */
+    panelScope(input: unknown): PanelScope {
+      if (typeof input !== 'object' || input === null) throw new Error('열 수 없는 창입니다')
+      const { kind, workspaceId, repoId } = input as Record<string, unknown>
+      if (typeof kind !== 'string' || !(PANEL_KINDS as readonly string[]).includes(kind)) {
+        throw new Error(`열 수 없는 창입니다: ${String(kind)}`)
+      }
+      if (typeof workspaceId !== 'string' || !workspaces.list().some((w) => w.id === workspaceId)) {
+        throw new Error(`workspace를 찾을 수 없습니다: ${String(workspaceId)}`)
+      }
+      if (repoId !== null) {
+        if (typeof repoId !== 'string') throw new Error('열 수 없는 창입니다')
+        if (repos.get(repoId).workspaceId !== workspaceId) {
+          throw new Error(`이 workspace의 repo가 아닙니다: ${repoId}`)
+        }
+      }
+      return { kind: kind as PanelScope['kind'], workspaceId, repoId: repoId as string | null }
+    },
+
     /** 전역 실행 슬롯. workspace와 무관하다 (설계 §6 — 제약의 근거가 머신 자원이다). */
     queue: {
       snapshot: (): QueueSnapshot => queue.snapshot(),
@@ -532,6 +588,15 @@ export function createCore(opts: CoreOptions) {
     onMcpStatus(cb: (status: McpStatus) => void): () => void {
       emitter.on(MCP_STATUS, cb)
       return () => { emitter.off(MCP_STATUS, cb) }
+    },
+
+    /**
+     * 이슈·메모·asset·repo·workspace가 바뀔 때 준다 (docs/sdlc/item-windows/ FR-17). IPC로 온 쓰기와 MCP로
+     * 온 쓰기, asset 스캔이 전부 이 길이다. 모든 창이 듣는다.
+     */
+    onItemChanged(cb: (change: ItemChange) => void): () => void {
+      emitter.on(ITEM_CHANGED, cb)
+      return () => { emitter.off(ITEM_CHANGED, cb) }
     },
 
     /** 마지막으로 받은 요금제 사용률. 앱을 켠 뒤 claude 실행이 없었으면 null (docs/sdlc/plan-usage/) */
