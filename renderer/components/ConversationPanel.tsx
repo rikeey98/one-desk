@@ -18,7 +18,7 @@ import type { Repo, Run, Workspace } from '@shared/models'
  */
 export function ConversationPanel({
   conversation, workspaceId, workspaces, repos, reposError, chips, onRemoveChip,
-  onStarted, onCancel, draftPrompt, draftCwd
+  onStarted, onCancel, draftPrompt, draftCwd, selectedRepoId
 }: {
   conversation: Conversation | null
   workspaceId: string
@@ -31,6 +31,7 @@ export function ConversationPanel({
   onCancel: (runId: string) => void
   draftPrompt: string
   draftCwd: string | null
+  selectedRepoId: string | null
 }) {
   const client = useClient()
   const [resendError, setResendError] = useState<string | null>(null)
@@ -104,6 +105,7 @@ export function ConversationPanel({
         onStarted={onStarted}
         draftPrompt={draftPrompt}
         draftCwd={draftCwd}
+        selectedRepoId={selectedRepoId}
         reserved={reserved}
         running={running}
         reservation={reservation}

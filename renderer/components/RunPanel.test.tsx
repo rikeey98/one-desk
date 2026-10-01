@@ -88,6 +88,7 @@ interface ResumeOpts {
   conversation?: Conversation | null
   draftPrompt?: string
   draftCwd?: string | null
+  selectedRepoId?: string | null
   reserved?: boolean
   running?: Run | null
   reservation?: Run | null
@@ -128,6 +129,7 @@ function panel(
           conversation={resumeOpts.conversation ?? null}
           draftPrompt={resumeOpts.draftPrompt ?? ''}
           draftCwd={resumeOpts.draftCwd ?? null}
+          selectedRepoId={resumeOpts.selectedRepoId ?? null}
           reserved={resumeOpts.reserved ?? false}
           running={resumeOpts.running ?? null}
           reservation={resumeOpts.reservation ?? null}
@@ -256,6 +258,47 @@ describe('RunPanel', () => {
 
     await waitFor(() => expect(start).toHaveBeenCalled())
     expect(start.mock.calls[0]![0].cwd).toBe('/tmp/web')
+  })
+
+  describe('사이드바에서 고른 repo', () => {
+    const two: Repo[] = [
+      ...repos,
+      { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 1, createdAt: 0 }
+    ]
+
+    it('새 대화의 작업 디렉토리가 된다 — 첫 repo가 아니라', async () => {
+      const start = vi.fn().mockResolvedValue({ id: 'run-1' } as Run)
+      renderPanel(makeClient({ start }), two, [], vi.fn(), { selectedRepoId: 'r2' })
+
+      await waitFor(() => expect(screen.getByLabelText('작업 디렉토리')).toHaveValue('/tmp/web'))
+      await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '해줘')
+      await userEvent.click(screen.getByRole('button', { name: '실행' }))
+      await waitFor(() => expect(start).toHaveBeenCalled())
+      expect(start.mock.calls[0]![0].cwd).toBe('/tmp/web')
+    })
+
+    it('사이드바에서 다른 repo를 고르면 따라간다', async () => {
+      const client = makeClient()
+      const { rerender } = render(panel(client, two, [], vi.fn(), 'w1', { selectedRepoId: 'r1' }))
+      await waitFor(() => expect(screen.getByLabelText('작업 디렉토리')).toHaveValue('/tmp/api'))
+
+      rerender(panel(client, two, [], vi.fn(), 'w1', { selectedRepoId: 'r2' }))
+      await waitFor(() => expect(screen.getByLabelText('작업 디렉토리')).toHaveValue('/tmp/web'))
+    })
+
+    it('입력부에서 직접 바꾼 값은 같은 선택이 남아 있는 동안 되돌리지 않는다', async () => {
+      // 사이드바 선택은 "바뀔 때" 반영한다 — 매 렌더 덮으면 알약을 바꿀 길이 없다.
+      renderPanel(makeClient(), two, [], vi.fn(), { selectedRepoId: 'r2' })
+      await waitFor(() => expect(screen.getByLabelText('작업 디렉토리')).toHaveValue('/tmp/web'))
+
+      await userEvent.selectOptions(screen.getByLabelText('작업 디렉토리'), '/tmp/api')
+      expect(screen.getByLabelText('작업 디렉토리')).toHaveValue('/tmp/api')
+    })
+
+    it('"다시 실행"이 요구한 경로가 사이드바 선택을 이긴다', async () => {
+      renderPanel(makeClient(), two, [], vi.fn(), { selectedRepoId: 'r1', draftCwd: '/tmp/web' })
+      await waitFor(() => expect(screen.getByLabelText('작업 디렉토리')).toHaveValue('/tmp/web'))
+    })
   })
 
   it('"다시 실행"이 요구한 경로가 repo 목록에 없으면 알리고 실행을 막는다', async () => {
@@ -507,7 +550,7 @@ describe('RunPanel — 접근성', () => {
         <DraftProvider store={drafts}>
           <RunPanel workspaceId="w1" workspaces={[makeWorkspace('edit')]} repos={repos} reposError={null}
             chips={chips} onRemoveChip={onRemoveChip} onStarted={vi.fn()}
-            conversation={null} draftPrompt="" draftCwd={null} reserved={false}
+            conversation={null} draftPrompt="" draftCwd={null} selectedRepoId={null} reserved={false}
             running={null} reservation={null} waitingFirst={false} onCancel={vi.fn()}
             inputRef={createRef<HTMLTextAreaElement>()} />
         </DraftProvider>
@@ -569,7 +612,7 @@ describe('RunPanel — 접근성', () => {
         <DraftProvider store={drafts}>
           <RunPanel workspaceId="w1" workspaces={[makeWorkspace('edit')]} repos={repos} reposError={null}
             chips={chips} onRemoveChip={onRemoveChip} onStarted={vi.fn()}
-            conversation={null} draftPrompt="" draftCwd={null} reserved={false}
+            conversation={null} draftPrompt="" draftCwd={null} selectedRepoId={null} reserved={false}
             running={null} reservation={null} waitingFirst={false} onCancel={vi.fn()}
             inputRef={createRef<HTMLTextAreaElement>()} />
         </DraftProvider>

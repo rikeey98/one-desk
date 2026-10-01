@@ -91,6 +91,7 @@ function renderPanel(
             onCancel={opts.onCancel ?? vi.fn()}
             draftPrompt=""
             draftCwd={null}
+            selectedRepoId={null}
           />
         </DraftProvider>
       </RunEventProvider>

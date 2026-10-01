@@ -15,7 +15,7 @@ import type { QueueSnapshot, Repo, Run, Workspace } from '@shared/models'
 
 export function Dock({
   runs, error, workspaceId, workspaces, repos, reposError, queue, queueError, onChangeLimit, chips, onRemoveChip,
-  onRunStarted, draftPrompt, draftCwd, focusConversationId, onFocusConsumed
+  onRunStarted, draftPrompt, draftCwd, selectedRepoId, focusConversationId, onFocusConsumed
 }: {
   runs: Run[]
   error: string | null
@@ -33,6 +33,8 @@ export function Dock({
   draftPrompt: string
   /** ConversationPanel까지 그대로 흘려 보낸다 — "다시 실행"이 요구하는 작업 디렉토리다. */
   draftCwd: string | null
+  /** ConversationPanel까지 그대로 흘려 보낸다 — 사이드바에서 고른 repo, 새 대화의 작업 디렉토리다. */
+  selectedRepoId: string | null
   /** 인박스의 "대화 열기"가 지정한 대화. null이면 기본대로 새 대화 탭이 열린다. */
   focusConversationId: string | null
   /**
@@ -413,6 +415,7 @@ export function Dock({
                 onCancel={cancel}
                 draftPrompt={draftPrompt}
                 draftCwd={draftCwd}
+                selectedRepoId={selectedRepoId}
               />
             </div>
           </div>

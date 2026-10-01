@@ -1126,6 +1126,22 @@ describe('패널 확장', () => {
     })
   })
 
+  it('사이드바에서 repo를 고르면 새 대화의 작업 디렉토리가 따라간다', async () => {
+    // App이 Dock에 넘기는 selectedRepoId 한 줄이 이 연동의 전부다 — 지우면 첫 repo에 머문다.
+    const client = makeClient({}, {
+      repos: [makeRepo('r1', 'api', '/tmp/api'), makeRepo('r2', 'web', '/tmp/web')]
+    })
+    renderApp(client)
+    await selectWorkspace()
+    await waitFor(() => expect(screen.getByLabelText('작업 디렉토리')).toHaveValue('/tmp/api'))
+
+    const webCard = [...document.querySelectorAll('.repo-card')].find((el) => el.textContent?.includes('web'))
+    if (!webCard) throw new Error('web repo-card를 찾지 못했습니다')
+    fireEvent.click(webCard)
+
+    await waitFor(() => expect(screen.getByLabelText('작업 디렉토리')).toHaveValue('/tmp/web'))
+  })
+
   it('필터를 바꿔 열린 메모가 목록에서 빠지면 상세가 접힌다', async () => {
     // Task 3 리뷰가 이월한 자리(설계 §8) — MemoPanel의 컬랩스 effect
     // (`if (openId && !open) onOpen(openId)`)가 지운다. repo 필터가 바뀌어 열려

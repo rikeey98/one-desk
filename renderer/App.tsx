@@ -337,6 +337,7 @@ export default function App() {
               onRemoveChip={toggleChip}
               draftPrompt={draftPrompt}
               draftCwd={draftCwd}
+              selectedRepoId={repoId}
               focusConversationId={focusConversationId}
               // 일회성 지시다 — Dock이 열고 나면 치운다. 남아 있으면 설정에 갔다 오는 것만으로
               // (Dock 재마운트) 그 대화가 되살아난다 (docs/sdlc/conversation-fixes/ spec FR-22).

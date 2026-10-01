@@ -64,7 +64,7 @@ function defaultEffortOf(workspace: Workspace | null, agentKind: AgentKind): str
  */
 export function RunPanel({
   workspaceId, workspaces, repos, reposError, chips, onRemoveChip, onStarted,
-  conversation, draftPrompt, draftCwd, reserved, running, reservation, waitingFirst,
+  conversation, draftPrompt, draftCwd, selectedRepoId, reserved, running, reservation, waitingFirst,
   onCancel, inputRef
 }: {
   workspaceId: string
@@ -82,6 +82,11 @@ export function RunPanel({
   draftPrompt: string
   /** "다시 실행"이 요구하는 작업 디렉토리. null이면 요구가 없다. */
   draftCwd: string | null
+  /**
+   * 사이드바에서 고른 repo. 새 대화의 작업 디렉토리가 이것을 따라간다 — 고른 순간(바뀐 순간)에만
+   * 반영하므로 입력부의 알약으로 다시 바꿀 수 있다. "다시 실행"의 `draftCwd`가 이긴다.
+   */
+  selectedRepoId: string | null
   /** 대화당 예약은 하나다 — 이미 예약된 턴이 있으면 전송을 잠근다 (설계 §3-2). */
   reserved: boolean
   /**
@@ -108,6 +113,9 @@ export function RunPanel({
   const [cwd, setCwd] = useState('')
   // "다시 실행"이 요구한 경로가 지금 repo 목록에 없을 때 그 경로를 담는다.
   const [missingCwd, setMissingCwd] = useState<string | null>(null)
+  const selectedPath = repos.find((r) => r.id === selectedRepoId)?.path ?? null
+  // 마지막으로 cwd에 반영한 사이드바 선택. 선택이 "바뀔 때"만 덮어야 알약으로 고른 값이 산다.
+  const appliedSelection = useRef<string | null>(null)
   const [permission, setPermission] = useState<Permission>('edit')
   const [agentKind, setAgentKind] = useState<AgentKind>(conversation?.last.agentKind ?? workspace?.defaultAgentKind ?? 'claude-code')
   // 실제 값은 아래 두 effect가 세운다 — 권한과 같은 구조다. 여기서 한 번 더
@@ -299,6 +307,16 @@ export function RunPanel({
       return
     }
 
+    // 사이드바에서 repo를 새로 골랐으면 그것을 따른다.
+    if (selectedPath !== appliedSelection.current) {
+      appliedSelection.current = selectedPath
+      if (selectedPath !== null) {
+        setMissingCwd(null)
+        if (cwd !== selectedPath) setCwd(selectedPath)
+        return
+      }
+    }
+
     // 요구가 없을 때만 fallback한다: cwd가 지금 workspace의 repo 목록에 없으면
     // 첫 repo로 되돌린다(없으면 비운다). "비어 있을 때만 채운다"로는 부족하다 —
     // RunPanel은 workspace가 바뀌어도 다시 마운트되지 않으므로(App이 key를 주지
@@ -310,8 +328,8 @@ export function RunPanel({
       return
     }
     setMissingCwd(null)
-    setCwd(repos.length > 0 ? repos[0]!.path : '')
-  }, [repos, cwd, draftCwd])
+    setCwd(selectedPath ?? (repos.length > 0 ? repos[0]!.path : ''))
+  }, [repos, cwd, draftCwd, selectedPath])
 
   // 대화를 이어갈 때는 cwd를 원본에서 받으므로 로컬 cwd가 비어도 실행할 수 있다.
   // reserved면(대화당 예약은 하나다 — 설계 §3-2) 전송을 잠근다.

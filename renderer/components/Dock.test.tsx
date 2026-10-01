@@ -104,6 +104,7 @@ function renderDock(
             onRunStarted={vi.fn()}
             draftPrompt=""
             draftCwd={null}
+            selectedRepoId={null}
             focusConversationId={focusConversationId}
             onFocusConsumed={vi.fn()}
           />
@@ -598,7 +599,7 @@ describe('Dock workspace 전환', () => {
     return {
       runs: [], error: null, workspaceId: 'w1', workspaces, repos, reposError: null,
       queue: null, queueError: null, onChangeLimit: vi.fn(), chips: [], onRemoveChip: vi.fn(),
-      onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null,
+      onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null,
       focusConversationId: null, onFocusConsumed: vi.fn(),
       ...over
     }
@@ -1022,7 +1023,7 @@ describe('Dock 헤더 — 토글·최대화·Esc', () => {
     const props: Parameters<typeof Dock>[0] = {
       runs: [], error: null, workspaceId: 'w1', workspaces, repos, reposError: null,
       queue: { running: 0, limit: 3, waiting: 0 }, queueError: null, onChangeLimit: vi.fn(),
-      chips: [], onRemoveChip: vi.fn(), onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null,
+      chips: [], onRemoveChip: vi.fn(), onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null,
       focusConversationId: null, onFocusConsumed: vi.fn()
     }
     render(
@@ -1098,7 +1099,7 @@ describe('Dock 헤더 — 토글·최대화·Esc', () => {
     const props: Parameters<typeof Dock>[0] = {
       runs: [], error: null, workspaceId: 'w1', workspaces, repos, reposError: null,
       queue: null, queueError: null, onChangeLimit: vi.fn(), chips: [], onRemoveChip: vi.fn(),
-      onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null,
+      onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null,
       focusConversationId: null, onFocusConsumed: vi.fn()
     }
     const drafts = createDraftStore()
@@ -1274,7 +1275,7 @@ describe('Dock 대화 헤더', () => {
               ]}
               error={null} workspaceId="w1" workspaces={workspaces} repos={repos} reposError={null}
               queue={null} queueError={null} onChangeLimit={vi.fn()} chips={[]} onRemoveChip={vi.fn()}
-              onRunStarted={vi.fn()} draftPrompt="" draftCwd={null}
+              onRunStarted={vi.fn()} draftPrompt="" draftCwd={null} selectedRepoId={null}
               focusConversationId="a1" onFocusConsumed={vi.fn()}
             />
           </DraftProvider>
@@ -1295,7 +1296,7 @@ describe('Dock 대화 헤더', () => {
       runs: [makeRun({ id: 'a1', rootRunId: 'a1', status: 'succeeded', cwd: '/tmp/pay-svc', userPrompt: '결제 대화' })],
       error: null, workspaceId: 'w1', workspaces, repos: named, reposError: null,
       queue: null, queueError: null, onChangeLimit: vi.fn(), chips: [], onRemoveChip: vi.fn(),
-      onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null,
+      onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null,
       focusConversationId: 'a1', onFocusConsumed: vi.fn()
     }
     render(
