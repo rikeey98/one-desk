@@ -95,14 +95,14 @@ describe('PanelWindow (docs/sdlc/item-windows/)', () => {
   it('항목을 열면 상세가 서고 목록도 남는다 — 같은 항목을 다시 누르면 닫는다 (FR-7)', async () => {
     const { client } = makeClient()
     renderWindow(client, { kind: 'issue', workspaceId: 'w1', repoId: 'r1' })
-    expect(await screen.findByText('왼쪽에서 이슈를 고르세요')).toBeInTheDocument()
+    expect(await screen.findByText('목록에서 이슈를 고르세요')).toBeInTheDocument()
     await userEvent.click(await screen.findByRole('button', { name: '로그인 오류' }))
     expect(await screen.findByRole('button', { name: '이슈 id 복사' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '로그인 오류' })).toBeInTheDocument()
-    expect(screen.queryByText('왼쪽에서 이슈를 고르세요')).toBeNull()
+    expect(screen.queryByText('목록에서 이슈를 고르세요')).toBeNull()
     await userEvent.click(screen.getByRole('button', { name: '로그인 오류' }))
     expect(screen.queryByRole('button', { name: '이슈 id 복사' })).toBeNull()
-    expect(screen.getByText('왼쪽에서 이슈를 고르세요')).toBeInTheDocument()
+    expect(screen.getByText('목록에서 이슈를 고르세요')).toBeInTheDocument()
   })
 
   it('repo가 지워졌으면 그렇게 말한다 — 읽기 전에는 말하지 않는다 (FR-10)', async () => {
@@ -124,5 +124,17 @@ describe('PanelWindow (docs/sdlc/item-windows/)', () => {
     repos.list.mockResolvedValue([{ ...API, name: 'api-v2' }])
     act(() => { emit({ workspaceId: 'w1', kind: 'repo' }) })
     expect(await screen.findByRole('heading', { name: '이슈 · api-v2' })).toBeInTheDocument()
+  })
+
+  it.each([
+    ['issue', '이슈 · api'], ['memo', '메모 · api'], ['asset', 'skill · api']
+  ] as const)('%s 창은 목록 숨기기와 폭 조절 경계를 갖는다 (FR-26·27)', async (kind, heading) => {
+    const { client } = makeClient()
+    const { container } = renderWindow(client, { kind, workspaceId: 'w1', repoId: 'r1' })
+    await screen.findByRole('heading', { name: heading })
+    expect(screen.getByRole('separator', { name: '목록 폭 조절' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '목록 숨기기' }))
+    expect(container.querySelector('.panel-split-list')).toHaveAttribute('hidden')
+    localStorage.clear()
   })
 })

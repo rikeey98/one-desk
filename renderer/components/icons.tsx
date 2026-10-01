@@ -32,6 +32,10 @@ export function IconChevronRight(props: SVGProps<SVGSVGElement>) {
   return <Icon {...props}><path d="M6 3.5 10.5 8 6 12.5" /></Icon>
 }
 
+export function IconChevronLeft(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><path d="M10 3.5 5.5 8 10 12.5" /></Icon>
+}
+
 /**
  * 도크 토글 — 아래를 향한 꺾쇠(`docs/sdlc/conversation-timeline/` spec FR-37). 접힌 도크에서는
  * CSS가 뒤집어 위를 향하게 한다. 글리프 `▾`/`▴`를 대신한다(FR-48).

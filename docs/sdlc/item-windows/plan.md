@@ -141,3 +141,14 @@
 | `main.tsx`의 `beforeunload` 빼기 | `panel-window.e2e` FR-15·FR-16a 둘 |
 
 - 실제 앱 캡처: 패널 헤더의 새 창 아이콘, api·web 이슈 창 나란히, 이슈 본문 마크다운 읽기, skill 창(frontmatter 분리).
+
+## 추가: 목록 숨기기와 폭 (spec FR-26~28, 2026-10-01)
+
+- `renderer/listWidth.ts`(클램프·저장, 순수), `renderer/components/WindowSplit.tsx`(Provider·`ListToggleButton`·
+  `WindowSplit`). 세 패널은 `layout="window"`일 때 `WindowSplit`을 그리고 헤더에 숨기기 버튼을 둔다. 상세 안내문은
+  "왼쪽에서"가 아니라 "목록에서 …를 고르세요"다(목록을 숨겨도 맞는 말).
+- 검증: `pnpm typecheck` 오류 0, renderer 단위 테스트 전부 통과, e2e(복사본) `panel-window`·`nav-guard`·`body`·
+  `panel-collapse`·`asset` 17개 통과 — 새 e2e가 실제 마우스로 경계를 150px 끌어 폭이 120px 넘게 느는 것과 숨기면 상세가
+  넓어지는 것을 본다.
+- 변이(전부 빨개졌다): `hidden` 속성 빼기, 숨김 저장 빼기, 그리는 폭 클램프 빼기, 키보드 저장 빼기, 메모·asset
+  패널의 숨기기 버튼 빼기, 이슈 패널의 `WindowSplit`을 옛 split으로 되돌리기, 하한 빼기.

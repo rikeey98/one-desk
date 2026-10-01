@@ -6,6 +6,7 @@ import { useMemos } from '../hooks/useMemos'
 import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextPicker } from '../context'
 import { OpenWindowButton } from './OpenWindowButton'
+import { ListToggleButton, WindowSplit } from './WindowSplit'
 import { ConfirmButton } from './ConfirmButton'
 import { IconCollapse, IconTrash } from './icons'
 import type { Repo } from '@shared/models'
@@ -113,8 +114,26 @@ export function MemoPanel({
   )
 
   const inWindow = layout === 'window'
-  // 패널 창에서는 항목을 열지 않아도 목록과 상세 칸이 나란하다(FR-7). IssuePanel과 대칭.
-  const split = expanded || inWindow
+  const detail = (
+    <>
+      {!open && <div className="panel-empty">목록에서 메모를 고르세요</div>}
+      {open && (
+        <MemoDetail
+          // key가 핵심이다. 다른 메모로 옮기면 상세를 통째로 다시 마운트해,
+          // 옛 컴포넌트가 자기 클로저를 들고 언마운트되며 대기 중인 저장을
+          // 올바른 메모에 흘려보낸다 (MemoDetail 내부 설명 참고).
+          key={open.id}
+          memo={open}
+          repos={repos}
+          onChanged={() => { void refresh() }}
+          onDeleted={() => { onOpen(open.id); void refresh() }}
+          // 같은 id로 onOpen을 부르면 App의 토글이 접는다. 상세가 대기 중인
+          // 저장을 먼저 끝낸 뒤에만 부르므로, 접히면서 쓰기를 잃지 않는다.
+          onRequestClose={() => { onOpen(open.id) }}
+        />
+      )}
+    </>
+  )
 
   return (
     <Panel
@@ -129,6 +148,7 @@ export function MemoPanel({
               <IconCollapse />
             </button>
           )}
+          {inWindow && <ListToggleButton />}
           {!inWindow && <OpenWindowButton kind="memo" workspaceId={workspaceId} repoId={repoId} />}
         </>
       )}
@@ -137,29 +157,15 @@ export function MemoPanel({
       {deleteError && <div role="alert" className="form-error">{deleteError}</div>}
       {/* 감싸는 div의 엘리먼트 타입을 확장 여부와 무관하게 항상 유지한다.
           IssuePanel과 대칭 — 이유는 그쪽 주석 참고. */}
-      <div className={split ? 'panel-split' : undefined}>
-        <div className={split ? 'panel-split-list' : undefined}>{list}</div>
-        {split && (
-          <div className="panel-split-detail">
-            {!open && <div className="panel-empty">왼쪽에서 메모를 고르세요</div>}
-            {open && (
-              <MemoDetail
-                // key가 핵심이다. 다른 메모로 옮기면 상세를 통째로 다시 마운트해,
-                // 옛 컴포넌트가 자기 클로저를 들고 언마운트되며 대기 중인 저장을
-                // 올바른 메모에 흘려보낸다 (MemoDetail 내부 설명 참고).
-                key={open.id}
-                memo={open}
-                repos={repos}
-                onChanged={() => { void refresh() }}
-                onDeleted={() => { onOpen(open.id); void refresh() }}
-                // 같은 id로 onOpen을 부르면 App의 토글이 접는다. 상세가 대기 중인
-                // 저장을 먼저 끝낸 뒤에만 부르므로, 접히면서 쓰기를 잃지 않는다.
-                onRequestClose={() => { onOpen(open.id) }}
-              />
-            )}
-          </div>
-        )}
-      </div>
+      {inWindow
+        // 패널 창: 목록 | 경계 | 상세 — 목록을 숨기고 폭을 끌어 바꾼다 (item-windows FR-26·27).
+        ? <WindowSplit list={list} detail={detail} />
+        : (
+            <div className={expanded ? 'panel-split' : undefined}>
+              <div className={expanded ? 'panel-split-list' : undefined}>{list}</div>
+              {expanded && <div className="panel-split-detail">{detail}</div>}
+            </div>
+          )}
     </Panel>
   )
 }

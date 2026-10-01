@@ -6,6 +6,7 @@ import { useAssets } from '../hooks/useAssets'
 import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextPicker } from '../context'
 import { OpenWindowButton } from './OpenWindowButton'
+import { ListToggleButton, WindowSplit } from './WindowSplit'
 import { IconChevronDown, IconChevronRight, IconCollapse, IconRefresh } from './icons'
 import type { Asset, AssetKind, Repo } from '@shared/models'
 
@@ -210,20 +211,14 @@ export function AssetPanel({
               <IconCollapse />
             </button>
           )}
+          {inWindow && <ListToggleButton />}
           {!inWindow && <OpenWindowButton kind="asset" workspaceId={workspaceId} repoId={repoId} />}
         </>
       )}
     >
       {inWindow
         // 패널 창: 목록과 상세가 나란하다(FR-7). 앱 창은 지금처럼 열면 상세가 목록을 대신한다.
-        ? (
-            <div className="panel-split">
-              <div className="panel-split-list">{list}</div>
-              <div className="panel-split-detail">
-                {detail || <div className="panel-empty">왼쪽에서 항목을 고르세요</div>}
-              </div>
-            </div>
-          )
+        ? <WindowSplit list={list} detail={detail || <div className="panel-empty">목록에서 항목을 고르세요</div>} />
         : (expanded && detail) || list}
     </Panel>
   )

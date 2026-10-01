@@ -7,6 +7,7 @@ import { useIssues } from '../hooks/useIssues'
 import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextPicker } from '../context'
 import { OpenWindowButton } from './OpenWindowButton'
+import { ListToggleButton, WindowSplit } from './WindowSplit'
 import { groupIssues, isStale, nextInQueue, triageQueue } from '../issueGroups'
 import { AXIS_LABELS, SOURCE_LABELS, KIND_LABELS, type GroupAxis } from '../issueAxes'
 import { ConfirmButton } from './ConfirmButton'
@@ -250,8 +251,61 @@ export function IssuePanel({
   )
 
   const inWindow = layout === 'window'
-  // 패널 창에서는 항목을 열지 않아도 목록과 상세 칸이 나란하다(FR-7).
-  const split = expanded || inWindow
+  const detail = (
+    <>
+      {!open && <div className="panel-empty">목록에서 이슈를 고르세요</div>}
+      {open && triaging && (
+        <TriageCard
+          key={open.id}
+          issue={open}
+          repos={repos}
+          // 열려 있는 이슈가 큐에 없을 수 있다 — 카드가 떠 있는 동안 agent가
+          // MCP로 같은 이슈를 분류해 refresh 후 큐에서 빠지는 경우다. findIndex는
+          // 그때 -1을 주므로 1로 바닥을 깔아 "0번째"를 보여주지 않는다.
+          position={Math.max(1, queue.findIndex((i) => i.id === open.id) + 1)}
+          total={queue.length}
+          onDone={(pick) => {
+            // 시도를 새로 시작할 때마다 지난 오류를 지운다 — 안 지우면 재시도가
+            // 성공해도 빨간 배너가 세션 내내 남아, 이미 안 막혀 있는데 막혀
+            // 있다고 계속 말하게 된다.
+            setTriageError(null)
+            void (async () => {
+              try {
+                await saveTriage(open.id, pick)
+                advance(open.id)
+              } catch (err) {
+                // 충돌하면 그 한 건에서 멈춘다. 자동으로 넘어가면 사용자가
+                // 방금 찍은 축이 어디로 갔는지 모른 채 대기열만 줄어든다.
+                setTriageError(err instanceof Error ? err.message : String(err))
+              }
+            })()
+          }}
+          onSkip={() => {
+            // 지난 카드의 실패 배너를 지운다 — 안 지우면 이 카드(다음 이슈)
+            // 위에 앞 이슈의 실패 메시지가 그대로 남아, 방금 연 이슈가 막힌
+            // 것처럼 보인다.
+            setTriageError(null)
+            advance(open.id)
+          }}
+        />
+      )}
+      {open && !triaging && (
+        <IssueDetail
+          // key가 핵심이다. 다른 이슈로 옮기면 상세를 통째로 다시 마운트해,
+          // 옛 컴포넌트가 자기 클로저를 들고 언마운트되며 대기 중인 저장을
+          // 올바른 이슈에 흘려보낸다 (IssueDetail 내부 설명 참고).
+          key={open.id}
+          issue={open}
+          repos={repos}
+          onChanged={() => { void refresh() }}
+          onDeleted={() => { onOpen(open.id); void refresh() }}
+          // 같은 id로 onOpen을 부르면 App의 토글이 접는다. 상세가 대기 중인
+          // 저장을 먼저 끝낸 뒤에만 부르므로, 접히면서 쓰기를 잃지 않는다.
+          onRequestClose={() => { onOpen(open.id) }}
+        />
+      )}
+    </>
+  )
 
   return (
     <Panel
@@ -266,6 +320,7 @@ export function IssuePanel({
               <IconCollapse />
             </button>
           )}
+          {inWindow && <ListToggleButton />}
           {!inWindow && <OpenWindowButton kind="issue" workspaceId={workspaceId} repoId={repoId} />}
         </>
       )}
@@ -280,64 +335,15 @@ export function IssuePanel({
           첫 클릭으로 확장되며 버튼이 새 DOM 노드로 교체되고, 테스트가 들고 있던
           예전 참조로 두 번째 클릭을 해도 이벤트가 루트까지 버블링하지 못해
           무시됐다. */}
-      <div className={split ? 'panel-split' : undefined}>
-        <div className={split ? 'panel-split-list' : undefined}>{list}</div>
-        {split && (
-          <div className="panel-split-detail">
-            {!open && <div className="panel-empty">왼쪽에서 이슈를 고르세요</div>}
-            {open && triaging && (
-              <TriageCard
-                key={open.id}
-                issue={open}
-                repos={repos}
-                // 열려 있는 이슈가 큐에 없을 수 있다 — 카드가 떠 있는 동안 agent가
-                // MCP로 같은 이슈를 분류해 refresh 후 큐에서 빠지는 경우다. findIndex는
-                // 그때 -1을 주므로 1로 바닥을 깔아 "0번째"를 보여주지 않는다.
-                position={Math.max(1, queue.findIndex((i) => i.id === open.id) + 1)}
-                total={queue.length}
-                onDone={(pick) => {
-                  // 시도를 새로 시작할 때마다 지난 오류를 지운다 — 안 지우면 재시도가
-                  // 성공해도 빨간 배너가 세션 내내 남아, 이미 안 막혀 있는데 막혀
-                  // 있다고 계속 말하게 된다.
-                  setTriageError(null)
-                  void (async () => {
-                    try {
-                      await saveTriage(open.id, pick)
-                      advance(open.id)
-                    } catch (err) {
-                      // 충돌하면 그 한 건에서 멈춘다. 자동으로 넘어가면 사용자가
-                      // 방금 찍은 축이 어디로 갔는지 모른 채 대기열만 줄어든다.
-                      setTriageError(err instanceof Error ? err.message : String(err))
-                    }
-                  })()
-                }}
-                onSkip={() => {
-                  // 지난 카드의 실패 배너를 지운다 — 안 지우면 이 카드(다음 이슈)
-                  // 위에 앞 이슈의 실패 메시지가 그대로 남아, 방금 연 이슈가 막힌
-                  // 것처럼 보인다.
-                  setTriageError(null)
-                  advance(open.id)
-                }}
-              />
-            )}
-            {open && !triaging && (
-              <IssueDetail
-                // key가 핵심이다. 다른 이슈로 옮기면 상세를 통째로 다시 마운트해,
-                // 옛 컴포넌트가 자기 클로저를 들고 언마운트되며 대기 중인 저장을
-                // 올바른 이슈에 흘려보낸다 (IssueDetail 내부 설명 참고).
-                key={open.id}
-                issue={open}
-                repos={repos}
-                onChanged={() => { void refresh() }}
-                onDeleted={() => { onOpen(open.id); void refresh() }}
-                // 같은 id로 onOpen을 부르면 App의 토글이 접는다. 상세가 대기 중인
-                // 저장을 먼저 끝낸 뒤에만 부르므로, 접히면서 쓰기를 잃지 않는다.
-                onRequestClose={() => { onOpen(open.id) }}
-              />
-            )}
-          </div>
-        )}
-      </div>
+      {inWindow
+        // 패널 창: 목록 | 경계 | 상세 — 목록을 숨기고 폭을 끌어 바꾼다 (item-windows FR-26·27).
+        ? <WindowSplit list={list} detail={detail} />
+        : (
+            <div className={expanded ? 'panel-split' : undefined}>
+              <div className={expanded ? 'panel-split-list' : undefined}>{list}</div>
+              {expanded && <div className="panel-split-detail">{detail}</div>}
+            </div>
+          )}
     </Panel>
   )
 }

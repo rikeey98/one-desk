@@ -5,6 +5,7 @@ import { AssetPanel } from './AssetPanel'
 import { useWorkspaces } from '../hooks/useWorkspaces'
 import { useRepos } from '../hooks/useRepos'
 import { PANEL_KIND_LABELS } from '../panelKinds'
+import { WindowSplitProvider } from './WindowSplit'
 import type { PanelScope } from '@shared/panelWindow'
 
 /**
@@ -75,9 +76,12 @@ function ScopedPanel({ scope }: { scope: PanelScope }) {
   return (
     <div className="panel-window-root">
       <h1 className="panel-window-title">{title}</h1>
-      {scope.kind === 'issue' && <IssuePanel {...common} expanded={false} onOpen={onOpen} />}
-      {scope.kind === 'memo' && <MemoPanel {...common} expanded={false} onOpen={onOpen} />}
-      {scope.kind === 'asset' && <AssetPanel {...common} expanded={false} onOpen={onOpen} />}
+      {/* 목록 폭·숨김은 종류마다 이 장비에 남는다 (FR-26~28). */}
+      <WindowSplitProvider kind={scope.kind}>
+        {scope.kind === 'issue' && <IssuePanel {...common} expanded={false} onOpen={onOpen} />}
+        {scope.kind === 'memo' && <MemoPanel {...common} expanded={false} onOpen={onOpen} />}
+        {scope.kind === 'asset' && <AssetPanel {...common} expanded={false} onOpen={onOpen} />}
+      </WindowSplitProvider>
     </div>
   )
 }

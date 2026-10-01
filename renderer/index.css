@@ -176,8 +176,11 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .panel-window-gone { margin: auto; color: var(--text-muted); }
 .panel-window { flex: 1; min-height: 0; }
 .panel-window > .panel-body { padding: 12px 16px; }
-.panel-window .panel-split > .panel-split-list:has(+ .panel-split-detail) { display: block; }
-.panel-window .panel-split-list { flex: 0 0 340px; }
+/* 목록 | 경계 | 상세 (FR-26·27). 폭은 인라인 flex-basis가 준다. 경계가 목록 오른쪽 테두리를 대신한다. */
+.panel-window .window-split > .panel-split-list { display: block; flex: 0 0 auto; margin-right: 0; border-right: 0; }
+.panel-window .window-split > .panel-split-list[hidden] { display: none; }
+.window-splitter { flex: 0 0 auto; width: 7px; margin: 0 8px 0 -3px; cursor: ew-resize; background: transparent; border-left: 1px solid var(--border-faint); touch-action: none; user-select: none; }
+.window-splitter:hover, .window-splitter:focus-visible { background: var(--accent-bg-strong); outline: none; }
 .panel-window .item-open-active { font-weight: 600; }
 /* 맥락 담기 토글. 줄의 맨 왼쪽에서 체크박스처럼 읽히도록 원형이다.
    이슈·메모·repo 세 곳이 같은 모양을 쓴다 — 같은 동작이므로. */

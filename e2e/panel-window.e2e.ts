@@ -166,4 +166,32 @@ describe('패널 창 (docs/sdlc/item-windows/)', () => {
     await win.getByRole('heading', { name: '배포 절차' }).waitFor({ timeout: 10_000 })
     expect(await win.locator('.detail-body-read strong').textContent()).toBe('먼저')
   })
+
+  it('목록을 숨기고 경계를 마우스로 끌어 폭을 바꾼다 (FR-26·27)', async () => {
+    const app = await launchApp()
+    await setupWorkspace(app.page, 'pw-split')
+    await addIssue(app.page, '폭 이슈')
+    const win = await openPanelWindow(app, '이슈 새 창으로 열기')
+    await win.getByRole('heading', { name: '이슈 · pw-split 전체' }).waitFor({ timeout: 10_000 })
+
+    const list = win.locator('.window-split > .panel-split-list')
+    const widthOf = async () => (await list.boundingBox())?.width ?? 0
+    const before = await widthOf()
+    const handle = win.getByRole('separator', { name: '목록 폭 조절' })
+    const box = (await handle.boundingBox())!
+    await win.mouse.move(box.x + box.width / 2, box.y + 40)
+    await win.mouse.down()
+    await win.mouse.move(box.x + box.width / 2 + 150, box.y + 40, { steps: 5 })
+    await win.mouse.up()
+    await expect.poll(widthOf).toBeGreaterThan(before + 120)
+
+    // 숨기면 상세가 창을 다 쓴다
+    const detail = win.locator('.window-split > .panel-split-detail')
+    const detailBefore = (await detail.boundingBox())!.width
+    await win.getByRole('button', { name: '목록 숨기기', exact: true }).click()
+    await list.waitFor({ state: 'hidden' })
+    expect((await detail.boundingBox())!.width).toBeGreaterThan(detailBefore + 200)
+    await win.getByRole('button', { name: '목록 보이기', exact: true }).click()
+    await win.getByRole('button', { name: '폭 이슈', exact: true }).waitFor()
+  })
 })

@@ -43,5 +43,8 @@ describe('OpenWindowButton (docs/sdlc/item-windows/ FR-5)', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: '이슈 새 창으로 열기' }))
     expect(c.app.openPanelWindow).toHaveBeenCalledWith({ kind: 'issue', workspaceId: 'w1', repoId: 'r9' })
+    // 목록 숨기기·폭 조절은 패널 창의 것이다 — 앱 창의 세 칸에는 없다 (FR-28)
+    expect(screen.queryByRole('button', { name: '목록 숨기기' })).toBeNull()
+    expect(screen.queryByRole('separator', { name: '목록 폭 조절' })).toBeNull()
   })
 })
