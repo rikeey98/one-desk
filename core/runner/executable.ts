@@ -1,5 +1,5 @@
-import { access, constants } from 'node:fs/promises'
-import { posix, win32 } from 'node:path'
+import { access, constants, readFile } from 'node:fs/promises'
+import { dirname, join, posix, win32 } from 'node:path'
 
 /**
  * PATHEXT가 비어 있을 때 쓸 기본값.
@@ -87,6 +87,37 @@ export async function findExecutable(
 export function isBatchShim(file: string): boolean {
   const lower = file.toLowerCase()
   return lower.endsWith('.cmd') || lower.endsWith('.bat')
+}
+
+/**
+ * npm(cmd-shim)이 만든 `.cmd`가 **`node_modules` 안의 `.exe`를 node 없이 부르는 껍데기**면 그 `.exe`의
+ * 절대 경로를 돌려준다. 아니면(JS를 node로 부르는 껍데기, 가리키는 파일이 없음, 못 읽음) null이다.
+ *
+ * `npm i -g opencode-ai`가 이 모양이다 — `<prefix>\opencode.cmd`가
+ * `"%dp0%\node_modules\opencode-ai\bin\opencode.exe" %*`를 부르고, 그 `.exe`는 postinstall이 복사해 둔
+ * 진짜 바이너리다(1.18.30 패키지 확인). `.cmd`는 shell 없이 띄울 수 없으므로(`isBatchShim`) 껍데기를
+ * 벗겨 `.exe`를 직접 띄운다 — 인자를 cmd.exe 인용 규칙에 태우지 않고, 취소도 진짜 프로세스에 닿는다.
+ *
+ * `node_modules\` 아래만 받는다: JS 껍데기에도 `"%dp0%\node.exe"`가 있어, 아무 `.exe`나 집으면 node를
+ * agent로 띄운다.
+ */
+export async function unwrapNpmShim(file: string): Promise<string | null> {
+  let text: string
+  try {
+    text = await readFile(file, 'utf8')
+  } catch {
+    return null
+  }
+  const m = /"%dp0%\\(node_modules\\[^"\r\n]+?\.exe)"/i.exec(text)
+  if (!m) return null
+  // 껍데기 안의 경로는 늘 역슬래시다. 호스트 규칙으로 다시 이어 실제 파일을 본다.
+  const target = join(dirname(file), ...m[1]!.split('\\'))
+  try {
+    await access(target, constants.X_OK)
+    return target
+  } catch {
+    return null
+  }
 }
 
 /**

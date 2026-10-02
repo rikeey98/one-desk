@@ -5,7 +5,7 @@ import type {
   AgentAdapter, PreflightResult, ResolvedRunSpec, SpawnSpec, VerifyRunnableInput
 } from '../types'
 import { opencodePermissionConfig } from '../permission'
-import { agentCommand, findExecutable, isBatchShim, type LookupOptions } from '../executable'
+import { agentCommand, findExecutable, isBatchShim, unwrapNpmShim, type LookupOptions } from '../executable'
 import {
   emptyUsage, reasoningText, stripNeedsAnswer, summarize, toolResultText, withLoopbackBypass
 } from './common'
@@ -114,7 +114,7 @@ const defaultProbe: ConfigProbe = async ({ executable, cwd, env }) => {
 }
 
 const BATCH_SHIM_REASON =
-  'opencode.cmd는 직접 실행할 수 없습니다. 네이티브 설치본(opencode.exe)을 쓰거나, workspace 설정에 opencode.exe의 절대 경로를 지정하세요.'
+  'opencode.cmd를 실행할 수 없습니다 — 그 안에서 node_modules의 opencode.exe를 찾지 못했습니다(설치의 postinstall이 돌지 않았을 수 있습니다). 네이티브 설치본(opencode.exe)을 쓰거나, workspace 설정에 opencode.exe의 절대 경로를 지정하세요.'
 
 /**
  * `--version` 출력을 가져온다. 테스트가 갈아끼우는 이음매다. 못 읽으면 null.
@@ -130,12 +130,14 @@ export type VersionGate = (executable: string) => Promise<string | null>
 const FIRST_UNSUPPORTED_MAJOR = 2
 
 /**
- * 지원하는 가장 낮은 버전. `buildCommand`가 늘 붙이는 `--thinking`(conversation-events FR-21)은
- * **1.1.50에서 생겼다**(1.1.49의 `run.ts`에는 없다). 1.0.0부터 CLI가 yargs `.strict()`라 모르는
- * 옵션이면 도움말을 찍고 exit 1로 끝난다 — 그 아래 버전에서는 모든 run이 시작하자마자 실패한다.
- * 그래서 실행 전에(preflight) 이유를 말하며 막는다(리뷰 반영 2026-09-27).
+ * 지원하는 가장 낮은 버전. `buildCommand`가 붙이는 옵션 중 가장 늦게 생긴 것이 정한다:
+ * `--thinking`(늘 붙인다, conversation-events FR-21)은 1.1.50, 전체 허용의
+ * `--dangerously-skip-permissions`는 **1.4.0**에서 생겼다(1.3.17의 `run.ts`에는 없다). 1.0.0부터
+ * CLI가 yargs `.strict()`라 모르는 옵션이면 **이유 없이 도움말만** 찍고 exit 1로 끝난다 — 그래서
+ * 실행 전에(preflight) 이유를 말하며 막는다(리뷰 반영 2026-09-27, 2026-10-02 1.4.0으로 올림).
+ * 옵션을 하나 더 붙이면 그 옵션이 생긴 버전을 여기서 다시 본다.
  */
-const MIN_SUPPORTED: readonly [number, number, number] = [1, 1, 50]
+const MIN_SUPPORTED: readonly [number, number, number] = [1, 4, 0]
 
 /** 버전 출력은 즉시 온다. 매달린 CLI가 설정 화면을 붙잡지 않게 넉넉히만 준다 */
 const VERSION_TIMEOUT_MS = 5_000
@@ -171,8 +173,8 @@ function judgeVersion(executable: string, output: string | null): string | null 
   if (belowMinimum(parsed)) {
     const min = MIN_SUPPORTED.join('.')
     return (
-      `OpenCode ${parsed.version} CLI는 너무 오래됐습니다 — one-desk는 ${min}에서 생긴 --thinking 옵션을 ` +
-      '붙여 실행하는데, 그 전 버전은 모르는 옵션이라 실행을 시작하자마자 거부합니다. ' +
+      `OpenCode ${parsed.version} CLI는 너무 오래됐습니다 — one-desk가 붙여 실행하는 옵션` +
+      `(--thinking·--dangerously-skip-permissions)을 ${min} 전 버전은 몰라 실행을 시작하자마자 거부합니다. ` +
       `${min} 이상으로 올리거나 설정의 CLI 경로를 새 실행 파일로 바꾸세요: ${executable}`
     )
   }
@@ -313,8 +315,13 @@ export const opencodeAdapter = {
       executable = found
     }
     // 배치 shim 판별은 두 경로가 합류한 뒤 한 번만 한다 (claudeCode.ts와 같은 이유).
-    // 버전보다 먼저다 — shim은 shell 없이 띄울 수조차 없다.
-    if (isBatchShim(executable)) return { ok: false, reason: BATCH_SHIM_REASON }
+    // 버전보다 먼저다 — shim은 shell 없이 띄울 수조차 없다. npm 전역 설치의 껍데기는 그것이
+    // 부르는 opencode.exe로 풀어 쓴다(`unwrapNpmShim`). 풀리지 않는 것만 거부한다.
+    if (isBatchShim(executable)) {
+      const unwrapped = await unwrapNpmShim(executable)
+      if (!unwrapped) return { ok: false, reason: BATCH_SHIM_REASON }
+      executable = unwrapped
+    }
     // 버전 게이트도 합류한 뒤다 — 한쪽 갈래에만 두면 다른 쪽으로 2.x가 새어나간다.
     const rejected = await (opts.versionGate ?? defaultVersionGate)(executable)
     if (rejected) return { ok: false, reason: rejected }
@@ -326,9 +333,11 @@ export const opencodeAdapter = {
     // 가른다** — 모델 호출 인자·권한과 무관하다(conversation-events spec FR-21, NFR-5).
     const args = ['run', '--format', 'json', '--thinking']
 
-    // --auto는 "명시적으로 deny가 아닌 권한을 자동 승인"이다. 전체 허용에서만
-    // 쓴다 (전체 설계 §376). 다른 단계에 켜면 우리가 막은 것이 열린다.
-    if (spec.permission === 'full') args.push('--auto')
+    // "명시적으로 deny가 아닌 권한을 자동 승인"이다. 전체 허용에서만 쓴다 (전체 설계 §376 —
+    // 설계는 `--auto`라 적었다). 다른 단계에 켜면 우리가 막은 것이 열린다. **`--auto`가 아니다** —
+    // 그것은 1.18.0에서 생긴 별칭이라 1.4.0~1.17.x가 모르는 옵션으로 보고 도움말만 찍고 죽는다.
+    // 옛 이름은 1.4.0부터 있고 1.18.x에도 남아 있다(1.18.0 `run.ts`: auto || yolo || 이것).
+    if (spec.permission === 'full') args.push('--dangerously-skip-permissions')
 
     // 모델은 provider/model 형식이다 (전체 설계 §199).
     if (spec.model) args.push('-m', spec.model)

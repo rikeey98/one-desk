@@ -189,7 +189,8 @@ opencode run --format json [-m <provider/model>] [--session <id>] [--auto]
 - 모델은 `provider/model` 형식이다(§199). `workspace.defaultModelOpencode`가 그
   형식으로 저장된다. `model`이 없으면 플래그를 붙이지 않고 opencode 기본값에 맡긴다.
 - 이어서 실행은 `--session <external_session_id>`.
-- `--auto`는 전체 허용에서만.
+- `--auto`는 전체 허용에서만. *(2026-10-02 각주: 실제로는 `--dangerously-skip-permissions`를 붙인다 — `--auto`는
+  1.18.0에서 생긴 별칭이라 1.4.0~1.17.x가 거부한다. 뜻은 같다. 최소 지원 버전도 그래서 1.4.0이다.)*
 - env: `process.env`에 `OPENCODE_PERMISSION`, (MCP를 쓰면) `OPENCODE_CONFIG`를
   얹고, claude와 같은 루프백 NO_PROXY 우회(`withLoopbackBypass`)를 적용한다.
   사내 프록시가 잡힌 환경에서 MCP 브리지가 죽는 것을 막는 장치이며, 어느 CLI를

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { opencodeAdapter } from './opencode'
@@ -56,10 +56,15 @@ describe('opencodeAdapter.buildCommand', () => {
     expect(Object.values(parsed)).not.toContain('ask')
   })
 
-  it('--auto는 전체 허용에서만 붙는다', () => {
-    expect(opencodeAdapter.buildCommand(spec({ permission: 'full' })).args).toContain('--auto')
-    expect(opencodeAdapter.buildCommand(spec({ permission: 'edit' })).args).not.toContain('--auto')
-    expect(opencodeAdapter.buildCommand(spec({ permission: 'read_only' })).args).not.toContain('--auto')
+  it('자동 승인 플래그는 전체 허용에서만 붙고, 1.18.0에서 생긴 --auto가 아니라 1.4.0부터 있는 옛 이름이다', () => {
+    // `--auto`는 1.18.0에서 생긴 별칭이라 1.4.0~1.17.x는 모르는 옵션으로 보고 도움말만 찍고 exit 1로
+    // 끝난다 — 편집 허용에서는 되던 대화가 전체 허용으로 바꾸는 순간 실패했다(2026-10-02 실측 보고).
+    const full = opencodeAdapter.buildCommand(spec({ permission: 'full' })).args
+    expect(full).toContain('--dangerously-skip-permissions')
+    expect(full).not.toContain('--auto')
+    for (const permission of ['edit', 'read_only'] as const) {
+      expect(opencodeAdapter.buildCommand(spec({ permission })).args).not.toContain('--dangerously-skip-permissions')
+    }
   })
 
   it('모델이 있으면 -m으로 붙이고 없으면 붙이지 않는다', () => {
@@ -129,6 +134,30 @@ describe('opencodeAdapter.preflight', () => {
       const result = await opencodeAdapter.preflight(shim)
       expect(result.ok).toBe(false)
       expect(result.reason).toContain('opencode.exe')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('npm 전역 설치의 opencode.cmd는 그것이 부르는 opencode.exe로 풀어 쓴다 — 명시 경로든 PATH 탐색이든', async () => {
+    // `npm i -g opencode-ai`는 `<prefix>\opencode.cmd`를 만들고, postinstall이 진짜 바이너리를
+    // `<prefix>\node_modules\opencode-ai\bin\opencode.exe`에 둔다(1.18.30 패키지 확인). 껍데기를 거부만
+    // 하면 그 설치로는 자동으로도, 손으로 넣어도 실행할 길이 없었다(2026-10-02 보고).
+    const dir = mkdtempSync(join(tmpdir(), 'od-pre-'))
+    const shim = join(dir, 'opencode.cmd')
+    const exe = join(dir, 'node_modules', 'opencode-ai', 'bin', 'opencode.exe')
+    writeFileSync(shim, '@ECHO off\r\nCALL :find_dp0\r\n"%dp0%\\node_modules\\opencode-ai\\bin\\opencode.exe"   %*\r\n')
+    mkdirSync(join(dir, 'node_modules', 'opencode-ai', 'bin'), { recursive: true })
+    writeFileSync(exe, '')
+    chmodSync(shim, 0o755)
+    chmodSync(exe, 0o755)
+    const versionGate = async () => null
+    try {
+      await expect(opencodeAdapter.preflight(shim, { versionGate })).resolves.toEqual({ ok: true, executable: exe })
+      const found = await opencodeAdapter.preflight(null, {
+        platform: 'win32', env: { PATH: dir, PATHEXT: '.EXE;.CMD' }, versionGate
+      })
+      if (process.platform === 'win32') expect(found).toEqual({ ok: true, executable: exe })
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

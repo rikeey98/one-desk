@@ -72,18 +72,19 @@ describe('createVersionGate', () => {
     await expect(gate(makeFile())).resolves.toBeNull()
   })
 
-  it('--thinking이 없는 1.1.49 이하는 거부한다 — 모르는 옵션이라 모든 run이 시작하자마자 죽는다', async () => {
-    // 리뷰 반영 2026-09-27: buildCommand가 늘 `--thinking`을 붙인다(conversation-events FR-21). 그 옵션은
-    // 1.1.50에서 생겼고, 1.0.0부터 yargs `.strict()`라 모르는 옵션이면 도움말을 찍고 exit 1이다.
+  it('붙이는 옵션을 모르는 1.4.0 미만은 거부한다 — 모르는 옵션이면 run이 시작하자마자 죽는다', async () => {
+    // buildCommand가 늘 붙이는 `--thinking`은 1.1.50에서, 전체 허용의 `--dangerously-skip-permissions`는
+    // 1.4.0에서 생겼다(1.3.17의 run.ts에는 없다). 1.0.0부터 yargs `.strict()`라 모르는 옵션이면 도움말만
+    // 찍고 exit 1이다 — 이유는 한 줄도 남기지 않는다.
     const file = makeFile()
-    for (const old of ['1.1.49', '1.0.0', '0.9.3']) {
+    for (const old of ['1.3.17', '1.1.50', '1.1.49', '1.0.0', '0.9.3']) {
       const reason = await createVersionGate(reader(old))(file)
       expect(reason, old).toContain(old)
-      expect(reason, old).toContain('1.1.50')
+      expect(reason, old).toContain('1.4.0')
       expect(reason, old).toContain(file)
     }
-    await expect(createVersionGate(reader('1.1.50'))(file)).resolves.toBeNull()
-    await expect(createVersionGate(reader('1.2.0'))(file)).resolves.toBeNull()
+    await expect(createVersionGate(reader('1.4.0'))(file)).resolves.toBeNull()
+    await expect(createVersionGate(reader('1.17.3'))(file)).resolves.toBeNull()
   })
 
   it('버전을 못 읽으면 막지 않는다 — 지금 동작 그대로다', async () => {
