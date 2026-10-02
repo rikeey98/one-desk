@@ -9,7 +9,7 @@ import { ModelField } from './ModelField'
 import { EFFORT_OPTIONS, effortFieldOf } from '../effort'
 import { InfoTab } from './settings/InfoTab'
 import type {
-  AgentKind, AgentProbes, AgentStatuses, AppInfo, GlobalRoots, McpStatus, Permission,
+  AgentKind, AgentPaths, AgentProbes, AgentStatuses, AppInfo, GlobalRoots, McpStatus, Permission,
   QueueSnapshot, Repo, RevealTarget, Workspace
 } from '@shared/models'
 
@@ -97,6 +97,14 @@ export function SettingsPanel({
   const [opencodePath, setOpencodePath] = useState('')
   const [pathsError, setPathsError] = useState<string | null>(null)
   const [pathsBusy, setPathsBusy] = useState(false)
+
+  // 앱 탭의 CLI 기본 경로 (docs/sdlc/agent-path-default/). 저장된 값은 실행 탭의 빈 칸이 "지금 무엇을
+  // 따르는지" 말하는 데도 쓴다 — 초안이 아니라 저장된 값이어야 한다(아직 저장하지 않은 글자를 따르는 게 아니다).
+  const [appPaths, setAppPaths] = useState<AgentPaths | null>(null)
+  const [appClaudePath, setAppClaudePath] = useState('')
+  const [appOpencodePath, setAppOpencodePath] = useState('')
+  const [appPathsError, setAppPathsError] = useState<string | null>(null)
+  const [appPathsBusy, setAppPathsBusy] = useState(false)
   const [agents, setAgents] = useState<AgentStatuses | null>(null)
   // 느린 칸은 따로 담는다 — 빠른 칸이 그것을 기다리면 workspace를 고를 때마다
   // 실행 파일 줄까지 1초씩 비어 있게 된다 (docs/sdlc/agent-setup/ FR-7).
@@ -278,6 +286,44 @@ export function SettingsPanel({
       })
     return () => { alive = false }
   }, [client, apply])
+
+  const applyAppPaths = useCallback((paths: AgentPaths) => {
+    setAppPaths(paths)
+    setAppClaudePath(paths.claude ?? '')
+    setAppOpencodePath(paths.opencode ?? '')
+  }, [])
+
+  // 글로벌 경로와 같은 이유로 마운트 때 한 번 읽는다 — 실행 탭이 먼저 열려도 안내에 써야 한다.
+  useEffect(() => {
+    let alive = true
+    client.settings.agentPaths()
+      .then((paths) => { if (alive) applyAppPaths(paths) })
+      .catch((err: unknown) => {
+        if (alive) setAppPathsError(err instanceof Error ? err.message : String(err))
+      })
+    return () => { alive = false }
+  }, [client, applyAppPaths])
+
+  async function saveAppPaths(): Promise<void> {
+    setAppPathsBusy(true)
+    setAppPathsError(null)
+    try {
+      // 둘을 함께 보낸다 — 부분 갱신을 받지 않는다(updatePaths와 같은 규칙).
+      applyAppPaths(await client.settings.setAgentPaths({ claude: appClaudePath, opencode: appOpencodePath }))
+      // 예외를 두지 않은 workspace는 잡히는 실행 파일이 바뀐다 — 실행 탭의 상태를 다시 본다.
+      if (workspace) await refreshProbes(workspace.id)
+    } catch (err) {
+      // 입력은 지우지 않는다 — 다른 절과 같은 규칙이다.
+      setAppPathsError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setAppPathsBusy(false)
+    }
+  }
+
+  /** 실행 탭 빈 칸의 안내 — 비워 두면 무엇을 따르는지 말한다 */
+  function inheritedHint(path: string | null | undefined): string {
+    return path ? `앱 기본값: ${path}` : '앱 기본값 따름 (PATH에서 찾기)'
+  }
 
   async function save(): Promise<void> {
     setBusy(true)
@@ -526,10 +572,11 @@ export function SettingsPanel({
                   </button>
                 )}
 
-                <h3>CLI 경로</h3>
+                <h3>CLI 경로 — 이 workspace만</h3>
                 {pathsError && <div role="alert" className="form-error">{pathsError}</div>}
                 <p className="settings-hint">
-                  비워두면 PATH에서 찾습니다. 실행이 &quot;찾을 수 없습니다&quot;로 막힐 때 여기에 절대 경로를 넣으세요.
+                  비워두면 앱 탭의 CLI 기본 경로를 따르고, 그것도 비었으면 PATH에서 찾습니다.
+                  이 workspace만 다른 실행 파일을 쓸 때 절대 경로를 넣으세요.
                 </p>
 
                 <div className="settings-grid">
@@ -538,7 +585,7 @@ export function SettingsPanel({
                   <input
                     aria-label="Claude Code 실행 파일"
                     value={claudePath}
-                    placeholder="PATH에서 찾기"
+                    placeholder={inheritedHint(appPaths?.claude)}
                     onChange={(e) => setClaudePath(e.target.value)}
                   />
                 </label>
@@ -548,7 +595,7 @@ export function SettingsPanel({
                   <input
                     aria-label="OpenCode 실행 파일"
                     value={opencodePath}
-                    placeholder="PATH에서 찾기"
+                    placeholder={inheritedHint(appPaths?.opencode)}
                     onChange={(e) => setOpencodePath(e.target.value)}
                   />
                 </label>
@@ -576,6 +623,39 @@ export function SettingsPanel({
           <>
             {error && <div role="alert" className="form-error">{error}</div>}
             <p className="settings-scope">이 장비 전체에 적용됩니다 — workspace와 무관합니다.</p>
+
+            <h3>CLI 기본 경로</h3>
+            {appPathsError && <div role="alert" className="form-error">{appPathsError}</div>}
+            <p className="settings-hint">
+              모든 workspace가 쓰는 실행 파일. 비워두면 PATH에서 찾습니다. 특정 workspace만 다르게 쓰려면
+              실행 탭의 &quot;CLI 경로 — 이 workspace만&quot;에 넣으세요 — 그쪽이 이깁니다.
+            </p>
+
+            <div className="settings-grid">
+            <label className="settings-field">
+              Claude Code 기본 실행 파일
+              <input
+                aria-label="Claude Code 기본 실행 파일"
+                value={appClaudePath}
+                placeholder="PATH에서 찾기"
+                onChange={(e) => setAppClaudePath(e.target.value)}
+              />
+            </label>
+
+            <label className="settings-field">
+              OpenCode 기본 실행 파일
+              <input
+                aria-label="OpenCode 기본 실행 파일"
+                value={appOpencodePath}
+                placeholder="PATH에서 찾기"
+                onChange={(e) => setAppOpencodePath(e.target.value)}
+              />
+            </label>
+            </div>
+
+            <button type="button" disabled={appPathsBusy} onClick={() => void saveAppPaths()}>
+              CLI 기본 경로 저장
+            </button>
 
             <h3>글로벌 asset 경로</h3>
             <p className="settings-hint">

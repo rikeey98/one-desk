@@ -42,6 +42,13 @@ workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 
 `core.workspaces.checkAgents`로 보여준다 — 전체 설계 §595가 그린 고리("실행이 막힘 →
 설정에서 경로 지정")의 마지막 칸이다.
 
+**CLI 경로는 앱 기본값 + workspace 예외다** (2026-10-02, `docs/sdlc/agent-path-default/`). 해석 순서는
+`ONE_DESK_AGENT_PATH` → workspace 경로(예외) → **앱 기본 경로**(앱 탭 `CLI 기본 경로`, `app_setting`의
+`agents.path.claude`·`agents.path.opencode` — 마이그레이션 없음) → PATH 탐색. 실행 탭의 절은
+`CLI 경로 — 이 workspace만`이고 빈 칸의 placeholder가 따르는 값(`앱 기본값: …`)을 말한다. 해석은
+`core/index.ts`의 `agentPathOf` 한 자리이고 `resolveAgentPath`가 앱 기본값을 **필수 인자**로 받는다 —
+선택이면 여섯 호출 자리 중 하나만 빠뜨려도 조용히 컴파일되고 설정 화면과 실행이 갈린다.
+
 **경로 절과 기본값 절을 한 저장으로 합치지 말 것.** 고치는 때가 다르다 — 경로는 PATH가
 깨졌을 때 한 번 고치는 것이고 기본값은 계속 손보는 것이라, 합치면 경로를 고치러 온 사람이
 모델 기본값까지 함께 덮어쓴다. 저장소의 `updateDefaults`/`updatePaths`도 같은 이유로
@@ -61,7 +68,7 @@ e2e에서 진짜 경로를 넣어 검증하려면 `launchApp({ agentPath: '' })`
 **설정 화면은 네 탭이다**(intent·spec·plan은 `docs/sdlc/settings-screen/`). 실행 · 앱 · repo ·
 정보 — **탭은 값의 범위로 가른다.** 실행과 repo는 지금 고른 workspace 하나에, 앱은 장비
 전체에 걸리고, 정보는 읽기 전용이다. 위에서 "세 절"이라 부른 것이 탭으로 갈라졌다 —
-실행 기본값(권한 포함)과 CLI 경로는 **실행 탭**에, 글로벌 asset 경로는 **앱 탭**에 있고
+실행 기본값(권한 포함)과 CLI 경로는 **실행 탭**에, 글로벌 asset 경로와 CLI 기본 경로는 **앱 탭**에 있고
 동시 실행 상한이 앱 탭에 더해졌다. **절마다 저장이 따로인 것은 그대로다.** 정보 탭은
 MCP 상태와 포트 · DB 파일 · 로그 디렉토리 · 앱 버전을 보여주고 데이터/로그 폴더를 연다 —
 여는 대상은 경로가 아니라 **이름**(`'data'`·`'logs'`)으로 넘긴다. 임의 경로를 여는 통로를
@@ -257,7 +264,7 @@ SKILL.md의 frontmatter는 평문 칸으로 뗀다. 그리고 **창을 닫기 �
   다시 파싱하는 기능과 읽는 코드는 없다(아래 함정 절).
 - **opencode는 `--thinking`을 늘 붙이고, 그래서 1.1.50 미만을 preflight가 막는다** — 그 플래그가 1.1.50에서
   생겼고 모르는 옵션이면 CLI가 시작부터 exit 1이다. 같은 이유로 claude의 숨은 `--thinking-display`는 붙이지
-  않는다.
+  않는다. **지금 최소 버전은 1.4.0이다** — 아래 함정 절의 "전체 허용의 플래그" 항목.
 - `readLog`는 파일 전체가 아니라 끝에서부터 창만큼 읽고, 렌더러 스토어와 **같은 창**을 본다(아래 함정 절).
 - `e2e/events.e2e.ts`가 가짜 CLI의 `ONE_DESK_FAKE_SCRIPT=events`(claude·opencode 둘 다)로 위 화면과
   `raw.jsonl`을 검증한다. 가짜 opencode는 `--thinking`이 있을 때만 reasoning 줄을 낸다(실제 run 루프와 같게) —
@@ -463,7 +470,7 @@ succeeded가 exit 1을 이겼다** — 중간 답을 내고 죽은 run이 성공
 
 **`access(path, X_OK)`는 Windows에서 실행 권한을 보지 않는다.** 파일시스템에 그 개념이 없어 존재 여부(`F_OK`)처럼 동작한다. 그래서 Windows에서는 `PATHEXT` 확장자를 붙인 후보만 만들고 확장자 없는 이름은 아예 제외한다 — 만들면 npm이 Git Bash용으로 함께 까는 sh 스크립트를 실행 파일로 골라버린다.
 
-**`.cmd`/`.bat`는 `shell: true` 없이 spawn하면 `EINVAL`이다**(Node 18.20.2+ / 20.12.2+, CVE-2024-27980). shell을 켜면 인자가 cmd.exe의 인용 규칙을 타고, `terminate`가 죽이는 대상이 cmd.exe 껍데기가 되어 취소가 자식에 닿지 않는다. 그래서 켜지 않고 **preflight가 거부한다** — npm 전역 설치 대신 네이티브 설치 스크립트(`claude.exe`)를 쓰게 안내한다.
+**`.cmd`/`.bat`는 `shell: true` 없이 spawn하면 `EINVAL`이다**(Node 18.20.2+ / 20.12.2+, CVE-2024-27980). shell을 켜면 인자가 cmd.exe의 인용 규칙을 타고, `terminate`가 죽이는 대상이 cmd.exe 껍데기가 되어 취소가 자식에 닿지 않는다. 그래서 켜지 않고 **preflight가 거부한다** — npm 전역 설치 대신 네이티브 설치 스크립트(`claude.exe`)를 쓰게 안내한다. **예외: opencode는 npm 껍데기를 벗겨 쓴다** (2026-10-02, `core/runner/executable.ts`의 `unwrapNpmShim`). `npm i -g opencode-ai`의 `opencode.cmd`는 node 없이 `"%dp0%\node_modules\opencode-ai\bin\opencode.exe"`를 부르는 껍데기이고 그 `.exe`가 postinstall이 둔 진짜 바이너리라, preflight가 그것을 찾아 직접 띄운다(명시 경로·PATH 탐색 둘 다). `node_modules\` 아래의 `.exe`만 받는다 — JS 껍데기(claude의 npm 설치)에도 `"%dp0%\node.exe"`가 있어 아무 `.exe`나 집으면 node를 agent로 띄운다. 그래서 claude의 `.cmd`는 여전히 거부된다.
 
 **`createWriteStream`의 open은 비동기다 — `error` 리스너가 없으면 앱이 죽는다.** `mkdirSync`가 방금 만든 디렉토리라도 그 사이에 사라질 수 있고, 디스크가 차거나 권한이 막혀도 실패한다. 리스너가 없으면 처리되지 않은 예외가 되어 Electron 메인 프로세스가 통째로 내려간다. `core/runner/logWriter.ts`가 이를 `ErrorSink`로 흘려보내고, 실패한 뒤 `close()`가 매달리지 않게 한다(매달리면 run이 안 끝나 동시 실행 슬롯이 영영 점유된다).
 
@@ -558,6 +565,13 @@ junction/심링크가 밖을 가리키는 것을 못 막는다. `..` 검사 테�
 **OpenCode는 설정이 잘못돼도 조용히 무시한다.** `OPENCODE_CONFIG`가 없는 파일을 가리켜도, 거기에 인라인 JSON을 넣어도(경로만 받는다), `OPENCODE_PERMISSION`이 깨진 JSON이어도 **종료 코드 0으로 사용자 설정에 그대로 되돌아간다.** 셋 다 결과가 같다 — 사용자 설정의 `ask`가 살아남는다. **1.18.x의 `run`은 그 `ask`를 자동 거부하고 조용히 exit 0으로 끝난다**(남는 것은 도구 실패뿐이다 — 소스 `run.ts` v1.18.30:801-822, 1.18.27과 바이트 동일). 예전에 여기 적혀 있던 "헤드리스 실행이 영원히 멈추고 슬롯을 점유한다"는 틀린 서술이었다(2026-09-27 정정, `docs/sdlc/conversation-fixes/` FR-14). 멈추지 않는 대신 **agent가 그 도구를 못 쓴 run이 성공으로 기록되고** 사용자는 이유를 알 길이 없다. `opencodeAdapter.verifyRunnable`이 실행 직전에 해결된 설정을 다시 읽어 `ask`가 남았는지 보는 이유이고, 그것을 실행 전의 명시적 실패로 바꾸므로 그 검사는 여전히 선택이 아니다.
 
 **OpenCode 2.x CLI는 preflight가 막는다 — 권한 정책이 조용히 무시될 수 있다** (`docs/sdlc/conversation-fixes/` FR-17). 데스크톱 번들의 `opencode-cli.exe` 2.0.18을 경로로 주면 `--variant`가 없고 바이너리에 `OPENCODE_PERMISSION` 문자열조차 없다 — **읽기 전용 run이 파일을 고칠 수 있다.** 그래서 preflight가 `--version` 첫 줄의 major를 보고 2 이상이면 거부한다(명시 경로와 PATH 탐색이 합류한 뒤, `.cmd` 거부 다음 — 한쪽 갈래에만 두면 다른 쪽으로 샌다). 버전을 못 읽으면 막지 않는다(게이트 전의 동작). 판정은 (경로, 크기, mtime)으로 **프로미스째** 캐시해 동시에 들어온 조회도 프로세스를 한 번만 띄운다. **못 읽은 판정(실패·시간 초과)은 캐시에서 뺀다** — 통과(fail-open)가 굳으면 Windows 백신이 새 바이너리의 첫 실행을 붙잡은 한 번의 시간 초과가 앱이 사는 동안 2.x 차단을 꺼 둔다. 되살리면 `opencode.version.test.ts`의 "못 읽은 판정은 캐시하지 않는다"가 빨개진다. **`--version`을 띄울 때도 stdin을 닫고 `agentCommand`를 거친다** — 닫지 않으면 stdin을 기다리는 CLI가 5초 타임아웃까지 매달리고, 런처 없이는 가짜 CLI(`.mjs`)가 Windows에서 뜨지 않는다. e2e에서는 두 agent가 모두 가짜 CLI에 물려 있어 설정 화면이 열리면 `node fake-claude.mjs --version`이 한 번 돈다 — 기본 시나리오를 찍으므로(버전이 아니다) 통과하고, `ONE_DESK_FAKE_DELAY_MS`만큼 첫 `checkAgents`가 늦어지며, `ONE_DESK_*_CAPTURE`를 세운 테스트라면 그 파일을 덮는다. **가짜 CLI가 `--version`에 버전 문자열을 찍게 "고치지" 말 것** — 2.x 모양이면 게이트가 e2e의 opencode 실행을 전부 막는다. 2.0.18의 `--version` 출력 형식은 실측하지 않았다 — 파서가 받는 것은 첫 줄의 `[opencode ]v?X.Y.Z`뿐이라 형식이 다르면 "못 읽음 → 통과"로 게이트가 무력해진다.
+
+**OpenCode 전체 허용의 플래그는 `--auto`가 아니라 `--dangerously-skip-permissions`다** (2026-10-02). `--auto`는
+1.18.0에서 생긴 별칭이라 1.4.0~1.17.x는 모르는 옵션으로 보고 **이유 한 줄 없이 도움말만** 찍고 exit 1로 끝난다 —
+편집 허용으로 잘 되던 대화가 전체 허용으로 바꾸는 순간 "opencode run [message..]"로 실패했다. 옛 이름은 1.4.0에서
+생겨 1.18.x에도 남아 있다(1.3.17의 `run.ts`에는 자동 승인 플래그가 아예 없다). 그래서 최소 버전(`MIN_SUPPORTED`)이
+1.1.50에서 1.4.0으로 올랐다. **`buildCommand`에 옵션을 더하면 그 옵션이 생긴 버전을 소스 태그에서 확인하고
+최소 버전을 다시 볼 것** — 도움말만 찍히는 실패는 앱의 실패 이유(stderr 앞 2000자)에 원인이 남지 않는다.
 
 **OpenCode의 `tool_use`는 이미 끝난 도구를 보고한다.** `part.state.status`가 `completed`이고 출력까지 함께 온다(그래서 한 줄이 `tool_use`와 `tool_result` 두 이벤트가 된다). 그 대가로 **전체 설계 §553의 "쓰기 도구 호출을 감지하면 원본을 복사한다"가 OpenCode에서는 성립하지 않는다** — 복사할 시점에 원본이 이미 없다. diff 뷰어 설계에서 정면으로 다뤄야 한다. edit의 줄 번호 hunk는 이제 `metadata.filediff.patch`로 받지만 파일 원본 전체는 여전히 없다(아래 `filediff` 항목).
 
@@ -775,6 +789,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/plan-usage/` | Claude 요금제 사용률 — spec. `rate_limit_event` 실측(§1), 저장하지 않는 이유와 이벤트가 아닌 이유(FR-1·FR-3), 지난 리셋은 `—`(FR-5), run-info §7 좁힘 |
 | `docs/sdlc/timestamps/` | 시각으로 정리하기 — spec. `startedAt`과 상태가 바뀔 때만 파생(FR-1·2), MCP 시각 ISO·기간 거름·`list_conversations`(FR-4~7)·턴별 시각 `get_conversation`(FR-9), 활동 기록을 뺀 이유(§4) |
 | `docs/sdlc/item-windows/` | 패널을 repo마다 별도 창으로 — spec·plan. 창의 단위와 고정(FR-1~3), 범위만 받는 IPC(FR-12), 모든 창의 가드(FR-14), 닫기 전 저장(FR-15·16), 바뀜 알림(FR-17~19), 본문 읽기/편집(FR-20~25), Cmd+Q 제약(§5). plan에 변이 표 |
+| `docs/sdlc/agent-path-default/` | CLI 경로의 앱 기본값과 workspace 예외 — spec. 해석 순서(FR-1), 키-값 저장(FR-2), 앱 탭·실행 탭 화면(FR-3) |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |

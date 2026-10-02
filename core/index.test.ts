@@ -702,6 +702,35 @@ describe('core.workspaces.checkAgents', () => {
     })
   })
 
+  it('workspace가 비워 둔 agent는 앱 기본 경로를 쓴다 (agent-path-default FR-1)', async () => {
+    await withoutOverride(async () => {
+      const core = open(makeDataDir())
+      const ws = core.workspaces.create({ name: 'ws' }).id
+      core.settings.setAgentPaths({ claude: process.execPath, opencode: join(makeDataDir(), '없는-opencode') })
+
+      const status = await core.workspaces.checkAgents(ws)
+
+      expect(status['claude-code'].ok).toBe(true)
+      expect(status['claude-code'].executable).toBe(process.execPath)
+      // 앱 기본값이 opencode에도 따로 걸린다 — 없는 경로라 그 이유가 보인다.
+      expect(status.opencode.ok).toBe(false)
+      expect(status.opencode.reason).toContain('없는-opencode')
+    })
+  })
+
+  it('workspace 경로(예외)가 앱 기본 경로를 이긴다', async () => {
+    await withoutOverride(async () => {
+      const core = open(makeDataDir())
+      const ws = core.workspaces.create({ name: 'ws' }).id
+      core.settings.setAgentPaths({ claude: join(makeDataDir(), '없는-claude'), opencode: null })
+      core.workspaces.updatePaths({ id: ws, claudePath: process.execPath, opencodePath: null })
+
+      const status = await core.workspaces.checkAgents(ws)
+
+      expect(status['claude-code'].executable).toBe(process.execPath)
+    })
+  })
+
   it('없는 workspace면 설정이 없는 것으로 보고 PATH 탐색으로 떨어진다', async () => {
     // 던지지 않는다 — 이 조회는 화면을 그리는 길목이고, workspace가 막 지워진
     // 찰나에 던지면 설정 화면 전체가 빨간 줄만 남는다.

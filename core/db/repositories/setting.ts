@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
 import type { Database } from '../open'
 import { appSetting } from '../schema'
+import type { AgentPaths } from '@shared/models'
 
 /** 동시 실행 상한을 담는 키 */
 export const CONCURRENCY_LIMIT_KEY = 'run.concurrencyLimit'
@@ -17,6 +18,11 @@ function isValidLimit(n: number): boolean {
 export const GLOBAL_ROOTS_CLAUDE_KEY = 'assets.globalRoots.claude'
 /** opencode용 글로벌 asset 경로를 담는 키 */
 export const GLOBAL_ROOTS_OPENCODE_KEY = 'assets.globalRoots.opencode'
+
+/** claude CLI 기본 경로를 담는 키 (agent-path-default FR-2) */
+export const AGENT_PATH_CLAUDE_KEY = 'agents.path.claude'
+/** opencode CLI 기본 경로를 담는 키 */
+export const AGENT_PATH_OPENCODE_KEY = 'agents.path.opencode'
 
 /** agent 종류별 글로벌 asset 경로 */
 export interface GlobalRoots {
@@ -45,6 +51,12 @@ export function createSettingRepository(db: Database, homeDir: string) {
     const row = db.select().from(appSetting).where(eq(appSetting.key, key)).get()
     const parsed = (row?.value ?? '').split('\n').map((l) => l.trim()).filter(Boolean)
     return parsed.length > 0 ? parsed : fallback
+  }
+
+  function readPath(key: string): string | null {
+    const row = db.select().from(appSetting).where(eq(appSetting.key, key)).get()
+    const v = (row?.value ?? '').trim()
+    return v === '' ? null : v
   }
 
   function writeRoots(key: string, roots: string[]): void {
@@ -93,6 +105,28 @@ export function createSettingRepository(db: Database, homeDir: string) {
       writeRoots(GLOBAL_ROOTS_CLAUDE_KEY, roots.claude)
       writeRoots(GLOBAL_ROOTS_OPENCODE_KEY, roots.opencode)
       return this.globalRoots()
+    },
+
+    /**
+     * CLI 기본 경로. 비었으면(공백뿐 포함) null — 어댑터가 PATH에서 찾는다. 쓸 만한 경로인지는
+     * 보지 않는다 — 판정은 preflight의 몫이다(workspace의 `updatePaths`와 같다).
+     */
+    agentPaths(): AgentPaths {
+      return { claude: readPath(AGENT_PATH_CLAUDE_KEY), opencode: readPath(AGENT_PATH_OPENCODE_KEY) }
+    },
+
+    /** 둘을 함께 받는다 — 부분 갱신을 받지 않는다(`updatePaths`와 같은 규칙). */
+    setAgentPaths(paths: AgentPaths): AgentPaths {
+      db.transaction((tx) => {
+        for (const [key, value] of [
+          [AGENT_PATH_CLAUDE_KEY, paths.claude], [AGENT_PATH_OPENCODE_KEY, paths.opencode]
+        ] as const) {
+          const v = (value ?? '').trim()
+          tx.insert(appSetting).values({ key, value: v })
+            .onConflictDoUpdate({ target: appSetting.key, set: { value: v } }).run()
+        }
+      })
+      return this.agentPaths()
     }
   }
 }

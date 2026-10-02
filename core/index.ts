@@ -40,7 +40,7 @@ import {
 import { consoleErrorSink, type ErrorSink } from './errors'
 import type { AgentAdapter } from './runner/types'
 import type { RunEvent } from '@shared/events'
-import type { AgentKind, InboxCounts, ItemChange, McpStatus, PlanUsage, QueueSnapshot, Run } from '@shared/models'
+import type { AgentKind, AgentPaths, InboxCounts, ItemChange, McpStatus, PlanUsage, QueueSnapshot, Run, Workspace } from '@shared/models'
 
 /**
  * agent 종류 → 어댑터. **밖으로 꺼낸 이유는 테스트가 이 한 줄을 볼 수 있게
@@ -119,11 +119,17 @@ export function createCore(opts: CoreOptions) {
   const runs = createRunRepository(db)
   const assetRows = notifyingAssets(createAssetRepository(db), notify)
   const settings = createSettingRepository(db, opts.homeDir)
+  /**
+   * 실행 파일 경로의 유일한 해석 자리 — 실행·설정 화면·슬래시 커맨드·인증 확인이 전부 여기를 탄다.
+   * 앱 기본값은 매번 읽는다(설정에서 바뀐다). `docs/sdlc/agent-path-default/` FR-1.
+   */
+  const agentPathOf = (kind: AgentKind, workspace: Workspace | null) =>
+    resolveAgentPath(kind, workspace, settings.agentPaths())
 
   const commands = createCommandService({
     probe: async ({ workspaceId, cwd }) => {
       const workspace = workspaces.list().find((w) => w.id === workspaceId) ?? null
-      const resolved = await claudeCodeAdapter.preflight(resolveAgentPath('claude-code', workspace))
+      const resolved = await claudeCodeAdapter.preflight(agentPathOf('claude-code', workspace))
       const result = resolved.ok && resolved.executable
         ? await probeCommands({ executable: resolved.executable, cwd })
         : {
@@ -139,7 +145,7 @@ export function createCore(opts: CoreOptions) {
     // (docs/sdlc/command-cache-auth/ FR-2·FR-3). 실행 파일 해석은 probe와 같은 길이다.
     checkAuth: async ({ workspaceId }) => {
       const workspace = workspaces.list().find((w) => w.id === workspaceId) ?? null
-      const resolved = await claudeCodeAdapter.preflight(resolveAgentPath('claude-code', workspace))
+      const resolved = await claudeCodeAdapter.preflight(agentPathOf('claude-code', workspace))
       if (!resolved.ok || !resolved.executable) return 'unknown'
       return (await checkAuth('claude-code', resolved.executable, runCli)).state
     }
@@ -213,7 +219,7 @@ export function createCore(opts: CoreOptions) {
   const agentProbes = createAgentProbeService({
     preflight: (kind, workspaceId) => {
       const workspace = workspaces.list().find((w) => w.id === workspaceId) ?? null
-      return adapters[kind].preflight(resolveAgentPath(kind, workspace))
+      return adapters[kind].preflight(agentPathOf(kind, workspace))
     },
     checkAuth: (kind, executable) => checkAuth(kind, executable, runCli),
     // 슬래시 커맨드 probe와 **같은 캐시**다 — 실행 패널이 이미 돌렸으면 CLI가
@@ -261,7 +267,7 @@ export function createCore(opts: CoreOptions) {
     files,
     resolveExecutable: async (agentKind, workspaceId) => {
       const ws = workspaces.list().find((w) => w.id === workspaceId) ?? null
-      return adapters[agentKind].preflight(resolveAgentPath(agentKind, ws))
+      return adapters[agentKind].preflight(agentPathOf(agentKind, ws))
     },
     verifyRunnable: async (agentKind, input) => {
       const adapter = adapters[agentKind]
@@ -318,8 +324,8 @@ export function createCore(opts: CoreOptions) {
       async checkAgents(workspaceId: string): Promise<AgentStatuses> {
         const ws = workspaces.list().find((w) => w.id === workspaceId) ?? null
         const [claude, opencode] = await Promise.all([
-          adapters['claude-code'].preflight(resolveAgentPath('claude-code', ws)),
-          adapters['opencode'].preflight(resolveAgentPath('opencode', ws))
+          adapters['claude-code'].preflight(agentPathOf('claude-code', ws)),
+          adapters['opencode'].preflight(agentPathOf('opencode', ws))
         ])
         return { 'claude-code': claude, opencode }
       },
@@ -447,6 +453,10 @@ export function createCore(opts: CoreOptions) {
 
     settings: {
       globalRoots: () => settings.globalRoots(),
+
+      /** CLI 기본 경로 — workspace가 비워 둔 agent에 쓴다 (`docs/sdlc/agent-path-default/`). */
+      agentPaths: (): AgentPaths => settings.agentPaths(),
+      setAgentPaths: (paths: AgentPaths): AgentPaths => settings.setAgentPaths(paths),
 
       /**
        * 경로를 저장하고 **곧바로 전부 다시 훑는다.**

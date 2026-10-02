@@ -262,7 +262,9 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
     },
     settings: {
       globalRoots: vi.fn(async () => ({ claude: ['/home/.claude/skills'], opencode: [] })),
-      setGlobalRoots: vi.fn(async (r: unknown) => r)
+      setGlobalRoots: vi.fn(async (r: unknown) => r),
+      agentPaths: vi.fn(async () => ({ claude: null, opencode: null })),
+      setAgentPaths: vi.fn(async (p: unknown) => p)
     },
     assets: {
       list: vi.fn(async (q: { repoId?: string | null }) => {

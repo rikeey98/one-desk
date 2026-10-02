@@ -104,3 +104,34 @@ describe('글로벌 asset 경로', () => {
     expect(row2?.value).toBe('/c')
   })
 })
+
+describe('SettingRepository — CLI 기본 경로 (agent-path-default FR-2)', () => {
+  let db3: Database
+  let settings3: ReturnType<typeof createSettingRepository>
+
+  beforeEach(() => {
+    db3 = makeTestDb()
+    settings3 = createSettingRepository(db3, HOME)
+  })
+
+  it('저장된 값이 없으면 둘 다 null이다 — PATH에서 찾는다', () => {
+    expect(settings3.agentPaths()).toEqual({ claude: null, opencode: null })
+  })
+
+  it('저장하면 다듬은 값을 돌려주고, 새 저장소에서도 읽힌다', () => {
+    expect(settings3.setAgentPaths({ claude: '  /bin/claude.exe ', opencode: '/bin/opencode.exe' }))
+      .toEqual({ claude: '/bin/claude.exe', opencode: '/bin/opencode.exe' })
+    expect(createSettingRepository(db3, HOME).agentPaths())
+      .toEqual({ claude: '/bin/claude.exe', opencode: '/bin/opencode.exe' })
+  })
+
+  it('비우면(공백뿐 포함) 다시 null이다', () => {
+    settings3.setAgentPaths({ claude: '/bin/claude.exe', opencode: '/bin/opencode.exe' })
+    expect(settings3.setAgentPaths({ claude: '   ', opencode: '' })).toEqual({ claude: null, opencode: null })
+  })
+
+  it('둘을 함께 덮는다 — 한쪽만 비우면 그쪽만 null이다', () => {
+    settings3.setAgentPaths({ claude: '/a', opencode: '/b' })
+    expect(settings3.setAgentPaths({ claude: '/a', opencode: '' })).toEqual({ claude: '/a', opencode: null })
+  })
+})

@@ -36,6 +36,8 @@ export const CHANNELS = {
   filesSearch: 'files:search',
   settingsGetGlobalRoots: 'settings:getGlobalRoots',
   settingsSetGlobalRoots: 'settings:setGlobalRoots',
+  settingsGetAgentPaths: 'settings:getAgentPaths',
+  settingsSetAgentPaths: 'settings:setAgentPaths',
   runsList: 'runs:list',
   runsStart: 'runs:start',
   runsCancel: 'runs:cancel',

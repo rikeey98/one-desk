@@ -112,4 +112,36 @@ describe('workspace 실행 기본값', () => {
 
     await expect.poll(() => status.innerText(), { timeout: 10_000 }).toContain('실행할 수 없습니다')
   })
+
+  it('앱 탭의 CLI 기본 경로를 예외가 없는 workspace가 쓰고, 다시 켜도 남는다 (agent-path-default)', async () => {
+    // IPC 왕복(settings.setAgentPaths → main → core → app_setting)과 해석 순서(FR-1)를 진짜 앱에서 본다.
+    const app = await launchApp({ agentPath: '' })
+    const page = app.page
+
+    await page.getByPlaceholder('새 workspace 이름…').fill('e2e-app-path')
+    await page.getByPlaceholder('새 workspace 이름…').press('Enter')
+    const ws = page.getByRole('button', { name: /^e2e-app-path$/ })
+    await ws.waitFor({ state: 'visible', timeout: 10_000 })
+    await ws.click()
+
+    await page.getByRole('button', { name: '설정' }).click()
+    await page.getByRole('tab', { name: '앱' }).click()
+    await page.getByLabel('Claude Code 기본 실행 파일').fill(process.execPath)
+    await page.getByRole('button', { name: 'CLI 기본 경로 저장', exact: true }).click()
+
+    await page.getByRole('tab', { name: '실행' }).click()
+    const status = page.getByLabel('CLI 상태')
+    await expect.poll(() => status.innerText(), { timeout: 10_000 }).toContain(process.execPath)
+    // workspace 칸은 비어 있고, 무엇을 따르는지 말한다.
+    const wsField = page.getByLabel('Claude Code 실행 파일', { exact: true })
+    await expect.poll(() => wsField.inputValue()).toBe('')
+    await expect.poll(() => wsField.getAttribute('placeholder')).toBe(`앱 기본값: ${process.execPath}`)
+
+    // 저장소에 남았다 — 다시 켠 앱이 같은 값을 읽는다.
+    await app.relaunch()
+    await app.page.getByRole('button', { name: '설정' }).click()
+    await app.page.getByRole('tab', { name: '앱' }).click()
+    await expect.poll(() => app.page.getByLabel('Claude Code 기본 실행 파일').inputValue(), { timeout: 10_000 })
+      .toBe(process.execPath)
+  })
 })

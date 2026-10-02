@@ -542,6 +542,15 @@ export interface GlobalRoots {
 }
 
 /**
+ * agent 종류별 CLI 기본 경로 — 앱 전체에 걸린다. workspace의 `claudePath`·`opencodePath`가 있으면 그것이
+ * 이기고(예외), 둘 다 없으면 PATH에서 찾는다. null이 "정하지 않음"이다 (`docs/sdlc/agent-path-default/`).
+ */
+export interface AgentPaths {
+  claude: string | null
+  opencode: string | null
+}
+
+/**
  * 피커에 뜨는 슬래시 커맨드 한 개. init이 준 이름에 디스크에서 찾은 설명을 붙인 것이다.
  *
  * 이름과 설명은 외부 파일에서 오는 **신뢰할 수 없는 입력**이다 — 화면은 평문으로 그리고

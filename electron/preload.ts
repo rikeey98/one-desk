@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { OneDeskClient, Unsubscribe } from '@shared/client'
-import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult } from '@shared/models'
+import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult } from '@shared/models'
 import type { RunEvent } from '@shared/events'
 
 /**
@@ -76,7 +76,9 @@ const client: OneDeskClient = {
   },
   settings: {
     globalRoots: () => call<GlobalRoots>(CHANNELS.settingsGetGlobalRoots),
-    setGlobalRoots: (roots) => call<GlobalRoots>(CHANNELS.settingsSetGlobalRoots, roots)
+    setGlobalRoots: (roots) => call<GlobalRoots>(CHANNELS.settingsSetGlobalRoots, roots),
+    agentPaths: () => call<AgentPaths>(CHANNELS.settingsGetAgentPaths),
+    setAgentPaths: (paths) => call<AgentPaths>(CHANNELS.settingsSetAgentPaths, paths)
   },
   runs: {
     list: (workspaceId) => call<Run[]>(CHANNELS.runsList, workspaceId),

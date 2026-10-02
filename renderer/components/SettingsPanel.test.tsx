@@ -5,7 +5,7 @@ import { ClientProvider } from '../client/ClientProvider'
 import { SettingsPanel } from './SettingsPanel'
 import type { OneDeskClient } from '@shared/client'
 import type {
-  AgentProbes,
+  AgentPaths, AgentProbes,
   AgentStatuses, AppInfo, GlobalRoots, McpStatus, QueueSnapshot, Repo, UpdateRepoInput,
   UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, Workspace
 } from '@shared/models'
@@ -64,6 +64,11 @@ function makeClient(
     settings: {
       globalRoots: vi.fn().mockResolvedValue(DEFAULTS),
       setGlobalRoots: vi.fn().mockResolvedValue(DEFAULTS),
+      agentPaths: vi.fn(async () => ({ claude: null, opencode: null })),
+      // 실제 저장소처럼 다듬고 빈 칸을 null로 돌려준다.
+      setAgentPaths: vi.fn(async (p: AgentPaths) => ({
+        claude: (p.claude ?? '').trim() || null, opencode: (p.opencode ?? '').trim() || null
+      })),
       ...over
     },
     workspaces: {
@@ -492,6 +497,64 @@ describe('SettingsPanel — 기본 권한', () => {
 
     await userEvent.selectOptions(box, 'edit')
     expect(screen.queryByText(/앞으로의 모든 새 실행/)).toBeNull()
+  })
+})
+
+describe('SettingsPanel — CLI 기본 경로 (agent-path-default)', () => {
+  it('앱 탭이 저장된 기본 경로를 보여준다', async () => {
+    renderPanel(makeClient({ agentPaths: vi.fn(async () => ({ claude: null, opencode: '/npm/opencode.cmd' })) }))
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+
+    expect(await screen.findByLabelText('OpenCode 기본 실행 파일')).toHaveValue('/npm/opencode.cmd')
+    expect(screen.getByLabelText('Claude Code 기본 실행 파일')).toHaveValue('')
+  })
+
+  it('저장하면 둘을 함께 보내고, 고른 workspace의 CLI 상태를 다시 확인한다', async () => {
+    // 예외를 두지 않은 workspace는 잡히는 실행 파일이 바뀐다 — 실행 탭의 상태가 낡으면 안 된다.
+    const setAgentPaths = vi.fn(async (p: AgentPaths) => p)
+    const checkAgents = vi.fn(async () => AGENTS_OK)
+    renderPanel(makeClient({ setAgentPaths }, { checkAgents }))
+    await waitFor(() => expect(checkAgents).toHaveBeenCalledTimes(1))
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+
+    await userEvent.type(await screen.findByLabelText('OpenCode 기본 실행 파일'), '/opt/opencode')
+    await userEvent.click(screen.getByRole('button', { name: 'CLI 기본 경로 저장' }))
+
+    expect(setAgentPaths).toHaveBeenCalledWith({ claude: '', opencode: '/opt/opencode' })
+    await waitFor(() => expect(checkAgents).toHaveBeenCalledTimes(2))
+  })
+
+  it('저장이 실패하면 이유를 보이고 입력은 남긴다', async () => {
+    const setAgentPaths = vi.fn().mockRejectedValue(new Error('저장 실패'))
+    renderPanel(makeClient({ setAgentPaths }))
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+
+    await userEvent.type(await screen.findByLabelText('OpenCode 기본 실행 파일'), '/opt/opencode')
+    await userEvent.click(screen.getByRole('button', { name: 'CLI 기본 경로 저장' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('저장 실패')
+    expect(screen.getByLabelText('OpenCode 기본 실행 파일')).toHaveValue('/opt/opencode')
+  })
+
+  it('실행 탭의 빈 칸은 지금 따르는 앱 기본값을 말한다', async () => {
+    renderPanel(makeClient({ agentPaths: vi.fn(async () => ({ claude: null, opencode: '/opt/opencode' })) }))
+
+    await waitFor(() => expect(screen.getByLabelText('OpenCode 실행 파일'))
+      .toHaveAttribute('placeholder', '앱 기본값: /opt/opencode'))
+    expect(screen.getByLabelText('Claude Code 실행 파일'))
+      .toHaveAttribute('placeholder', '앱 기본값 따름 (PATH에서 찾기)')
+    expect(screen.getByRole('heading', { name: 'CLI 경로 — 이 workspace만' })).toBeInTheDocument()
+  })
+
+  it('앱 탭에서 저장한 기본값이 실행 탭의 안내에 곧바로 보인다', async () => {
+    renderPanel(makeClient())
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    await userEvent.type(await screen.findByLabelText('Claude Code 기본 실행 파일'), '/opt/claude')
+    await userEvent.click(screen.getByRole('button', { name: 'CLI 기본 경로 저장' }))
+
+    await userEvent.click(screen.getByRole('tab', { name: '실행' }))
+    await waitFor(() => expect(screen.getByLabelText('Claude Code 실행 파일'))
+      .toHaveAttribute('placeholder', '앱 기본값: /opt/claude'))
   })
 })
 

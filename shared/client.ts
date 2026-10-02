@@ -10,7 +10,7 @@ import type {
   InboxCounts,
   McpStatus, PlanUsage, ResumeRunInput, ItemChange,
   Asset, CreateAuthoredAssetInput, GuardedUpdateAssetInput, AssetUpdateResult, ListAssetQuery,
-  GlobalRoots, CommandTarget, CommandListResult,
+  GlobalRoots, AgentPaths, CommandTarget, CommandListResult,
   UpdateRepoInput, AppInfo, RevealTarget, AssetBody, FileSearchInput, FileSearchResult
 } from './models'
 import type { RunEvent } from './events'
@@ -132,6 +132,10 @@ export interface OneDeskClient {
     globalRoots(): Promise<GlobalRoots>
     /** 저장하고 곧바로 다시 훑는다. 저장된 값을 돌려준다 */
     setGlobalRoots(roots: GlobalRoots): Promise<GlobalRoots>
+    /** CLI 기본 경로 — workspace가 비워 둔 agent에 쓴다. null이면 PATH에서 찾는다 */
+    agentPaths(): Promise<AgentPaths>
+    /** 둘을 함께 덮는다. 다듬어 저장된 값을 돌려준다 */
+    setAgentPaths(paths: AgentPaths): Promise<AgentPaths>
   }
   runs: {
     list(workspaceId: string): Promise<Run[]>
