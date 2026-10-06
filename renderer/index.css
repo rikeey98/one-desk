@@ -962,3 +962,8 @@ button.tl-tool:hover, button.tl-file:hover { background: var(--bg-hover); }
 .asset-desc { flex: 1; min-width: 0; font-size: .75rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .asset-origin { font-size: .625rem; padding: 1px 7px; border-radius: 99px; background: var(--bg-muted); color: var(--text-secondary); white-space: nowrap; }
 .chip-badge { font-size: .625rem; padding: 1px 7px; border-radius: 99px; background: var(--danger-bg); color: var(--danger-text); white-space: nowrap; }
+
+/* 이슈 줄 — 대화가 둘 이상인 이슈를 접은 한 줄 (conversation-issue FR-28) */
+.dock-issue-chevron { flex: 0 0 auto; color: var(--text-muted); }
+.dock-conv-issue[aria-expanded="true"] .dock-issue-chevron { transform: rotate(90deg); }
+.dock-conv-nested { padding-left: 14px; }

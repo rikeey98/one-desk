@@ -1326,3 +1326,45 @@ describe('Dock 대화 헤더', () => {
     expect(header().querySelector('.applied-context')).toHaveTextContent('이슈 · 버그')
   })
 })
+
+describe('Dock 이슈 줄 (conversation-issue FR-28)', () => {
+  const issue = { id: 'i1', title: '로그인 토큰 만료' }
+  function titles(): string[] {
+    return [...document.querySelectorAll('.dock-conv-title')].map((e) => e.textContent ?? '')
+  }
+  const runs = [
+    makeRun({ id: 'c3', createdAt: 30, status: 'succeeded', endedAt: 31, issue, userPrompt: '다시 시도' }),
+    makeRun({ id: 'c2', createdAt: 20, status: 'succeeded', endedAt: 21, userPrompt: '공통 대화' }),
+    makeRun({ id: 'c1', createdAt: 10, status: 'succeeded', endedAt: 11, issue, userPrompt: '처음 시도' })
+  ]
+
+  it('대화가 둘 이상인 이슈는 접힌 한 줄이고, 공통 대화는 그대로 최신순에 섞인다', () => {
+    renderDock(runs)
+    expect(titles()).toEqual(['로그인 토큰 만료', '공통 대화'])
+    expect(screen.getByRole('button', { name: '로그인 토큰 만료 대화 2개' })).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('이슈 줄을 펼치면 그 대화들이 첫 지시로 갈려 보인다', async () => {
+    renderDock(runs)
+    await userEvent.click(screen.getByRole('button', { name: '로그인 토큰 만료 대화 2개' }))
+    expect(titles()).toEqual(['로그인 토큰 만료', '다시 시도', '처음 시도', '공통 대화'])
+  })
+
+  it('이슈 줄을 눌러도 대화를 열지 않는다 — 펼치기만 한다', async () => {
+    const client = makeClient()
+    renderDock(runs, null, client)
+    await userEvent.click(screen.getByRole('button', { name: '로그인 토큰 만료 대화 2개' }))
+    expect(client.runs.markReviewed).not.toHaveBeenCalled()
+  })
+
+  it('대화가 하나뿐인 이슈는 접지 않는다', () => {
+    renderDock([runs[0]!, runs[1]!])
+    expect(titles()).toEqual(['로그인 토큰 만료', '공통 대화'])
+    expect(screen.queryByRole('button', { name: /대화 \d+개$/ })).toBeNull()
+  })
+
+  it('focusConversationId로 연 대화가 이슈 줄 안에 있으면 그 줄을 펼친다', () => {
+    renderDock(runs, 'c1')
+    expect(screen.getByRole('button', { name: '로그인 토큰 만료 대화 2개' })).toHaveAttribute('aria-expanded', 'true')
+  })
+})

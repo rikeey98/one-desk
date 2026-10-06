@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { contextOf, conversationIdOf, groupConversations, titleOf } from './conversation'
+import { contextOf, conversationIdOf, foldByIssue, groupConversations, titleOf } from './conversation'
 import type { Run } from '@shared/models'
 
 function makeRun(over: Partial<Run> & { id: string }): Run {
@@ -241,5 +241,34 @@ describe('contextOf', () => {
   it('아무것도 담지 않은 대화는 빈 목록이다', () => {
     const empty = groupConversations([makeRun({ id: 'e1', rootRunId: 'e1' })])[0]!
     expect(contextOf(empty)).toEqual([])
+  })
+})
+
+describe('foldByIssue', () => {
+  const issueA = { id: 'ia', title: '로그인 토큰 만료' }
+  const issueB = { id: 'ib', title: '설정 탭' }
+  // 최신순 — 도크 목록 그대로.
+  const runs = [
+    makeRun({ id: 'c4', createdAt: 40, issue: issueA, userPrompt: '다시 시도' }),
+    makeRun({ id: 'c3', createdAt: 30, userPrompt: '공통 대화' }),
+    makeRun({ id: 'c2', createdAt: 20, issue: issueB }),
+    makeRun({ id: 'c1', createdAt: 10, issue: issueA, userPrompt: '처음' })
+  ]
+
+  it('대화가 둘 이상인 이슈는 한 줄로 접고, 그 이슈의 가장 최근 대화 자리에 선다', () => {
+    const entries = foldByIssue(groupConversations(runs))
+    expect(entries.map((e) => e.kind === 'issue' ? `issue:${e.issue.id}` : e.conversation.id))
+      .toEqual(['issue:ia', 'c3', 'c2'])
+  })
+
+  it('묶음 안의 대화는 최신순이다', () => {
+    const first = foldByIssue(groupConversations(runs))[0]!
+    expect(first.kind === 'issue' && first.conversations.map((c) => c.id)).toEqual(['c4', 'c1'])
+  })
+
+  it('대화가 하나뿐인 이슈와 공통 대화는 그대로 한 줄이다', () => {
+    const entries = foldByIssue(groupConversations(runs))
+    expect(entries.filter((e) => e.kind === 'conversation').map((e) => e.kind === 'conversation' && e.conversation.id))
+      .toEqual(['c3', 'c2'])
   })
 })

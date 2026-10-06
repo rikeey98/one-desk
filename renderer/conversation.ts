@@ -149,3 +149,38 @@ export function groupConversations(runs: Run[]): Conversation[] {
   return out.sort((a, b) => b.last.createdAt - a.last.createdAt)
 }
 
+/** 도크 목록의 한 줄 — 대화 하나, 또는 대화가 둘 이상인 이슈 하나 (`docs/sdlc/conversation-issue/` FR-28) */
+export type ConversationListEntry =
+  | { kind: 'conversation'; conversation: Conversation }
+  | { kind: 'issue'; issue: AssignedIssue; conversations: Conversation[] }
+
+/**
+ * 도크 목록을 이슈로 접는다 (`docs/sdlc/conversation-issue/` FR-28).
+ *
+ * **최신순 목록 하나를 그대로 둔다** — 바뀌는 것은 "같은 이슈의 대화가 둘 이상이면 한 줄로"뿐이다. 그 줄은 이슈의
+ * 가장 최근 대화가 서던 자리에 선다. 대화가 하나뿐인 이슈는 접지 않는다 — 제목이 이미 이슈 이름이라(FR-22) 접으면
+ * 누를 것만 하나 는다. 공통 대화(이슈 없음)는 지금처럼 각자 한 줄이다. 입력은 최신순이어야 한다(`groupConversations`).
+ */
+export function foldByIssue(conversations: Conversation[]): ConversationListEntry[] {
+  const byIssue = new Map<string, Conversation[]>()
+  for (const conv of conversations) {
+    if (!conv.issue) continue
+    const list = byIssue.get(conv.issue.id)
+    if (list) list.push(conv)
+    else byIssue.set(conv.issue.id, [conv])
+  }
+
+  const out: ConversationListEntry[] = []
+  const placed = new Set<string>()
+  for (const conv of conversations) {
+    const group = conv.issue ? byIssue.get(conv.issue.id)! : null
+    if (!group || group.length < 2) {
+      out.push({ kind: 'conversation', conversation: conv })
+      continue
+    }
+    if (placed.has(conv.issue!.id)) continue
+    placed.add(conv.issue!.id)
+    out.push({ kind: 'issue', issue: conv.issue!, conversations: group })
+  }
+  return out
+}

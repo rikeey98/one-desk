@@ -110,6 +110,9 @@ export function Dock({
   // 목록의 펼침·편집 state는 여기서 쥔다 — ConversationList에 내리면 도크를 접었다
   // 펴는 것만으로 편집하던 이름이 사라진다.
   const [showClosed, setShowClosed] = useState(false)
+  // 펼친 이슈 줄 (conversation-issue FR-28). 끝낸 대화 펼침처럼 보기 취향이라 workspace를 바꿔도 두고 간다
+  // (이슈 id는 workspace마다 다르니 섞이지 않는다).
+  const [expandedIssues, setExpandedIssues] = useState<ReadonlySet<string>>(() => new Set())
   // 이름 편집은 목록 줄과 대화 헤더가 **한 state**를 나눠 쓴다 (spec FR-34) — 두 자리에서 같은
   // 대화를 동시에 고치는 상태가 생기지 않는다. `where`가 어느 자리의 입력칸인지를 가른다.
   const [renaming, setRenaming] = useState<{ id: string; where: 'list' | 'header' } | null>(null)
@@ -152,6 +155,8 @@ export function Dock({
   // App이 매 렌더 새 함수를 넘기므로, 넣으면 지시가 치워지기 전 렌더마다 다시 연다.
   useEffect(() => {
     if (!focusConversationId) return
+    // 이슈 줄 안에 접혀 있으면 펼친다 — 이슈 상세의 `대화 열기`로 온 대화가 목록에서 보여야 한다 (FR-28).
+    revealIssueOf(focusConversationId)
     setPickedId(focusConversationId)
     setView('conversation')
     setOpen(true)
@@ -193,7 +198,33 @@ export function Dock({
     }
   }
 
+  /** 그 대화가 이슈 줄 안에 있으면 그 줄을 펼친다. 대화가 아직 목록에 없으면(방금 시작한 첫 턴) 아무것도 하지 않는다 */
+  function revealIssueOf(conversationId: string) {
+    const issueId = conversations.find((c) => c.id === conversationId)?.issue?.id
+    if (!issueId) return
+    setExpandedIssues((prev) => prev.has(issueId) ? prev : new Set(prev).add(issueId))
+  }
+
+  function toggleIssue(issueId: string) {
+    setExpandedIssues((prev) => {
+      const next = new Set(prev)
+      if (next.has(issueId)) next.delete(issueId)
+      else next.add(issueId)
+      return next
+    })
+  }
+
+  // 방금 시작한 대화는 아직 목록에 없다 — 들어오면 그때 이슈 줄을 펼친다 (FR-28). 같은 이슈로 두 번째 대화를
+  // 시작하는 순간 목록이 이슈 줄로 접히는데, 펼치지 않으면 지금 보고 있는 대화가 목록에서 사라진다.
+  const [revealPending, setRevealPending] = useState<string | null>(null)
+  useEffect(() => {
+    if (!revealPending || !conversations.some((c) => c.id === revealPending)) return
+    revealIssueOf(revealPending)
+    setRevealPending(null)
+  }, [revealPending, conversations])
+
   function started(run: Run) {
+    setRevealPending(conversationIdOf(run))
     setPickedId(conversationIdOf(run))
     setView('conversation')
     setOpen(true)
@@ -371,6 +402,8 @@ export function Dock({
               repos={repos}
               showClosed={showClosed}
               renamingId={renaming?.where === 'list' ? renaming.id : null}
+              expandedIssues={expandedIssues}
+              onToggleIssue={toggleIssue}
               onPickNew={() => { setView('new'); setPickedId(null); setOpen(true) }}
               onPick={pick}
               onRename={(conv, title) => void renameConversation(conv, title)}
