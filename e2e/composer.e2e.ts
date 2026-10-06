@@ -141,6 +141,10 @@ describe('입력부와 도크', () => {
     await page.getByRole('button', { name: '대화창 최대화' }).click()
     await expect.poll(() => columns.isVisible(), { timeout: 5_000 }).toBe(false)
     expect(await columns.count()).toBe(1)
+    // 사람처럼 프레임 사이를 두고 Esc를 누른다. 최대화와 복귀가 한 프레임 안에 끝나면 ResizeObserver는 칸이 커진 것을
+    // 못 보고, 커졌을 때 0으로 밀린 scrollTop의 스크롤 이벤트만 남아 "바닥에서 떨어졌다"가 된다 — 대화록이 기본 높이에서
+    // 이미 넘치는 작은 화면(1024×768 실측, 창 안쪽 729px)에서만 드러났다.
+    await page.evaluate(`new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`)
     await page.keyboard.press('Escape')
     await expect.poll(() => columns.isVisible(), { timeout: 5_000 }).toBe(true)
 
