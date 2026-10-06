@@ -31,8 +31,8 @@ async function addRepo(page: Page, name: string, path: string): Promise<void> {
 }
 
 async function addIssue(page: Page, title: string): Promise<void> {
-  await page.getByPlaceholder('새 이슈 제목…').fill(title)
-  await page.getByPlaceholder('새 이슈 제목…').press('Enter')
+  await page.getByPlaceholder('새 이슈 (첫 줄이 제목)').fill(title)
+  await page.getByPlaceholder('새 이슈 (첫 줄이 제목)').press('Enter')
   await page.getByRole('button', { name: title, exact: true }).waitFor({ timeout: 10_000 })
 }
 

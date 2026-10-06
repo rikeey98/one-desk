@@ -15,8 +15,8 @@ describe('이슈 본문', () => {
     await ws.waitFor({ state: 'visible', timeout: 10_000 })
     await ws.click()
 
-    await page.getByPlaceholder('새 이슈 제목…').fill(ISSUE)
-    await page.getByPlaceholder('새 이슈 제목…').press('Enter')
+    await page.getByPlaceholder('새 이슈 (첫 줄이 제목)').fill(ISSUE)
+    await page.getByPlaceholder('새 이슈 (첫 줄이 제목)').press('Enter')
     const title = page.getByRole('button', { name: ISSUE, exact: true })
     await title.waitFor({ state: 'visible', timeout: 10_000 })
 
@@ -55,8 +55,8 @@ describe('이슈 본문', () => {
     await ws.waitFor({ state: 'visible', timeout: 10_000 })
     await ws.click()
 
-    await page.getByPlaceholder('새 이슈 제목…').fill(ISSUE)
-    await page.getByPlaceholder('새 이슈 제목…').press('Enter')
+    await page.getByPlaceholder('새 이슈 (첫 줄이 제목)').fill(ISSUE)
+    await page.getByPlaceholder('새 이슈 (첫 줄이 제목)').press('Enter')
     const title = page.getByRole('button', { name: ISSUE, exact: true })
     await title.waitFor({ state: 'visible', timeout: 10_000 })
 

@@ -9,13 +9,15 @@ import { useDraftFilled } from '../store/DraftContext'
 import { SlotIndicator } from './SlotIndicator'
 import { IconChevronDown, IconCollapse, IconMaximize } from './icons'
 import { conversationIdOf, groupConversations, type Conversation } from '../conversation'
-import { INBOX_RULES, inboxCategory } from '@shared/inbox'
+import { confirmSeen as confirmConversationSeen } from '../conversationSeen'
 import type { ContextChip } from '../context'
-import type { QueueSnapshot, Repo, Run, Workspace } from '@shared/models'
+import type { AssignedIssue, QueueSnapshot, Repo, Run, Workspace } from '@shared/models'
 
 export function Dock({
   runs, error, workspaceId, workspaces, repos, reposError, queue, queueError, onChangeLimit, chips, onRemoveChip,
-  onRunStarted, draftPrompt, draftCwd, selectedRepoId, focusConversationId, onFocusConsumed
+  onRunStarted, draftPrompt, draftCwd, selectedRepoId, focusConversationId, onFocusConsumed,
+  // 개발 버전: 선택 prop이다 — plan에서 필수로 올리고 App 배선 테스트를 붙인다 (conversation-issue spec §7).
+  draftIssue = null, onClearDraftIssue = () => {}, focusNew = false, onOpenIssue = () => {}
 }: {
   runs: Run[]
   error: string | null
@@ -44,6 +46,14 @@ export function Dock({
    * App의 배선 한 줄을 지워도 조용히 컴파일된다.
    */
   onFocusConsumed: () => void
+  /** 새 대화 칸에 걸린 할당 예정 이슈 (`docs/sdlc/conversation-issue/` FR-20). 새 대화 칸에서만 쓴다 */
+  draftIssue?: AssignedIssue | null
+  /** 할당 예정을 뗀다(새 대화 칸의 `이슈 할당 해제`) */
+  onClearDraftIssue?: () => void
+  /** 이슈 상세의 `대화 시작`이 세운다 — 도크를 펼치고 새 대화 칸으로 옮긴다(FR-15). 쓰면 `onFocusConsumed`로 치운다 */
+  focusNew?: boolean
+  /** 대화 헤더의 `할당된 이슈 열기` — 그 이슈 상세를 연다(FR-21) */
+  onOpenIssue?: (issueId: string) => void
 }) {
   const client = useClient()
   const [open, setOpen] = useState(true)
@@ -148,6 +158,15 @@ export function Dock({
     onFocusConsumed()
   }, [focusConversationId])
 
+  // 이슈 상세의 `대화 시작` (conversation-issue FR-15) — 새 대화 칸으로 옮겨 펼친다. 위와 같은 일회성 지시다.
+  useEffect(() => {
+    if (!focusNew) return
+    setPickedId(null)
+    setView('new')
+    setOpen(true)
+    onFocusConsumed()
+  }, [focusNew])
+
   // 폴백은 "고른 적이 없을 때"(pickedId===null)에만 적용한다. pickedId가 있는데
   // 그 대화가 지금 conversations에 없다고 조용히 다른 대화로 떨어지면 안 된다 —
   // selected는 이제 로그 뷰의 대상만이 아니라 입력부의 전송 대상이기도 하다
@@ -197,33 +216,12 @@ export function Dock({
   }
 
   /**
-   * 본 대화를 인박스에서 내린다 (FR-5).
-   *
-   * 판정은 core의 배지 집계와 **같은 표**의 다른 칸에서 온다(`shared/inbox.ts`의
-   * `INBOX_RULES` — 배지는 `badge`, 여기는 `clearsOnView`). 열어 봐도 남는 것은 답변
-   * 필요뿐이고, 실패·중단은 배지에 세지만 열면 내려간다(`docs/sdlc/conversation-fixes/`
-   * spec FR-4·FR-6). 표를 두 곳에 적으면 어느 쪽에도 안 걸리는 카테고리가 생긴다.
-   *
-   * **마지막 턴이 아니라 대표 턴(`conv.state`)으로 판정한다** (FR-3). 시작도 못 하고
-   * 취소된 예약으로 판정하면 그 앞 턴의 답변 필요가 "대기 중 취소됨"에 가려 열자마자
-   * 조용히 내려간다. 배지(core)도 같은 대표 턴을 센다.
-   *
-   * 되돌리는 자리는 core에 이미 있다: `create(parentRunId)`가 뿌리의 `reviewedAt`을
-   * 지우므로, 새 턴이 오면 배지에 다시 오른다(FR-7).
+   * 본 대화를 인박스에서 내린다 (FR-5). 판정은 `renderer/conversationSeen.ts` 한 함수다 — 이슈 상세의
+   * `대화 열기`도 같은 것을 쓴다(`docs/sdlc/conversation-issue/` FR-17).
    */
   async function confirmSeen(conv: Conversation) {
-    if (!INBOX_RULES[inboxCategory(conv.state)].clearsOnView) return
-    // 끝나지 않은 대화는 인박스 소속 자체가 아니다. 대표 턴이 아직 돌거나 기다리는
-    // 중이면(예약이 남아 있으면) 대화는 진행 중이다.
-    if (conv.state.endedAt === null) return
-    // 뿌리가 이미 확인됐으면 부를 것이 없다. core도 같은 가드가 있지만, IPC 왕복을
-    // 목록 클릭마다 하는 것이 아깝다.
-    const root = conv.runs.find((r) => r.id === conv.id) ?? conv.runs[0]!
-    if (root.reviewedAt !== null) return
     try {
-      // **뿌리 id에 찍는다.** 턴 id에 찍으면 아무 일도 일어나지 않는다 — 대화는
-      // 인박스에 그대로 남는다(execution.cancel이 이 자리에서 한 번 걸렸다, C-1-a).
-      await client.runs.markReviewed(conv.id, 'confirmed')
+      await confirmConversationSeen(client, conv)
     } catch (err) {
       // 인박스 정리가 안 됐다고 대화를 못 보게 할 이유가 없다 (FR-8).
       setActionError(err instanceof Error ? err.message : String(err))
@@ -250,6 +248,16 @@ export function Dock({
     setActionError(null)
     try {
       await client.runs.rename(conv.id, title)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  /** 대화의 할당 이슈를 바꾸거나 뗀다 (conversation-issue FR-21). 뿌리 id에 찍는다 */
+  async function assignIssue(conv: Conversation, issueId: string | null) {
+    setActionError(null)
+    try {
+      await client.runs.assignIssue(conv.id, issueId)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err))
     }
@@ -401,10 +409,18 @@ export function Dock({
                 onClose={() => { if (shownConversation) void closeConversation(shownConversation) }}
                 onCancel={cancel}
                 hasDraft={hasDraft}
+                workspaceId={workspaceId}
+                pendingIssue={view === 'new' ? draftIssue : null}
+                onClearPendingIssue={onClearDraftIssue}
+                onOpenIssue={onOpenIssue}
+                onAssignIssue={(issueId) => {
+                  if (shownConversation) void assignIssue(shownConversation, issueId)
+                }}
               />
               <ConversationPanel
                 key={draftKeyOf(shownConversation?.id ?? null, workspaceId)}
                 conversation={shownConversation}
+                pendingIssue={view === 'new' ? draftIssue : null}
                 workspaceId={workspaceId}
                 workspaces={workspaces}
                 repos={repos}

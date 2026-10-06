@@ -12,6 +12,8 @@ import { groupIssues, isStale, nextInQueue, triageQueue } from '../issueGroups'
 import { AXIS_LABELS, SOURCE_LABELS, KIND_LABELS, type GroupAxis } from '../issueAxes'
 import { ConfirmButton } from './ConfirmButton'
 import { IconChevronRight, IconCollapse, IconTrash } from './icons'
+import type { IssueConversations } from '../conversation'
+import { splitTitleBody } from '../titleBody'
 import type { Issue, Repo } from '@shared/models'
 
 const AXES: GroupAxis[] = ['priority', 'source', 'kind', 'repo']
@@ -27,13 +29,15 @@ function AxisChips({ issue }: { issue: Issue }) {
 }
 
 export function IssuePanel({
-  workspaceId, repoId, repos, context, layout = 'columns', expanded, openId, onOpen
+  workspaceId, repoId, repos, context, conversations, layout = 'columns', expanded, openId, onOpen
 }: {
   workspaceId: string
   repoId: string | null
   repos: Repo[]
   /** 담기 토글. 패널 창에는 없다 — 없으면 토글을 그리지 않는다 (docs/sdlc/item-windows/ FR-8) */
   context?: ContextPicker
+  /** 이슈의 대화 단추. 패널 창에는 없다 — 창에는 도크가 없다 (docs/sdlc/conversation-issue/ FR-18) */
+  conversations?: IssueConversations
   /**
    * `window`면 패널 창이다 — 목록과 상세가 나란히 서고(FR-7) "새 창으로 열기"가 없다. 기본은 앱 창의 세 칸.
    */
@@ -120,11 +124,14 @@ export function IssuePanel({
     })
   }
 
-  async function addIssue(title: string) {
-    // **던질 땐 제목만이다.** 축을 요구하는 순간 회의 중에 못 던진다.
+  async function addIssue(text: string) {
+    // **던질 땐 쓴 것만이다.** 축을 요구하는 순간 회의 중에 못 던진다. 제목을 먼저 짓는 것도 같은 마찰이라
+    // 첫 줄이 제목, 나머지가 본문이다 (renderer/titleBody.ts, 2026-10-03). 메모의 추가 칸과 대칭이다.
+    const { title, body } = splitTitleBody(text)
     await client.issues.create({
       workspaceId,
       title,
+      ...(body ? { body } : {}),
       repoIds: repoId ? [repoId] : []
     })
     await refresh()
@@ -148,7 +155,7 @@ export function IssuePanel({
 
   const list = (
     <>
-      <AddForm placeholder="새 이슈 제목…" onSubmit={addIssue} />
+      <AddForm placeholder="새 이슈 (첫 줄이 제목)" onSubmit={addIssue} multiline />
 
       {untriaged > 0 && (
         // 0건일 때는 그리지 않는다 — 상주하는 잔소리가 된다 (설계 §4).
@@ -302,6 +309,9 @@ export function IssuePanel({
           // 같은 id로 onOpen을 부르면 App의 토글이 접는다. 상세가 대기 중인
           // 저장을 먼저 끝낸 뒤에만 부르므로, 접히면서 쓰기를 잃지 않는다.
           onRequestClose={() => { onOpen(open.id) }}
+          conversations={conversations
+            ? { list: conversations.of(open.id), open: conversations.open, start: () => conversations.start(open) }
+            : undefined}
         />
       )}
     </>

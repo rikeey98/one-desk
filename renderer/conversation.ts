@@ -1,4 +1,4 @@
-import type { ContextItemView, Run } from '@shared/models'
+import type { AssignedIssue, ContextItemView, Issue, Run } from '@shared/models'
 import { representativeTurn } from '@shared/inbox'
 
 /**
@@ -32,6 +32,21 @@ export interface Conversation {
   named: boolean
   /** 끝낸 시각. null이면 진행 중이다 */
   closedAt: number | null
+  /** 뿌리에 할당된 이슈 (`docs/sdlc/conversation-issue/` FR-2). null이면 공통 대화다 */
+  issue: AssignedIssue | null
+}
+
+/**
+ * 이슈 상세가 그 이슈의 대화를 보고 여는 통로 (`docs/sdlc/conversation-issue/` FR-13~19). **패널 창에는 없다** —
+ * 창에는 도크가 없다. 패널의 `context` prop처럼 선택이고 App만 넘긴다(FR-18).
+ */
+export interface IssueConversations {
+  /** 그 이슈가 할당된 대화들. 마지막 턴 최신순(도크 목록과 같다) */
+  of(issueId: string): Conversation[]
+  /** 도크에서 그 대화를 연다 — 도크 목록에서 누른 것처럼 확인도 된다(FR-17) */
+  open(conversation: Conversation): void
+  /** 그 이슈가 할당될 새 대화 칸을 연다(FR-15) */
+  start(issue: Issue): void
 }
 
 /** 낡은 행은 rootRunId가 없다 — 그때는 자기 자신이 뿌리다 (설계 §2). */
@@ -123,11 +138,14 @@ export function groupConversations(runs: Run[]): Conversation[] {
       active: ordered.find((r) => r.status === 'running')
         ?? ordered.find((r) => r.status === 'pending')
         ?? null,
-      // 사용자가 붙인 이름 > 담긴 이슈·메모 > repo > 첫 지시 (FR-11).
-      title: named || titleFromContext(collectContext(ordered)) || titleOf(ordered[0]!),
+      // 사용자가 붙인 이름 > 할당된 이슈 > 담긴 이슈·메모 > repo > 첫 지시
+      // (lifecycle FR-11, conversation-issue FR-22가 할당 칸을 넣었다).
+      title: named || root.issue?.title || titleFromContext(collectContext(ordered)) || titleOf(ordered[0]!),
       named: named !== '',
-      closedAt: root.closedAt
+      closedAt: root.closedAt,
+      issue: root.issue
     })
   }
   return out.sort((a, b) => b.last.createdAt - a.last.createdAt)
 }
+

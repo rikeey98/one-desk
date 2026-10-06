@@ -14,8 +14,8 @@ describe('패널 축소', () => {
     await page.getByRole('button', { name: '축소 동작 확인', exact: true }).click()
 
     const cases = [
-      { panel: 'Issues', placeholder: '새 이슈 제목…', title: '축소 확인 이슈' },
-      { panel: 'Memos', placeholder: '새 메모 제목…', title: '축소 확인 메모' },
+      { panel: 'Issues', placeholder: '새 이슈 (첫 줄이 제목)', title: '축소 확인 이슈' },
+      { panel: 'Memos', placeholder: '새 메모 (첫 줄이 제목)', title: '축소 확인 메모' },
       { panel: 'Skills / Agents', placeholder: '새 asset 이름…', title: '축소 확인 스킬' }
     ]
     const artifacts = resolve('e2e/artifacts')

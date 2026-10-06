@@ -13,6 +13,14 @@ import { MCP_SERVER_NAME, type McpHost } from './mcp/host'
 import { consoleErrorSink, NotFoundError, type ErrorSink } from './errors'
 import type { AgentKind, Asset, ContextItemRef, Permission, ResumeRunInput, Run, StartRunInput } from '@shared/models'
 import type { RunEventInit } from '@shared/events'
+import { issueToCarry, soleIssueOf } from '@shared/conversationIssue'
+
+/** 맥락에 그 이슈를 더한다 — 이미 있으면 그대로다(같은 항목이 run_context_item에 두 줄 생기면 안 된다, FR-11). */
+function withIssue(context: ContextItemRef[], issueId: string | null): ContextItemRef[] {
+  if (issueId === null) return context
+  if (context.some((c) => c.type === 'issue' && c.id === issueId)) return context
+  return [...context, { type: 'issue', id: issueId }]
+}
 
 export interface ExecutionOptions {
   db: Database
@@ -313,6 +321,8 @@ export function createExecutionService(opts: ExecutionOptions) {
     /** 이어받을 대화. null이면 새 세션이다 */
     resumeFromRootRunId: string | null
     timeoutMs: number | null
+    /** 새 대화에 할당할 이슈. 이어 가는 턴은 늘 null이다 (conversation-issue FR-5) */
+    issueId: string | null
   }
 
   /**
@@ -361,7 +371,8 @@ export function createExecutionService(opts: ExecutionOptions) {
       logPath,
       context,
       ...(spec.parentRunId ? { parentRunId: spec.parentRunId } : {}),
-      timeoutMs: spec.timeoutMs
+      timeoutMs: spec.timeoutMs,
+      issueId: spec.issueId
     })
     notify(created)
 
@@ -503,6 +514,13 @@ export function createExecutionService(opts: ExecutionOptions) {
    * 붙일 수도 없다(설계 §9). 완료는 onRunUpdate로 알린다.
    */
   async function start(input: StartRunInput): Promise<Run> {
+    if (input.parentRunId && input.issueId) {
+      throw new Error('이슈는 새 대화에만 할당할 수 있습니다')
+    }
+    // 할당 (conversation-issue FR-5·FR-27): 요청한 이슈, 없으면 새 대화의 첫 턴에 담은 이슈가 정확히 하나일 때
+    // 그것. 이어 가는 턴(parentRunId)에는 자동 할당을 하지 않는다. 할당한 이슈는 첫 턴에 실린다 — 맥락에 더하면
+    // collectContext가 workspace 소속까지 검증한다(FR-11).
+    const issueId = input.parentRunId ? null : (input.issueId ?? soleIssueOf(input.context))
     return launch({
       workspaceId: input.workspaceId,
       agentKind: input.agentKind,
@@ -511,10 +529,11 @@ export function createExecutionService(opts: ExecutionOptions) {
       cwd: input.cwd,
       permission: input.permission,
       userPrompt: input.userPrompt,
-      context: input.context,
+      context: withIssue(input.context, issueId),
       parentRunId: input.parentRunId ?? null,
       resumeFromRootRunId: null,
-      timeoutMs: input.timeoutMs ?? null
+      timeoutMs: input.timeoutMs ?? null,
+      issueId
     })
   }
 
@@ -546,7 +565,11 @@ export function createExecutionService(opts: ExecutionOptions) {
 
     // 잠긴 값의 출처로만 쓴다. 세션 자체는 beginRun이 실행 직전에 다시 고른다
     // — 예약된 턴은 지금 세션이 없을 수 있다 (설계 §3-2).
-    const source = opts.runs.latestSessionRun(root.rootRunId ?? root.id) ?? root
+    const rootId = root.rootRunId ?? root.id
+    const source = opts.runs.latestSessionRun(rootId) ?? root
+    // 아직 실린 적 없는 할당 이슈는 이 턴에 싣는다 (conversation-issue FR-9). 할당은 뿌리 행에만 있다.
+    const assigned = (root.id === rootId ? root : opts.runs.get(rootId)).issue?.id ?? null
+    const carry = issueToCarry(assigned, opts.runs.turnsOf(rootId))
 
     return launch({
       // 잠긴 값 — 세션을 준 run(또는 아직 없으면 뿌리)에서 가져온다
@@ -563,9 +586,10 @@ export function createExecutionService(opts: ExecutionOptions) {
       effort: input.effort ?? null,
       permission: input.permission,
       userPrompt: input.userPrompt,
-      context: input.context,
+      context: withIssue(input.context, carry),
       // timeoutMs는 원본의 성질을 따른다 (설계 §6의 목록에 빠져 있던 자리다).
-      timeoutMs: source.timeoutMs
+      timeoutMs: source.timeoutMs,
+      issueId: null
     })
   }
 

@@ -1,5 +1,6 @@
-import type { ItemChange } from '@shared/models'
+import type { ItemChange, Run } from '@shared/models'
 import type { IssueRepository } from './db/repositories/issue'
+import type { RunRepository } from './db/repositories/run'
 import type { MemoRepository } from './db/repositories/memo'
 import type { AssetRepository } from './db/repositories/asset'
 import type { RepoRepository } from './db/repositories/repo'
@@ -45,6 +46,41 @@ export function notifyingIssues(repo: IssueRepository, notify: Notify): IssueRep
       const ws = workspaceOrNull(() => repo.get(id))
       repo.remove(id)
       if (ws !== null) notify({ workspaceId: ws, kind: 'issue' })
+    }
+  }
+}
+
+/**
+ * 이슈를 지우거나 제목을 바꾸면 **그 이슈가 할당된 대화의 뿌리**를 다시 알린다
+ * (`docs/sdlc/conversation-issue/` spec FR-26). run 테이블에는 쓰지 않는다 — 다시 읽어 알릴 뿐이고, 다시 읽으면
+ * 지운 이슈는 `issue: null`, 바꾼 제목은 새 이름이다. 이것이 없으면 지운 이슈의 링크가 헤더에 남는다.
+ *
+ * 제목이 든 쓰기에만 돈다 — 본문 자동 저장(600ms 디바운스)마다 run을 다시 읽을 이유가 없다.
+ * `notifyingIssues`를 감싼 위에 얹는다(IPC와 MCP가 같은 감싼 저장소를 받는다).
+ */
+export function announcingAssignedConversations(
+  repo: IssueRepository,
+  runs: Pick<RunRepository, 'rootsAssignedTo' | 'get'>,
+  announce: (run: Run) => void
+): IssueRepository {
+  const announceRoots = (rootIds: string[]) => { for (const id of rootIds) announce(runs.get(id)) }
+  return {
+    ...repo,
+    update(input) {
+      const updated = repo.update(input)
+      if (input.title !== undefined) announceRoots(runs.rootsAssignedTo(input.id))
+      return updated
+    },
+    updateIfUnchanged(input) {
+      const result = repo.updateIfUnchanged(input)
+      if (result.ok && input.title !== undefined) announceRoots(runs.rootsAssignedTo(input.id))
+      return result
+    },
+    remove(id) {
+      // 지우기 전에 찾는다 — 지운 뒤에도 run 행의 issue_id는 남지만(외래키가 없다), 순서를 기대지 않는다.
+      const roots = runs.rootsAssignedTo(id)
+      repo.remove(id)
+      announceRoots(roots)
     }
   }
 }

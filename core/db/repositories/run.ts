@@ -33,6 +33,8 @@ export interface CreateRunInput {
   context: ContextItemRef[]
   parentRunId?: string
   timeoutMs?: number | null
+  /** 할당할 이슈. 뿌리에만 찍힌다 — parentRunId와 함께 오면 던진다 (conversation-issue FR-5) */
+  issueId?: string | null
 }
 
 export interface FinishRunInput {
@@ -53,19 +55,25 @@ const USAGE_COLUMNS = [
 ] as const
 
 /**
- * 행에서 사용량 컬럼을 떼어낸다.
+ * `Run`에 낱개로 싣지 않는 컬럼들 — 사용량 아홉은 `usage`로, `issueId`는 `issue`로 접는다
+ * (`docs/sdlc/conversation-issue/` FR-2: 날것의 id와 접은 값이 같이 나가면 지운 이슈를 두고 둘이 다른 말을 한다).
+ */
+const FOLDED_COLUMNS = [...USAGE_COLUMNS, 'issueId'] as const
+
+/**
+ * 행에서 접는 컬럼을 떼어낸다.
  *
  * **`{ ...row }`를 그대로 `Run`으로 흘려보내면 안 된다.** 스프레드는 초과 속성
  * 검사를 받지 않으므로 컬럼 아홉이 `usage`와 **함께** 실려 IPC로 나가는데,
  * 타입은 끝까지 아무 말도 하지 않는다. 같은 값이 두 벌 나가고, 나중에 누가
  * 낱개 필드를 쓰기 시작하면 출처가 갈린다.
  */
-function withoutUsageColumns(
+function withoutFoldedColumns(
   row: typeof run.$inferSelect
-): Omit<typeof run.$inferSelect, (typeof USAGE_COLUMNS)[number]> {
+): Omit<typeof run.$inferSelect, (typeof FOLDED_COLUMNS)[number]> {
   const rest: Partial<typeof run.$inferSelect> = { ...row }
-  for (const key of USAGE_COLUMNS) delete rest[key]
-  return rest as Omit<typeof run.$inferSelect, (typeof USAGE_COLUMNS)[number]>
+  for (const key of FOLDED_COLUMNS) delete rest[key]
+  return rest as Omit<typeof run.$inferSelect, (typeof FOLDED_COLUMNS)[number]>
 }
 
 /** `RunUsage` → 컬럼 아홉. 모르는 값은 null로 들어간다(0이 아니다) */
@@ -191,11 +199,17 @@ export function createRunRepository(db: Database) {
 
   function hydrate(rows: (typeof run.$inferSelect)[]): Run[] {
     const ctx = loadContext(rows.map((r) => r.id))
-    return rows.map((r) => ({
-      ...withoutUsageColumns(r),
-      contextItems: ctx.get(r.id) ?? [],
-      usage: foldUsage(r)
-    }))
+    // 할당 이슈의 이름도 한 번에 붙인다(N+1이 아니다). 지워진 이슈는 이름이 없어 null이 된다 (FR-3).
+    const issueTitles = livingNames('issue', [...new Set(rows.flatMap((r) => (r.issueId ? [r.issueId] : [])))])
+    return rows.map((r) => {
+      const title = r.issueId ? issueTitles.get(r.issueId) : undefined
+      return {
+        ...withoutFoldedColumns(r),
+        issue: r.issueId && title !== undefined ? { id: r.issueId, title } : null,
+        contextItems: ctx.get(r.id) ?? [],
+        usage: foldUsage(r)
+      }
+    })
   }
 
   function get(id: string): Run {
@@ -357,6 +371,10 @@ export function createRunRepository(db: Database) {
     },
 
     create(input: CreateRunInput): Run {
+      // 할당은 뿌리에만 찍힌다 — 이어지는 턴의 행에 찍히면 화면에서 영영 드러나지 않는다 (conversation-issue FR-5).
+      if (input.parentRunId && input.issueId) {
+        throw new Error('이슈는 새 대화에만 할당할 수 있습니다 — 이어 가는 대화는 assignIssue를 쓰세요')
+      }
       const id = input.id ?? randomUUID()
       const rootRunId = rootFor(input.parentRunId ?? null, id)
       db.transaction((tx: Runner) => {
@@ -373,6 +391,7 @@ export function createRunRepository(db: Database) {
           logPath: input.logPath,
           parentRunId: input.parentRunId ?? null,
           rootRunId,
+          issueId: input.issueId ?? null,
           timeoutMs: input.timeoutMs ?? null,
           createdAt: Date.now()
         }).run()
@@ -611,6 +630,40 @@ export function createRunRepository(db: Database) {
       db.update(run).set({ title: trimmed === '' ? null : trimmed })
         .where(eq(run.id, rootRunId)).run()
       return get(rootRunId)
+    },
+
+    /**
+     * 대화의 할당 이슈를 바꾼다. null이면 뗀다 (`docs/sdlc/conversation-issue/` FR-6).
+     *
+     * 뿌리만 받는다(`assertRoot` — `close`·`rename`과 같은 방어선). 이슈는 **대화와 같은 workspace**여야
+     * 한다 — 외래키가 없고, 있었어도 소속은 보지 않는다(CLAUDE.md 데이터 규칙). repo로는 거르지 않는다.
+     * 할당은 대화를 되살리지 않는다 — 끝낸 대화를 되살리는 것은 새 턴뿐이다(lifecycle FR-13).
+     */
+    assignIssue(rootRunId: string, issueId: string | null): Run {
+      assertRoot(rootRunId, '이슈를 할당할')
+      if (issueId !== null) {
+        const conversation = get(rootRunId)
+        const found = db.select({ id: issue.id }).from(issue)
+          .where(and(eq(issue.id, issueId), eq(issue.workspaceId, conversation.workspaceId))).get()
+        if (!found) throw new NotFoundError(`이 workspace에서 이슈를 찾을 수 없습니다: ${issueId}`)
+      }
+      db.update(run).set({ issueId }).where(eq(run.id, rootRunId)).run()
+      return get(rootRunId)
+    },
+
+    /** 그 이슈가 할당된 대화의 뿌리 id들 (FR-26 — 이슈를 지우거나 이름을 바꾸면 다시 알린다). */
+    rootsAssignedTo(issueId: string): string[] {
+      return db.select({ id: run.id }).from(run).where(eq(run.issueId, issueId)).all().map((r) => r.id)
+    },
+
+    /**
+     * 대화의 턴 전부(순서 없음). 할당 이슈가 이미 실렸는지(FR-9) 판정하는 재료다 — 맥락 항목만 쓴다.
+     * 낡은 행은 root_run_id가 null이고 그때는 자기 자신이 뿌리다.
+     */
+    turnsOf(rootRunId: string): Run[] {
+      return hydrate(db.select().from(run)
+        .where(or(eq(run.rootRunId, rootRunId), and(isNull(run.rootRunId), eq(run.id, rootRunId))))
+        .all())
     }
   }
 }

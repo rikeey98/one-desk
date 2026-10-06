@@ -36,7 +36,7 @@ function makeRun(over: Partial<Run> = {}): Run {
     reviewedAt: null, reviewedKind: null, startedAt: 1, endedAt: null,
     // 대화의 이름과 끝. 뿌리 행에서만 의미가 있고 기본은 둘 다 null이다.
     title: null, closedAt: null,
-    createdAt: 1, contextItems: [], usage: null,
+    createdAt: 1, contextItems: [], issue: null, usage: null,
     ...over
   }
 }

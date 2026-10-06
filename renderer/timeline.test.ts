@@ -1274,7 +1274,7 @@ describe('metaPieces (FR-11)', () => {
       status: 'succeeded', externalSessionId: null, parentRunId: null, rootRunId: 'r1',
       title: null, closedAt: null, resultText: null, needsAnswer: false, timeoutMs: null,
       exitCode: null, errorMessage: null, logPath: '/tmp/x.log', reviewedAt: null,
-      reviewedKind: null, startedAt: null, endedAt: null, createdAt: 0, contextItems: [],
+      reviewedKind: null, startedAt: null, endedAt: null, createdAt: 0, contextItems: [], issue: null,
       usage: null, ...over
     }
   }

@@ -8,7 +8,7 @@ import { draftKeyOf, isBlankDraft } from '../store/drafts'
 import { PERMISSION_LABELS } from '../permission'
 import { AGENT_KINDS, AGENT_LABELS } from '../agents'
 import { runShortcutLabel } from '../shortcut'
-import type { AgentKind, CommandInfo, FileHit, Permission, Repo, Run, Workspace } from '@shared/models'
+import type { AgentKind, AssignedIssue, CommandInfo, FileHit, Permission, Repo, Run, Workspace } from '@shared/models'
 import type { Conversation } from '../conversation'
 import type { ContextChip } from '../context'
 import { ModelField } from './ModelField'
@@ -65,7 +65,7 @@ function defaultEffortOf(workspace: Workspace | null, agentKind: AgentKind): str
 export function RunPanel({
   workspaceId, workspaces, repos, reposError, chips, onRemoveChip, onStarted,
   conversation, draftPrompt, draftCwd, selectedRepoId, reserved, running, reservation, waitingFirst,
-  onCancel, inputRef
+  onCancel, inputRef, carriedIssue = null
 }: {
   workspaceId: string
   /** App이 useWorkspaces()로 한 번만 조회해 내려준다 — 이 컴포넌트가 자기 인스턴스를
@@ -105,6 +105,11 @@ export function RunPanel({
    * 커서 복원도 같은 ref를 쓴다.
    */
   inputRef: RefObject<HTMLTextAreaElement | null>
+  /**
+   * 다음 턴에 함께 실릴 할당 이슈 (`docs/sdlc/conversation-issue/` FR-12). 칩 줄에 읽기 전용으로 보인다. 새 대화면
+   * 할당 예정 이슈이고 시작할 때 `issueId`로 넘긴다(FR-5). 이어 가는 대화에서 실제로 싣는 것은 core다(FR-11).
+   */
+  carriedIssue?: AssignedIssue | null
 }) {
   const client = useClient()
   const drafts = useDraftStore()
@@ -358,7 +363,8 @@ export function RunPanel({
             cwd,
             permission,
             userPrompt: prompt,
-            context: chips.map(({ type, id }) => ({ type, id }))
+            context: chips.map(({ type, id }) => ({ type, id })),
+            ...(carriedIssue ? { issueId: carriedIssue.id } : {})
           })
       setPrompt('')
       setHistoryIndex(NO_HISTORY)
@@ -474,6 +480,13 @@ export function RunPanel({
           첫 지시가 실행을 기다리는 중입니다 — 시작된 뒤에 다음 지시를 보낼 수 있습니다
         </div>
       )}
+      {conversation && conversation.closedAt !== null && (
+        // 끝낸 대화에 보내면 종료가 풀린다(lifecycle FR-13) — 그 사실을 헤더 부제의 "끝낸 대화"만 말하던 것을 입력부도
+        // 말한다(conversation-issue spec §8의 1). 막지는 않는다: 보내는 것이 곧 다시 여는 것이다.
+        <div role="note" className="composer-note">
+          끝낸 대화입니다 — 보내면 다시 열립니다
+        </div>
+      )}
       {argumentWarning && (
         <div className="command-warning" role="note">
           이 커맨드는 뒤에 오는 글을 인자로 씁니다 — 담은 맥락이 인자로 전달됩니다
@@ -485,8 +498,14 @@ export function RunPanel({
             **담은 것이 있을 때만 선다** (spec §8의 4, 결정 2026-09-27) — 비었을 때의 안내 줄("왼쪽
             항목의 ＋를 눌러…")이 한 줄을 늘 먹어 기본 도크에서 입력 카드가 대화록보다 컸다. 담는
             법은 항목 줄의 ＋ 버튼(`맥락에 담기`)이 말한다. */}
-        {chips.length > 0 && (
+        {(chips.length > 0 || carriedIssue) && (
           <div className="run-chips">
+            {/* 할당 이슈 — 빼기 단추가 없다. 빼려면 대화 헤더에서 할당을 뗀다 (conversation-issue FR-12). */}
+            {carriedIssue && (
+              <span className="chip chip-assigned" title="할당된 이슈 — 이번 턴에 함께 실립니다">
+                할당된 이슈 · {carriedIssue.title}
+              </span>
+            )}
             {chips.map((chip) => (
               <button
                 key={`${chip.type}:${chip.id}`}

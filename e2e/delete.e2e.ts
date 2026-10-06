@@ -20,8 +20,8 @@ describe('목록에서 삭제', () => {
     await ws.click()
 
     for (const t of ['지울 이슈', '남을 이슈']) {
-      await page.getByPlaceholder('새 이슈 제목…').fill(t)
-      await page.getByPlaceholder('새 이슈 제목…').press('Enter')
+      await page.getByPlaceholder('새 이슈 (첫 줄이 제목)').fill(t)
+      await page.getByPlaceholder('새 이슈 (첫 줄이 제목)').press('Enter')
       await page.getByRole('button', { name: t, exact: true }).waitFor({ state: 'visible', timeout: 10_000 })
     }
 
@@ -56,8 +56,8 @@ describe('목록에서 삭제', () => {
     await ws.waitFor({ state: 'visible', timeout: 10_000 })
     await ws.click()
 
-    await page.getByPlaceholder('새 메모 제목…').fill('지울 메모')
-    await page.getByPlaceholder('새 메모 제목…').press('Enter')
+    await page.getByPlaceholder('새 메모 (첫 줄이 제목)').fill('지울 메모')
+    await page.getByPlaceholder('새 메모 (첫 줄이 제목)').press('Enter')
     await page.getByRole('button', { name: '지울 메모', exact: true })
       .waitFor({ state: 'visible', timeout: 10_000 })
 

@@ -4,7 +4,8 @@ import { RunPanel } from './RunPanel'
 import { useClient } from '../client/ClientProvider'
 import type { Conversation } from '../conversation'
 import type { ContextChip } from '../context'
-import type { Repo, Run, Workspace } from '@shared/models'
+import { issueToCarry } from '@shared/conversationIssue'
+import type { AssignedIssue, Repo, Run, Workspace } from '@shared/models'
 
 /**
  * 대화 하나. 위는 대화록, 아래는 입력이다 (설계 §4-1).
@@ -18,9 +19,11 @@ import type { Repo, Run, Workspace } from '@shared/models'
  */
 export function ConversationPanel({
   conversation, workspaceId, workspaces, repos, reposError, chips, onRemoveChip,
-  onStarted, onCancel, draftPrompt, draftCwd, selectedRepoId
+  onStarted, onCancel, draftPrompt, draftCwd, selectedRepoId, pendingIssue = null
 }: {
   conversation: Conversation | null
+  /** 새 대화 칸에 걸린 할당 예정 이슈 (conversation-issue FR-20). 대화가 있으면 쓰지 않는다 */
+  pendingIssue?: AssignedIssue | null
   workspaceId: string
   workspaces: Workspace[]
   repos: Repo[]
@@ -49,6 +52,11 @@ export function ConversationPanel({
   const waitingFirst = conversation?.runs.some(
     (r) => r.id === conversation.id && r.status === 'pending'
   ) ?? false
+  // 다음 턴에 함께 실릴 할당 이슈 (conversation-issue FR-9·FR-12). 새 대화면 할당 예정이 첫 턴에 실리고, 이어 가는
+  // 대화면 아직 실린 적 없는 할당만 실린다 — 규칙은 core가 실제로 싣는 것과 같은 함수다(FR-10).
+  const carriedIssue = conversation
+    ? (conversation.issue && issueToCarry(conversation.issue.id, conversation.runs) ? conversation.issue : null)
+    : pendingIssue
 
   /**
    * 다시 보내기 (`docs/sdlc/conversation-timeline/` spec FR-43) — 그 턴의 지시·맥락·조건
@@ -112,6 +120,7 @@ export function ConversationPanel({
         waitingFirst={waitingFirst}
         onCancel={onCancel}
         inputRef={inputRef}
+        carriedIssue={carriedIssue}
       />
     </div>
   )

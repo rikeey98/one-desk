@@ -77,7 +77,7 @@ function makeRun(over: Partial<Run> & { id: string }): Run {
     resultText: null, needsAnswer: false, timeoutMs: null, exitCode: null,
     errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
     title: null, closedAt: null,
-    startedAt: null, endedAt: null, createdAt: 0, contextItems: [], usage: null,
+    startedAt: null, endedAt: null, createdAt: 0, contextItems: [], issue: null, usage: null,
     ...over
   }
 }
@@ -334,7 +334,7 @@ describe('RunPanel', () => {
     resultText: null, needsAnswer: true, timeoutMs: null, exitCode: 0,
     errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
     title: null, closedAt: null,
-    startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], usage: null,
+    startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], issue: null, usage: null,
   }
   const conversation = groupConversations([parent])[0]!
 
@@ -348,7 +348,7 @@ describe('RunPanel', () => {
     resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
     errorMessage: null, logPath: '/tmp/y', reviewedAt: null, reviewedKind: null,
     title: null, closedAt: null,
-    startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], usage: null,
+    startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], issue: null, usage: null,
   }
   const otherConversation = groupConversations([otherParent])[0]!
 
@@ -693,7 +693,7 @@ describe('RunPanel — agent 선택', () => {
       resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
       errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
       title: null, closedAt: null,
-      startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], usage: null,
+      startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], issue: null, usage: null,
     }
     const opencodeConversation = groupConversations([opencodeParent])[0]!
 
@@ -847,7 +847,7 @@ describe('RunPanel — 모델 기본값', () => {
       resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
       errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
       title: null, closedAt: null,
-      startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], usage: null,
+      startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], issue: null, usage: null,
     }
     const resume = vi.fn().mockResolvedValue({ id: 'run-2' })
 
@@ -874,7 +874,7 @@ describe('RunPanel — 모델 기본값', () => {
       resultText: null, needsAnswer: false, timeoutMs: null, exitCode: 0,
       errorMessage: null, logPath: '/tmp/x', reviewedAt: null, reviewedKind: null,
       title: null, closedAt: null,
-      startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], usage: null,
+      startedAt: 1, endedAt: 2, createdAt: 0, contextItems: [], issue: null, usage: null,
     }
     const client = makeClient()
     const { rerender } = render(panel(client, repos, [], vi.fn(), 'w1',

@@ -384,6 +384,11 @@ export interface Run {
   title: string | null
   /** 대화를 끝낸 시각. 뿌리 행에서만 의미가 있고 null이면 진행 중이다 */
   closedAt: number | null
+  /**
+   * 이 대화에 할당된 이슈 (`docs/sdlc/conversation-issue/` FR-1~3). **뿌리 행에서만 의미가 있다.**
+   * 이름은 core가 읽는 시점에 붙이고, 지워진 이슈면 null이다 — 날것의 `issue_id`는 싣지 않는다(FR-2).
+   */
+  issue: AssignedIssue | null
   resultText: string | null
   needsAnswer: boolean
   timeoutMs: number | null
@@ -419,6 +424,17 @@ export interface StartRunInput {
   /** 이어서 실행할 원본 run */
   parentRunId?: string
   timeoutMs?: number | null
+  /**
+   * 이 이슈가 할당된 새 대화로 시작한다 (`docs/sdlc/conversation-issue/` FR-5). parentRunId와 함께 올 수
+   * 없다. 없으면 담은 맥락에 이슈가 정확히 하나일 때 그것이 할당된다(FR-27).
+   */
+  issueId?: string | null
+}
+
+/** 대화에 할당된 이슈 — id와 core가 읽는 시점의 제목 */
+export interface AssignedIssue {
+  id: string
+  title: string
 }
 
 /**

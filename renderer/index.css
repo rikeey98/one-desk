@@ -220,9 +220,13 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .status-done::before { background: var(--success); }
 .add-form { position: relative; margin-bottom: 8px; }
 .add-form-icon { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); display: flex; color: var(--text-muted); pointer-events: none; }
-.add-form input { width: 100%; padding: 7px 9px 7px 28px; border: 1px solid var(--border); border-radius: 8px; font-size: .75rem; font-family: inherit; background: var(--bg-muted); color: var(--text); transition: border-color .12s, background .12s; }
-.add-form input:focus { background: var(--bg); border-color: var(--accent-border); }
-.add-form input:disabled { opacity: .5; }
+.add-form :is(input, textarea) { width: 100%; padding: 7px 9px 7px 28px; border: 1px solid var(--border); border-radius: 8px; font-size: .75rem; font-family: inherit; background: var(--bg-muted); color: var(--text); transition: border-color .12s, background .12s; }
+.add-form :is(input, textarea):focus { background: var(--bg); border-color: var(--accent-border); }
+.add-form :is(input, textarea):disabled { opacity: .5; }
+/* 이슈·메모의 추가 칸 — 첫 줄이 제목, 나머지가 본문(Shift+Enter로 줄바꿈). 한 줄에서 시작해 쓰는 만큼 늘어나되
+   목록을 밀어내지 않게 상한이 있다. + 표시는 첫 줄 옆에 남는다(가운데로 따라 내려가지 않는다). */
+.add-form textarea { display: block; resize: none; field-sizing: content; min-height: calc(1.5em + 16px); max-height: 200px; line-height: 1.5; overflow-y: auto; }
+.add-form-multiline .add-form-icon { top: 9px; transform: none; }
 .form-error { margin-top: 5px; padding: 5px 8px; border-radius: 4px; font-size: .6875rem; background: var(--danger-bg); color: var(--danger-text); }
 /* repo 추가 줄. 목록과 같은 폭·같은 모서리로 두되 테두리를 점선으로 해서 "아직
    채워지지 않은 자리"로 읽히게 한다. 실선이면 등록된 repo와 구분이 안 된다. */
@@ -714,6 +718,42 @@ button.tl-tool:hover, button.tl-file:hover { background: var(--bg-hover); }
 .applied-context { flex: 0 0 auto; display: flex; gap: 5px; flex-wrap: nowrap; align-items: center; min-width: 0; overflow: hidden; white-space: nowrap; cursor: default; }
 .applied-label { flex: 0 0 auto; font-size: .6875rem; letter-spacing: .07em; text-transform: uppercase; color: var(--text-muted); font-weight: 700; }
 .applied-chip { flex: 0 0 auto; font-size: .6875rem; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--border); background: transparent; color: var(--text-secondary); white-space: nowrap; cursor: default; }
+
+/* 대화에 할당된 이슈 (docs/sdlc/conversation-issue/). 헤더의 부제 줄 — 부제 글자와 이슈 링크가 나란하다. */
+.conv-sub-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.conv-sub-line .conv-sub { flex: 0 1 auto; min-width: 0; }
+.conv-issue-link { display: inline-flex; align-items: center; gap: 3px; flex: 0 1 auto; min-width: 0; max-width: 60%; border: 1px solid var(--border); border-radius: 99px; padding: 0 7px; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: .6875rem; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background .12s, color .12s; }
+.conv-issue-link:hover { background: var(--bg-hover); color: var(--text); }
+.conv-pending-issue { min-width: 0; font-size: .6875rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 입력부의 할당 이슈 칩 — 빼기 단추가 아니다(빼려면 헤더에서 할당을 뗀다). 담기 칩과 같은 모양이되 hover에 경고 톤이 없다. */
+.chip.chip-assigned { cursor: default; border-style: dashed; }
+.chip.chip-assigned:hover { border-color: var(--accent-border-soft); background: var(--accent-bg); color: var(--text); }
+/* 이슈 고르기 — `⋯` 단추 아래에 뜬다(.conv-menu와 같은 anchor). 열렸을 때만 flex다. */
+.issue-picker { position: fixed; position-anchor: --conv-menu; inset: auto; top: anchor(bottom); left: anchor(left); position-try-fallbacks: flip-block, flip-inline; margin: 4px 0 0; width: 320px; max-height: 320px; padding: 6px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--bg); color: var(--text); box-shadow: var(--shadow-overlay); }
+.issue-picker:popover-open { display: flex; flex-direction: column; gap: 4px; }
+.issue-picker-input { padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text); font: inherit; font-size: .75rem; }
+.issue-picker-list { list-style: none; margin: 0; padding: 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+.issue-picker-item { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; border-radius: 4px; padding: 5px 8px; background: transparent; color: var(--text); cursor: pointer; font: inherit; font-size: .75rem; text-align: left; transition: background .12s; }
+.issue-picker-item:is(:hover, :focus-visible) { background: var(--bg-hover); }
+.issue-picker-current { background: var(--accent-bg); }
+.issue-picker-status { flex: 0 0 34px; font-size: .625rem; color: var(--text-muted); }
+.issue-picker-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.issue-picker-mark { flex: 0 0 auto; font-size: .625rem; color: var(--text-secondary); }
+.issue-picker-empty { padding: 4px 8px; font-size: .75rem; color: var(--text-muted); }
+/* 이슈 상세의 대화 단추 — 여는 단추(주 동작이라 옅은 파란 면)와 목록 단추 ▾. */
+.issue-conv { display: inline-flex; align-items: center; gap: 3px; }
+.issue-conv-open { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border: 1px solid var(--accent-border-soft); border-radius: 99px; background: var(--accent-bg); color: var(--text); cursor: pointer; font: inherit; font-size: .75rem; transition: border-color .12s; }
+.issue-conv-open:hover { border-color: var(--accent-border); }
+.issue-conv-more { anchor-name: --issue-conv-menu; display: inline-flex; align-items: center; gap: 3px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 99px; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: .6875rem; transition: background .12s; }
+.issue-conv-more:hover { background: var(--bg-hover); }
+.issue-conv-menu { position: fixed; position-anchor: --issue-conv-menu; inset: auto; top: anchor(bottom); left: anchor(left); position-try-fallbacks: flip-block, flip-inline; margin: 4px 0 0; min-width: 240px; padding: 4px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--bg); color: var(--text); box-shadow: var(--shadow-overlay); }
+.issue-conv-menu:popover-open { display: flex; flex-direction: column; gap: 1px; }
+.issue-conv-menu [role="menuitem"] { display: flex; align-items: center; gap: 7px; width: 100%; border: 0; border-radius: 4px; padding: 5px 8px; background: transparent; color: var(--text); cursor: pointer; font: inherit; font-size: .75rem; text-align: left; transition: background .12s; }
+.issue-conv-menu [role="menuitem"]:is(:hover, :focus) { background: var(--bg-hover); }
+.issue-conv-menu [role="menuitem"]:focus:not(:focus-visible) { outline: none; }
+.issue-conv-item-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 메뉴 항목 규칙(.issue-conv-menu [role="menuitem"])과 특이도가 같고 뒤에 있어 이긴다. */
+.issue-conv-menu .issue-conv-new { margin-top: 2px; border-top: 1px solid var(--border-faint); border-radius: 0 0 4px 4px; color: var(--text-secondary); }
 
 /* 마크다운 — agent 답 (docs/sdlc/conversation-timeline/ spec FR-20~26, 치수는 §4).
    white-space를 normal로 되돌린다: 답 칸이 pre-wrap이면 블록 사이의 줄바꿈 글자가 빈 줄로

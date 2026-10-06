@@ -213,14 +213,14 @@ export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
   }, async ({ id }) => reply(() => memoOut(loadMemo(deps, ctx, id))))
 
   server.registerTool('list_conversations', {
-    description: '이 workspace에서 돌린 대화(agent 실행)의 요약 목록, 최신 활동순 — id·title·startedAt·lastActivityAt·status·needsAnswer·turns·closed·firstPrompt(첫 지시 앞부분)·lastAnswer(마지막 답 앞부분). 시각은 시간대가 붙은 ISO다. since·until을 주면 그 기간에 활동이 있던 대화만 준다 — "이번 주에 한 일" 정리에 쓴다. 지시·답 전체는 싣지 않는다.',
+    description: '이 workspace에서 돌린 대화(agent 실행)의 요약 목록, 최신 활동순 — id·title·startedAt·lastActivityAt·status·needsAnswer·turns·closed·issueId(이 대화에 할당된 이슈, 없으면 null — 본문은 get_issue로)·firstPrompt(첫 지시 앞부분)·lastAnswer(마지막 답 앞부분). 시각은 시간대가 붙은 ISO다. since·until을 주면 그 기간에 활동이 있던 대화만 준다 — "이번 주에 한 일" 정리에 쓴다. 지시·답 전체는 싣지 않는다.',
     inputSchema: { ...RANGE }
   }, async ({ since, until }) => reply(() =>
     summarizeConversations(deps.runs.list(ctx.workspaceId), readRange({ since, until }))
   ))
 
   server.registerTool('get_conversation', {
-    description: '대화 하나의 턴 전부, 오래된 순 — 턴마다 requestedAt(지시를 보낸 때)·startedAt(실행 시작)·endedAt(끝)·waitSeconds(기다린 초)·durationSeconds(걸린 초)·status·needsAnswer·agent·model·prompt(지시 앞부분)·answer(답 앞부분)·error. 시각은 시간대가 붙은 ISO다. id는 list_conversations의 id나 그 대화의 아무 턴 id. "언제 무엇을 시켰고 얼마나 걸렸나" 정리에 쓴다.',
+    description: '대화 하나의 턴 전부, 오래된 순, 그리고 issueId(이 대화에 할당된 이슈, 없으면 null) — 턴마다 requestedAt(지시를 보낸 때)·startedAt(실행 시작)·endedAt(끝)·waitSeconds(기다린 초)·durationSeconds(걸린 초)·status·needsAnswer·agent·model·prompt(지시 앞부분)·answer(답 앞부분)·error. 시각은 시간대가 붙은 ISO다. id는 list_conversations의 id나 그 대화의 아무 턴 id. "언제 무엇을 시켰고 얼마나 걸렸나" 정리에 쓴다.',
     inputSchema: { id: z.string() }
   }, async ({ id }) => reply(() => {
     // 토큰의 workspace 것만 본다 — 다른 workspace의 대화는 없는 id와 같은 말로 떨군다(loadIssue와 같은 원칙).

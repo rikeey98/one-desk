@@ -20,6 +20,8 @@ export interface ConversationSummary {
   needsAnswer: boolean
   turns: number
   closed: boolean
+  /** 이 대화에 할당된 이슈 (docs/sdlc/conversation-issue/ FR-25). 없거나 지워졌으면 null — 본문은 get_issue로 */
+  issueId: string | null
   firstPrompt: string
   lastAnswer: string | null
 }
@@ -75,6 +77,7 @@ export function summarizeConversations(
         needsAnswer: state.needsAnswer,
         turns: turns.length,
         closed: root.closedAt !== null,
+        issueId: root.issue?.id ?? null,
         firstPrompt: clip(root.userPrompt, FIRST_PROMPT_CHARS),
         lastAnswer: state.resultText === null ? null : clip(state.resultText, LAST_ANSWER_CHARS)
       }
@@ -117,6 +120,8 @@ export interface ConversationDetail {
   id: string
   title: string
   closed: boolean
+  /** 이 대화에 할당된 이슈 (FR-25). 없거나 지워졌으면 null */
+  issueId: string | null
   /** 오래된 순 */
   turns: ConversationTurn[]
 }
@@ -139,6 +144,7 @@ export function conversationDetail(runs: readonly Run[], id: string): Conversati
     id: rootId,
     title: root.title ?? clip(firstLine, TITLE_CHARS),
     closed: root.closedAt !== null,
+    issueId: root.issue?.id ?? null,
     turns: turns.map((t) => ({
       id: t.id,
       requestedAt: toIso(t.createdAt)!,

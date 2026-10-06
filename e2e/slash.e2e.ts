@@ -25,8 +25,8 @@ describe('슬래시 커맨드', () => {
     await page.getByPlaceholder('/절대/경로').fill(app.repoDir)
     await page.getByRole('button', { name: '추가', exact: true }).click()
 
-    await page.getByPlaceholder('새 이슈 제목…').fill('검증용 이슈')
-    await page.getByPlaceholder('새 이슈 제목…').press('Enter')
+    await page.getByPlaceholder('새 이슈 (첫 줄이 제목)').fill('검증용 이슈')
+    await page.getByPlaceholder('새 이슈 (첫 줄이 제목)').press('Enter')
     await page.getByRole('button', { name: '검증용 이슈 맥락에 담기', exact: true }).click()
     const prompt = page.getByRole('textbox', { name: '지시', exact: true })
     await prompt.fill('/')

@@ -5,6 +5,7 @@ import { MemoDetail } from './MemoDetail'
 import { useMemos } from '../hooks/useMemos'
 import { useClient } from '../client/ClientProvider'
 import { chipKey, type ContextPicker } from '../context'
+import { splitTitleBody } from '../titleBody'
 import { OpenWindowButton } from './OpenWindowButton'
 import { ListToggleButton, WindowSplit } from './WindowSplit'
 import { ConfirmButton } from './ConfirmButton'
@@ -40,10 +41,13 @@ export function MemoPanel({
     if (openId && !open) onOpen(openId)
   }, [openId, open, onOpen])
 
-  async function addMemo(title: string) {
+  async function addMemo(text: string) {
+    // 첫 줄이 제목, 나머지가 본문이다 (renderer/titleBody.ts) — 이슈의 추가 칸과 대칭이다.
+    const { title, body } = splitTitleBody(text)
     await client.memos.create({
       workspaceId,
       title,
+      ...(body ? { body } : {}),
       repoIds: repoId ? [repoId] : []
     })
     await refresh()
@@ -64,7 +68,7 @@ export function MemoPanel({
 
   const list = (
     <>
-      <AddForm placeholder="새 메모 제목…" onSubmit={addMemo} />
+      <AddForm placeholder="새 메모 (첫 줄이 제목)" onSubmit={addMemo} multiline />
       {!listError && memos.length === 0 && (
         <div className="panel-empty">
           메모가 없습니다

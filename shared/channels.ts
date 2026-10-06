@@ -59,7 +59,8 @@ export const CHANNELS = {
   runsMarkReviewed: 'runs:markReviewed',
   runsResume: 'runs:resume',
   runsClose: 'runs:close',
-  runsRename: 'runs:rename'
+  runsRename: 'runs:rename',
+  runsAssignIssue: 'runs:assignIssue'
 } as const
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS]

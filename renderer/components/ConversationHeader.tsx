@@ -1,11 +1,12 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { RenameField } from './RenameField'
 import { repoLabel } from './ConversationList'
-import { IconMore, IconStop } from './icons'
+import { IssuePicker } from './IssuePicker'
+import { IconClose, IconExternalLink, IconMore, IconStop } from './icons'
 import { AGENT_LABELS } from '../agents'
 import { contextOf, type Conversation } from '../conversation'
 import { contextPercent, conversationUsage, formatContext, type ConversationUsage } from '../usage'
-import type { ContextItemType, Repo } from '@shared/models'
+import type { AssignedIssue, ContextItemType, Repo } from '@shared/models'
 
 /** 담긴 항목의 종류 이름. asset의 skill·agent 구분은 이번 범위 밖이다 (conversation-context spec). */
 const TYPE_LABELS: Record<ContextItemType, string> = {
@@ -52,10 +53,14 @@ function useDismissOnOutside(
  * 도크 최대화(Dock의 onKeyDown, FR-39)나 열린 항목 닫기(App의 document 리스너)까지 풀리면
  * 안 된다. 메뉴가 닫혀 있으면 아무것도 삼키지 않는다.
  */
-function ConversationMenu({ canClose, onRename, onClose }: {
+function ConversationMenu({ canClose, onRename, onClose, assigned, onPickIssue, onUnassign }: {
   canClose: boolean
   onRename: () => void
   onClose: () => void
+  /** 할당된 이슈가 있는가 — `이슈 할당`이 `이슈 바꾸기`가 되고 `이슈 할당 해제`가 선다 (conversation-issue FR-21) */
+  assigned: boolean
+  onPickIssue: () => void
+  onUnassign: () => void
 }) {
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
@@ -125,6 +130,15 @@ function ConversationMenu({ canClose, onRename, onClose }: {
           <button type="button" role="menuitem" tabIndex={-1} onClick={() => pick(onRename)}>
             이름 바꾸기
           </button>
+          {/* 할당 (conversation-issue FR-21). 확인 단계가 없다 — 지우는 것이 없고 되돌리기가 한 번이다. */}
+          <button type="button" role="menuitem" tabIndex={-1} onClick={() => pick(onPickIssue)}>
+            {assigned ? '이슈 바꾸기' : '이슈 할당'}
+          </button>
+          {assigned && (
+            <button type="button" role="menuitem" tabIndex={-1} onClick={() => pick(onUnassign)}>
+              이슈 할당 해제
+            </button>
+          )}
           {/* 끝낸 대화에는 끝내기가 없다 (lifecycle FR-22) — 이름은 여전히 고칠 수 있다. */}
           {canClose && (
             <button type="button" role="menuitem" tabIndex={-1} onClick={() => pick(onClose)}>
@@ -276,7 +290,10 @@ function UsageButton({ usage }: { usage: ConversationUsage }) {
  * 편집과 **한 state**라 두 자리에서 같은 대화를 동시에 고치는 상태가 생기지 않는다(FR-34).
  */
 export function ConversationHeader({
-  conversation, repos, renaming, onStartRename, onRename, onCancelRename, onClose, onCancel, hasDraft
+  conversation, repos, renaming, onStartRename, onRename, onCancelRename, onClose, onCancel, hasDraft,
+  // 개발 버전: 선택 prop이다 — plan에서 필수로 올린다 (conversation-issue spec §7).
+  workspaceId = '', pendingIssue = null, onClearPendingIssue = () => {}, onOpenIssue = () => {},
+  onAssignIssue = () => {}
 }: {
   /** null이면 새 대화다 — 제목 "새 대화"만 있고 메뉴·링이 없다 */
   conversation: Conversation | null
@@ -296,7 +313,21 @@ export function ConversationHeader({
    * 인자면 도크의 배선 한 줄을 빠뜨려도 조용히 컴파일되고, 멈추기가 영영 안 서거나 늘 선다.
    */
   hasDraft: boolean
+  /** 이슈 고르기가 읽을 workspace (conversation-issue FR-21) */
+  workspaceId?: string
+  /** 새 대화 칸에 걸린 할당 예정 이슈 (FR-20). 새 대화일 때만 의미가 있다 */
+  pendingIssue?: AssignedIssue | null
+  onClearPendingIssue?: () => void
+  /** 할당된 이슈 상세를 연다 (FR-21) */
+  onOpenIssue?: (issueId: string) => void
+  /** 할당을 바꾼다. null이면 뗀다 (FR-21) */
+  onAssignIssue?: (issueId: string | null) => void
 }) {
+  const [picking, setPicking] = useState(false)
+  // 헤더는 대화가 바뀌어도 다시 마운트되지 않는다 — 열어 둔 이슈 고르기가 다른 대화로 따라가지 않게 닫는다.
+  const conversationId = conversation?.id ?? null
+  useEffect(() => { setPicking(false) }, [conversationId])
+
   if (!conversation) {
     return (
       <header className="conv-header">
@@ -305,11 +336,27 @@ export function ConversationHeader({
             <div className="conv-title-line">
               <span className="conv-title">새 대화</span>
             </div>
+            {/* 할당 예정 (FR-20) — 첫 턴을 보내면 할당이 된다. */}
+            {pendingIssue && (
+              <div className="conv-sub-line">
+                <span className="conv-pending-issue" title={pendingIssue.title}>이슈 · {pendingIssue.title}</span>
+                <button
+                  type="button"
+                  className="row-action"
+                  aria-label="이슈 할당 해제"
+                  title="이슈 할당 해제"
+                  onClick={onClearPendingIssue}
+                >
+                  <IconClose width="11" height="11" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
     )
   }
+  const issue = conversation.issue
 
   // 도는 턴 — 대화의 활성 턴 중 running이다(conversation-fixes FR-3). 예약은 겨누지 않는다:
   // 예약은 입력칸 위 칩의 `예약 취소`가 거둔다(FR-30).
@@ -358,9 +405,36 @@ export function ConversationHeader({
               canClose={conversation.closedAt === null}
               onRename={onStartRename}
               onClose={onClose}
+              assigned={issue !== null}
+              onPickIssue={() => setPicking(true)}
+              onUnassign={() => onAssignIssue(null)}
             />
+            {picking && (
+              <IssuePicker
+                workspaceId={workspaceId || conversation.last.workspaceId}
+                currentId={issue?.id ?? null}
+                onPick={(id) => { setPicking(false); onAssignIssue(id) }}
+                onClose={() => setPicking(false)}
+              />
+            )}
           </div>
-          <div className="conv-sub" title={sub}>{sub}</div>
+          <div className="conv-sub-line">
+            <div className="conv-sub" title={sub}>{sub}</div>
+            {/* 할당된 이슈로 가는 길 (FR-21). 이름이 이슈 제목만이면 이슈 목록 줄(exact)과 부딪힌다(FR-23). 제목이 이미
+                이슈 이름이면 글자는 `이슈`뿐이다 — 같은 이름을 두 번 보이지 않는다. */}
+            {issue && (
+              <button
+                type="button"
+                className="conv-issue-link"
+                aria-label="할당된 이슈 열기"
+                title={`이슈 · ${issue.title}`}
+                onClick={() => onOpenIssue(issue.id)}
+              >
+                <IconExternalLink width="11" height="11" />
+                {conversation.title === issue.title ? '이슈' : `이슈 · ${issue.title}`}
+              </button>
+            )}
+          </div>
         </div>
         <div className="conv-header-side">
           {/* 멈추는 세 자리 중 하나 (FR-29) — 입력칸에 초안이 있어 전송 버튼이 실행이고, 대화록을

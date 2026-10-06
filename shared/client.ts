@@ -163,6 +163,11 @@ export interface OneDeskClient {
     close(rootRunId: string): Promise<Run>
     /** 대화에 이름을 붙인다. 빈 값을 주면 파생 제목으로 되돌린다 (FR-14). */
     rename(rootRunId: string, title: string): Promise<Run>
+    /**
+     * 대화의 할당 이슈를 바꾼다. null이면 뗀다 (`docs/sdlc/conversation-issue/` FR-6). 뿌리 run의 id를
+     * 받는다. 아직 실린 적 없는 할당 이슈는 다음 턴에 실린다(FR-9).
+     */
+    assignIssue(rootRunId: string, issueId: string | null): Promise<Run>
   }
   mcp: {
     /** 지금 상태를 한 번 읽는다. 창이 기동보다 늦게 떴을 때 필요하다. */

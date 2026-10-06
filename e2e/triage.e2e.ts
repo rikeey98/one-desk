@@ -23,8 +23,8 @@ describe('이슈 훑기', () => {
     await ws.click()
 
     // 던질 땐 제목만이다
-    await page.getByPlaceholder('새 이슈 제목…').fill(ISSUE)
-    await page.getByPlaceholder('새 이슈 제목…').press('Enter')
+    await page.getByPlaceholder('새 이슈 (첫 줄이 제목)').fill(ISSUE)
+    await page.getByPlaceholder('새 이슈 (첫 줄이 제목)').press('Enter')
 
     const banner = page.getByText('⚠ 정리 안 됨 (1)')
     await banner.waitFor({ state: 'visible', timeout: 10_000 })
@@ -82,8 +82,8 @@ describe('이슈 훑기', () => {
     // repo가 선택된 채로 이슈를 던지면 IssuePanel.addIssue가 그 repoId를
     // repoIds에 실어 보낸다 — 이것이 "repo가 선택된 채로 이슈를 만든다"는
     // 자연스러운 사용자 흐름이다.
-    await page.getByPlaceholder('새 이슈 제목…').fill(ISSUE2)
-    await page.getByPlaceholder('새 이슈 제목…').press('Enter')
+    await page.getByPlaceholder('새 이슈 (첫 줄이 제목)').fill(ISSUE2)
+    await page.getByPlaceholder('새 이슈 (첫 줄이 제목)').press('Enter')
     const issue2 = page.getByRole('button', { name: ISSUE2, exact: true })
     await issue2.waitFor({ state: 'visible', timeout: 10_000 })
 

@@ -130,6 +130,10 @@ export const run = sqliteTable('run', {
   // 않는다(전체 설계 §232).
   title: text('title'),
   closedAt: integer('closed_at'),
+  // 이 대화에 할당된 이슈 (docs/sdlc/conversation-issue/ spec FR-1). **뿌리 행에서만 의미가 있다.**
+  // 외래키를 걸지 않는다 — run_context_item.item_id와 같은 판단이다: 이슈를 지워도 대화 기록에
+  // 손대지 않고, 읽을 때 지워진 이슈를 걸러 공통 대화로 보인다(FR-3).
+  issueId: text('issue_id'),
   resultText: text('result_text'),
   // 모델·토큰·컨텍스트 (docs/sdlc/run-info/). 전부 nullable이고 기본값이 없다 —
   // **모르는 것과 0은 다르다.** 0으로 채우면 화면이 "안 썼다"는 거짓말을 한다.
@@ -161,7 +165,9 @@ export const run = sqliteTable('run', {
 }, (t) => [
   index('run_workspace_created_idx').on(t.workspaceId, t.createdAt),
   index('run_status_idx').on(t.status),
-  index('run_root_created_idx').on(t.rootRunId, t.createdAt)
+  index('run_root_created_idx').on(t.rootRunId, t.createdAt),
+  // 이슈를 지우거나 이름을 바꿀 때 그 이슈가 할당된 대화를 찾는다 (spec FR-26)
+  index('run_issue_idx').on(t.issueId)
 ])
 
 export const runContextItem = sqliteTable('run_context_item', {

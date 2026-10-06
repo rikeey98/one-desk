@@ -25,4 +25,27 @@ describe('AddForm', () => {
     expect(input).toHaveValue('')
     expect(screen.queryByRole('alert')).toBeNull()
   })
+
+  describe('여러 줄 (이슈·메모 — 첫 줄이 제목)', () => {
+    it('Shift+Enter는 줄바꿈이고 Enter가 만든다 — 여러 줄 글이 그대로 넘어간다', async () => {
+      const onSubmit = vi.fn().mockResolvedValue(undefined)
+      render(<AddForm placeholder="새 항목" onSubmit={onSubmit} multiline />)
+
+      const input = screen.getByPlaceholderText('새 항목')
+      await userEvent.type(input, '제목{Shift>}{Enter}{/Shift}본문')
+      expect(onSubmit).not.toHaveBeenCalled()
+      expect(input).toHaveValue('제목\n본문')
+
+      await userEvent.type(input, '{Enter}')
+      expect(onSubmit).toHaveBeenCalledWith('제목\n본문')
+      expect(input).toHaveValue('')
+    })
+
+    it('한 줄 + Enter는 지금처럼 만든다', async () => {
+      const onSubmit = vi.fn().mockResolvedValue(undefined)
+      render(<AddForm placeholder="새 항목" onSubmit={onSubmit} multiline />)
+      await userEvent.type(screen.getByPlaceholderText('새 항목'), '한 줄{Enter}')
+      expect(onSubmit).toHaveBeenCalledWith('한 줄')
+    })
+  })
 })

@@ -35,8 +35,8 @@ describe('핵심 한 바퀴', () => {
       .waitFor({ state: 'visible', timeout: 10_000 })
 
     // 3. 이슈 만들기
-    await page.getByPlaceholder('새 이슈 제목…').fill(ISSUE)
-    await page.getByPlaceholder('새 이슈 제목…').press('Enter')
+    await page.getByPlaceholder('새 이슈 (첫 줄이 제목)').fill(ISSUE)
+    await page.getByPlaceholder('새 이슈 (첫 줄이 제목)').press('Enter')
     const issueButton = page.getByRole('button', { name: ISSUE, exact: true })
     await issueButton.waitFor({ state: 'visible', timeout: 10_000 })
 

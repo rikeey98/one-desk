@@ -35,7 +35,8 @@ import { createSettingRepository } from './db/repositories/setting'
 import { createRunQueue } from './runner/queue'
 import { createMcpHost } from './mcp/host'
 import {
-  notifyingIssues, notifyingMemos, notifyingAssets, notifyingRepos, notifyingWorkspaces, type Notify
+  notifyingIssues, notifyingMemos, notifyingAssets, notifyingRepos, notifyingWorkspaces,
+  announcingAssignedConversations, type Notify
 } from './changes'
 import { consoleErrorSink, type ErrorSink } from './errors'
 import type { AgentAdapter } from './runner/types'
@@ -113,10 +114,18 @@ export function createCore(opts: CoreOptions) {
     try { emitter.emit(ITEM_CHANGED, change) } catch (err) { onError('바뀜 알림 실패', err) }
   }
   const workspaces = notifyingWorkspaces(createWorkspaceRepository(db), notify)
-  const issues = notifyingIssues(createIssueRepository(db), notify)
+  const runs = createRunRepository(db)
+  // 할당된 대화의 이슈 이름·삭제를 대화 화면이 곧바로 따라간다 (docs/sdlc/conversation-issue/ FR-26).
+  // 알림이 던져도 쓰기는 이미 끝났다 — notify와 같이 삼킨다.
+  const issues = announcingAssignedConversations(
+    notifyingIssues(createIssueRepository(db), notify),
+    runs,
+    (run) => {
+      try { emitter.emit(RUN_UPDATE, run) } catch (err) { onError('대화 갱신 알림 실패', err) }
+    }
+  )
   const memos = notifyingMemos(createMemoRepository(db), notify)
   const repos = notifyingRepos(createRepoRepository(db), notify)
-  const runs = createRunRepository(db)
   const assetRows = notifyingAssets(createAssetRepository(db), notify)
   const settings = createSettingRepository(db, opts.homeDir)
   /**
@@ -543,6 +552,14 @@ export function createCore(opts: CoreOptions) {
         emitter.emit(RUN_UPDATE, renamed)
         emitInbox()
         return renamed
+      },
+
+      /** 대화의 할당 이슈를 바꾼다. null이면 뗀다 (`docs/sdlc/conversation-issue/` FR-6·FR-7). */
+      assignIssue(rootRunId: string, issueId: string | null): Run {
+        const assigned = runs.assignIssue(rootRunId, issueId)
+        emitter.emit(RUN_UPDATE, assigned)
+        emitInbox()
+        return assigned
       }
     },
 

@@ -139,7 +139,7 @@ describe('conversationUsage', () => {
       parentRunId: null, rootRunId: 'r0', title: null, closedAt: null, resultText: null,
       needsAnswer: false, timeoutMs: null, exitCode: null, errorMessage: null,
       logPath: '/tmp/x.log', reviewedAt: null, reviewedKind: null, startedAt: null,
-      endedAt: null, createdAt, contextItems: [], usage: known ? usage(known) : null
+      endedAt: null, createdAt, contextItems: [], issue: null, usage: known ? usage(known) : null
     }
   }
 

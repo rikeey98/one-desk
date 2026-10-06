@@ -6,6 +6,8 @@ import { ConfirmButton } from './ConfirmButton'
 import { BodyField } from './BodyField'
 import { RepoTags } from './RepoTags'
 import { DetailStamp } from './CopyButton'
+import { IssueConversationButtons } from './IssueConversationButtons'
+import type { Conversation } from '../conversation'
 import {
   PRIORITY_ORDER, SOURCE_ORDER, KIND_ORDER,
   PRIORITY_LABELS, SOURCE_LABELS, KIND_LABELS
@@ -52,7 +54,7 @@ function AxisSelect<T extends string>({ label, value, order, labels, onPick }: {
   )
 }
 
-export function IssueDetail({ issue, repos, onChanged, onDeleted, onRequestClose }: {
+export function IssueDetail({ issue, repos, onChanged, onDeleted, onRequestClose, conversations }: {
   issue: Issue
   /** 이 workspace의 repo 전부. 붙일 후보다. */
   repos: Repo[]
@@ -61,6 +63,11 @@ export function IssueDetail({ issue, repos, onChanged, onDeleted, onRequestClose
   onDeleted: () => void
   /** Esc로 접기를 청한다. 대기 중인 저장을 흘려보낸 뒤에만 부른다 (설계 §7). */
   onRequestClose: () => void
+  /**
+   * 이 이슈의 대화 (`docs/sdlc/conversation-issue/` FR-13~18). **패널 창에는 없다** — 창에는 도크가 없다. 없으면
+   * 대화 단추를 그리지 않는다.
+   */
+  conversations?: { list: Conversation[]; open: (conversation: Conversation) => void; start: () => void }
 }) {
   const client = useClient()
   const [title, setTitle] = useState(issue.title)
@@ -291,6 +298,13 @@ export function IssueDetail({ issue, repos, onChanged, onDeleted, onRequestClose
         picked={repoIds}
         onChange={changeRepos}
       />
+      {conversations && (
+        <IssueConversationButtons
+          conversations={conversations.list}
+          onOpen={conversations.open}
+          onStart={conversations.start}
+        />
+      )}
       {/* id는 agent가 MCP(get_issue·update_issue)로 이 이슈를 짚는 이름이다. 짧게 보이고 전체를 복사한다. */}
       <DetailStamp kind="이슈" id={issue.id} times={[['만듦', issue.createdAt], ['시작', issue.startedAt], ['완료', issue.closedAt]]} />
       </div>

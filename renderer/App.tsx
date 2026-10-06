@@ -16,8 +16,9 @@ import { usePlanUsage } from './hooks/usePlanUsage'
 import { useWorkspaces } from './hooks/useWorkspaces'
 import { useClient } from './client/ClientProvider'
 import { chipKey, type ContextChip } from './context'
-import { conversationIdOf } from './conversation'
-import type { Run } from '@shared/models'
+import { conversationIdOf, groupConversations, type IssueConversations } from './conversation'
+import { confirmSeen } from './conversationSeen'
+import type { AssignedIssue, Run } from '@shared/models'
 
 export default function App() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
@@ -32,6 +33,11 @@ export default function App() {
   // "다시 실행"이 요구하는 작업 디렉토리. 프롬프트만 옮기면 RunPanel의 cwd가 첫 repo로
   // 초기화돼 있어 원본과 다른 저장소에서 agent가 돈다.
   const [draftCwd, setDraftCwd] = useState<string | null>(null)
+  // 이슈 상세의 `대화 시작`이 세운다 (docs/sdlc/conversation-issue/ FR-15·FR-20) — 새 대화 칸의 할당 예정 이슈와
+  // "새 대화 칸으로 옮겨라"는 일회성 지시. 예정은 담기 칩과 같은 수명이다: 첫 턴을 보내거나, 떼거나, workspace를
+  // 바꾸면 사라진다.
+  const [draftIssue, setDraftIssue] = useState<AssignedIssue | null>(null)
+  const [focusNew, setFocusNew] = useState(false)
   // 확장된 패널과 그 안에서 열린 항목. **한 번에 하나뿐이다.**
   // 각 패널이 따로 들면 둘 다 열린 상태가 만들어지고, 컬럼 비율을 누가 정하는지도
   // 흐려진다. useRepos·useWorkspaces를 자식이 각자 부르다 두 번 사고가 났다.
@@ -64,6 +70,22 @@ export default function App() {
 
   const chipKeys = useMemo(() => new Set(chips.map(chipKey)), [chips])
 
+  // 이슈 상세의 대화 단추 (conversation-issue FR-13~19). 이미 가진 run 목록에서 묶는다 — 새 조회가 없다(FR-19).
+  const conversations = useMemo(() => groupConversations(runs), [runs])
+  const issueConversations = useMemo<IssueConversations>(() => ({
+    of: (issueId) => conversations.filter((c) => c.issue?.id === issueId),
+    open: (conversation) => {
+      setFocusConversationId(conversation.id)
+      // 골라 누른 것이라 도크 목록에서 누른 것처럼 확인한다(FR-17). 실패해도 대화는 열린다.
+      void confirmSeen(client, conversation).catch(() => {})
+    },
+    start: (issue) => {
+      setDraftIssue({ id: issue.id, title: issue.title })
+      setFocusConversationId(null)
+      setFocusNew(true)
+    }
+  }), [conversations, client])
+
   /**
    * 지운 workspace가 지금 고른 것이면 선택을 푼다.
    *
@@ -77,6 +99,7 @@ export default function App() {
     setRepoId(null)
     setChips([])
     setOpenItem(null)
+    setDraftIssue(null)
   }
 
   /** 지운 repo로 걸러 두었으면 필터를 푼다 — 아니면 빈 목록만 남는다. */
@@ -91,6 +114,7 @@ export default function App() {
     setRepoId(null)   // workspace가 바뀌면 이전 repo 필터는 무의미하다
     setChips([])      // 맥락도 마찬가지다. 다른 workspace의 항목은 실행 시 거부된다
     setOpenItem(null) // 다른 workspace의 항목을 열어둔 채로 둘 수 없다
+    setDraftIssue(null) // 할당 예정도 그 workspace의 이슈다
   }
 
   // 패널의 담기 토글. 패널 창에는 넘기지 않는다 (docs/sdlc/item-windows/ FR-8).
@@ -191,6 +215,8 @@ export default function App() {
     // focusConversationId를 비워야 Dock이 새 대화 탭(draftPrompt/draftCwd가 채워진)을
     // 연다 — 남아 있으면 "다시 실행"이 겨눈 대화가 대신 열린다.
     setFocusConversationId(null)
+    // "다시 실행"은 할당을 따라가지 않는다(conversation-issue §1) — 전에 걸어 둔 예정이 섞이지 않게 비운다.
+    setDraftIssue(null)
   }
 
   /**
@@ -300,6 +326,7 @@ export default function App() {
                 repoId={repoId}
                 repos={repos}
                 context={contextPicker}
+                conversations={issueConversations}
                 expanded={openItem?.panel === 'issue'}
                 openId={openItem?.panel === 'issue' ? openItem.id : null}
                 onOpen={(id) => openIn('issue', id)}
@@ -341,9 +368,14 @@ export default function App() {
               focusConversationId={focusConversationId}
               // 일회성 지시다 — Dock이 열고 나면 치운다. 남아 있으면 설정에 갔다 오는 것만으로
               // (Dock 재마운트) 그 대화가 되살아난다 (docs/sdlc/conversation-fixes/ spec FR-22).
-              onFocusConsumed={() => setFocusConversationId(null)}
-              // 담은 맥락은 그 턴에만 적용된다. 다음 실행은 빈 상태에서 시작한다.
-              onRunStarted={() => { setChips([]); setDraftPrompt(''); setDraftCwd(null) }}
+              onFocusConsumed={() => { setFocusConversationId(null); setFocusNew(false) }}
+              // 담은 맥락은 그 턴에만 적용된다. 다음 실행은 빈 상태에서 시작한다. 할당 예정도 첫 턴에 할당이 됐다.
+              onRunStarted={() => { setChips([]); setDraftPrompt(''); setDraftCwd(null); setDraftIssue(null) }}
+              draftIssue={draftIssue}
+              onClearDraftIssue={() => setDraftIssue(null)}
+              focusNew={focusNew}
+              // 헤더의 `할당된 이슈 열기` — 토글(openIn)이 아니라 연다. 이미 열려 있어도 닫지 않는다(FR-21).
+              onOpenIssue={(issueId) => setOpenItem({ panel: 'issue', id: issueId })}
             />
           </>
         )}

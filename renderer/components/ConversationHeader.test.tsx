@@ -18,7 +18,7 @@ function makeRun(over: Partial<Run> & { id: string }): Run {
     title: null, closedAt: null,
     needsAnswer: false, timeoutMs: null, exitCode: null, errorMessage: null,
     logPath: '/tmp/x.log', reviewedAt: null, reviewedKind: null, startedAt: null,
-    endedAt: null, createdAt: 0, contextItems: [], usage: null,
+    endedAt: null, createdAt: 0, contextItems: [], issue: null, usage: null,
     ...over
   }
 }
@@ -156,7 +156,7 @@ describe('ConversationHeader — 이 대화에 담긴 것 (ConversationPanel에�
 })
 
 describe('ConversationHeader — ⋯ 메뉴 (spec FR-35)', () => {
-  it('메뉴는 이름 바꾸기·대화 끝내기 두 항목이다', async () => {
+  it('메뉴는 이름 바꾸기·이슈 할당·대화 끝내기다 (conversation-issue FR-21)', async () => {
     renderHeader(conv(makeRun({ id: 'a1' })))
     const trigger = screen.getByRole('button', { name: '대화 메뉴' })
     expect(trigger).toHaveAttribute('aria-haspopup', 'menu')
@@ -167,7 +167,15 @@ describe('ConversationHeader — ⋯ 메뉴 (spec FR-35)', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'true')
     const menu = screen.getByRole('menu')
     expect(within(menu).getAllByRole('menuitem').map((e) => e.textContent)).toEqual([
-      '이름 바꾸기', '대화 끝내기'
+      '이름 바꾸기', '이슈 할당', '대화 끝내기'
+    ])
+  })
+
+  it('할당된 대화의 메뉴에는 이슈 바꾸기·이슈 할당 해제가 있다 (conversation-issue FR-21)', async () => {
+    renderHeader(conv(makeRun({ id: 'a1', issue: { id: 'i1', title: '로그인 버그' } })))
+    await userEvent.click(screen.getByRole('button', { name: '대화 메뉴' }))
+    expect(screen.getAllByRole('menuitem').map((e) => e.textContent)).toEqual([
+      '이름 바꾸기', '이슈 바꾸기', '이슈 할당 해제', '대화 끝내기'
     ])
   })
 
@@ -190,14 +198,16 @@ describe('ConversationHeader — ⋯ 메뉴 (spec FR-35)', () => {
   it('끝낸 대화의 메뉴에는 끝내기가 없다 (lifecycle FR-22)', async () => {
     renderHeader(conv(makeRun({ id: 'a1', closedAt: 5 })))
     await userEvent.click(screen.getByRole('button', { name: '대화 메뉴' }))
-    expect(screen.getAllByRole('menuitem').map((e) => e.textContent)).toEqual(['이름 바꾸기'])
+    expect(screen.getAllByRole('menuitem').map((e) => e.textContent)).toEqual(['이름 바꾸기', '이슈 할당'])
   })
 
   it('열면 첫 항목에 포커스가 가고 ↑↓로 오간다', async () => {
     renderHeader(conv(makeRun({ id: 'a1' })))
     await userEvent.click(screen.getByRole('button', { name: '대화 메뉴' }))
-    const [rename, close] = screen.getAllByRole('menuitem')
+    const [rename, assign, close] = screen.getAllByRole('menuitem')
     expect(rename).toHaveFocus()
+    await userEvent.keyboard('{ArrowDown}')
+    expect(assign).toHaveFocus()
     await userEvent.keyboard('{ArrowDown}')
     expect(close).toHaveFocus()
     // 끝에서 한 번 더 내리면 처음으로 돈다.

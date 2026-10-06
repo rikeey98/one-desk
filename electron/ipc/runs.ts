@@ -23,6 +23,10 @@ export function registerRunHandlers(core: Core, getWindow: GetWindow) {
     CHANNELS.runsRename,
     (_e, rootRunId: string, title: string) => core.conversations.rename(rootRunId, title)
   )
+  ipcMain.handle(
+    CHANNELS.runsAssignIssue,
+    (_e, rootRunId: string, issueId: string | null) => core.conversations.assignIssue(rootRunId, issueId)
+  )
   ipcMain.handle(CHANNELS.mcpStatus, () => core.mcpStatus())
   ipcMain.handle(CHANNELS.accountPlanUsage, () => core.planUsage())
 

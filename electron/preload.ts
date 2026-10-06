@@ -92,7 +92,8 @@ const client: OneDeskClient = {
     markReviewed: (runId, kind) => call<Run>(CHANNELS.runsMarkReviewed, runId, kind),
     resume: (input) => call<Run>(CHANNELS.runsResume, input),
     close: (rootRunId) => call<Run>(CHANNELS.runsClose, rootRunId),
-    rename: (rootRunId, title) => call<Run>(CHANNELS.runsRename, rootRunId, title)
+    rename: (rootRunId, title) => call<Run>(CHANNELS.runsRename, rootRunId, title),
+    assignIssue: (rootRunId, issueId) => call<Run>(CHANNELS.runsAssignIssue, rootRunId, issueId)
   },
   mcp: {
     status: () => call<McpStatus>(CHANNELS.mcpStatus)
