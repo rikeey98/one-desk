@@ -235,6 +235,13 @@ workspace 아래에 그 workspace의 repo가 트리처럼 들여쓰기로 붙는
   (`:popover-open`) — 작성자 규칙이 닫힌 popover의 UA `display: none`을 덮으면 닫힌 채 인라인에
   그려진다. 그림자는 `--shadow-overlay`, 테두리는 `--border-strong`, 모서리 6px.
 
+### 도크 목록의 repo 구획
+
+`docs/sdlc/dock-repo-sections/`. 구획 머리(`.dock-section`)는 꺾쇠 · repo 이름(0.6875rem 700 `--text-muted`, **대문자로 바꾸지 않는다** —
+repo 이름은 식별자다) · 개수 알약이고, 접힌 머리 오른쪽에 그 구획의 답변 필요·실행 중 점이 선다. 두 번째 머리부터 위에 6px와
+`--border-faint` 선. `기타`가 늘 맨 아래다. 구획 안 줄의 메타에서는 repo 이름을 뺀다. 사이드바 거름이 걸리면 목록 맨 위에
+`--accent-bg`/`--accent-border` 알약(`api 대화만` + 원형 ✕ `repo 거름 풀기`)이 서고 구획 머리는 없다.
+
 ### 기간 리포트
 
 `docs/sdlc/period-report/`. 본문 전체를 쓰는 패널 하나이고 도크는 없다(인박스·설정과 같다). 사이드바 진입점은 인박스 바로 아래

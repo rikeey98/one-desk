@@ -1751,3 +1751,28 @@ describe('기간 리포트 배선 (docs/sdlc/period-report/ FR-19·FR-24·FR-25)
     expect(client.runs.start).not.toHaveBeenCalled()
   })
 })
+
+describe('도크의 repo 거름 배선 (docs/sdlc/dock-repo-sections/ FR-8·11)', () => {
+  it('사이드바에서 repo를 고르면 도크가 그 repo의 대화만 보이고, 거름 풀기는 사이드바 선택을 푼다', async () => {
+    const client = makeClient({}, {
+      repos: [makeRepo('r1', 'api', '/tmp/api'), makeRepo('r2', 'web', '/tmp/web')],
+      inbox: [
+        makeRun({ id: 'c-api', cwd: '/tmp/api', userPrompt: 'api 대화', createdAt: 2 }),
+        makeRun({ id: 'c-web', cwd: '/tmp/web', userPrompt: 'web 대화', createdAt: 1 })
+      ]
+    })
+    renderApp(client)
+    // 인박스 배지가 붙어 이름이 "ws1 2"다
+    await userEvent.click(await screen.findByRole('button', { name: /^ws1( \d+)?$/ }))
+    expect(await screen.findByRole('button', { name: 'api 대화 묶음' })).toBeInTheDocument()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'web repo' }))
+    expect(await screen.findByRole('button', { name: 'repo 거름 풀기' })).toBeInTheDocument()
+    expect(screen.queryByText('api 대화', { selector: '.dock-conv-title' })).toBeNull()
+    expect(screen.getByText('web 대화', { selector: '.dock-conv-title' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'repo 거름 풀기' }))
+    expect(screen.getByRole('button', { name: 'web repo' })).not.toHaveClass('repo-card-selected')
+    expect(await screen.findByText('api 대화', { selector: '.dock-conv-title' })).toBeInTheDocument()
+  })
+})

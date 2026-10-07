@@ -1164,3 +1164,24 @@ button.report-flow-line:hover { background: var(--bg-muted); }
 @media (prefers-reduced-motion: reduce) {
   .report-track-dot-button:hover { transform: none; }
 }
+
+/* ===== 도크 목록의 repo 구획과 거름 (docs/sdlc/dock-repo-sections/) =====
+   구획 머리는 굵은 흐린 글자라 대화 줄과 무게가 갈린다 — 대문자로 바꾸지 않는다(repo 이름은 식별자다: `api`가 `API`가 된다). 첫 머리 말고는 위에 여백과 1px 선을 둔다 — 구획이 끝나는 자리가
+   보이게. 꺾쇠는 돌아가 있을 뿐 움직이지 않는다(끝낸 대화 토글과 같다). */
+.dock-section-row { list-style: none; }
+.dock-section-row:not(:first-child) { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-faint); }
+.dock-section { display: flex; align-items: center; gap: 5px; width: 100%; min-width: 0; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-size: .6875rem; font-weight: 700; padding: 3px 5px; text-align: left; transition: background .12s, color .12s; }
+.dock-section:hover { background: var(--bg-muted); color: var(--text-secondary); }
+.dock-section-chevron { flex: 0 0 auto; transform: rotate(90deg); }
+.dock-section[aria-expanded="false"] .dock-section-chevron { transform: none; }
+.dock-section-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-section-other .dock-section-name { font-weight: 600; }
+.dock-section .needs-answer { margin: 0 0 0 auto; }
+.dock-section .status-dot { margin-left: auto; }
+.dock-section .needs-answer + .status-dot { margin-left: 4px; }
+.dock-filter { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; padding: 3px 3px 3px 8px; border: 1px solid var(--accent-border); border-radius: 99px; background: var(--accent-bg); color: var(--accent-text); font-size: .6875rem; }
+.dock-filter-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-filter-label b { font-weight: 700; }
+.dock-filter-clear.row-action { width: 18px; height: 18px; border-radius: 50%; color: var(--accent-text); opacity: 1; }
+.dock-filter-clear.row-action:hover { background: var(--accent-bg-strong); }
+.dock-conv-empty { margin: 4px 0; padding: 6px 7px; font-size: .6875rem; color: var(--text-muted); }

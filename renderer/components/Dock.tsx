@@ -8,14 +8,15 @@ import { draftKeyOf } from '../store/drafts'
 import { useDraftFilled } from '../store/DraftContext'
 import { SlotIndicator } from './SlotIndicator'
 import { IconChevronDown, IconCollapse, IconMaximize } from './icons'
-import { conversationIdOf, groupConversations, type Conversation } from '../conversation'
+import { conversationIdOf, filterByRepo, groupConversations, repoOfConversation, sectionByRepo, type Conversation } from '../conversation'
+import { readCollapsedSections, writeCollapsedSections } from '../dockSections'
 import { confirmSeen as confirmConversationSeen } from '../conversationSeen'
 import type { ContextChip } from '../context'
 import type { AssignedIssue, QueueSnapshot, Repo, Run, Workspace } from '@shared/models'
 
 export function Dock({
   runs, error, workspaceId, workspaces, repos, reposError, queue, queueError, onChangeLimit, chips, onRemoveChip,
-  onRunStarted, draftPrompt, draftCwd, selectedRepoId, focusConversationId, onFocusConsumed,
+  onRunStarted, draftPrompt, draftCwd, selectedRepoId, onClearRepoFilter, focusConversationId, onFocusConsumed,
   // 개발 버전: 선택 prop이다 — plan에서 필수로 올리고 App 배선 테스트를 붙인다 (conversation-issue spec §7).
   draftIssue = null, onClearDraftIssue = () => {}, focusNew = false, onOpenIssue = () => {}
 }: {
@@ -37,6 +38,11 @@ export function Dock({
   draftCwd: string | null
   /** ConversationPanel까지 그대로 흘려 보낸다 — 사이드바에서 고른 repo, 새 대화의 작업 디렉토리다. */
   selectedRepoId: string | null
+  /**
+   * 목록의 거름 줄에서 사이드바의 repo 선택을 푼다 (`docs/sdlc/dock-repo-sections/` FR-8·11). 앱의 repo 거름은 하나라 이슈·메모
+   * 패널의 거름도 같이 풀린다. **필수다** — 선택이면 App의 한 줄을 지워도 조용히 컴파일된다.
+   */
+  onClearRepoFilter: () => void
   /** 인박스의 "대화 열기"가 지정한 대화. null이면 기본대로 새 대화 탭이 열린다. */
   focusConversationId: string | null
   /**
@@ -113,6 +119,8 @@ export function Dock({
   // 펼친 이슈 줄 (conversation-issue FR-28). 끝낸 대화 펼침처럼 보기 취향이라 workspace를 바꿔도 두고 간다
   // (이슈 id는 workspace마다 다르니 섞이지 않는다).
   const [expandedIssues, setExpandedIssues] = useState<ReadonlySet<string>>(() => new Set())
+  // 접은 repo 구획 (dock-repo-sections FR-7). 보기 취향이라 이 장비에 기억한다 — 기본은 전부 펼침
+  const [collapsedSections, setCollapsedSections] = useState<ReadonlySet<string>>(readCollapsedSections)
   // 이름 편집은 목록 줄과 대화 헤더가 **한 state**를 나눠 쓴다 (spec FR-34) — 두 자리에서 같은
   // 대화를 동시에 고치는 상태가 생기지 않는다. `where`가 어느 자리의 입력칸인지를 가른다.
   const [renaming, setRenaming] = useState<{ id: string; where: 'list' | 'header' } | null>(null)
@@ -146,6 +154,24 @@ export function Dock({
   const closedConversations = useMemo(
     () => conversations.filter((c) => c.closedAt !== null), [conversations]
   )
+
+  // 사이드바 거름과 repo 구획 (`docs/sdlc/dock-repo-sections/` FR-3~10). 거름은 **보기만** 바꾼다 — 고른 대화(`selected`)는
+  // 거름 밖이어도 그대로다(FR-9). 지운 repo를 고른 채면 거름이 없는 것과 같다.
+  const filterRepo = selectedRepoId ? repos.find((r) => r.id === selectedRepoId) ?? null : null
+  const visibleOpen = useMemo(
+    () => (filterRepo ? filterByRepo(openConversations, repos, filterRepo.id) : openConversations),
+    [openConversations, repos, filterRepo]
+  )
+  const visibleClosed = useMemo(
+    () => (filterRepo ? filterByRepo(closedConversations, repos, filterRepo.id) : closedConversations),
+    [closedConversations, repos, filterRepo]
+  )
+  // 구획이 하나뿐이면 머리 없이 지금 목록 그대로다 (FR-5)
+  const sections = useMemo(() => {
+    if (filterRepo) return null
+    const all = sectionByRepo(openConversations, repos)
+    return all.length > 1 ? all : null
+  }, [openConversations, repos, filterRepo])
 
   // 위 초기값은 "마운트 시점"만 잡는다 — Dock이 마운트된 채로 focusConversationId가
   // 나중에 바뀌는 경우(지금 배선에서는 일어나지 않지만)도 대비해 effect로도 맞춘다.
@@ -184,7 +210,7 @@ export function Dock({
   // 것이 되돌아온 것처럼 보인다.
   const selected = pickedId
     ? conversations.find((c) => c.id === pickedId) ?? null
-    : openConversations[0] ?? null
+    : visibleOpen[0] ?? null
   // 큐 조회가 실패하면 표시기가 그냥 안 보인다 — 이 기능이 메우려던 "왜 안 보이지"라는
   // 공백이 오류 상황에서 되살아난다. 새 배너를 만들지 않고 기존 경로로 흘려 보인다.
   const shown = actionError ?? error ?? queueError
@@ -200,9 +226,32 @@ export function Dock({
 
   /** 그 대화가 이슈 줄 안에 있으면 그 줄을 펼친다. 대화가 아직 목록에 없으면(방금 시작한 첫 턴) 아무것도 하지 않는다 */
   function revealIssueOf(conversationId: string) {
-    const issueId = conversations.find((c) => c.id === conversationId)?.issue?.id
+    const conv = conversations.find((c) => c.id === conversationId)
+    // 접힌 repo 구획 안이면 그 구획도 편다 (dock-repo-sections FR-7) — 기억한 접힘에서도 뺀다
+    if (conv) {
+      const repo = repoOfConversation(conv, repos)
+      const key = repo ? `repo:${repo.id}` : 'other'
+      setCollapsedSections((prev) => {
+        if (!prev.has(key)) return prev
+        const next = new Set(prev)
+        next.delete(key)
+        writeCollapsedSections(next)
+        return next
+      })
+    }
+    const issueId = conv?.issue?.id
     if (!issueId) return
     setExpandedIssues((prev) => prev.has(issueId) ? prev : new Set(prev).add(issueId))
+  }
+
+  function toggleSection(key: string) {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      writeCollapsedSections(next)
+      return next
+    })
   }
 
   function toggleIssue(issueId: string) {
@@ -395,8 +444,13 @@ export function Dock({
           {shown && <div role="alert" className="form-error">{shown}</div>}
           <div className="dock-split">
             <ConversationList
-              open={openConversations}
-              closed={closedConversations}
+              open={visibleOpen}
+              closed={visibleClosed}
+              sections={sections}
+              collapsedSections={collapsedSections}
+              onToggleSection={toggleSection}
+              filterRepo={filterRepo}
+              onClearFilter={onClearRepoFilter}
               selectedId={selected?.id ?? null}
               isNew={view === 'new'}
               repos={repos}

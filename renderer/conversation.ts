@@ -1,4 +1,4 @@
-import type { AssignedIssue, ContextItemView, Issue, Run } from '@shared/models'
+import type { AssignedIssue, ContextItemView, Issue, Repo, Run } from '@shared/models'
 import { representativeTurn } from '@shared/inbox'
 import { collectContext, conversationTitle, titleOf } from '@shared/conversationTitle'
 
@@ -138,4 +138,70 @@ export function foldByIssue(conversations: Conversation[]): ConversationListEntr
     out.push({ kind: 'issue', issue: conv.issue!, conversations: group })
   }
   return out
+}
+
+/**
+ * 경로 비교용 정규형 (`docs/sdlc/dock-repo-sections/` FR-1). 끝의 구분자를 떼고, Windows 경로(드라이브 문자로 시작하거나
+ * `\`를 품은 것)는 구분자를 `\`로 맞추고 대소문자를 가리지 않는다 — posix 경로는 대소문자가 다르면 다른 디렉토리다.
+ */
+function pathKey(path: string): string {
+  const windows = /^[a-zA-Z]:/.test(path) || path.includes('\\')
+  const trimmed = path.replace(/[\\/]+$/, '')
+  return windows ? trimmed.replace(/\//g, '\\').toLowerCase() : trimmed
+}
+
+/** 뿌리 행 — `groupConversations`처럼 id로 찾는다 */
+function rootOf(conv: Conversation): Run {
+  return conv.runs.find((r) => r.id === conv.id) ?? conv.runs[0]!
+}
+
+/**
+ * 대화의 repo (FR-1) — **뿌리 턴의 `cwd`**와 경로가 같은 등록 repo. 이어 가는 대화는 작업 디렉토리를 바꿀 수 없으므로
+ * 뿌리 하나로 정해진다. 없으면(등록하지 않은 경로, 지운 repo) null — 목록에서는 `기타`다.
+ */
+export function repoOfConversation(conv: Conversation, repos: readonly Repo[]): Repo | null {
+  const key = pathKey(rootOf(conv).cwd)
+  return repos.find((r) => pathKey(r.path) === key) ?? null
+}
+
+/** 구획이 없는 대화의 이름 — 작업 디렉토리 경로의 마지막 조각 */
+export function cwdName(conv: Conversation): string {
+  const cwd = rootOf(conv).cwd
+  const parts = cwd.split(/[\\/]/).filter(Boolean)
+  return parts[parts.length - 1] ?? cwd
+}
+
+export interface RepoSection {
+  /** `repo:<id>` 또는 `other` — 접힘을 기억하는 키 */
+  key: string
+  /** null이면 `기타` */
+  repo: Repo | null
+  /** 받은 순서 그대로(최신순) */
+  conversations: Conversation[]
+}
+
+/**
+ * 끝나지 않은 대화를 repo 구획으로 나눈다 (FR-3). 구획 순서는 **그 구획의 가장 최근 대화**가 받은 목록에서 앞선 순 —
+ * 받은 목록이 최신순이므로 최근 활동순이다. `기타`는 늘 맨 아래. 구획 안의 순서는 바꾸지 않는다(FR-4).
+ */
+export function sectionByRepo(conversations: readonly Conversation[], repos: readonly Repo[]): RepoSection[] {
+  const sections: RepoSection[] = []
+  const byKey = new Map<string, RepoSection>()
+  for (const conv of conversations) {
+    const repo = repoOfConversation(conv, repos)
+    const key = repo ? `repo:${repo.id}` : 'other'
+    let section = byKey.get(key)
+    if (!section) {
+      section = { key, repo, conversations: [] }
+      byKey.set(key, section)
+      sections.push(section)
+    }
+    section.conversations.push(conv)
+  }
+  return [...sections.filter((s) => s.repo !== null), ...sections.filter((s) => s.repo === null)]
+}
+
+/** 사이드바에서 고른 repo의 대화만 (FR-8) */
+export function filterByRepo(conversations: readonly Conversation[], repos: readonly Repo[], repoId: string): Conversation[] {
+  return conversations.filter((c) => repoOfConversation(c, repos)?.id === repoId)
 }

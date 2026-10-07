@@ -420,6 +420,8 @@ export default function App() {
               draftPrompt={draftPrompt}
               draftCwd={draftCwd}
               selectedRepoId={repoId}
+              // 도크 목록의 거름 줄 — 앱의 repo 거름은 하나라 사이드바 선택을 푼다 (dock-repo-sections FR-8·11)
+              onClearRepoFilter={() => setRepoId(null)}
               focusConversationId={focusConversationId}
               // 일회성 지시다 — Dock이 열고 나면 치운다. 남아 있으면 설정에 갔다 오는 것만으로
               // (Dock 재마운트) 그 대화가 되살아난다 (docs/sdlc/conversation-fixes/ spec FR-22).

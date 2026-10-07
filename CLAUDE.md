@@ -299,6 +299,17 @@ SKILL.md의 frontmatter는 평문 칸으로 뗀다. 그리고 **창을 닫기 �
 done인 것뿐이고, 진행 중은 지금 상태다** — 활동 기록이 없어 기간 끝 시점의 상태를 알 수 없다(spec §6, 화면 안내문이 말한다).
 `e2e/report.e2e.ts`가 workspace 둘을 넘는 IPC 왕복과 내보내기 셋을 실제 앱으로 본다.
 
+**도크 대화 목록이 repo로 나뉜다** (`docs/sdlc/dock-repo-sections/`, v0.22.0). 마이그레이션·IPC 없음 — 렌더러만. 대화의
+repo는 **뿌리 턴의 `cwd`**와 경로가 같은 등록 repo(`repoOfConversation` — 끝 구분자 무시, Windows 경로는 대소문자 무시)이고,
+없으면 `기타`다. 사이드바에서 repo를 고르지 않았으면 끝나지 않은 대화를 repo 구획(최근 활동순, `기타`는 맨 아래, 구획 안에서만
+이슈 접기)으로 나누고 — 구획이 하나뿐이면 머리 없이 예전 목록 그대로다 — 고르면 그 repo의 대화만(끝낸 것도) 보이고 맨 위에
+거름 줄(`api 대화만` + `repo 거름 풀기`)이 선다. **거름은 보기만 바꾼다** — 열린 대화가 거름 밖이어도 닫거나 바꾸지 않는다(입력부의
+전송 대상이 조용히 바뀌면 안 된다). 풀기는 App의 `setRepoId(null)`이라 이슈·메모 패널의 거름도 같이 풀린다(앱의 repo 거름은
+하나다) — `Dock`의 필수 prop `onClearRepoFilter`. 구획 접힘은 이 장비의 localStorage(`renderer/dockSections.ts`)에 repo id로
+남고, `focusConversationId`로 연 대화가 접힌 구획 안이면 그 구획만 편다(이슈 줄의 `revealIssueOf`와 같은 자리). 목록 줄·헤더·
+작업 디렉토리 알약의 repo 이름(`repoLabel`)도 같은 판정이다 — 예전에는 마지막 턴 `cwd`의 정확 일치였다. 구획 머리의 이름은
+`<repo> 대화 묶음`(접기/펼치기를 넣지 않는다). `e2e/dock-repo.e2e.ts`가 repo 둘에서 실제로 돈 대화로 본다.
+
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
 한동안 "5단계 착수 전에 정할 것"으로 잡아두고 **평문 SQLite에 자격 증명을 넣을지**를 막힌 결정으로 남겼던 항목이다. 대상 환경을 실측해 보니 **배관 자체가 불필요했다.**
@@ -821,6 +832,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/item-windows/` | 패널을 repo마다 별도 창으로 — spec·plan. 창의 단위와 고정(FR-1~3), 범위만 받는 IPC(FR-12), 모든 창의 가드(FR-14), 닫기 전 저장(FR-15·16), 바뀜 알림(FR-17~19), 본문 읽기/편집(FR-20~25), Cmd+Q 제약(§5). plan에 변이 표 |
 | `docs/sdlc/agent-path-default/` | CLI 경로의 앱 기본값과 workspace 예외 — spec. 해석 순서(FR-1), 키-값 저장(FR-2), 앱 탭·실행 탭 화면(FR-3) |
 | `docs/sdlc/period-report/` | 기간 리포트 — intent·spec·plan. workspace를 넘는 읽기를 MCP가 아니라 화면에만 둔 이유(intent, spec FR-1·24), 기간 판정 공유(FR-2), 칸 분류와 합계가 다른 질문인 이유(FR-6·7), 세 보기(FR-16~18), 내보내기 셋(FR-22~24), 상태가 "지금"인 한계(§6). 시안 https://claude.ai/artifact/6bn58ES8XQwBP9k68VfV4E |
+| `docs/sdlc/dock-repo-sections/` | 도크 대화 목록의 repo 구획과 사이드바 거름 — spec·plan. 대화의 repo를 뿌리 cwd로 정하는 이유(FR-1), 구획이 하나면 머리가 없는 이유(FR-5), 거름이 보기만 바꾸는 이유(FR-9), 머리를 대문자로 쓰지 않는 이유(NFR-2) |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |

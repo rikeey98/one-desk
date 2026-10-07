@@ -105,6 +105,7 @@ function renderDock(
             draftPrompt=""
             draftCwd={null}
             selectedRepoId={null}
+            onClearRepoFilter={vi.fn()}
             focusConversationId={focusConversationId}
             onFocusConsumed={vi.fn()}
           />
@@ -599,7 +600,7 @@ describe('Dock workspace 전환', () => {
     return {
       runs: [], error: null, workspaceId: 'w1', workspaces, repos, reposError: null,
       queue: null, queueError: null, onChangeLimit: vi.fn(), chips: [], onRemoveChip: vi.fn(),
-      onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null,
+      onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null, onClearRepoFilter: vi.fn(),
       focusConversationId: null, onFocusConsumed: vi.fn(),
       ...over
     }
@@ -1023,7 +1024,7 @@ describe('Dock 헤더 — 토글·최대화·Esc', () => {
     const props: Parameters<typeof Dock>[0] = {
       runs: [], error: null, workspaceId: 'w1', workspaces, repos, reposError: null,
       queue: { running: 0, limit: 3, waiting: 0 }, queueError: null, onChangeLimit: vi.fn(),
-      chips: [], onRemoveChip: vi.fn(), onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null,
+      chips: [], onRemoveChip: vi.fn(), onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null, onClearRepoFilter: vi.fn(),
       focusConversationId: null, onFocusConsumed: vi.fn()
     }
     render(
@@ -1099,7 +1100,7 @@ describe('Dock 헤더 — 토글·최대화·Esc', () => {
     const props: Parameters<typeof Dock>[0] = {
       runs: [], error: null, workspaceId: 'w1', workspaces, repos, reposError: null,
       queue: null, queueError: null, onChangeLimit: vi.fn(), chips: [], onRemoveChip: vi.fn(),
-      onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null,
+      onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null, onClearRepoFilter: vi.fn(),
       focusConversationId: null, onFocusConsumed: vi.fn()
     }
     const drafts = createDraftStore()
@@ -1275,7 +1276,7 @@ describe('Dock 대화 헤더', () => {
               ]}
               error={null} workspaceId="w1" workspaces={workspaces} repos={repos} reposError={null}
               queue={null} queueError={null} onChangeLimit={vi.fn()} chips={[]} onRemoveChip={vi.fn()}
-              onRunStarted={vi.fn()} draftPrompt="" draftCwd={null} selectedRepoId={null}
+              onRunStarted={vi.fn()} draftPrompt="" draftCwd={null} selectedRepoId={null} onClearRepoFilter={vi.fn()}
               focusConversationId="a1" onFocusConsumed={vi.fn()}
             />
           </DraftProvider>
@@ -1296,7 +1297,7 @@ describe('Dock 대화 헤더', () => {
       runs: [makeRun({ id: 'a1', rootRunId: 'a1', status: 'succeeded', cwd: '/tmp/pay-svc', userPrompt: '결제 대화' })],
       error: null, workspaceId: 'w1', workspaces, repos: named, reposError: null,
       queue: null, queueError: null, onChangeLimit: vi.fn(), chips: [], onRemoveChip: vi.fn(),
-      onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null,
+      onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null, onClearRepoFilter: vi.fn(),
       focusConversationId: 'a1', onFocusConsumed: vi.fn()
     }
     render(
@@ -1366,5 +1367,97 @@ describe('Dock 이슈 줄 (conversation-issue FR-28)', () => {
   it('focusConversationId로 연 대화가 이슈 줄 안에 있으면 그 줄을 펼친다', () => {
     renderDock(runs, 'c1')
     expect(screen.getByRole('button', { name: '로그인 토큰 만료 대화 2개' })).toHaveAttribute('aria-expanded', 'true')
+  })
+})
+
+describe('repo 구획과 사이드바 거름 (docs/sdlc/dock-repo-sections/)', () => {
+  const twoRepos: Repo[] = [
+    { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, createdAt: 0 },
+    { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 1, createdAt: 0 }
+  ]
+  const runs = [
+    makeRun({ id: 'w-new', cwd: '/tmp/web', userPrompt: 'web 최근 대화', status: 'succeeded', createdAt: 50 }),
+    makeRun({ id: 'x', cwd: '/elsewhere', userPrompt: '등록 안 된 곳', status: 'succeeded', createdAt: 40 }),
+    makeRun({ id: 'a-run', cwd: '/tmp/api', userPrompt: 'api 도는 대화', status: 'running', createdAt: 30 }),
+    makeRun({ id: 'w-old', cwd: '/tmp/web', userPrompt: 'web 옛 대화', status: 'succeeded', createdAt: 20 })
+  ]
+
+  function renderSections(opts: { selectedRepoId?: string | null; focus?: string | null; onClear?: () => void; list?: Run[] } = {}) {
+    return render(
+      <ClientProvider client={makeClient()}>
+        <RunEventProvider store={createRunEventStore()}>
+          <DraftProvider store={createDraftStore()}>
+            <Dock
+              runs={opts.list ?? runs} error={null} workspaceId="w1" workspaces={workspaces} repos={twoRepos}
+              reposError={null} queue={null} queueError={null} onChangeLimit={vi.fn()} chips={[]} onRemoveChip={vi.fn()}
+              onRunStarted={vi.fn()} draftPrompt="" draftCwd={null} selectedRepoId={opts.selectedRepoId ?? null}
+              onClearRepoFilter={opts.onClear ?? vi.fn()}
+              focusConversationId={opts.focus ?? null} onFocusConsumed={vi.fn()}
+            />
+          </DraftProvider>
+        </RunEventProvider>
+      </ClientProvider>
+    )
+  }
+
+  const titles = () => [...document.querySelectorAll('.dock-conv-list .dock-section-name, .dock-conv-list .dock-conv-title')]
+    .map((el) => el.textContent)
+
+  beforeEach(() => { localStorage.clear() })
+
+  it('최근 활동순 repo 구획으로 나누고 기타는 맨 아래, 구획 안 줄은 repo 이름을 쓰지 않는다 (FR-3·4)', () => {
+    renderSections()
+    expect(titles()).toEqual(['web', 'web 최근 대화', 'web 옛 대화', 'api', 'api 도는 대화', '기타', '등록 안 된 곳'])
+    const row = screen.getByText('web 최근 대화').closest('.dock-conv')!
+    expect(row.querySelector('.dock-conv-meta')!.textContent).not.toContain('web')
+  })
+
+  it('구획이 하나뿐이면 머리 없이 그대로다 (FR-5)', () => {
+    renderSections({ list: [runs[0]!, runs[3]!] })
+    expect(document.querySelector('.dock-section')).toBeNull()
+    expect(screen.getByText('web 최근 대화').closest('.dock-conv')!.querySelector('.dock-conv-meta')!.textContent).toContain('web')
+  })
+
+  it('구획을 접으면 줄이 숨고, 접힌 머리에 실행 중이 보이며, 다시 마운트해도 기억한다 (FR-6·7)', async () => {
+    const { unmount } = renderSections()
+    const api = screen.getByRole('button', { name: 'api 대화 묶음' })
+    expect(api).toHaveAttribute('aria-expanded', 'true')
+    expect(within(api).queryByRole('img', { name: '실행 중' })).toBeNull()
+    await userEvent.click(api)
+    expect(api).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('api 도는 대화')).toBeNull()
+    expect(within(api).getByRole('img', { name: '실행 중' })).toBeInTheDocument()
+    unmount()
+    renderSections()
+    expect(screen.getByRole('button', { name: 'api 대화 묶음' })).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('"대화 열기"로 연 대화가 접힌 구획 안이면 그 구획을 편다 (FR-7)', async () => {
+    const { unmount } = renderSections()
+    await userEvent.click(screen.getByRole('button', { name: 'api 대화 묶음' }))
+    unmount()
+    renderSections({ focus: 'a-run' })
+    expect(screen.getByRole('button', { name: 'api 대화 묶음' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('api 도는 대화', { selector: '.dock-conv-title' })).toBeInTheDocument()
+  })
+
+  it('사이드바 repo를 고르면 그 repo의 대화만, 머리 없이, 거름 줄과 풀기 (FR-8·11)', async () => {
+    const onClear = vi.fn()
+    renderSections({ selectedRepoId: 'r2', onClear })
+    expect(titles()).toEqual(['web 최근 대화', 'web 옛 대화'])
+    expect(screen.getByRole('status')).toHaveTextContent('web 대화만')
+    await userEvent.click(screen.getByRole('button', { name: 'repo 거름 풀기' }))
+    expect(onClear).toHaveBeenCalledOnce()
+  })
+
+  it('거름은 보기만 바꾼다 — 열려 있던 대화가 거름 밖이어도 그대로 열려 있다 (FR-9)', () => {
+    renderSections({ selectedRepoId: 'r2', focus: 'a-run' })
+    expect(screen.getByText('api 도는 대화', { selector: '.turn-user' })).toBeInTheDocument()
+    expect(screen.queryByText('api 도는 대화', { selector: '.dock-conv-title' })).toBeNull()
+  })
+
+  it('거른 결과가 비면 안내한다 (FR-10)', () => {
+    renderSections({ selectedRepoId: 'r1', list: [runs[0]!] })
+    expect(screen.getByText('api에서 나눈 대화가 없습니다')).toBeInTheDocument()
   })
 })

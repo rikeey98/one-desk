@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { contextOf, conversationIdOf, foldByIssue, groupConversations, titleOf } from './conversation'
-import type { Run } from '@shared/models'
+import {
+  contextOf, conversationIdOf, filterByRepo, foldByIssue, groupConversations, repoOfConversation, sectionByRepo, titleOf
+} from './conversation'
+import type { Repo, Run } from '@shared/models'
 
 function makeRun(over: Partial<Run> & { id: string }): Run {
   return {
@@ -270,5 +272,55 @@ describe('foldByIssue', () => {
     const entries = foldByIssue(groupConversations(runs))
     expect(entries.filter((e) => e.kind === 'conversation').map((e) => e.kind === 'conversation' && e.conversation.id))
       .toEqual(['c3', 'c2'])
+  })
+})
+
+describe('repo로 나누기 (docs/sdlc/dock-repo-sections/)', () => {
+  const repo = (id: string, name: string, path: string): Repo =>
+    ({ id, workspaceId: 'ws', name, path, description: null, sortOrder: 0, createdAt: 0 })
+  const api = repo('r-api', 'api', '/work/api')
+  const web = repo('r-web', 'web', 'C:\\work\\Web')
+  const repos = [api, web]
+
+  it('repo는 뿌리 턴의 cwd로 정한다 — 끝 구분자는 무시하고, Windows 경로는 대소문자를 가리지 않는다 (FR-1)', () => {
+    const [conv] = groupConversations([
+      makeRun({ id: 'c1-2', rootRunId: 'c1', createdAt: 20, cwd: '/somewhere/else' }),
+      makeRun({ id: 'c1', createdAt: 10, cwd: '/work/api/' })
+    ])
+    expect(repoOfConversation(conv!, repos)).toBe(api)
+    const [win] = groupConversations([makeRun({ id: 'w', cwd: 'c:/WORK/web\\' })])
+    expect(repoOfConversation(win!, repos)).toBe(web)
+    // posix 경로는 대소문자가 다르면 다른 디렉토리다
+    const [posix] = groupConversations([makeRun({ id: 'p', cwd: '/work/API' })])
+    expect(repoOfConversation(posix!, repos)).toBeNull()
+  })
+
+  const runs = [
+    makeRun({ id: 'a2', createdAt: 50, cwd: '/work/api' }),
+    makeRun({ id: 'x1', createdAt: 45, cwd: '/tmp/unknown' }),
+    makeRun({ id: 'w1', createdAt: 40, cwd: 'C:\\work\\Web' }),
+    makeRun({ id: 'a1', createdAt: 30, cwd: '/work/api', issue: { id: 'i', title: '이슈' } }),
+    makeRun({ id: 'a0', createdAt: 20, cwd: '/work/api', issue: { id: 'i', title: '이슈' } })
+  ]
+
+  it('구획은 가장 최근 활동순이고 기타는 늘 맨 아래, 구획 안은 최신순 그대로다 (FR-3·4)', () => {
+    const sections = sectionByRepo(groupConversations(runs), repos)
+    expect(sections.map((s) => s.key)).toEqual(['repo:r-api', 'repo:r-web', 'other'])
+    expect(sections[0]!.conversations.map((c) => c.id)).toEqual(['a2', 'a1', 'a0'])
+    expect(sections[2]!.repo).toBeNull()
+  })
+
+  it('이슈 접기는 구획 안에서 적용된다 — 다른 repo의 같은 이슈 대화와 묶이지 않는다 (FR-4)', () => {
+    const mixed = [
+      makeRun({ id: 'm2', createdAt: 20, cwd: '/work/api', issue: { id: 'i', title: '이슈' } }),
+      makeRun({ id: 'm1', createdAt: 10, cwd: 'C:\\work\\Web', issue: { id: 'i', title: '이슈' } })
+    ]
+    const sections = sectionByRepo(groupConversations(mixed), repos)
+    expect(sections.map((s) => foldByIssue(s.conversations).map((e) => e.kind))).toEqual([['conversation'], ['conversation']])
+  })
+
+  it('거름은 그 repo의 대화만 남긴다 (FR-8)', () => {
+    expect(filterByRepo(groupConversations(runs), repos, 'r-web').map((c) => c.id)).toEqual(['w1'])
+    expect(filterByRepo(groupConversations(runs), repos, 'gone')).toEqual([])
   })
 })
