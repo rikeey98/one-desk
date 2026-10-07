@@ -4,7 +4,7 @@ import { planUsageView } from '../planUsage'
 import { RenameField } from './RenameField'
 import { DeleteByName } from './DeleteByName'
 import { useClient } from '../client/ClientProvider'
-import { IconChart, IconPencil, IconTrash } from './icons'
+import { IconChart, IconInbox, IconPencil, IconSettings, IconTrash } from './icons'
 import type { InboxCounts, McpStatus, PlanUsage, Workspace } from '@shared/models'
 
 /** workspace 목록은 App이 useWorkspaces()로 한 번만 조회해 내려준다 — 이 컴포넌트가
@@ -64,12 +64,17 @@ export function Sidebar({
 
   return (
     <nav className="sidebar">
+      {/* workspace를 가로지르는 화면 둘. 아이콘 타일이 있어야 제목이 아니라 누르는 줄로 읽힌다(2026-10-07 —
+          굵은 글자만 있던 "인박스"는 구획 제목처럼 보였다). 설정도 같은 모양이다. */}
+      <div className="sidebar-nav">
       <button
         type="button"
-        className={view === 'inbox' ? 'inbox-link inbox-link-selected' : 'inbox-link'}
+        className={view === 'inbox' ? 'inbox-link nav-item nav-item-selected inbox-link-selected' : 'inbox-link nav-item'}
+        aria-current={view === 'inbox' ? 'page' : undefined}
         onClick={onSelectInbox}
       >
-        인박스
+        <span className="nav-icon"><IconInbox /></span>
+        <span className="nav-label">인박스</span>
         {/* 조용히 배지를 숨기면 "처리할 것이 없다"와 "못 읽었다"가 구별되지 않는다.
             인박스를 열지 않아도 실패한 사실이 보여야 한다 (설계 §9). */}
         {countsError
@@ -79,13 +84,14 @@ export function Sidebar({
       {/* 인박스와 같은 줄 모양이다 — 둘 다 workspace를 가로지르는 화면이다. 배지는 없다 */}
       <button
         type="button"
-        className={view === 'report' ? 'inbox-link report-link-nav inbox-link-selected' : 'inbox-link report-link-nav'}
+        className={view === 'report' ? 'inbox-link nav-item nav-item-selected inbox-link-selected' : 'inbox-link nav-item'}
         aria-current={view === 'report' ? 'page' : undefined}
         onClick={onSelectReport}
       >
-        <IconChart />
-        리포트
+        <span className="nav-icon"><IconChart /></span>
+        <span className="nav-label">리포트</span>
       </button>
+      </div>
       <div className="sidebar-label">Workspaces</div>
       <AddForm placeholder="새 workspace 이름…" onSubmit={addWorkspace} />
       {error && <div role="alert" className="form-error">{error}</div>}
@@ -156,10 +162,12 @@ export function Sidebar({
 
       <button
         type="button"
-        className={view === 'settings' ? 'settings-link settings-link-selected' : 'settings-link'}
+        className={view === 'settings' ? 'settings-link nav-item nav-item-selected settings-link-selected' : 'settings-link nav-item'}
+        aria-current={view === 'settings' ? 'page' : undefined}
         onClick={onSelectSettings}
       >
-        설정
+        <span className="nav-icon"><IconSettings /></span>
+        <span className="nav-label">설정</span>
       </button>
       <McpStatusRow status={mcpStatus} />
       {planUsage && <PlanUsageRow usage={planUsage} />}

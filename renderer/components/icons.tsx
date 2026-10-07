@@ -164,3 +164,13 @@ export function IconCalendar(props: SVGProps<SVGSVGElement>) {
 export function IconSparkle(props: SVGProps<SVGSVGElement>) {
   return <Icon {...props}><path d="M8 2.5 9.3 6.7 13.5 8l-4.2 1.3L8 13.5 6.7 9.3 2.5 8l4.2-1.3z" /></Icon>
 }
+
+/** 사이드바의 `인박스` — 받은 편지함 쟁반 */
+export function IconInbox(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><path d="M2.5 9h3l1 2h3l1-2h3" /><path d="M4 3.5h8l1.5 5.5v3.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V9z" /></Icon>
+}
+
+/** 사이드바의 `설정` — 조절 막대 둘(톱니는 16px에서 뭉개진다) */
+export function IconSettings(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><path d="M2.5 5h6M11.5 5h2M2.5 11h2M7.5 11h6" /><circle cx="10" cy="5" r="1.5" /><circle cx="6" cy="11" r="1.5" /></Icon>
+}

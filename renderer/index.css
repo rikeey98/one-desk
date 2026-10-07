@@ -98,6 +98,20 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 
 .app { display: flex; height: 100vh; font-family: system-ui, sans-serif; background: var(--bg-canvas); color: var(--text); }
 .sidebar { flex: 0 0 236px; min-width: 0; overflow-x: hidden; overflow-y: auto; display: flex; flex-direction: column; background: transparent; border-right: 1px solid var(--border); padding: 12px 10px; }
+/* 사이드바 위의 화면 이동(인박스·리포트)과 아래의 설정 — 아이콘 타일 + 글자. 타일은 쉬는 동안에도 테두리가 있어
+   제목이 아니라 누르는 줄로 읽히고, 고르면 강조색으로 찬다(2026-10-07). 줄 자체의 hover·선택 면은 workspace 줄과 같다. */
+.sidebar-nav { display: flex; flex-direction: column; gap: 2px; padding-bottom: 10px; margin-bottom: 2px; border-bottom: 1px solid var(--border); }
+.nav-item.inbox-link, .nav-item.settings-link { gap: 9px; padding: 5px 8px 5px 6px; font-weight: 500; color: var(--text); }
+.nav-icon { flex: 0 0 auto; width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--text-secondary); box-shadow: var(--shadow-panel); transition: background .12s, border-color .12s, color .12s; }
+.nav-icon svg { width: 14px; height: 14px; }
+.nav-label { flex: 1; min-width: 0; text-align: left; }
+.nav-item:hover .nav-icon { border-color: var(--border-strong); color: var(--text); }
+.nav-item:active .nav-icon { transform: translateY(.5px); }
+.nav-item-selected, .nav-item-selected:hover { background: var(--accent-bg); color: var(--accent-text); font-weight: 600; }
+.nav-item-selected .nav-icon, .nav-item-selected:hover .nav-icon { background: var(--accent); border-color: var(--accent-strong); color: var(--on-accent); }
+.settings-link.nav-item { color: var(--text-secondary); }
+.settings-link.nav-item-selected { color: var(--accent-text); }
+@media (prefers-reduced-motion: reduce) { .nav-item:active .nav-icon { transform: none; } }
 .sidebar-label { font-size: .6875rem; letter-spacing: .07em; text-transform: uppercase; color: var(--text-muted); font-weight: 700; margin: 10px 0 6px; }
 .sidebar ul { list-style: none; margin: 0; padding: 0; }
 .ws { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; padding: 6px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text); cursor: pointer; font: inherit; font-size: .8125rem; transition: background .12s; }
@@ -971,8 +985,6 @@ button.tl-tool:hover, button.tl-file:hover { background: var(--bg-hover); }
 /* ===== 기간 리포트 (docs/sdlc/period-report/) =====
    본문 전체를 쓰는 패널 하나. 헤더(보기 탭·내보내기)는 고정이고 스크롤은 내용 영역만 한다.
    색은 전부 토큰이다 — 하루 막대의 세 색도 상태 토큰(--neutral·--success·--accent-border)을 빌린다. */
-.report-link-nav svg { color: var(--text-muted); }
-.report-link-nav.inbox-link-selected svg { color: var(--accent-text); }
 .report-panel { flex: 1; min-height: 0; }
 .report-header { flex-wrap: wrap; row-gap: 6px; }
 .report-tabs { display: inline-flex; gap: 2px; padding: 2px; margin-left: 6px; border-radius: 7px; background: var(--bg-muted); }

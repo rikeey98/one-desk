@@ -153,7 +153,7 @@ UI 글자 속의 **경로와 mcp 도구 이름도 모노다** — 공용 클래�
 
 회색 캔버스(`--bg-canvas`) 위에 흰 패널(`--bg`)이 놓인다 — 사이드바는 캔버스 색 그대로다.
 패널·도크는 10px 모서리와 1px 테두리, 아주 약한 그림자(`--shadow-panel`) 하나로 떠 있다.
-사이드바(236px 고정) + 본문(flex) + 아래 도크. 사이드바는 인박스 · workspace 목록이고, 고른
+사이드바(236px 고정) + 본문(flex) + 아래 도크. 사이드바는 맨 위 화면 이동 묶음(인박스 · 리포트 — 아래 1px 선으로 끊는다) · workspace 목록 · 설정이고, 고른
 workspace 아래에 그 workspace의 repo가 트리처럼 들여쓰기로 붙는다(등록 폼은 "repo 등록"으로 펼친다).
 본문은 곧바로 세 패널이다.
 간격은 4·6·8·12px 네 단계. 고정 폭은 사이드바와 `panel-split-list`(200px), 도크의 대화 목록 열(196px)뿐이고 나머지는
@@ -203,6 +203,10 @@ workspace 아래에 그 workspace의 repo가 트리처럼 들여쓰기로 붙는
   `opacity: .4` — **글자를 흐리는 데 opacity를 쓰지 않는다**(쓰는 곳은 disabled와, hover·포커스에
   드러나는 줄 끝 아이콘의 0/1뿐이다). 흐린 글자는 토큰(`--text-muted`/`--text-secondary`)이다. Chromium이 disabled `<select>`를 통째로 반투명하게 그리므로 잠긴 알약은
   `opacity: 1`로 그 흐림을 걷고 토큰으로 흐린다.
+- **사이드바 화면 이동**(인박스·리포트·설정, `.nav-item`): 24px 아이콘 타일(7px, `--bg` + `--border` + `--shadow-panel`) + 500 글자.
+  타일이 쉬는 동안에도 테두리를 가져 제목이 아니라 누르는 줄로 읽힌다 — 굵은 글자만 있던 "인박스"는 구획 제목처럼 보였다(2026-10-07).
+  hover는 줄 `--bg-hover` + 타일 `--border-strong`, 선택은 줄 `--accent-bg` + 타일이 `--accent`로 찬다(아이콘 `--on-accent`).
+  `aria-current="page"`. workspace 줄에는 타일이 없다 — 화면이 아니라 범위를 고르는 줄이다.
 - **입력**: 흰 배경, `--border` 테두리, 5px 모서리. 포커스 링은 전역 `:focus-visible`이
   `--focus-ring` 2px로 그린다 — 브라우저 기본 링을 그대로 두지 않는다.
 - **칩**: 맥락 칩(`.chip`)은 통째로 "빼기" 버튼이라 hover에서 빨간 톤으로 바뀐다.
