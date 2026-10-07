@@ -17,9 +17,10 @@ import { runCli } from './agent/exec'
 import { probeCommands } from './commands/probe'
 import { describeCommands } from './commands/describe'
 import type { GlobalRoots } from './db/repositories/setting'
-import type { UpdateRepoInput, AppPaths, FileSearchInput } from '@shared/models'
+import type { UpdateRepoInput, AppPaths, FileSearchInput, BuildReportInput, ReportData } from '@shared/models'
 import { PANEL_KINDS, type PanelScope } from '@shared/panelWindow'
 import { createFileService } from './files/service'
+import { buildReport } from './reports/build'
 import { createIssueRepository } from './db/repositories/issue'
 import { createMemoRepository } from './db/repositories/memo'
 import { createRunRepository } from './db/repositories/run'
@@ -485,6 +486,19 @@ export function createCore(opts: CoreOptions) {
     memos,
     runs,
     execution,
+
+    /**
+     * 기간 리포트 (`docs/sdlc/period-report/` FR-1). workspace를 넘어 읽는 유일한 길이고, MCP `deps`에는
+     * 넘기지 않는다 — agent는 여전히 자기 workspace만 본다(전체 설계 §8).
+     */
+    reports: {
+      build: (input: BuildReportInput): ReportData => buildReport({
+        workspaces: () => workspaces.list(),
+        issues: (workspaceId) => issues.list({ workspaceId }),
+        memos: (workspaceId) => memos.list({ workspaceId }),
+        runs: (workspaceId) => runs.list(workspaceId)
+      }, input)
+    },
 
     /** 테스트용. MCP 서버가 아직 안 떴으면 null. */
     mcpPort: (): number | null => mcp.port(),

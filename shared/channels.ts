@@ -19,6 +19,7 @@ export const CHANNELS = {
   issuesUpdateIfUnchanged: 'issues:updateIfUnchanged',
   issuesRemove: 'issues:remove',
   issuesMarkSeen: 'issues:markSeen',
+  reportsBuild: 'reports:build',
   memosList: 'memos:list',
   memosCreate: 'memos:create',
   memosUpdate: 'memos:update',

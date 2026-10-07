@@ -8,6 +8,7 @@ import { DraftProvider } from './store/DraftContext'
 import { createDraftStore } from './store/drafts'
 import { conversationIdOf } from './conversation'
 import App from './App'
+import { POLISH_PROMPT } from './components/ReportPanel'
 import type { OneDeskClient } from '@shared/client'
 import type {
   CreateIssueInput, CreateMemoInput, CreateRepoInput, CreateWorkspaceInput,
@@ -240,6 +241,30 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
       // IssueDetail이 마운트 때마다 부른다 (Task 8). 여기서는 열람 기록 자체를
       // 검증하지 않으므로 목만 채워 둔다.
       markSeen: vi.fn(async () => {})
+    },
+    // 기간 리포트 (docs/sdlc/period-report/) — 배선만 본다: 고른 workspace의 이슈를 기간과 무관하게 싣는다
+    reports: {
+      build: vi.fn(async (input: { workspaceIds: string[]; since: number; until: number }) => ({
+        since: input.since,
+        until: input.until,
+        workspaces: input.workspaceIds.flatMap((id) => {
+          const w = workspaces.find((x) => x.id === id)
+          if (!w) return []
+          return [{
+            id, name: w.name,
+            issues: issues.filter((i) => i.workspaceId === id).map((i) => ({
+              id: i.id, title: i.title, status: i.status, priority: i.priority,
+              createdAt: input.since, startedAt: null, closedAt: null, updatedAt: input.since
+            })),
+            memos: [],
+            conversations: started.filter((r) => r.workspaceId === id && (r.rootRunId ?? r.id) === r.id).map((r) => ({
+              id: r.id, title: r.userPrompt, status: r.status, needsAnswer: r.needsAnswer, closed: false,
+              issueId: null, issueTitle: null, turns: [{ createdAt: input.since, startedAt: null, endedAt: null }],
+              lastAnswer: null
+            }))
+          }]
+        })
+      }))
     },
     memos: {
       list: vi.fn(async () => memos),
@@ -1671,5 +1696,58 @@ describe('App — 메모 repo 배선', () => {
     await waitFor(() => expect(client.memos.updateIfUnchanged).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'm1', repoIds: ['r1'] })
     ))
+  })
+})
+
+describe('기간 리포트 배선 (docs/sdlc/period-report/ FR-19·FR-24·FR-25)', () => {
+  it('사이드바의 리포트가 리포트 화면을 열고, 이슈 줄을 누르면 그 workspace에서 그 이슈가 열린다', async () => {
+    const client = makeClient({}, { issues: [makeIssue({ id: 'i1', title: '리포트의 이슈' })] })
+    renderApp(client)
+    await userEvent.click(screen.getByRole('button', { name: '리포트' }))
+    const doc = await screen.findByRole('article', { name: '리포트 문서' })
+    expect(client.reports.build).toHaveBeenCalledWith(expect.objectContaining({ workspaceIds: ['w1'] }))
+
+    await userEvent.click(within(doc).getByRole('button', { name: /리포트의 이슈/ }))
+    expect(screen.queryByRole('region', { name: '리포트' })).toBeNull()
+    expect(await screen.findByRole('region', { name: 'Issues' })).toHaveClass('panel-expanded')
+    expect(screen.getByRole('button', { name: /^ws1( \d+)?$/ })).toHaveClass('ws-selected')
+  })
+
+  it('리포트에서 대화를 누르면 그 대화가 도크에 열린다', async () => {
+    const run = makeRun({ id: 'conv-1', userPrompt: '리포트의 대화' })
+    const client = makeClient({}, { repos: [makeRepo('r1', 'api', '/tmp/api')], inbox: [run] })
+    renderApp(client)
+    await userEvent.click(screen.getByRole('button', { name: '리포트' }))
+    const doc = await screen.findByRole('article', { name: '리포트 문서' })
+    await userEvent.click(within(doc).getByRole('button', { name: /리포트의 대화/ }))
+    expect(await screen.findByText('리포트의 대화', { selector: '.turn-user' })).toBeInTheDocument()
+  })
+
+  it('조건은 이슈를 열러 갔다 돌아와도 남는다', async () => {
+    const client = makeClient({}, { issues: [makeIssue({ id: 'i1', title: '리포트의 이슈' })] })
+    renderApp(client)
+    await userEvent.click(screen.getByRole('button', { name: '리포트' }))
+    await screen.findByRole('article', { name: '리포트 문서' })
+    await userEvent.click(screen.getByRole('button', { name: '지난 30일' }))
+    await userEvent.click(within(screen.getByRole('article', { name: '리포트 문서' })).getByRole('button', { name: /리포트의 이슈/ }))
+    await userEvent.click(screen.getByRole('button', { name: '리포트' }))
+    expect(await screen.findByRole('button', { name: '지난 30일' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('agent에게 다듬기는 메모를 저장해 맥락에 담고 새 대화 칸에 초안을 채운다 — 보내지 않는다', async () => {
+    const client = makeClient({}, {
+      repos: [makeRepo('r1', 'api', '/tmp/api')],
+      issues: [makeIssue({ id: 'i1', title: '리포트의 이슈' })]
+    })
+    renderApp(client)
+    await userEvent.click(screen.getByRole('button', { name: '리포트' }))
+    await screen.findByRole('article', { name: '리포트 문서' })
+    await userEvent.click(screen.getByRole('button', { name: 'agent에게 다듬기' }))
+
+    await waitFor(() => expect(client.memos.create).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: 'w1' })))
+    const title = (client.memos.create as unknown as { mock: { calls: [{ title: string }][] } }).mock.calls[0]![0].title
+    expect(await screen.findByRole('button', { name: `${title} 맥락에서 빼기` })).toBeInTheDocument()
+    expect(await screen.findByPlaceholderText(/무엇을 시킬지/)).toHaveValue(POLISH_PROMPT)
+    expect(client.runs.start).not.toHaveBeenCalled()
   })
 })

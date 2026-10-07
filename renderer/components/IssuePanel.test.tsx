@@ -33,7 +33,8 @@ function renderPanel(issues: Issue[], over: {
   repos?: Repo[]
 } = {}): PanelMocks {
   const mocks: PanelMocks = {
-    list: vi.fn(async () => issues),
+    // 실제 IPC처럼 매번 새 배열이다 — 같은 배열을 돌려주면 React가 갱신을 건너뛰어 '지우면 닫힌다'를 못 본다
+    list: vi.fn(async () => [...issues]),
     create: vi.fn(),
     update: vi.fn(async (i: { id: string }) => makeIssue({ id: i.id })),
     markSeen: vi.fn(async () => {}),
@@ -482,7 +483,18 @@ describe('IssuePanel 목록 삭제', () => {
       issues.splice(issues.findIndex((i) => i.id === id), 1)
     })
     await userEvent.click(await screen.findByRole('button', { name: 'A 삭제' }))
+    // 지우기 전에는 접지 않았다 — 마운트 순간(목록이 비어 있을 때) 접던 예전 동작이 이 테스트를 공짜로 통과시켰다
+    expect(opened).toEqual([])
     await userEvent.click(screen.getByRole('button', { name: '정말 삭제?' }))
     await waitFor(() => expect(opened).toContain('a'))
+  })
+
+  it('목록이 오기 전에는 열린 이슈를 접지 않는다 — 다른 workspace에서 건너와 연 항목 (period-report FR-19)', async () => {
+    // 막 마운트돼 목록이 비어 있는 순간에 접으면, 리포트에서 연 항목이 목록이 오기도 전에 닫힌다
+    const opened: string[] = []
+    renderPanel([makeIssue({ id: 'a', title: 'A' })], { openId: 'a', expanded: true, onOpen: (id) => opened.push(id) })
+    expect(await screen.findAllByText('A')).not.toHaveLength(0)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(opened).toEqual([])
   })
 })

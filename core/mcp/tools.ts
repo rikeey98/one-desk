@@ -10,6 +10,7 @@ import type { RunContext } from './host'
 import type { Issue, IssueStatus, IssueSource, IssueKind, IssuePriority, Memo } from '@shared/models'
 import { parseBound, toIso } from './time'
 import { summarizeConversations, conversationDetail } from './conversations'
+import { issueTouchedIn, memoTouchedIn } from '../period/range'
 
 export interface McpHostDeps {
   repos: RepoRepository
@@ -126,14 +127,6 @@ function readRange(args: { since?: string | undefined; until?: string | undefine
   }
 }
 
-/** 시각 중 하나라도 `[since, until)` 안이면 그 기간에 "무슨 일이 있었던" 항목이다 (FR-6) */
-function touchedIn(times: Array<number | null>, range: { since?: number; until?: number }): boolean {
-  if (range.since === undefined && range.until === undefined) return true
-  return times.some((t) => t !== null
-    && (range.since === undefined || t >= range.since)
-    && (range.until === undefined || t < range.until))
-}
-
 const ISSUE_STATUS_VALUES = ['open', 'doing', 'done'] as const
 
 /**
@@ -185,7 +178,7 @@ export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
   }, async ({ status, repoId, since, until }) => reply(() => {
     const range = readRange({ since, until })
     const rows = deps.issues.list({ workspaceId: ctx.workspaceId, ...(repoId ? { repoId } : {}) })
-      .filter((r) => touchedIn([r.createdAt, r.startedAt, r.closedAt, r.updatedAt], range))
+      .filter((r) => issueTouchedIn(r, range))
     return (status ? rows.filter((r) => r.status === status) : rows).map(issueSummary)
   }))
 
@@ -203,7 +196,7 @@ export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
   }, async ({ repoId, since, until }) => reply(() => {
     const range = readRange({ since, until })
     return deps.memos.list({ workspaceId: ctx.workspaceId, ...(repoId ? { repoId } : {}) })
-      .filter((r) => touchedIn([r.createdAt, r.updatedAt], range))
+      .filter((r) => memoTouchedIn(r, range))
       .map(memoSummary)
   }))
 

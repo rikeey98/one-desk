@@ -1,6 +1,8 @@
 import { representativeTurn } from '@shared/inbox'
 import type { Run, RunStatus } from '@shared/models'
 import { toIso } from './time'
+import { groupTurns, conversationSpan, spanOverlaps } from '../period/conversations'
+import type { Range } from '../period/range'
 
 /** 제목이 없을 때 첫 지시에서 가져오는 글자 수 */
 const TITLE_CHARS = 60
@@ -30,11 +32,6 @@ function clip(text: string, chars: number): string {
   return text.length > chars ? `${text.slice(0, chars)}…` : text
 }
 
-/** 턴의 마지막 활동 시각 — 끝났으면 끝난 때, 아니면 시작한 때, 그것도 없으면 만든 때 */
-function lastActivity(run: Run): number {
-  return run.endedAt ?? run.startedAt ?? run.createdAt
-}
-
 /**
  * workspace의 run(최신순 아니어도 된다)을 대화로 묶어 요약한다. 최신 활동순.
  *
@@ -45,25 +42,17 @@ function lastActivity(run: Run): number {
  * 기간(`since`·`until`, ms)은 `[시작, 마지막 활동]`이 `[since, until)`과 겹치면 든다.
  */
 export function summarizeConversations(
-  runs: readonly Run[], range: { since?: number; until?: number } = {}
+  runs: readonly Run[], range: Range = {}
 ): ConversationSummary[] {
-  const groups = new Map<string, Run[]>()
-  for (const run of runs) {
-    const key = run.rootRunId ?? run.id
-    const list = groups.get(key) ?? []
-    list.push(run)
-    groups.set(key, list)
-  }
+  const groups = groupTurns(runs)
 
   const rows: Array<{ at: number; summary: ConversationSummary }> = []
   for (const [rootId, turns] of groups) {
     const latestFirst = [...turns].sort((a, b) => b.createdAt - a.createdAt)
     const root = turns.find((t) => t.id === rootId) ?? latestFirst[latestFirst.length - 1]!
     const state = representativeTurn(latestFirst)!
-    const startedAt = Math.min(...turns.map((t) => t.createdAt))
-    const lastAt = Math.max(...turns.map(lastActivity))
-    if (range.since !== undefined && lastAt < range.since) continue
-    if (range.until !== undefined && startedAt >= range.until) continue
+    const { startedAt, lastAt } = conversationSpan(turns)
+    if (!spanOverlaps({ startedAt, lastAt }, range)) continue
 
     const firstLine = root.userPrompt.split('\n')[0] ?? ''
     rows.push({

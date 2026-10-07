@@ -18,13 +18,16 @@ import { useClient } from './client/ClientProvider'
 import { chipKey, type ContextChip } from './context'
 import { conversationIdOf, groupConversations, type IssueConversations } from './conversation'
 import { confirmSeen } from './conversationSeen'
-import type { AssignedIssue, Run } from '@shared/models'
+import type { AssignedIssue, Memo, Run } from '@shared/models'
+import { ReportPanel, initialReportQuery, POLISH_PROMPT, type ReportQuery } from './components/ReportPanel'
 
 export default function App() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const [repoId, setRepoId] = useState<string | null>(null)
   const [chips, setChips] = useState<ContextChip[]>([])
-  const [view, setView] = useState<'workspace' | 'inbox' | 'settings'>('workspace')
+  const [view, setView] = useState<'workspace' | 'inbox' | 'report' | 'settings'>('workspace')
+  // 리포트의 조건 (docs/sdlc/period-report/ FR-19) — 리포트에서 이슈를 열러 갔다 돌아와도 그대로다
+  const [reportQuery, setReportQuery] = useState<ReportQuery>(() => initialReportQuery(Date.now()))
   // 인박스의 "대화 열기"·"다시 실행"이 세운다. Dock은 화면 전환 때 다시 마운트돼
   // 내부 상태가 초기화되므로, 어느 대화를 열지 여기서 지정해야 한다.
   // Dock에는 run이 아니라 그 run이 속한 대화 id로 직접 내려간다 — 변환이 필요 없다.
@@ -206,6 +209,44 @@ export default function App() {
     setFocusConversationId(conversationIdOf(run))
   }
 
+  /**
+   * 리포트의 줄에서 그 항목으로 (period-report FR-19). workspace를 고르는 것(맥락·열린 항목을 비운다)이 먼저고,
+   * 여는 것은 토글이 아니라 연다 — 같은 항목이 열려 있던 workspace로 돌아가도 닫히지 않는다.
+   */
+  function openFromReport(panel: 'issue' | 'memo') {
+    return (targetWorkspaceId: string, id: string) => {
+      selectWorkspace(targetWorkspaceId)
+      setOpenItem({ panel, id })
+    }
+  }
+
+  /** 인박스의 "대화 열기"와 같은 길이다 — run 대신 (workspace, 대화 id)를 받는다 */
+  function openReportConversation(targetWorkspaceId: string, conversationId: string) {
+    setWorkspaceId(targetWorkspaceId)
+    setRepoId(null)
+    setChips([])
+    setOpenItem(null)
+    setDraftIssue(null)
+    setView('workspace')
+    setDraftPrompt('')
+    setDraftCwd(null)
+    setFocusConversationId(conversationId)
+  }
+
+  /**
+   * `agent에게 다듬기` (period-report FR-24) — 저장한 리포트 메모를 맥락에 담고 그 workspace의 새 대화 칸에 지시 초안을
+   * 채운다. **보내지 않는다** — agent·권한·모델은 사람이 보고 보낸다. workspace를 넘는 데이터가 agent에게 가는 길은
+   * 사람이 누른 이 버튼이 만든 메모 하나뿐이다.
+   */
+  function polishReport(memo: Memo) {
+    selectWorkspace(memo.workspaceId)
+    setChips([{ type: 'memo', id: memo.id, label: memo.title }])
+    setDraftPrompt(POLISH_PROMPT)
+    setDraftCwd(null)
+    setFocusConversationId(null)
+    setFocusNew(true)
+  }
+
   function restart(run: Run) {
     goToRun(run)
     setDraftPrompt(run.userPrompt)
@@ -260,6 +301,7 @@ export default function App() {
         onSelect={selectWorkspace}
         view={view}
         onSelectInbox={() => setView('inbox')}
+        onSelectReport={() => setView('report')}
         onSelectSettings={() => setView('settings')}
         counts={inboxCounts}
         countsError={inboxError}
@@ -301,6 +343,19 @@ export default function App() {
             refreshRepos={refreshRepos}
             // 사이드바 하단 줄과 같은 인스턴스다 — 정보 탭이 다른 말을 하면 안 된다.
             mcpStatus={mcpStatus}
+          />
+        )}
+        {view === 'report' && (
+          <ReportPanel
+            // 사이드바·인박스와 같은 useWorkspaces 인스턴스다 — 새로 만든 workspace가 곧바로 든다
+            workspaces={workspaces}
+            query={reportQuery}
+            onQueryChange={setReportQuery}
+            targetWorkspaceId={workspaceId}
+            onOpenIssue={openFromReport('issue')}
+            onOpenConversation={openReportConversation}
+            onOpenMemo={openFromReport('memo')}
+            onPolish={polishReport}
           />
         )}
         {view === 'inbox' && (

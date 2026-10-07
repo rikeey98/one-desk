@@ -30,16 +30,17 @@ export function MemoPanel({
   onOpen: (id: string) => void
 }) {
   const client = useClient()
-  const { memos, error: listError, refresh } = useMemos(workspaceId, repoId)
+  const { memos, error: listError, refresh, loaded } = useMemos(workspaceId, repoId)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const open = openId ? memos.find((m) => m.id === openId) ?? null : null
 
   // 열린 항목이 목록에서 사라졌으면(지워졌거나 필터가 바뀌었으면) 접는다.
-  // 존재하지 않는 항목의 상세를 그리지 않는다 (설계 §8).
+  // 존재하지 않는 항목의 상세를 그리지 않는다 (설계 §8). **목록을 읽은 뒤에만 판정한다** — 막 마운트돼 목록이
+  // 비어 있는 순간에 접으면 다른 workspace에서 건너와 연 항목이 곧바로 닫힌다 (period-report FR-19).
   useEffect(() => {
-    if (openId && !open) onOpen(openId)
-  }, [openId, open, onOpen])
+    if (openId && loaded && !open) onOpen(openId)
+  }, [openId, open, onOpen, loaded])
 
   async function addMemo(text: string) {
     // 첫 줄이 제목, 나머지가 본문이다 (renderer/titleBody.ts) — 이슈의 추가 칸과 대칭이다.

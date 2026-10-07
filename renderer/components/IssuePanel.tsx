@@ -47,7 +47,7 @@ export function IssuePanel({
   onOpen: (id: string) => void
 }) {
   const client = useClient()
-  const { issues, error: listError, refresh } = useIssues(workspaceId, repoId)
+  const { issues, error: listError, refresh, loaded } = useIssues(workspaceId, repoId)
   const [axis, setAxis] = useState<GroupAxis>('priority')
   // 접힌 그룹의 키. **완료만 기본으로 접는다** — 나머지를 접으면 앱이 스스로 묻는 셈이
   // 되어 이 기능의 목적과 반대로 간다. 접는 것은 사용자가 한다.
@@ -56,10 +56,11 @@ export function IssuePanel({
   const open = openId ? issues.find((i) => i.id === openId) ?? null : null
 
   // 열린 항목이 목록에서 사라졌으면(지워졌거나 필터가 바뀌었으면) 접는다.
-  // 존재하지 않는 항목의 상세를 그리지 않는다 (설계 §8).
+  // 존재하지 않는 항목의 상세를 그리지 않는다 (설계 §8). **목록을 읽은 뒤에만 판정한다** — 막 마운트돼 목록이
+  // 비어 있는 순간에 접으면 다른 workspace에서 건너와 연 항목이 곧바로 닫힌다 (period-report FR-19).
   useEffect(() => {
-    if (openId && !open) onOpen(openId)
-  }, [openId, open, onOpen])
+    if (openId && loaded && !open) onOpen(openId)
+  }, [openId, open, onOpen, loaded])
 
   // 훑기 상태는 IssuePanel이 갖는다 — App.tsx에 올리지 않는다.
   // 다른 컴포넌트가 이 상태를 쓰지 않으므로 App의 openItem 계약이 그대로 남고,

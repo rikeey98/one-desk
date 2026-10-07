@@ -592,3 +592,63 @@ export interface CommandTarget {
   workspaceId: string
   cwd: string
 }
+
+/**
+ * 기간 리포트의 요청 (`docs/sdlc/period-report/` FR-1). `[since, until)`, epoch ms.
+ * 빈 `workspaceIds`는 빈 리포트다 — 전체를 뜻하지 않는다.
+ */
+export interface BuildReportInput {
+  workspaceIds: string[]
+  since: number
+  until: number
+}
+
+/** 기간 안에 손댄 이슈 — 본문은 싣지 않는다 (FR-4) */
+export interface ReportIssue {
+  id: string
+  title: string
+  status: IssueStatus
+  priority: IssuePriority | null
+  createdAt: number
+  startedAt: number | null
+  closedAt: number | null
+  updatedAt: number
+}
+
+export interface ReportMemo {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+}
+
+/** 기간과 겹친 대화. 상태는 대표 턴이다(`representativeTurn` — 인박스·도크·MCP와 같다) */
+export interface ReportConversation {
+  id: string
+  title: string
+  status: RunStatus
+  needsAnswer: boolean
+  closed: boolean
+  issueId: string | null
+  /** 할당된 이슈의 지금 이름 — 그 이슈가 리포트 기간 밖이어도 곁글로 쓴다(FR-8). 지워졌으면 null */
+  issueTitle: string | null
+  /** 오래된 순. 기간 밖의 턴도 담는다 — 기간 안의 것을 고르는 것은 화면의 투영이다 */
+  turns: Array<{ createdAt: number; startedAt: number | null; endedAt: number | null }>
+  /** 대표 턴의 답 앞 300자 (MCP `list_conversations`와 같은 길이) */
+  lastAnswer: string | null
+}
+
+export interface ReportWorkspace {
+  id: string
+  name: string
+  issues: ReportIssue[]
+  memos: ReportMemo[]
+  conversations: ReportConversation[]
+}
+
+export interface ReportData {
+  since: number
+  until: number
+  /** 요청한 순서. 없는 workspace는 빠진다 */
+  workspaces: ReportWorkspace[]
+}

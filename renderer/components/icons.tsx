@@ -134,3 +134,33 @@ export function IconCopy(props: SVGProps<SVGSVGElement>) {
 export function IconNewWindow(props: SVGProps<SVGSVGElement>) {
   return <Icon {...props}><path d="M5 2.5h8.5V10M5 2.5V5M13.5 10H11" /><rect x="2.5" y="5" width="8.5" height="8.5" rx="1" /></Icon>
 }
+
+/** 사이드바의 `리포트` (`docs/sdlc/period-report/` FR-13) — 높이가 다른 막대 넷 */
+export function IconChart(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><path d="M3 13V8.5M6.5 13V4M10 13V6.5M13.5 13V10" /></Icon>
+}
+
+/** 리포트의 "만듦" 사건 */
+export function IconCircle(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><circle cx="8" cy="8" r="4.5" /></Icon>
+}
+
+/** 리포트의 "시작" 사건 — 면이다(선 삼각은 꺾쇠와 헷갈린다) */
+export function IconPlay(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><path d="M5.5 4v8l6.5-4z" fill="currentColor" /></Icon>
+}
+
+/** 리포트의 대화 사건 — 말풍선 */
+export function IconChat(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><path d="M3 4h10v6.5H7.5L4.5 13v-2.5H3z" /></Icon>
+}
+
+/** 날짜 칸 */
+export function IconCalendar(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><rect x="2.5" y="3.5" width="11" height="10" rx="1.5" /><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" /></Icon>
+}
+
+/** 다듬기 — 반짝임 하나 */
+export function IconSparkle(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><path d="M8 2.5 9.3 6.7 13.5 8l-4.2 1.3L8 13.5 6.7 9.3 2.5 8l4.2-1.3z" /></Icon>
+}

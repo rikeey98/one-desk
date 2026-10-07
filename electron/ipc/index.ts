@@ -4,6 +4,7 @@ import { registerWorkspaceHandlers } from './workspaces'
 import { registerRepoHandlers } from './repos'
 import { registerIssueHandlers } from './issues'
 import { registerMemoHandlers } from './memos'
+import { registerReportHandlers } from './reports'
 import { registerAssetHandlers } from './assets'
 import { registerCommandHandlers } from './commands'
 import { registerFileHandlers } from './files'
@@ -35,6 +36,7 @@ export function registerIpc(core: Core, windows: Windows) {
   registerRepoHandlers(core)
   registerIssueHandlers(core)
   registerMemoHandlers(core)
+  registerReportHandlers(core)
   registerAssetHandlers(core)
   registerCommandHandlers(core)
   registerFileHandlers(core)

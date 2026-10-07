@@ -5,7 +5,7 @@ import type {
   GuardedUpdateIssueInput, IssueUpdateResult,
   CreateMemoInput, UpdateMemoInput,
   GuardedUpdateMemoInput, MemoUpdateResult,
-  ListQuery, StartRunInput, QueueSnapshot,
+  ListQuery, StartRunInput, QueueSnapshot, BuildReportInput, ReportData,
   UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses, AgentProbes,
   InboxCounts,
   McpStatus, PlanUsage, ResumeRunInput, ItemChange,
@@ -99,6 +99,13 @@ export interface OneDeskClient {
      */
     updateIfUnchanged(input: GuardedUpdateMemoInput): Promise<MemoUpdateResult>
     remove(id: string): Promise<void>
+  }
+  reports: {
+    /**
+     * 기간 리포트 (`docs/sdlc/period-report/` FR-1). workspace를 넘어 읽는다 — MCP가 아니라 사람이 연
+     * 화면만 이 길을 탄다. 읽기만 한다.
+     */
+    build(input: BuildReportInput): Promise<ReportData>
   }
   assets: {
     list(query: ListAssetQuery): Promise<Asset[]>

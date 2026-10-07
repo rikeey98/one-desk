@@ -44,7 +44,7 @@ function renderSidebar(over: {
   refresh?: () => Promise<void>
   selectedId?: string | null
   onSelect?: (id: string) => void
-  view?: 'workspace' | 'inbox' | 'settings'
+  view?: 'workspace' | 'inbox' | 'report' | 'settings'
   onSelectInbox?: () => void
   onSelectSettings?: () => void
   counts?: InboxCounts
@@ -52,6 +52,7 @@ function renderSidebar(over: {
   mcpStatus?: McpStatus
   planUsage?: PlanUsage | null
   onDeleted?: (id: string) => void
+  onSelectReport?: () => void
   client?: OneDeskClient
 } = {}) {
   render(
@@ -65,6 +66,7 @@ function renderSidebar(over: {
         onSelect={over.onSelect ?? vi.fn()}
         view={over.view ?? 'workspace'}
         onSelectInbox={over.onSelectInbox ?? vi.fn()}
+        onSelectReport={over.onSelectReport ?? vi.fn()}
         onSelectSettings={over.onSelectSettings ?? vi.fn()}
         counts={over.counts ?? { total: 0, byWorkspace: {} }}
         countsError={over.countsError ?? null}
@@ -145,6 +147,7 @@ function renderSidebarRaw(mcpStatus: McpStatus) {
           onSelect={vi.fn()}
           view="workspace"
           onSelectInbox={vi.fn()}
+          onSelectReport={vi.fn()}
       onSelectSettings={vi.fn()}
           onDeleted={vi.fn()}
           counts={{ total: 0, byWorkspace: {} }}
@@ -287,5 +290,23 @@ describe('Sidebar — 설정 링크', () => {
   it('설정 화면일 때 링크가 선택 표시된다', () => {
     renderSidebar({ view: 'settings' })
     expect(screen.getByRole('button', { name: '설정' }).className).toContain('selected')
+  })
+})
+
+describe('리포트 진입점 (docs/sdlc/period-report/ FR-13)', () => {
+  it('인박스 바로 아래 줄이고, 누르면 onSelectReport를 부른다', async () => {
+    const onSelectReport = vi.fn()
+    renderSidebar({ onSelectReport })
+    const links = screen.getAllByRole('button').map((b) => b.textContent)
+    expect(links.indexOf('리포트')).toBe(links.findIndex((t) => t?.startsWith('인박스')) + 1)
+    await userEvent.click(screen.getByRole('button', { name: '리포트' }))
+    expect(onSelectReport).toHaveBeenCalledOnce()
+  })
+
+  it('리포트 화면이면 선택된 모양이고 workspace 줄은 선택이 아니다', () => {
+    renderSidebar({ view: 'report', selectedId: 'w1' })
+    expect(screen.getByRole('button', { name: '리포트' })).toHaveClass('inbox-link-selected')
+    expect(screen.getByRole('button', { name: '리포트' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('button', { name: 'ws-1' })).not.toHaveClass('ws-selected')
   })
 })

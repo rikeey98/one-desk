@@ -286,6 +286,19 @@ SKILL.md의 frontmatter는 평문 칸으로 뗀다. 그리고 **창을 닫기 �
 필수 + App 배선 테스트)과 spec §7의 e2e(이슈에서 대화 시작·열기, 헤더에서 이슈 열기, 이슈 삭제)다. 같은 릴리스에
 **이슈·메모의 첫 줄이 제목**(`docs/sdlc/first-line-title/` — Enter 만들기, Shift+Enter 줄바꿈, `splitTitleBody`)이 들어갔다.
 
+**기간 리포트가 붙었다** (`docs/sdlc/period-report/`, v0.21.0). 마이그레이션 없음. 사이드바의 인박스 아래 `리포트`가
+기간(월요일 시작 주·지난 7/30일·직접 지정)과 workspace(체크, 기본 전부)를 골라 **여러 workspace를 넘어** 이슈·메모·대화를
+모은다. 보기는 탭 셋 — `문서`(내보낼 마크다운과 같은 순서)·`요일`(workspace × 날 보드)·`이슈 흐름`(기간 축 트랙) — 이고
+조건은 셋이 같이 쓴다(App이 `reportQuery`로 쥔다 — 이슈를 열러 갔다 와도 남는다). 내보내기는 `마크다운 복사`·
+`<workspace>에 메모로 저장`·`agent에게 다듬기`(메모 저장 → 그 workspace의 새 대화 칸에 메모 칩과 지시 초안, **보내지 않는다**).
+**workspace를 넘는 읽기는 `core.reports.build` 하나이고 MCP `deps`에 넘기지 않는다** — agent는 여전히 토큰의 workspace만
+본다(전체 설계 §8). agent에게 가는 길은 사람이 누른 버튼이 만든 메모 하나다. "기간 안"의 판정(`touchedIn`·대화 겹침)은
+`core/period/`로 옮겨 MCP `list_*`와 리포트가 같이 쓰고, 대화 제목 사다리는 `shared/conversationTitle.ts`로 옮겨 도크와
+리포트가 같이 쓴다 — 따로 두면 agent가 센 수와 화면의 수, 도크의 이름과 리포트의 이름이 갈린다. 칸 분류·합계·요일·트랙·
+마크다운은 전부 `renderer/report/`의 순수 함수다(컴포넌트는 그리기만 한다). **완료 칸은 `closedAt`이 기간 안이고 지금
+done인 것뿐이고, 진행 중은 지금 상태다** — 활동 기록이 없어 기간 끝 시점의 상태를 알 수 없다(spec §6, 화면 안내문이 말한다).
+`e2e/report.e2e.ts`가 workspace 둘을 넘는 IPC 왕복과 내보내기 셋을 실제 앱으로 본다.
+
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
 한동안 "5단계 착수 전에 정할 것"으로 잡아두고 **평문 SQLite에 자격 증명을 넣을지**를 막힌 결정으로 남겼던 항목이다. 대상 환경을 실측해 보니 **배관 자체가 불필요했다.**
@@ -676,6 +689,13 @@ hover하고 바로 누르면 가끔 깨진다 — 눌리지 않은 click이 스�
 
 **세션 id는 도는 중에 저장한다 — 종료 기록까지 기다리지 않는다** (FR-16). 예전에는 session 이벤트의 id가 manager 지역 변수와 로그에만 있다가 `markFinished`에서야 DB에 들어가, 첫 턴이 도는 중 앱을 끄면 `reapStale`이 interrupted로 내린 행에 세션이 없어 그 대화를 이으면 "이어받을 세션이 없습니다"로 실패했다. 이제 manager가 새 세션 id를 알게 되는 즉시 run마다 넘긴 `StartSpec.onSession`을 부르고 실행 서비스가 `runs.saveExternalSessionId`로 쓴다(`external_session_id IS NULL`일 때만, 빈 문자열은 무시). 콜백이 던지면 manager가 삼켜 `onError`로 보낸다 — 스트림 data 핸들러 안이라 새면 메인 프로세스가 죽는다. **짝이 되는 규칙: `markFinished`의 `externalSessionId: null`은 있던 값을 지우지 않는다** — manager.start가 세션을 배운 뒤 거부되면 실행 서비스는 null로 끝내는데, 덮으면 이을 수 있던 대화가 끊긴다. `execution.test.ts`의 "첫 턴이 도는 중 앱이 꺼져도 그 대화를 이을 수 있다 (FR-16)"·"세션을 배운 뒤 manager.start가 거부돼도 도는 중에 남긴 세션을 지우지 않는다"가 고정한다.
 
+**패널은 목록을 읽은 뒤에만 "열린 항목이 목록에 없다"를 믿는다** (`useIssues`·`useMemos`의 `loaded`, period-report FR-19).
+`IssuePanel`·`MemoPanel`의 "열린 항목이 목록에서 사라졌으면 접는다" effect가 예전에는 마운트 순간(목록이 아직 빈 배열)에도
+돌아, **다른 workspace에서 건너와 연 항목**(리포트의 이슈 줄)이 목록이 오기도 전에 닫혔다. 같은 workspace 안에서만 열던
+동안에는 목록이 이미 있어 드러나지 않았다. `loaded`는 지금 범위(workspace·repo)의 목록을 한 번이라도 읽었는가이고, 실패도
+읽은 것으로 친다. 두 훅·두 패널이 대칭이다. **패널 테스트의 가짜 `list`는 매번 새 배열을 돌려준다** — 같은 배열을 고쳐
+돌려주면 React가 갱신을 건너뛰어, "지우면 상세가 닫힌다"가 마운트 순간의 접힘 덕에 공짜로 통과하고 있었다.
+
 **`updatedAt`으로 "사람이 마지막으로 본 시각"을 판정하면 안 된다.** agent가 MCP `update_issue`로 본문을 고쳐도 `updatedAt`이 올라가므로, 사람이 그 이슈를 본 적이 없는데 "방금 본 것"이 된다. **agent가 건드린 이슈일수록 조용해진다** — 정확히 거꾸로다. 그래서 `seenAt`이 따로 있고, `markSeen`은 `buildPatch`를 타지 않는다. 이슈 목록 정렬은 `updatedAt DESC`가 아니라 **`seenAt` 오래된 순**이다(안 본 것이 위로). 되돌리지 말 것.
 
 **`markSeen` 뒤에 목록을 다시 읽으면 안 된다.** 정렬이 `seenAt` 오래된 순이라, 이슈를 여는 순간 목록을 갱신하면 **방금 클릭한 항목이 눈앞에서 맨 아래로 점프한다.** `IssueDetail`의 `markSeen` effect가 `onChanged`를 부르지 않는 이유다.
@@ -800,6 +820,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/timestamps/` | 시각으로 정리하기 — spec. `startedAt`과 상태가 바뀔 때만 파생(FR-1·2), MCP 시각 ISO·기간 거름·`list_conversations`(FR-4~7)·턴별 시각 `get_conversation`(FR-9), 활동 기록을 뺀 이유(§4) |
 | `docs/sdlc/item-windows/` | 패널을 repo마다 별도 창으로 — spec·plan. 창의 단위와 고정(FR-1~3), 범위만 받는 IPC(FR-12), 모든 창의 가드(FR-14), 닫기 전 저장(FR-15·16), 바뀜 알림(FR-17~19), 본문 읽기/편집(FR-20~25), Cmd+Q 제약(§5). plan에 변이 표 |
 | `docs/sdlc/agent-path-default/` | CLI 경로의 앱 기본값과 workspace 예외 — spec. 해석 순서(FR-1), 키-값 저장(FR-2), 앱 탭·실행 탭 화면(FR-3) |
+| `docs/sdlc/period-report/` | 기간 리포트 — intent·spec·plan. workspace를 넘는 읽기를 MCP가 아니라 화면에만 둔 이유(intent, spec FR-1·24), 기간 판정 공유(FR-2), 칸 분류와 합계가 다른 질문인 이유(FR-6·7), 세 보기(FR-16~18), 내보내기 셋(FR-22~24), 상태가 "지금"인 한계(§6). 시안 https://claude.ai/artifact/6bn58ES8XQwBP9k68VfV4E |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |

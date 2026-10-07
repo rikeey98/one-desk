@@ -7,6 +7,11 @@ export function useMemos(workspaceId: string | null, repoId: string | null) {
   const client = useClient()
   const [memos, setMemos] = useState<Memo[]>([])
   const [error, setError] = useState<string | null>(null)
+  // 지금 범위(workspace·repo)의 목록을 한 번이라도 읽었는가. 패널은 이것이 참일 때만 "열린 항목이 목록에 없다"를
+  // 믿는다 — 빈 목록으로 막 마운트된 순간에 접으면, 다른 workspace에서 건너와 연 항목(리포트·도크의 이슈 링크)이
+  // 목록이 오기도 전에 닫힌다 (docs/sdlc/period-report/ FR-19).
+  const scope = `${workspaceId ?? ''}|${repoId ?? ''}`
+  const [loadedScope, setLoadedScope] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setError(null)
@@ -18,6 +23,9 @@ export function useMemos(workspaceId: string | null, repoId: string | null) {
       }))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      // 실패도 "읽어 봤다"다 — 못 읽은 목록에 있다고 우기며 상세를 붙들지 않는다
+      setLoadedScope(`${workspaceId}|${repoId ?? ''}`)
     }
   }, [client, workspaceId, repoId])
 
@@ -48,5 +56,5 @@ export function useMemos(workspaceId: string | null, repoId: string | null) {
   // 다른 창이나 agent가 바꾼 것 (docs/sdlc/item-windows/ FR-18). workspace가 없으면 듣지 않는다.
   useItemChanged(workspaceId ?? undefined, 'memo', refresh)
 
-  return { memos, error, refresh }
+  return { memos, error, refresh, loaded: loadedScope === scope }
 }

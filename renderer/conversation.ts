@@ -1,5 +1,8 @@
 import type { AssignedIssue, ContextItemView, Issue, Run } from '@shared/models'
 import { representativeTurn } from '@shared/inbox'
+import { collectContext, conversationTitle, titleOf } from '@shared/conversationTitle'
+
+export { titleOf }
 
 /**
  * 한 대화. run 목록에서 파생하며 **일부만 저장된다** (설계 §2).
@@ -54,53 +57,6 @@ export function conversationIdOf(run: Run): string {
   return run.rootRunId ?? run.id
 }
 
-/** 지시에서 뽑은 이름. 제목 사다리의 마지막 단이다. */
-export function titleOf(run: Run): string {
-  const text = run.userPrompt.trim().split('\n')[0] ?? ''
-  return text.length > 24 ? `${text.slice(0, 24)}…` : text || '(빈 지시)'
-}
-
-/**
- * 담긴 맥락에서 뽑은 이름 (FR-11의 2·3단). 이름이 없으면 null.
- *
- * **이슈·메모가 repo·asset을 이긴다** — 이슈·메모가 그 대화의 주제이고 repo·asset은
- * 배경이다. 개수도 이슈·메모만 센다: repo를 세면 이슈 하나짜리 대화에 "+3"이 붙어
- * 무엇이 더 있다는 뜻인지 알 수 없게 된다.
- */
-function titleFromContext(items: ContextItemView[]): string | null {
-  const topics = items.filter((i) => i.type === 'issue' || i.type === 'memo')
-  const first = topics[0]
-  if (first) {
-    const rest = topics.length - 1
-    return rest > 0 ? `${first.label} +${rest}` : first.label
-  }
-  const repo = items.find((i) => i.type === 'repo')
-  return repo ? repo.label : null
-}
-
-/**
- * 대화가 지금까지 담은 항목의 합집합 (설계 `docs/sdlc/conversation-context/`).
- *
- * 저장하지 않는 파생값이다 — `groupConversations`·`titleOf`와 같은 자리, 같은 패턴.
- * 이름은 core가 읽는 시점에 붙여 준 것이고(`run.ts` `loadContext`), 지워진 항목은
- * 거기서 이미 빠져 있다.
- */
-function collectContext(runs: Run[]): ContextItemView[] {
-  const seen = new Set<string>()
-  const out: ContextItemView[] = []
-  for (const run of runs) {
-    // 취소된 턴은 담으려다 만 것이다 (spec FR-6).
-    if (run.status === 'canceled') continue
-    for (const item of run.contextItems) {
-      const key = `${item.type}:${item.id}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      out.push(item)
-    }
-  }
-  return out
-}
-
 export function contextOf(conversation: Conversation): ContextItemView[] {
   return collectContext(conversation.runs)
 }
@@ -138,9 +94,8 @@ export function groupConversations(runs: Run[]): Conversation[] {
       active: ordered.find((r) => r.status === 'running')
         ?? ordered.find((r) => r.status === 'pending')
         ?? null,
-      // 사용자가 붙인 이름 > 할당된 이슈 > 담긴 이슈·메모 > repo > 첫 지시
-      // (lifecycle FR-11, conversation-issue FR-22가 할당 칸을 넣었다).
-      title: named || root.issue?.title || titleFromContext(collectContext(ordered)) || titleOf(ordered[0]!),
+      // 사다리는 shared에 있다 — 기간 리포트가 같은 이름으로 부르게 (period-report FR-4).
+      title: conversationTitle(root, ordered),
       named: named !== '',
       closedAt: root.closedAt,
       issue: root.issue

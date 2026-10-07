@@ -4,14 +4,14 @@ import { planUsageView } from '../planUsage'
 import { RenameField } from './RenameField'
 import { DeleteByName } from './DeleteByName'
 import { useClient } from '../client/ClientProvider'
-import { IconPencil, IconTrash } from './icons'
+import { IconChart, IconPencil, IconTrash } from './icons'
 import type { InboxCounts, McpStatus, PlanUsage, Workspace } from '@shared/models'
 
 /** workspace 목록은 App이 useWorkspaces()로 한 번만 조회해 내려준다 — 이 컴포넌트가
  * 자기 인스턴스를 따로 가지면 다른 인스턴스(App→InboxPanel 등)가 새 workspace를
  * 모르게 된다(App.tsx의 주석 참고). */
 export function Sidebar({
-  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectInbox, onSelectSettings, counts, countsError, mcpStatus, planUsage, onDeleted, repoTree
+  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectInbox, onSelectReport, onSelectSettings, counts, countsError, mcpStatus, planUsage, onDeleted, repoTree
 }: {
   workspaces: Workspace[]
   /** 고른 workspace 아래에 들여쓰기로 붙는 repo 목록(App이 RepoStrip을 넘긴다).
@@ -22,8 +22,10 @@ export function Sidebar({
   refresh: () => Promise<void>
   selectedId: string | null
   onSelect: (id: string) => void
-  view: 'workspace' | 'inbox' | 'settings'
+  view: 'workspace' | 'inbox' | 'report' | 'settings'
   onSelectInbox: () => void
+  /** 기간 리포트 (`docs/sdlc/period-report/` FR-13). **필수다** — 선택이면 App의 한 줄을 지워도 조용히 컴파일된다 */
+  onSelectReport: () => void
   onSelectSettings: () => void
   /** 삭제한 workspace를 App이 알아야 고른 상태를 풀 수 있다. */
   onDeleted: (id: string) => void
@@ -73,6 +75,16 @@ export function Sidebar({
         {countsError
           ? <span className="badge badge-error" title={`인박스를 읽지 못했습니다: ${countsError}`}>!</span>
           : counts.total > 0 && <span className="badge">{counts.total}</span>}
+      </button>
+      {/* 인박스와 같은 줄 모양이다 — 둘 다 workspace를 가로지르는 화면이다. 배지는 없다 */}
+      <button
+        type="button"
+        className={view === 'report' ? 'inbox-link report-link-nav inbox-link-selected' : 'inbox-link report-link-nav'}
+        aria-current={view === 'report' ? 'page' : undefined}
+        onClick={onSelectReport}
+      >
+        <IconChart />
+        리포트
       </button>
       <div className="sidebar-label">Workspaces</div>
       <AddForm placeholder="새 workspace 이름…" onSubmit={addWorkspace} />

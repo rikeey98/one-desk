@@ -1116,3 +1116,27 @@ describe('바뀜 알림과 패널 창 범위 (docs/sdlc/item-windows/)', () => {
     expect(() => core.panelScope('#panel/issue')).toThrow()
   })
 })
+
+describe('기간 리포트 배선 (docs/sdlc/period-report/)', () => {
+  it('core.reports.build가 실제 DB에서 workspace 둘을 넘어 기간 안의 것만 고른다', () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const a = core.workspaces.create({ name: '회사' }).id
+    const b = core.workspaces.create({ name: '개인' }).id
+    const since = Date.now() - 1000
+    core.issues.create({ workspaceId: a, title: '회사 이슈' })
+    core.memos.create({ workspaceId: b, title: '개인 메모' })
+    const run = seedRun(core, dataDir, '대화 하나')
+
+    const report = core.reports.build({ workspaceIds: [a, b, run.workspaceId], since, until: Date.now() + 1000 })
+
+    expect(report.workspaces.map((w) => w.name)).toEqual(['회사', '개인', 'ws'])
+    expect(report.workspaces[0]!.issues.map((i) => i.title)).toEqual(['회사 이슈'])
+    expect(report.workspaces[1]!.memos.map((m) => m.title)).toEqual(['개인 메모'])
+    expect(report.workspaces[2]!.conversations.map((c) => c.id)).toEqual([run.id])
+
+    const before = core.reports.build({ workspaceIds: [a, b], since: 0, until: since })
+    expect(before.workspaces.every((w) => w.issues.length === 0 && w.memos.length === 0)).toBe(true)
+    close(core)
+  })
+})
