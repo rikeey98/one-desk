@@ -92,6 +92,7 @@ function renderPanel(
             draftPrompt=""
             draftCwd={null}
             selectedRepoId={null}
+            onCwdChange={vi.fn()}
           />
         </DraftProvider>
       </RunEventProvider>

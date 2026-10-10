@@ -47,6 +47,15 @@
      GulimChe다 — `.`이 `,`처럼 보이고 `\`가 `₩`로 그려진다(리뷰가 찾은 것). Consolas는 모든
      Windows에 있고, 한글은 글자마다 다음 글꼴(D2Coding이 있으면 그것)로 내려간다. */
   --font-mono: ui-monospace, "Cascadia Mono", Consolas, D2Coding, monospace;
+  /* 코드 칸의 구문 강조 (docs/sdlc/code-editor/ FR-13). 흰 바탕에서 전부 4.5:1을 넘는다. */
+  --code-keyword: #9333ea;
+  --code-string: #15803d;
+  --code-comment: #6b6b70;
+  --code-number: #b45309;
+  --code-function: #1d4ed8;
+  --code-type: #0f766e;
+  --code-tag: #be123c;
+  --code-property: #0369a1;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -82,6 +91,14 @@
     --success-bg: rgba(34, 197, 94, .22);
     /* 어두운 바탕에서는 .12가 보이지 않는다 — 떠 있다는 것을 테두리와 함께 그림자가 말한다. */
     --shadow-overlay: 0 6px 18px rgba(0, 0, 0, .5);
+    --code-keyword: #c084fc;
+    --code-string: #86efac;
+    --code-comment: #a1a1aa;
+    --code-number: #fbbf24;
+    --code-function: #93c5fd;
+    --code-type: #5eead4;
+    --code-tag: #fda4af;
+    --code-property: #7dd3fc;
   }
 }
 /* 키보드 포커스 링. 브라우저 기본값(Chromium의 주황 auto 링)은 강조색과 충돌한다.
@@ -1185,3 +1202,81 @@ button.report-flow-line:hover { background: var(--bg-muted); }
 .dock-filter-clear.row-action { width: 18px; height: 18px; border-radius: 50%; color: var(--accent-text); opacity: 1; }
 .dock-filter-clear.row-action:hover { background: var(--accent-bg-strong); }
 .dock-conv-empty { margin: 4px 0; padding: 6px 7px; font-size: .6875rem; color: var(--text-muted); }
+
+/* ───────── 코드 칸 (docs/sdlc/code-editor/) ─────────
+   앱 창 오른쪽 끝, 위아래 전체 열이다(안 B, 2026-10-10): 사이드바 · 본문 · [경계 · 칸]. 칸 폭은 끌어 바꾸고(기본은 사이드바를
+   뺀 창 폭의 40% — `layout.ts`의 DEFAULT_PANE_RATIO) 칸 320px · 본문 560px 아래로는 줄지 않는다 — 둘을 다 못 지키면
+   min-width가 max-width를 이겨 칸의 320px가 남는다(plan 위험 10). 21px는 경계 9px + 열의 오른쪽 여백 12px(Dock.tsx와 같다). */
+.code-column { flex: 0 0 auto; display: flex; min-width: 0; min-height: 0; padding: 12px 12px 12px 0; }
+.code-column:empty { display: none; }
+.code-box { display: flex; flex-direction: column; width: calc((100vw - 236px - 21px) * .4); min-width: 320px; max-width: calc(100vw - 236px - 21px - 560px); min-height: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); box-shadow: var(--shadow-panel); overflow: hidden; }
+.code-pane-resizer { flex: 0 0 9px; cursor: col-resize; touch-action: none; user-select: none; background: transparent; border-radius: 4px; }
+.code-pane-resizer:hover, .code-pane-resizer:focus-visible { background: var(--accent-bg-strong); }
+
+/* 대화 헤더의 버튼 줄 (FR-1). 눌린 것은 파란 면 — 열려 있다는 상태를 말한다 */
+.pane-toggle { display: inline-flex; align-items: center; gap: 4px; height: 24px; border: 1px solid var(--border); border-radius: 5px; padding: 0 8px; background: var(--bg); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: .6875rem; transition: background .12s, color .12s, border-color .12s; }
+.pane-toggle:hover { background: var(--bg-hover); color: var(--text); }
+.pane-toggle-on { border-color: var(--accent-border-soft); background: var(--accent-bg); color: var(--accent-text); }
+.pane-toggle-on:hover { background: var(--accent-bg-strong); color: var(--accent-text); }
+.pane-toggle[aria-disabled="true"] { color: var(--text-muted); background: var(--bg-muted); cursor: default; }
+
+.code-pane { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; }
+.code-pane-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 6px 7px 12px; border-bottom: 1px solid var(--border-faint); }
+.code-pane-title { flex: 1 1 auto; display: flex; align-items: center; gap: 6px; min-width: 0; font-size: .75rem; }
+.code-pane-repo { flex: 0 0 auto; font-weight: 600; color: var(--text); }
+.code-pane-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.code-pane-dirty { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+.code-pane-status { flex: 0 0 auto; font-size: .6875rem; color: var(--text-muted); }
+.code-pane-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; }
+.code-pane-count { font-size: .6875rem; color: var(--warn-text); padding: 0 4px; }
+.code-pane-save { height: 24px; border: 0; border-radius: 5px; padding: 0 10px; background: var(--accent); color: var(--on-accent); cursor: pointer; font: inherit; font-size: .6875rem; transition: background .12s; }
+.code-pane-save:hover:not(:disabled) { background: var(--accent-strong); }
+.code-pane-save:disabled { background: var(--bg-muted); color: var(--text-muted); cursor: default; }
+.code-pane-note { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; margin: 6px 8px 0; padding: 5px 8px; border-radius: 4px; background: var(--bg-muted); color: var(--text-secondary); font-size: .6875rem; }
+.code-pane-warn { background: var(--warn-bg); color: var(--warn-text); }
+.code-pane-note button { border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text); cursor: pointer; font: inherit; font-size: .6875rem; padding: 2px 7px; }
+.code-pane > .conflict-banner, .code-pane > .form-error { margin: 6px 8px 0; }
+/* 좁은 칸에서는 문장이 위로, 버튼이 아래로 내려간다 — 버튼 글자가 꺾이면 안 된다 */
+.code-pane > .conflict-banner { flex-wrap: wrap; }
+.code-pane > .conflict-banner button, .code-pane-note button { white-space: nowrap; }
+.code-pane-discard.row-action { width: auto; padding: 0 7px; white-space: nowrap; }
+
+.code-pane-body { flex: 1 1 auto; display: flex; min-width: 0; min-height: 0; }
+.code-pane-editor { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.code-editor { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.code-pane-hint, .code-pane-reason p { margin: 16px 12px; font-size: .75rem; color: var(--text-muted); }
+.code-pane-reason { display: flex; flex-direction: column; align-items: flex-start; }
+.code-pane-reason p { margin-bottom: 8px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.code-pane-reason button, .code-pane-empty button { margin: 0 12px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text); cursor: pointer; font: inherit; font-size: .6875rem; padding: 3px 8px; }
+.code-pane-empty { align-items: flex-start; }
+
+/* 트리 — 칸의 왼쪽 열. 폭은 칸의 1/3 남짓, 따로 스크롤한다 */
+.code-tree { flex: 0 0 clamp(140px, 32%, 260px); display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border-faint); }
+.code-tree-filter { flex: 0 0 auto; margin: 6px; padding: 4px 7px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--bg); color: var(--text); font: inherit; font-size: .6875rem; }
+.code-tree-list { flex: 1 1 auto; min-height: 0; overflow: auto; margin: 0; padding: 0 4px 8px; list-style: none; }
+.code-tree-row { display: flex; align-items: center; gap: 5px; width: 100%; min-width: 0; height: 22px; border: 0; border-radius: 5px; padding: 0 6px; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: .75rem; text-align: left; }
+.code-tree-row:hover { background: var(--bg-hover); color: var(--text); }
+.code-tree-current, .code-tree-picked { background: var(--accent-bg); color: var(--accent-text); }
+.code-tree-icon, .code-tree-chevron { flex: 0 0 auto; color: var(--text-muted); }
+.code-tree-chevron { transition: transform .12s; }
+.code-tree-chevron-open { transform: rotate(90deg); }
+.code-tree-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.code-tree-dirty { flex: 0 0 auto; width: 6px; height: 6px; margin-left: auto; border-radius: 50%; background: var(--warn); }
+.code-tree-note { padding: 6px; font-size: .6875rem; color: var(--text-muted); }
+
+/* 대화록 편집 줄 옆의 열기 (FR-23) — 버튼 안에 버튼을 둘 수 없어 줄을 한 겹 감싼다 */
+.tl-file-row { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.tl-file-row > .tl-file { flex: 1 1 auto; width: auto; }
+.tl-file-open { flex: 0 0 auto; width: 22px; height: 22px; }
+
+/* 닫기 확인 (FR-21) — 앱에서 하나뿐인 모달이다. 닫기를 멈춘 채 답을 기다린다 */
+.close-confirm-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(var(--neutral-rgb), .35); }
+.close-confirm { width: min(440px, 100%); padding: 16px 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); box-shadow: var(--shadow-overlay); }
+.close-confirm-title { margin: 0 0 12px; font-size: .9375rem; font-weight: 600; color: var(--text); }
+.close-confirm-failures { margin: 0 0 12px; padding: 6px 8px 6px 22px; border-radius: 4px; background: var(--danger-bg); color: var(--danger-text); font-size: .75rem; }
+.close-confirm-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.close-confirm-actions button { height: 28px; border: 1px solid var(--border); border-radius: 5px; padding: 0 12px; background: var(--bg); color: var(--text); cursor: pointer; font: inherit; font-size: .75rem; }
+.close-confirm-actions button:hover:not(:disabled) { background: var(--bg-hover); }
+.close-confirm-actions .close-confirm-save { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+.close-confirm-actions .close-confirm-save:hover:not(:disabled) { background: var(--accent-strong); }
+.close-confirm-actions button:disabled { opacity: .6; cursor: default; }

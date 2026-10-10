@@ -1,7 +1,9 @@
-import { Fragment, useLayoutEffect, useRef, type ReactNode } from 'react'
+import { Fragment, useId, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { Markdown } from './Markdown'
 import { CopyButton } from './CopyButton'
-import { IconChevronRight } from './icons'
+import { IconChevronRight, IconExternalLink } from './icons'
+import { useCodePaneOpener } from './code/CodePaneContext'
+import { repoRelativePath } from '../code/editPath'
 import {
   formatDuration, isSummaryCut, toolDetailOf,
   type EditFile, type TimelineBlock, type ToolDetail, type ToolItem, type ToolLabel
@@ -356,6 +358,32 @@ function Diff({ file }: { file: EditFile }) {
   )
 }
 
+/**
+ * 편집 파일 줄의 `코드 칸에서 열기` (`docs/sdlc/code-editor/` FR-23). 칸의 대상 repo 안의 경로일 때만 선다 — 컨텍스트가
+ * 없거나(도크 밖) repo 밖이면 없다. 그 편집의 첫 hunk 줄로 연다(번호가 없으면 첫 줄).
+ */
+function OpenInPane({ file, describedBy }: { file: EditFile; describedBy: string }) {
+  const opener = useCodePaneOpener()
+  if (!opener || !file.path) return null
+  const rel = repoRelativePath(file.path, opener.repoPath)
+  if (!rel) return null
+  const line = file.hunks.find((h) => h.newStart !== undefined)?.newStart ?? 1
+  return (
+    <button
+      type="button"
+      className="row-action tl-file-open"
+      // 이름에 경로를 넣지 않는다 — 파일 줄을 `{ name: /auth\.ts/ }`로 잡는 e2e가 이 버튼까지 잡는다(실제로 셋이 깨졌다).
+      // 어느 파일인지는 설명(aria-describedby)이 그 줄의 경로를 가리켜 말한다.
+      aria-label="코드 칸에서 열기"
+      aria-describedby={describedBy}
+      title="코드 칸에서 열기"
+      onClick={() => opener.open(rel, line)}
+    >
+      <IconExternalLink width="11" height="11" />
+    </button>
+  )
+}
+
 function EditFileRow({ file, open, onToggle, beforeOpen, onToggleBefore }: {
   file: EditFile
   open: boolean
@@ -363,6 +391,7 @@ function EditFileRow({ file, open, onToggle, beforeOpen, onToggleBefore }: {
   beforeOpen: boolean
   onToggleBefore: () => void
 }) {
+  const pathId = useId()
   // 모양을 모르는 편집(NotebookEdit·patch)은 diff가 없다 — 경로만이고 펼칠 것이 없다(FR-7).
   // 이전 내용이 있는 덮어쓰기는 diff가 없어도 펼친다(events FR-47).
   const hasDiff = file.hunks.length > 0
@@ -370,7 +399,7 @@ function EditFileRow({ file, open, onToggle, beforeOpen, onToggleBefore }: {
   const line = (
     <>
       {/* 경로면 모노다(spec §8의 7). 경로를 모르는 편집은 부제나 라벨이 대신 서므로 글자 그대로다. */}
-      <span className={file.path ? 'tl-path path-text' : 'tl-path'} title={file.path || file.displayPath}>
+      <span id={pathId} className={file.path ? 'tl-path path-text' : 'tl-path'} title={file.path || file.displayPath}>
         {file.displayPath}
       </span>
       {file.created && <>{' '}<span className="tl-created">새로 씀</span></>}
@@ -386,13 +415,17 @@ function EditFileRow({ file, open, onToggle, beforeOpen, onToggleBefore }: {
       )}
     </>
   )
-  if (!hasDiff && !hasBefore) return <li><div className="tl-file">{line}</div></li>
+  if (!hasDiff && !hasBefore) return <li className="tl-file-row"><div className="tl-file">{line}</div><OpenInPane file={file} describedBy={pathId} /></li>
   return (
     <li>
-      <button type="button" className="tl-file" aria-expanded={open} onClick={onToggle}>
-        {line}
-        <Chevron />
-      </button>
+      {/* 버튼 안에 버튼을 둘 수 없다 — 여는 아이콘은 펼치기 버튼 옆에 선다 */}
+      <div className="tl-file-row">
+        <button type="button" className="tl-file" aria-expanded={open} onClick={onToggle}>
+          {line}
+          <Chevron />
+        </button>
+        <OpenInPane file={file} describedBy={pathId} />
+      </div>
       {open && hasDiff && <Diff file={file} />}
       {/* 덮어쓰기 전 파일 전체 (events FR-47) — 파일 줄 안에서 따로 연다. 파일 내용은 신뢰할 수 없는
           입력이라 평문이고, 위에서부터 읽는 글이라 바닥으로 내리지 않는다. */}

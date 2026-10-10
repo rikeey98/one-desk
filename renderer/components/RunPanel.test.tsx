@@ -37,7 +37,7 @@ function makeClient(opts: {
   start?: ReturnType<typeof vi.fn>
   resume?: ReturnType<typeof vi.fn>
   commands?: OneDeskClient['commands']
-  files?: OneDeskClient['files']
+  files?: Pick<OneDeskClient['files'], 'search'>
 } = {}): OneDeskClient {
   return {
     files: opts.files ?? { search: vi.fn().mockResolvedValue({ ok: true, files: [], truncated: false }) },
@@ -95,6 +95,7 @@ interface ResumeOpts {
   waitingFirst?: boolean
   onCancel?: (runId: string) => void
   inputRef?: RefObject<HTMLTextAreaElement | null>
+  onCwdChange?: (cwd: string) => void
   /** 초안 스토어 — 다시 마운트해도 같은 것을 넘기면 쓰던 지시가 남는다 (FR-31) */
   drafts?: DraftStore
 }
@@ -136,6 +137,7 @@ function panel(
           waitingFirst={resumeOpts.waitingFirst ?? false}
           onCancel={resumeOpts.onCancel ?? vi.fn()}
           inputRef={resumeOpts.inputRef ?? createRef<HTMLTextAreaElement>()}
+          onCwdChange={resumeOpts.onCwdChange ?? vi.fn()}
         />
       </DraftProvider>
     </ClientProvider>
@@ -552,7 +554,7 @@ describe('RunPanel — 접근성', () => {
             chips={chips} onRemoveChip={onRemoveChip} onStarted={vi.fn()}
             conversation={null} draftPrompt="" draftCwd={null} selectedRepoId={null} reserved={false}
             running={null} reservation={null} waitingFirst={false} onCancel={vi.fn()}
-            inputRef={createRef<HTMLTextAreaElement>()} />
+            inputRef={createRef<HTMLTextAreaElement>()} onCwdChange={vi.fn()} />
         </DraftProvider>
       </ClientProvider>
     )
@@ -614,7 +616,7 @@ describe('RunPanel — 접근성', () => {
             chips={chips} onRemoveChip={onRemoveChip} onStarted={vi.fn()}
             conversation={null} draftPrompt="" draftCwd={null} selectedRepoId={null} reserved={false}
             running={null} reservation={null} waitingFirst={false} onCancel={vi.fn()}
-            inputRef={createRef<HTMLTextAreaElement>()} />
+            inputRef={createRef<HTMLTextAreaElement>()} onCwdChange={vi.fn()} />
         </DraftProvider>
       </ClientProvider>
     )
@@ -1549,5 +1551,32 @@ describe('RunPanel — @ 파일 참조 (docs/sdlc/input-triggers/)', () => {
     await userEvent.type(screen.getByRole('textbox', { name: '지시' }), 'a@b')
 
     expect(screen.queryByRole('listbox', { name: '파일 참조' })).toBeNull()
+  })
+})
+
+describe('작업 디렉토리 알리기 (docs/sdlc/code-editor/ FR-6)', () => {
+  const two: Repo[] = [
+    ...repos,
+    { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 1, createdAt: 0 }
+  ]
+
+  it('폴백 · 사이드바 선택 · 알약 변경 어느 길로 바뀌든 도크에 알린다', async () => {
+    const onCwdChange = vi.fn()
+    const client = makeClient()
+    const { rerender } = render(panel(client, two, [], vi.fn(), 'w1', { onCwdChange }))
+    // 폴백 — 첫 repo
+    await waitFor(() => expect(onCwdChange).toHaveBeenLastCalledWith('/tmp/api'))
+
+    rerender(panel(client, two, [], vi.fn(), 'w1', { onCwdChange, selectedRepoId: 'r2' }))
+    await waitFor(() => expect(onCwdChange).toHaveBeenLastCalledWith('/tmp/web'))
+
+    await userEvent.selectOptions(screen.getByLabelText('작업 디렉토리'), '/tmp/api')
+    await waitFor(() => expect(onCwdChange).toHaveBeenLastCalledWith('/tmp/api'))
+  })
+
+  it('"다시 실행"이 요구한 경로가 목록에 없으면 빈 문자열이다 — 칸이 엉뚱한 repo를 열지 않는다', async () => {
+    const onCwdChange = vi.fn()
+    renderPanel(makeClient(), two, [], vi.fn(), { onCwdChange, draftCwd: '/tmp/gone' })
+    await waitFor(() => expect(onCwdChange).toHaveBeenLastCalledWith(''))
   })
 })

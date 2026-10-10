@@ -143,8 +143,11 @@ export function foldByIssue(conversations: Conversation[]): ConversationListEntr
 /**
  * 경로 비교용 정규형 (`docs/sdlc/dock-repo-sections/` FR-1). 끝의 구분자를 떼고, Windows 경로(드라이브 문자로 시작하거나
  * `\`를 품은 것)는 구분자를 `\`로 맞추고 대소문자를 가리지 않는다 — posix 경로는 대소문자가 다르면 다른 디렉토리다.
+ *
+ * 코드 칸의 대상 repo(`code/target.ts`)와 편집 줄 경로(`code/editPath.ts`)도 이 규칙을 쓴다 — 따로 적으면 구획은 `api`인데
+ * 칸은 "등록된 repo가 아닙니다"인 어긋남이 생긴다.
  */
-function pathKey(path: string): string {
+export function pathKey(path: string): string {
   const windows = /^[a-zA-Z]:/.test(path) || path.includes('\\')
   const trimmed = path.replace(/[\\/]+$/, '')
   return windows ? trimmed.replace(/\//g, '\\').toLowerCase() : trimmed

@@ -20,6 +20,8 @@ import { conversationIdOf, groupConversations, type IssueConversations } from '.
 import { confirmSeen } from './conversationSeen'
 import type { AssignedIssue, Memo, Run } from '@shared/models'
 import { ReportPanel, initialReportQuery, POLISH_PROMPT, type ReportQuery } from './components/ReportPanel'
+import { CloseConfirm } from './components/code/CloseConfirm'
+import { CodePaneSlotContext } from './components/code/CodePaneContext'
 
 export default function App() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
@@ -70,6 +72,9 @@ export default function App() {
   // 같은 자리에 뜨되, 방금 누른 행동의 오류가 더 급하므로 앞에 온다.
   const [inboxActionError, setInboxActionError] = useState<string | null>(null)
   const client = useClient()
+  // 코드 칸의 자리 — 창 오른쪽 끝의 위아래 전체 열 (docs/sdlc/code-editor/ FR-2, 안 B, 2026-10-10). 칸의 상태는 도크가
+  // 쥐고 이 열에 포털로 그린다. ref 콜백으로 받아야 열이 생기고 없어질 때 도크가 다시 그려진다.
+  const [codeSlot, setCodeSlot] = useState<HTMLElement | null>(null)
 
   const chipKeys = useMemo(() => new Set(chips.map(chipKey)), [chips])
 
@@ -405,38 +410,45 @@ export default function App() {
                 onOpen={(id) => openIn('asset', id)}
               />
             </div>
-            <Dock
-              runs={runs}
-              error={runsError}
-              workspaceId={workspaceId}
-              workspaces={workspaces}
-              repos={repos}
-              reposError={reposError}
-              queue={queue}
-              queueError={limitError ?? queueError}
-              onChangeLimit={changeLimit}
-              chips={chips}
-              onRemoveChip={toggleChip}
-              draftPrompt={draftPrompt}
-              draftCwd={draftCwd}
-              selectedRepoId={repoId}
-              // 도크 목록의 거름 줄 — 앱의 repo 거름은 하나라 사이드바 선택을 푼다 (dock-repo-sections FR-8·11)
-              onClearRepoFilter={() => setRepoId(null)}
-              focusConversationId={focusConversationId}
-              // 일회성 지시다 — Dock이 열고 나면 치운다. 남아 있으면 설정에 갔다 오는 것만으로
-              // (Dock 재마운트) 그 대화가 되살아난다 (docs/sdlc/conversation-fixes/ spec FR-22).
-              onFocusConsumed={() => { setFocusConversationId(null); setFocusNew(false) }}
-              // 담은 맥락은 그 턴에만 적용된다. 다음 실행은 빈 상태에서 시작한다. 할당 예정도 첫 턴에 할당이 됐다.
-              onRunStarted={() => { setChips([]); setDraftPrompt(''); setDraftCwd(null); setDraftIssue(null) }}
-              draftIssue={draftIssue}
-              onClearDraftIssue={() => setDraftIssue(null)}
-              focusNew={focusNew}
-              // 헤더의 `할당된 이슈 열기` — 토글(openIn)이 아니라 연다. 이미 열려 있어도 닫지 않는다(FR-21).
-              onOpenIssue={(issueId) => setOpenItem({ panel: 'issue', id: issueId })}
-            />
+            <CodePaneSlotContext.Provider value={codeSlot}>
+              <Dock
+                runs={runs}
+                error={runsError}
+                workspaceId={workspaceId}
+                workspaces={workspaces}
+                repos={repos}
+                reposError={reposError}
+                queue={queue}
+                queueError={limitError ?? queueError}
+                onChangeLimit={changeLimit}
+                chips={chips}
+                onRemoveChip={toggleChip}
+                draftPrompt={draftPrompt}
+                draftCwd={draftCwd}
+                selectedRepoId={repoId}
+                // 도크 목록의 거름 줄 — 앱의 repo 거름은 하나라 사이드바 선택을 푼다 (dock-repo-sections FR-8·11)
+                onClearRepoFilter={() => setRepoId(null)}
+                focusConversationId={focusConversationId}
+                // 일회성 지시다 — Dock이 열고 나면 치운다. 남아 있으면 설정에 갔다 오는 것만으로
+                // (Dock 재마운트) 그 대화가 되살아난다 (docs/sdlc/conversation-fixes/ spec FR-22).
+                onFocusConsumed={() => { setFocusConversationId(null); setFocusNew(false) }}
+                // 담은 맥락은 그 턴에만 적용된다. 다음 실행은 빈 상태에서 시작한다. 할당 예정도 첫 턴에 할당이 됐다.
+                onRunStarted={() => { setChips([]); setDraftPrompt(''); setDraftCwd(null); setDraftIssue(null) }}
+                draftIssue={draftIssue}
+                onClearDraftIssue={() => setDraftIssue(null)}
+                focusNew={focusNew}
+                // 헤더의 `할당된 이슈 열기` — 토글(openIn)이 아니라 연다. 이미 열려 있어도 닫지 않는다(FR-21).
+                onOpenIssue={(issueId) => setOpenItem({ panel: 'issue', id: issueId })}
+              />
+            </CodePaneSlotContext.Provider>
           </>
         )}
       </main>
+      {/* 코드 칸이 그려질 열 — workspace 화면에서만 있다(도크와 같은 수명). 칸이 닫혀 있으면 비어 있고 CSS가 접는다. */}
+      {view === 'workspace' && workspaceId && <div className="code-column" ref={setCodeSlot} />}
+      {/* 저장하지 않은 코드 칸 고침이 있는데 창을 닫을 때 (docs/sdlc/code-editor/ FR-21). 도크 밖에 둔다 — 칸이
+          접혀 있거나 인박스·설정에 있어도 보여야 한다. */}
+      <CloseConfirm />
     </div>
   )
 }

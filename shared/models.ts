@@ -506,6 +506,60 @@ export interface FileSearchInput {
   query: string
 }
 
+/**
+ * 코드 칸이 가리키는 파일 (docs/sdlc/code-editor/ spec §3-3). `path`는 repo 상대, `/` 구분이다 — **절대 경로를 받는
+ * 통로는 없다**(`assets.readBody`·`reveal.ts`와 같은 원칙). core가 그 repo의 git 목록에 있는지 다시 본다.
+ */
+export interface FileRef {
+  workspaceId: string
+  repoId: string
+  path: string
+}
+
+export interface FileTreeInput {
+  workspaceId: string
+  repoId: string
+  /** 참이면 core의 10초 캐시를 건너뛰고 git을 새로 띄운다 — `파일 목록 새로고침`이 쓴다(FR-10) */
+  fresh?: boolean
+}
+
+/** 트리의 재료 — `git ls-files -co --exclude-standard`의 경로 전체. 모양은 검색 결과에서 퍼지만 뺀 것이다 */
+export type FileTreeResult =
+  | { ok: true; files: string[]; truncated: boolean }
+  | { ok: false; reason: string }
+
+/** 디스크 파일의 줄바꿈. `mixed`(CRLF와 LF, 외톨이 CR)는 저장할 수 없다 — 읽기 전용이다(FR-16) */
+export type FileEol = 'lf' | 'crlf' | 'mixed' | 'none'
+
+/**
+ * 연 파일. `text`는 `\n` 줄바꿈이고 BOM이 없다 — 렌더러는 이것만 다루고, 저장할 때 core가 디스크의 줄바꿈·BOM을
+ * 되살린다(FR-18). `hash`는 디스크 바이트의 sha256이고 저장의 기대값이다(FR-19). 열 수 없는 이유는 던지지 않는다.
+ */
+export type FileOpenResult =
+  | { ok: true; text: string; eol: FileEol; bom: boolean; hash: string; bytes: number }
+  | { ok: false; reason: string }
+
+export interface FileSaveInput extends FileRef {
+  /** `\n` 텍스트 */
+  content: string
+  /** 연 때(또는 마지막으로 저장한 때)의 디스크 해시 */
+  expectedHash: string
+}
+
+/**
+ * 저장 결과. 충돌(연 뒤 디스크가 바뀜·지워짐)과 쓰기 실패(권한·잠김·너무 큼)는 사람이 만날 수 있어 던지지 않는다.
+ * 잘못된 호출(다른 workspace·목록에 없음·repo 밖·섞인 줄바꿈)은 던진다(spec §3-3).
+ */
+export type FileSaveResult =
+  | { ok: true; hash: string }
+  | { ok: false; conflict: { hash: string | null; deleted: boolean }; reason?: never }
+  | { ok: false; reason: string; conflict?: never }
+
+/** 바뀜 확인(FR-22) — 지금 디스크 해시. 지워졌거나 목록에서 빠졌으면 null */
+export interface FileProbeResult {
+  hash: string | null
+}
+
 export interface Asset {
   id: string
   workspaceId: string

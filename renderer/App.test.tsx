@@ -1,10 +1,15 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from './client/ClientProvider'
 import { RunEventProvider } from './store/RunEventContext'
 import { createRunEventStore, type RunEventStore } from './store/runEvents'
 import { DraftProvider } from './store/DraftContext'
+import { CodeBufferProvider } from './store/CodeBufferContext'
+import { createCodeBufferStore, type CodeBufferStore } from './store/codeBuffers'
+import { createCloseGuard } from './store/closeGuard'
+import { createPendingSaves } from './store/pendingSaves'
+import type { ReactNode } from 'react'
 import { createDraftStore } from './store/drafts'
 import { conversationIdOf } from './conversation'
 import App from './App'
@@ -352,6 +357,12 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
   } as unknown as OneDeskClient
 }
 
+/** 코드 칸의 버퍼 스토어와 닫기 가드 — main.tsx와 같은 한 겹이다 (docs/sdlc/code-editor/ FR-20·FR-21) */
+function WithCodeBuffers({ children, store = createCodeBufferStore() }: { children: ReactNode; store?: CodeBufferStore }) {
+  const guard = createCloseGuard({ saves: createPendingSaves(), buffers: store, close: () => {}, save: vi.fn() })
+  return <CodeBufferProvider store={store} guard={guard}>{children}</CodeBufferProvider>
+}
+
 function renderApp(client: OneDeskClient, store: RunEventStore = createRunEventStore()) {
   render(
     <ClientProvider client={client}>
@@ -359,7 +370,9 @@ function renderApp(client: OneDeskClient, store: RunEventStore = createRunEventS
         {/* 입력부의 초안은 스토어가 쥔다 (docs/sdlc/conversation-timeline/ spec FR-31) — main.tsx와
             같은 한 겹이다. App은 인박스·설정에 가면 도크를 언마운트하므로 그 왕복을 여기서 탄다. */}
         <DraftProvider store={createDraftStore()}>
-          <App />
+          <WithCodeBuffers>
+            <App />
+          </WithCodeBuffers>
         </DraftProvider>
       </RunEventProvider>
     </ClientProvider>
@@ -389,7 +402,9 @@ describe('App', () => {
       <ClientProvider client={makeClient()}>
         <RunEventProvider store={createRunEventStore()}>
           <DraftProvider store={createDraftStore()}>
-            <App />
+            <WithCodeBuffers>
+              <App />
+            </WithCodeBuffers>
           </DraftProvider>
         </RunEventProvider>
       </ClientProvider>
@@ -420,7 +435,9 @@ describe('App', () => {
       <ClientProvider client={client}>
         <RunEventProvider store={createRunEventStore()}>
           <DraftProvider store={createDraftStore()}>
-            <App />
+            <WithCodeBuffers>
+              <App />
+            </WithCodeBuffers>
           </DraftProvider>
         </RunEventProvider>
       </ClientProvider>
@@ -1224,7 +1241,9 @@ describe('MCP 상태 배선', () => {
       <ClientProvider client={client}>
         <RunEventProvider store={createRunEventStore()}>
           <DraftProvider store={createDraftStore()}>
-            <App />
+            <WithCodeBuffers>
+              <App />
+            </WithCodeBuffers>
           </DraftProvider>
         </RunEventProvider>
       </ClientProvider>
@@ -1774,5 +1793,71 @@ describe('도크의 repo 거름 배선 (docs/sdlc/dock-repo-sections/ FR-8·11)'
     await userEvent.click(screen.getByRole('button', { name: 'repo 거름 풀기' }))
     expect(screen.getByRole('button', { name: 'web repo' })).not.toHaveClass('repo-card-selected')
     expect(await screen.findByText('api 대화', { selector: '.dock-conv-title' })).toBeInTheDocument()
+  })
+})
+
+describe('닫기 확인 (docs/sdlc/code-editor/ FR-21)', () => {
+  it('저장하지 않은 고침이 있어 닫기가 멈추면 App이 확인을 그리고, 취소하면 내려간다', async () => {
+    const buffers = createCodeBufferStore()
+    render(
+      <ClientProvider client={makeClient()}>
+        <RunEventProvider store={createRunEventStore()}>
+          <DraftProvider store={createDraftStore()}>
+            <WithCodeBuffers store={buffers}>
+              <App />
+            </WithCodeBuffers>
+          </DraftProvider>
+        </RunEventProvider>
+      </ClientProvider>
+    )
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+
+    const ref = { workspaceId: 'w1', repoId: 'r1', path: 'src/a.ts' }
+    act(() => {
+      buffers.load(ref, { text: 'a\n', hash: 'h', eol: 'lf', bom: false })
+      buffers.edit(ref, 'b\n')
+      buffers.requestClose()
+    })
+
+    const dialog = await screen.findByRole('alertdialog', { name: '저장하지 않은 파일 1개가 있습니다' })
+    expect(within(dialog).getByRole('button', { name: '모두 저장하고 닫기' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: '저장하지 않고 닫기' })).toBeInTheDocument()
+    await userEvent.click(within(dialog).getByRole('button', { name: '취소' }))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  })
+})
+
+describe('코드 칸의 자리 (docs/sdlc/code-editor/ FR-2, 안 B)', () => {
+  // 칸 열림은 이 장비에 남는다 — 다음 테스트로 새면 files가 없는 가짜 클라이언트로 칸이 뜬다
+  beforeEach(() => { localStorage.clear() })
+  afterEach(() => { localStorage.clear() })
+
+  function withFiles(client: OneDeskClient): OneDeskClient {
+    Object.assign(client, {
+      files: {
+        search: vi.fn().mockResolvedValue({ ok: true, files: [], truncated: false }),
+        tree: vi.fn().mockResolvedValue({ ok: true, files: ['src/a.ts'], truncated: false }),
+        open: vi.fn(),
+        save: vi.fn(),
+        probe: vi.fn(() => new Promise(() => {}))
+      }
+    })
+    return client
+  }
+
+  it('파일 버튼으로 연 칸은 도크가 아니라 앱 창 오른쪽 열에 서고, 인박스에 다녀와도 다시 선다', async () => {
+    renderApp(withFiles(makeClient({}, { repos: [makeRepo('r1', 'api', '/tmp/api')] })))
+    await selectWorkspace()
+
+    await userEvent.click(await screen.findByRole('button', { name: '파일' }))
+    const region = await screen.findByRole('region', { name: '코드 칸' })
+    expect(region.closest('.code-column')).not.toBeNull()
+    expect(region.closest('.dock')).toBeNull()
+
+    // 인박스에는 도크가 없다 — 칸도 함께 내려간다
+    await openInbox()
+    expect(screen.queryByRole('region', { name: '코드 칸' })).not.toBeInTheDocument()
+    await selectWorkspace()
+    expect(await screen.findByRole('region', { name: '코드 칸' })).toBeInTheDocument()
   })
 })

@@ -65,7 +65,7 @@ function defaultEffortOf(workspace: Workspace | null, agentKind: AgentKind): str
 export function RunPanel({
   workspaceId, workspaces, repos, reposError, chips, onRemoveChip, onStarted,
   conversation, draftPrompt, draftCwd, selectedRepoId, reserved, running, reservation, waitingFirst,
-  onCancel, inputRef, carriedIssue = null
+  onCancel, inputRef, onCwdChange, carriedIssue = null
 }: {
   workspaceId: string
   /** App이 useWorkspaces()로 한 번만 조회해 내려준다 — 이 컴포넌트가 자기 인스턴스를
@@ -98,6 +98,12 @@ export function RunPanel({
   reservation: Run | null
   /** 첫 지시(뿌리 턴)가 슬롯을 기다리는 중이다. 그 턴은 대화록에 남고 여기서는 안내만 한다 (FR-30). */
   waitingFirst: boolean
+  /**
+   * 작업 디렉토리가 바뀔 때마다 알린다 (`docs/sdlc/code-editor/` FR-6) — 새 대화 칸의 코드 칸이 그 repo를 연다.
+   * "다시 실행"이 요구한 경로가 목록에 없으면 빈 문자열이다. **필수다** — 선택이면 한 줄을 빠뜨려도 조용히 컴파일되고
+   * 칸이 알약을 안 따라간다.
+   */
+  onCwdChange: (cwd: string) => void
   /** 중지·예약 취소가 부른다 — 도크의 `cancel`이다(실패하면 도크 배너로 보인다) */
   onCancel: (runId: string) => void
   /**
@@ -335,6 +341,13 @@ export function RunPanel({
     setMissingCwd(null)
     setCwd(selectedPath ?? (repos.length > 0 ? repos[0]!.path : ''))
   }, [repos, cwd, draftCwd, selectedPath])
+
+  // 지금 고른 작업 디렉토리를 도크에 알린다 (code-editor FR-6). 위 effect의 어느 갈래가 cwd를 바꿨든 여기 한 자리를
+  // 지난다 — 갈래마다 부르면 하나를 빠뜨린다. 콜백은 늘 최신을 부른다(Dock이 렌더마다 새로 만든다).
+  const reportCwd = useRef(onCwdChange)
+  reportCwd.current = onCwdChange
+  const chosenCwd = missingCwd === null ? cwd : ''
+  useEffect(() => { reportCwd.current(chosenCwd) }, [chosenCwd])
 
   // 대화를 이어갈 때는 cwd를 원본에서 받으므로 로컬 cwd가 비어도 실행할 수 있다.
   // reserved면(대화당 예약은 하나다 — 설계 §3-2) 전송을 잠근다.

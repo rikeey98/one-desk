@@ -19,7 +19,7 @@ import type { AssignedIssue, Repo, Run, Workspace } from '@shared/models'
  */
 export function ConversationPanel({
   conversation, workspaceId, workspaces, repos, reposError, chips, onRemoveChip,
-  onStarted, onCancel, draftPrompt, draftCwd, selectedRepoId, pendingIssue = null
+  onStarted, onCancel, draftPrompt, draftCwd, selectedRepoId, onCwdChange, pendingIssue = null
 }: {
   conversation: Conversation | null
   /** 새 대화 칸에 걸린 할당 예정 이슈 (conversation-issue FR-20). 대화가 있으면 쓰지 않는다 */
@@ -35,6 +35,8 @@ export function ConversationPanel({
   draftPrompt: string
   draftCwd: string | null
   selectedRepoId: string | null
+  /** 입력부의 작업 디렉토리 — 새 대화 칸의 코드 칸이 따른다 (`docs/sdlc/code-editor/` FR-6). 그대로 흘려 보낸다 */
+  onCwdChange: (cwd: string) => void
 }) {
   const client = useClient()
   const [resendError, setResendError] = useState<string | null>(null)
@@ -121,6 +123,7 @@ export function ConversationPanel({
         onCancel={onCancel}
         inputRef={inputRef}
         carriedIssue={carriedIssue}
+        onCwdChange={onCwdChange}
       />
     </div>
   )

@@ -11,7 +11,8 @@ import type {
   McpStatus, PlanUsage, ResumeRunInput, ItemChange,
   Asset, CreateAuthoredAssetInput, GuardedUpdateAssetInput, AssetUpdateResult, ListAssetQuery,
   GlobalRoots, AgentPaths, CommandTarget, CommandListResult,
-  UpdateRepoInput, AppInfo, RevealTarget, AssetBody, FileSearchInput, FileSearchResult
+  UpdateRepoInput, AppInfo, RevealTarget, AssetBody, FileSearchInput, FileSearchResult,
+  FileRef, FileTreeInput, FileTreeResult, FileOpenResult, FileSaveInput, FileSaveResult, FileProbeResult
 } from './models'
 import type { RunEvent } from './events'
 import type { PanelScope } from './panelWindow'
@@ -130,6 +131,23 @@ export interface OneDeskClient {
      * 받고, core가 그 repo의 git 목록에서 찾는다.
      */
     search(input: FileSearchInput): Promise<FileSearchResult>
+    /**
+     * 코드 칸의 트리 (docs/sdlc/code-editor/ FR-8). 피커와 같은 git 목록이다. `fresh`면 core의 10초 캐시를 건너뛴다.
+     */
+    tree(input: FileTreeInput): Promise<FileTreeResult>
+    /**
+     * 파일 하나를 연다 (FR-15). 목록에 없는 파일(무시된 것·`.git` 안)과 열 수 없는 파일(크기·바이너리·인코딩)은
+     * 던지지 않고 이유로 온다.
+     */
+    open(ref: FileRef): Promise<FileOpenResult>
+    /**
+     * 저장 (FR-17~19). `content`는 `
+` 텍스트다 — 줄바꿈·BOM은 core가 디스크 파일의 것으로 되살린다. 연 뒤 디스크가
+     * 바뀌었으면 쓰지 않고 `conflict`로 온다. 목록에 없는 경로·다른 workspace는 던진다.
+     */
+    save(input: FileSaveInput): Promise<FileSaveResult>
+    /** 바뀜 확인 (FR-22) — 지금 디스크 해시, 지워졌으면 null. 칸이 보이는 동안 몇 초마다 부른다 */
+    probe(ref: FileRef): Promise<FileProbeResult>
   }
   commands: {
     list(target: CommandTarget): Promise<CommandListResult>

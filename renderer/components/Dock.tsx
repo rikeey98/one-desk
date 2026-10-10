@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useRef, type KeyboardEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { useClient } from '../client/ClientProvider'
 import { clampDockHeight, readDockHeight, writeDockHeight, DEFAULT_DOCK_RATIO } from '../dockHeight'
 import { ConversationPanel } from './ConversationPanel'
@@ -7,12 +8,33 @@ import { ConversationList } from './ConversationList'
 import { draftKeyOf } from '../store/drafts'
 import { useDraftFilled } from '../store/DraftContext'
 import { SlotIndicator } from './SlotIndicator'
-import { IconChevronDown, IconCollapse, IconMaximize } from './icons'
+import { IconChevronDown, IconCollapse, IconFolder, IconMaximize } from './icons'
+import { FilePane, type OpenRequest } from './code/FilePane'
+import { CodePaneContext, useCodePaneSlot, type CodePaneOpener } from './code/CodePaneContext'
+import { paneTarget } from '../code/target'
+import {
+  clampPaneWidth, PANE_STEP_PX, readPaneKind, readPaneWidth, resetPaneWidth, writePaneKind, writePaneWidth,
+  type PaneKind
+} from '../code/layout'
 import { conversationIdOf, filterByRepo, groupConversations, repoOfConversation, sectionByRepo, type Conversation } from '../conversation'
 import { readCollapsedSections, writeCollapsedSections } from '../dockSections'
 import { confirmSeen as confirmConversationSeen } from '../conversationSeen'
 import type { ContextChip } from '../context'
 import type { AssignedIssue, QueueSnapshot, Repo, Run, Workspace } from '@shared/models'
+
+/** 코드 칸 폭 경계의 폭(px)과 칸 열의 오른쪽 여백 — CSS `.code-pane-resizer`·`.code-column`과 같다 */
+const PANE_RESIZER_PX = 9
+const PANE_COLUMN_GUTTER_PX = 12
+
+/**
+ * 본문 + 칸에 쓸 수 있는 폭 (code-editor FR-4, 안 B). 칸의 자리는 `.app`의 마지막 열이라 앱 창에서 사이드바·경계·
+ * 열 여백을 뺀 것이다. 자리가 없으면 창 폭으로 어림한다.
+ */
+function availablePaneSpace(slot: HTMLElement | null): number {
+  const app = slot?.parentElement ?? null
+  const sidebar = app?.querySelector<HTMLElement>(':scope > .sidebar') ?? null
+  return (app?.clientWidth ?? window.innerWidth) - (sidebar?.offsetWidth ?? 0) - PANE_RESIZER_PX - PANE_COLUMN_GUTTER_PX
+}
 
 export function Dock({
   runs, error, workspaceId, workspaces, repos, reposError, queue, queueError, onChangeLimit, chips, onRemoveChip,
@@ -72,6 +94,20 @@ export function Dock({
   // 값은 아래 드래그에서 매번 지금 창 크기로 다시 클램프된다.
   const [height, setHeight] = useState(() => readDockHeight(window.innerHeight))
   const drag = useRef<{ startY: number; startHeight: number } | null>(null)
+  // 코드 칸 (`docs/sdlc/code-editor/` FR-1~FR-7). 열린 종류와 폭은 이 장비에 남는다 — 인박스·설정에 다녀와
+  // 도크가 다시 마운트돼도 열린 채다(FR-4). 칸 안의 연 파일·고친 글은 스토어가 쥔다(FR-20).
+  const [paneKind, setPaneKind] = useState<PaneKind | null>(readPaneKind)
+  const [paneWidth, setPaneWidth] = useState<number | null>(readPaneWidth)
+  // 새 대화 칸의 작업 디렉토리 — 입력부가 알린다(FR-6). 이어 가는 대화는 뿌리 cwd를 쓴다
+  const [newCwd, setNewCwd] = useState('')
+  // 대화록의 `코드 칸에서 열기` (FR-23)
+  const [openRequest, setOpenRequest] = useState<OpenRequest | null>(null)
+  const openNonce = useRef(0)
+  const paneDrag = useRef<{ startX: number; startWidth: number } | null>(null)
+  // 칸이 그려질 자리 — 앱 창 오른쪽 끝의 위아래 전체 열이다(안 B, 2026-10-10). 상태는 여기 두고 그 자리에 포털로 그린다
+  const paneSlot = useCodePaneSlot()
+  const slotRef = useRef(paneSlot)
+  slotRef.current = paneSlot
 
   // 포인터를 도크 밖으로 끌어도 따라와야 하므로 window에 건다. 드래그 중에만
   // 붙였다 떼는 이유는 그것 말고는 매 렌더 리스너가 살아 있을 이유가 없어서다.
@@ -94,6 +130,46 @@ export function Dock({
       window.removeEventListener('pointerup', onUp)
     }
   }, [])
+
+  // 코드 칸의 폭 경계. 도크 높이 조절과 같은 모양 — 칸 밖으로 끌어도 따라오게 window에 건다.
+  useEffect(() => {
+    function onMove(e: PointerEvent) {
+      const d = paneDrag.current
+      if (!d) return
+      // 왼쪽으로 끌면(clientX 감소) 칸이 넓어진다. 쓸 수 있는 폭은 본문 + 칸이다.
+      setPaneWidth(clampPaneWidth(d.startWidth + (d.startX - e.clientX), availablePaneSpace(slotRef.current)))
+    }
+    function onUp() {
+      if (!paneDrag.current) return
+      paneDrag.current = null
+      setPaneWidth((w) => { if (w !== null) writePaneWidth(w); return w })
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+  }, [])
+
+  function setPane(kind: PaneKind | null) {
+    setPaneKind(kind)
+    writePaneKind(kind)
+  }
+
+  /** 폭 경계의 키보드 — ←는 칸을 넓히고 →는 좁힌다(경계를 그쪽으로 옮긴다) */
+  function onResizerKey(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    e.preventDefault()
+    const pane = paneSlot?.querySelector<HTMLElement>('.code-box')
+    if (!pane) return
+    const next = clampPaneWidth(
+      pane.getBoundingClientRect().width + (e.key === 'ArrowLeft' ? PANE_STEP_PX : -PANE_STEP_PX),
+      availablePaneSpace(paneSlot)
+    )
+    setPaneWidth(next)
+    writePaneWidth(next)
+  }
 
   function resetHeight() {
     const next = clampDockHeight(window.innerHeight * DEFAULT_DOCK_RATIO, window.innerHeight)
@@ -379,6 +455,34 @@ export function Dock({
   // 2026-09-27). 입력칸이 비면 같은 자리의 전송 버튼이 이미 중지다. 키는 입력부의 초안 키와 같다.
   const hasDraft = useDraftFilled(draftKeyOf(shownConversation?.id ?? null, workspaceId))
 
+  // 코드 칸의 대상 repo (FR-6) — 보는 대화의 뿌리 cwd, 새 대화면 입력부의 작업 디렉토리
+  const target = paneTarget(shownConversation, newCwd, repos)
+  const targetRepo = target.repo
+  const opener = useMemo<CodePaneOpener | null>(() => (targetRepo
+    ? {
+      repoPath: targetRepo.path,
+      open: (path, line) => {
+        setPane('files')
+        setOpenRequest({ path, line, nonce: ++openNonce.current })
+      }
+    }
+    : null), [targetRepo])
+  // 코드 칸 버튼 줄 (FR-1) — 대화 헤더 오른쪽 끝의 슬롯이다. 대상이 없으면 비활성이고 `title`이 이유를 말한다.
+  // `disabled`가 아니라 `aria-disabled`다 — 비활성 버튼에는 title 풍선이 뜨지 않아 이유가 보이지 않는다.
+  const paneButtons = (
+    <button
+      type="button"
+      className={['pane-toggle', paneKind === 'files' && 'pane-toggle-on'].filter(Boolean).join(' ')}
+      aria-pressed={paneKind === 'files'}
+      aria-disabled={targetRepo ? undefined : true}
+      title={targetRepo ? `${targetRepo.name}의 파일` : target.reason}
+      onClick={() => { if (targetRepo) setPane(paneKind === 'files' ? null : 'files') }}
+    >
+      <IconFolder width="13" height="13" />
+      파일
+    </button>
+  )
+
   return (
     <section
       className={['dock', open && 'dock-open', isMax && 'dock-max'].filter(Boolean).join(' ')}
@@ -480,49 +584,90 @@ export function Dock({
                 **대화 칸은 헤더 · 대화록 · 입력부이고 스크롤은 대화록만 한다** (FR-41) —
                 `.dock-main`은 넘치지 않는다. 헤더는 여기서 그린다(plan 다듬은 것 5): 필요한 것
                 (대화·이름 바꾸기·끝내기·멈추기)이 전부 여기 있어 prop을 한 겹 덜 내린다. */}
-            <div className="dock-main">
-              <ConversationHeader
-                conversation={shownConversation}
-                repos={repos}
-                renaming={shownConversation !== null
-                  && renaming?.where === 'header' && renaming.id === shownConversation.id}
-                onStartRename={() => {
-                  if (shownConversation) setRenaming({ id: shownConversation.id, where: 'header' })
-                }}
-                onRename={(title) => {
-                  if (shownConversation) void renameConversation(shownConversation, title)
-                }}
-                onCancelRename={() => setRenaming(null)}
-                onClose={() => { if (shownConversation) void closeConversation(shownConversation) }}
-                onCancel={cancel}
-                hasDraft={hasDraft}
-                workspaceId={workspaceId}
-                pendingIssue={view === 'new' ? draftIssue : null}
-                onClearPendingIssue={onClearDraftIssue}
-                onOpenIssue={onOpenIssue}
-                onAssignIssue={(issueId) => {
-                  if (shownConversation) void assignIssue(shownConversation, issueId)
-                }}
-              />
-              <ConversationPanel
-                key={draftKeyOf(shownConversation?.id ?? null, workspaceId)}
-                conversation={shownConversation}
-                pendingIssue={view === 'new' ? draftIssue : null}
-                workspaceId={workspaceId}
-                workspaces={workspaces}
-                repos={repos}
-                reposError={reposError}
-                chips={chips}
-                onRemoveChip={onRemoveChip}
-                onStarted={started}
-                onCancel={cancel}
-                draftPrompt={draftPrompt}
-                draftCwd={draftCwd}
-                selectedRepoId={selectedRepoId}
-              />
-            </div>
+            <CodePaneContext.Provider value={opener}>
+              <div className="dock-main">
+                <ConversationHeader
+                  conversation={shownConversation}
+                  repos={repos}
+                  renaming={shownConversation !== null
+                    && renaming?.where === 'header' && renaming.id === shownConversation.id}
+                  onStartRename={() => {
+                    if (shownConversation) setRenaming({ id: shownConversation.id, where: 'header' })
+                  }}
+                  onRename={(title) => {
+                    if (shownConversation) void renameConversation(shownConversation, title)
+                  }}
+                  onCancelRename={() => setRenaming(null)}
+                  onClose={() => { if (shownConversation) void closeConversation(shownConversation) }}
+                  onCancel={cancel}
+                  hasDraft={hasDraft}
+                  workspaceId={workspaceId}
+                  pendingIssue={view === 'new' ? draftIssue : null}
+                  onClearPendingIssue={onClearDraftIssue}
+                  onOpenIssue={onOpenIssue}
+                  onAssignIssue={(issueId) => {
+                    if (shownConversation) void assignIssue(shownConversation, issueId)
+                  }}
+                  paneButtons={paneButtons}
+                />
+                <ConversationPanel
+                  key={draftKeyOf(shownConversation?.id ?? null, workspaceId)}
+                  conversation={shownConversation}
+                  pendingIssue={view === 'new' ? draftIssue : null}
+                  workspaceId={workspaceId}
+                  workspaces={workspaces}
+                  repos={repos}
+                  reposError={reposError}
+                  chips={chips}
+                  onRemoveChip={onRemoveChip}
+                  onStarted={started}
+                  onCancel={cancel}
+                  draftPrompt={draftPrompt}
+                  draftCwd={draftCwd}
+                  selectedRepoId={selectedRepoId}
+                  onCwdChange={setNewCwd}
+                />
+              </div>
+            </CodePaneContext.Provider>
           </div>
         </div>
+      )}
+      {/* 코드 칸 — 앱 창 오른쪽 끝의 위아래 전체 열에 그린다 (code-editor FR-2, 안 B). 도크 본문 밖이라 도크를 접어도
+          남는다(FR-5). 대상은 그대로 도크가 보는 대화다. 자리가 없으면(도크를 혼자 그린 테스트) 서지 않는다. */}
+      {paneKind === 'files' && paneSlot && createPortal(
+        <>
+          <div
+            role="separator"
+            aria-label="코드 칸 폭 조절"
+            aria-orientation="vertical"
+            tabIndex={0}
+            className="code-pane-resizer"
+            onPointerDown={(e) => {
+              const pane = paneSlot.querySelector<HTMLElement>('.code-box')
+              paneDrag.current = { startX: e.clientX, startWidth: pane?.getBoundingClientRect().width ?? 0 }
+            }}
+            onDoubleClick={() => { setPaneWidth(null); resetPaneWidth() }}
+            onKeyDown={onResizerKey}
+          />
+          <div className="code-box" style={paneWidth !== null ? { width: paneWidth } : undefined}>
+            {targetRepo
+              ? (
+                <FilePane
+                  workspaceId={workspaceId}
+                  repo={targetRepo}
+                  openRequest={openRequest}
+                  onClose={() => setPane(null)}
+                />
+              )
+              : (
+                <section className="code-pane code-pane-empty" aria-label="코드 칸">
+                  <p className="code-pane-hint">{target.reason}</p>
+                  <button type="button" onClick={() => setPane(null)}>코드 칸 닫기</button>
+                </section>
+              )}
+          </div>
+        </>,
+        paneSlot
       )}
     </section>
   )

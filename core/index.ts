@@ -17,7 +17,9 @@ import { runCli } from './agent/exec'
 import { probeCommands } from './commands/probe'
 import { describeCommands } from './commands/describe'
 import type { GlobalRoots } from './db/repositories/setting'
-import type { UpdateRepoInput, AppPaths, FileSearchInput, BuildReportInput, ReportData } from '@shared/models'
+import type {
+  UpdateRepoInput, AppPaths, FileSearchInput, BuildReportInput, ReportData, FileTreeInput, FileRef, FileSaveInput
+} from '@shared/models'
 import { PANEL_KINDS, type PanelScope } from '@shared/panelWindow'
 import { createFileService } from './files/service'
 import { buildReport } from './reports/build'
@@ -361,7 +363,12 @@ export function createCore(opts: CoreOptions) {
     },
     commands,
     files: {
-      search: (input: FileSearchInput) => files.search(input)
+      search: (input: FileSearchInput) => files.search(input),
+      // 코드 칸 (docs/sdlc/code-editor/) — repo id + 상대 경로로만 받는다. 판정은 전부 서비스에 있다.
+      tree: (input: FileTreeInput) => files.tree(input),
+      open: (ref: FileRef) => files.open(ref),
+      save: (input: FileSaveInput) => files.save(input),
+      probe: (ref: FileRef) => files.probe(ref)
     },
 
     /**

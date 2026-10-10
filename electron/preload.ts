@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { OneDeskClient, Unsubscribe } from '@shared/client'
-import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult, ReportData } from '@shared/models'
+import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult, ReportData, FileTreeResult, FileOpenResult, FileSaveResult, FileProbeResult } from '@shared/models'
 import type { RunEvent } from '@shared/events'
 
 /**
@@ -71,7 +71,11 @@ const client: OneDeskClient = {
     readBody: (id) => call<AssetBody>(CHANNELS.assetsReadBody, id)
   },
   files: {
-    search: (input) => call<FileSearchResult>(CHANNELS.filesSearch, input)
+    search: (input) => call<FileSearchResult>(CHANNELS.filesSearch, input),
+    tree: (input) => call<FileTreeResult>(CHANNELS.filesTree, input),
+    open: (ref) => call<FileOpenResult>(CHANNELS.filesOpen, ref),
+    save: (input) => call<FileSaveResult>(CHANNELS.filesSave, input),
+    probe: (ref) => call<FileProbeResult>(CHANNELS.filesProbe, ref)
   },
   commands: {
     list: (target) => call<CommandListResult>(CHANNELS.commandsList, target),

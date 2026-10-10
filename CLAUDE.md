@@ -310,6 +310,22 @@ repo는 **뿌리 턴의 `cwd`**와 경로가 같은 등록 repo(`repoOfConversat
 작업 디렉토리 알약의 repo 이름(`repoLabel`)도 같은 판정이다 — 예전에는 마지막 턴 `cwd`의 정확 일치였다. 구획 머리의 이름은
 `<repo> 대화 묶음`(접기/펼치기를 넣지 않는다). `e2e/dock-repo.e2e.ts`가 repo 둘에서 실제로 돈 대화로 본다.
 
+**대화 옆에 코드 칸이 붙었다 — 셋 중 첫째(틀과 파일 칸)** (`docs/sdlc/code-editor/`). 마이그레이션 없음. Claude Code 데스크톱의
+상단 버튼(터미널 · 변경사항 · 폴더)을 들이는 작업이고 intent 하나에 spec → plan → 구현을 **셋으로 따로** 돈다(① 틀 + 파일 칸
+② 변경사항 — **diff는 git diff로 간다, 전체 설계 §10의 스냅샷 방식은 그 spec에서 고친다** ③ 터미널 — 네이티브 모듈 pty). 대화 헤더
+오른쪽 끝의 `파일`(슬롯 prop `paneButtons`, 필수)이 **앱 창 오른쪽 끝에 위아래 전체 높이로** 칸을 연다 — 트리 + CodeMirror 6
+편집기 하나(안 B, 2026-10-10 — 처음 구현한 도크 안 배치를 사용자가 캡처를 보고 바꿨다). 칸의 상태는 `Dock`이 쥐고 App이
+workspace 화면에서만 두는 `.code-column`에 **포털로** 그린다(자리는 `CodePaneSlotContext` — 없으면 칸이 서지 않는다). 그래서 도크를
+접어도 칸이 남고, 인박스·설정에서는 도크와 함께 없다. 대상
+repo는 이어 가는 대화면 뿌리 cwd(`repoOfConversation`), 새 대화면 입력부의 작업 디렉토리 알약이다(RunPanel의 필수 prop
+`onCwdChange`가 올린다). **앱이 repo 파일을 쓰는 첫 통로다** — 읽기·쓰기 모두 `@` 피커와 같은 `git ls-files -co --exclude-standard`
+목록 안의 파일만 받는다(저장은 캐시가 아닌 새 목록 — `.git/hooks`·무시된 파일을 쓰는 길이 없다). 그래서 **git이 아닌 repo에서는
+칸이 아무것도 못 한다**(spec §4의 1, 사용자 승인). 저장은 명시적(Ctrl+S)이고 연 때의 디스크 해시와 지금이 같을 때만 쓴다 —
+다르면 충돌 배너다. 줄바꿈·BOM은 core가 디스크 파일의 것으로 되살린다(렌더러는 `\n` 텍스트만 다룬다), 섞인 줄바꿈 파일은 읽기
+전용이다. 고친 글은 `main.tsx`의 버퍼 스토어가 쥐어 칸을 닫거나 인박스에 다녀와도 남고, 저장하지 않은 채 앱 창을 닫으면 앱 안의
+확인(`CloseConfirm` — 앱에서 하나뿐인 모달)이 묻는다. 칸이 보이는 동안 2초마다 디스크를 확인해 고친 것이 없으면 따라간다.
+대화록 편집 줄의 `코드 칸에서 열기`가 그 파일을 그 편집 줄로 연다. `e2e/code-pane.e2e.ts`가 디스크 바이트(CRLF·BOM)까지 본다.
+
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
 한동안 "5단계 착수 전에 정할 것"으로 잡아두고 **평문 SQLite에 자격 증명을 넣을지**를 막힌 결정으로 남겼던 항목이다. 대상 환경을 실측해 보니 **배관 자체가 불필요했다.**
@@ -713,6 +729,26 @@ hover하고 바로 누르면 가끔 깨진다 — 눌리지 않은 click이 스�
 
 **"정리 안 됨"과 "미지정"은 다른 말이다.** 전자는 훑기 대기열(`triagedAt IS NULL`), 후자는 지금 묶은 축의 값이 비었다는 뜻이다. 마이그레이션 `0003`이 백필한 이슈는 `triagedAt`은 있는데 축이 비어 있어 두 값이 갈린다 — 같은 단어로 쓰면 "정리 안 됨 0건인데 미분류 그룹에 3개"라는 화면이 나온다.
 
+**CodeMirror는 한 벌이어야 한다 — 올릴 때 `pnpm.overrides` 여덟을 같이 올린다** (`docs/sdlc/code-editor/` plan 위험 1).
+`@codemirror/state`가 두 인스턴스면 확장이 거부되거나 강조가 조용히 안 먹는다. pnpm 10은 하위 의존성을 가장 새 판으로 고르므로
+직접 의존만 박아서는 언어 패키지의 `^6.x`가 새 판을 끌어온다 — `package.json`의 `pnpm.overrides`가 `state`·`view`·`language`·
+`@lezer/highlight`와, 2주가 안 된 판을 끌어오던 `@lezer/lr`·`css`·`markdown`·`javascript`를 묶는다. 올린 뒤에는
+`pnpm why @codemirror/state`로 한 벌인지 본다.
+
+**jsdom에서는 CodeMirror를 그릴 수 없다 — 코드 칸이 파일을 여는 단위 테스트는 `CodeEditor`를 `vi.mock`으로 바꾼다.** 측정 API
+(`getClientRects`)가 없어 "처리되지 않은 오류"로 테스트 파일이 실패한다(`FilePane.test`·`Dock.test`가 대역을 둔다). 그래서
+Ctrl+S·바깥 글 교체·처음 갈 줄·언어 조각 불러오기는 `e2e/code-pane.e2e.ts`만 본다 — `CodeEditor`에 판정을 두지 말 것.
+`App`·코드 칸을 그리는 테스트는 `CodeBufferProvider`가 있어야 한다(기본값이 없어 던진다 — 초안 스토어와 같은 규칙).
+
+**앱 창의 `beforeunload`는 `closeGuard`다 — 패널 창은 `guardUnload` 그대로다** (`renderer/main.tsx`). 대기 중인 저장을 먼저
+흘려보내고, 그 `close()`가 다시 부른 `beforeunload`에서 코드 칸의 고친 글을 본다. **e2e에서 칸에 고친 글을 남긴 채 끝내면
+드라이버의 `close()`가 확인 창에 막힌다** — 저장하거나 버리고 끝낸다.
+
+**대화록 편집 줄의 `코드 칸에서 열기`는 이름에 경로가 없다 — 경로를 넣지 말 것.** 기존 e2e 셋(`events`·`timeline`)이 파일 줄을
+`{ name: /auth\.ts/ }`로 잡는데 처음에 `<경로> 코드 칸에서 열기`로 지었더니 그 셀렉터가 두 버튼을 잡아 strict 위반으로 깨졌다.
+어느 파일인지는 `aria-describedby`가 그 줄의 경로를 가리켜 말한다. e2e는 줄로 좁혀 잡는다(`.tl-file-row` + `hasText`) — 표시
+경로는 CLI의 구분자 그대로라 Windows에서 `src\auth.ts`다. `파일` 버튼도 이름이 짧다 — `{ name: '파일', exact: true }`로 잡는다.
+
 **색은 `renderer/index.css` 맨 위의 `:root` 토큰에서만 나온다 — 규칙 안에 hex를 직접 쓰지 말 것.**
 다크 스킴(`prefers-color-scheme: dark`)은 같은 이름의 값만 바꾸므로, hex를 하나라도 직접 쓰면
 그 자리만 다크에서 흰 채로 남는다. 새 색이 필요하면 토큰을 더하고 다크 값도 같이 정한다.
@@ -833,6 +869,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/agent-path-default/` | CLI 경로의 앱 기본값과 workspace 예외 — spec. 해석 순서(FR-1), 키-값 저장(FR-2), 앱 탭·실행 탭 화면(FR-3) |
 | `docs/sdlc/period-report/` | 기간 리포트 — intent·spec·plan. workspace를 넘는 읽기를 MCP가 아니라 화면에만 둔 이유(intent, spec FR-1·24), 기간 판정 공유(FR-2), 칸 분류와 합계가 다른 질문인 이유(FR-6·7), 세 보기(FR-16~18), 내보내기 셋(FR-22~24), 상태가 "지금"인 한계(§6). 시안 https://claude.ai/artifact/6bn58ES8XQwBP9k68VfV4E |
 | `docs/sdlc/dock-repo-sections/` | 도크 대화 목록의 repo 구획과 사이드바 거름 — spec·plan. 대화의 repo를 뿌리 cwd로 정하는 이유(FR-1), 구획이 하나면 머리가 없는 이유(FR-5), 거름이 보기만 바꾸는 이유(FR-9), 머리를 대문자로 쓰지 않는 이유(NFR-2) |
+| `docs/sdlc/code-editor/` | 코드 칸(터미널 · 변경사항 · 파일) — intent 하나, spec·plan은 첫 사이클(틀 + 파일 칸). git diff로 가는 결정(intent), 배치 시안(안 A로 구현했다가 안 B — 창 오른쪽 전체 높이로 바꿈, spec §0), 목록 안의 파일만 읽고 쓰는 이유(spec §3-4), 명시적 저장과 해시 충돌(FR-17·19), 줄바꿈·BOM 되살리기(FR-18), 닫기 확인(FR-21), 우려와 승인(§4). plan에 변이 결과와 번들 크기 |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, within, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
@@ -6,10 +6,20 @@ import { RunEventProvider } from '../store/RunEventContext'
 import { createRunEventStore, type RunEventStore } from '../store/runEvents'
 import { DraftProvider } from '../store/DraftContext'
 import { createDraftStore } from '../store/drafts'
+import { CodeBufferProvider } from '../store/CodeBufferContext'
+import { CodePaneSlotContext } from './code/CodePaneContext'
+import { createCodeBufferStore } from '../store/codeBuffers'
+import { createCloseGuard } from '../store/closeGuard'
+import { createPendingSaves } from '../store/pendingSaves'
 import { Dock } from './Dock'
 import type { OneDeskClient } from '@shared/client'
 import type { Repo, Run, Workspace } from '@shared/models'
 import type { RunEvent } from '@shared/events'
+
+// CodeMirror는 jsdom에서 그릴 수 없다(측정이 없다 — code-editor plan 위험 2). 코드 칸이 여는 편집기는 글만 보이는 대역이다.
+vi.mock('./code/CodeEditor', () => ({
+  CodeEditor: ({ text, label }: { text: string; label: string }) => <textarea aria-label={label} value={text} readOnly />
+}))
 
 const repos: Repo[] = [
   { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, createdAt: 0 }
@@ -1459,5 +1469,201 @@ describe('repo 구획과 사이드바 거름 (docs/sdlc/dock-repo-sections/)', (
   it('거른 결과가 비면 안내한다 (FR-10)', () => {
     renderSections({ selectedRepoId: 'r1', list: [runs[0]!] })
     expect(screen.getByText('api에서 나눈 대화가 없습니다')).toBeInTheDocument()
+  })
+})
+
+describe('코드 칸 (docs/sdlc/code-editor/ FR-1~FR-7·FR-23)', () => {
+  // 칸이 그려질 자리 — 앱에서는 App이 창 오른쪽 끝에 두는 열이다(안 B). 도크를 혼자 그리므로 직접 만든다.
+  let slot: HTMLElement
+  beforeEach(() => {
+    localStorage.clear()
+    slot = document.createElement('div')
+    document.body.appendChild(slot)
+  })
+  afterEach(() => {
+    localStorage.clear()
+    slot.remove()
+  })
+
+  const two: Repo[] = [
+    ...repos,
+    { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 1, createdAt: 0 }
+  ]
+
+  function paneClient() {
+    const client = makeClient()
+    const files = {
+      search: vi.fn().mockResolvedValue({ ok: true, files: [], truncated: false }),
+      tree: vi.fn().mockResolvedValue({ ok: true, files: ['src/auth.ts', 'README.md'], truncated: false }),
+      open: vi.fn().mockResolvedValue({ ok: true, text: 'x\n', eol: 'lf', bom: false, hash: 'h', bytes: 2 }),
+      save: vi.fn(),
+      probe: vi.fn(() => new Promise(() => {}))
+    }
+    Object.assign(client, { files, repos: { ...client.repos, openInEditor: vi.fn() } })
+    return { client, files }
+  }
+
+  function renderPaneDock(
+    list: Run[], client: OneDeskClient, store: RunEventStore = createRunEventStore(), paneSlot: HTMLElement | null = slot
+  ) {
+    const buffers = createCodeBufferStore()
+    const guard = createCloseGuard({ saves: createPendingSaves(), buffers, close: () => {}, save: vi.fn() })
+    return render(
+      <ClientProvider client={client}>
+        <RunEventProvider store={store}>
+          <DraftProvider store={createDraftStore()}>
+            <CodeBufferProvider store={buffers} guard={guard}>
+              <CodePaneSlotContext.Provider value={paneSlot}>
+                <Dock
+                  runs={list} error={null} workspaceId="w1" workspaces={workspaces} repos={two} reposError={null}
+                  queue={null} queueError={null} onChangeLimit={vi.fn()} chips={[]} onRemoveChip={vi.fn()}
+                  onRunStarted={vi.fn()} draftPrompt="" draftCwd={null} selectedRepoId={null} onClearRepoFilter={vi.fn()}
+                  focusConversationId={null} onFocusConsumed={vi.fn()}
+                />
+              </CodePaneSlotContext.Provider>
+            </CodeBufferProvider>
+          </DraftProvider>
+        </RunEventProvider>
+      </ClientProvider>
+    )
+  }
+
+  it('칸은 도크 안이 아니라 내려받은 자리(창 오른쪽 열)에 선다 (FR-2, 안 B)', async () => {
+    const { client } = paneClient()
+    const { container } = renderPaneDock([apiConv], client)
+    await pickConv('api 대화')
+    await userEvent.click(screen.getByRole('button', { name: '파일' }))
+
+    const region = screen.getByRole('region', { name: '코드 칸' })
+    expect(slot).toContainElement(region)
+    expect(container.querySelector('.dock')).not.toContainElement(region)
+  })
+
+  it('도크를 접어도 칸은 남는다 — 대상은 여전히 도크가 보던 대화다 (FR-5)', async () => {
+    const { client, files } = paneClient()
+    renderPaneDock([apiConv], client)
+    await pickConv('api 대화')
+    await userEvent.click(screen.getByRole('button', { name: '파일' }))
+    await waitFor(() => expect(files.tree).toHaveBeenCalledWith({ workspaceId: 'w1', repoId: 'r1', fresh: false }))
+
+    await userEvent.click(screen.getByRole('button', { name: '대화창 숨기기' }))
+
+    expect(screen.getByRole('region', { name: '코드 칸' })).toBeInTheDocument()
+    expect(files.tree).toHaveBeenCalledTimes(1)
+  })
+
+  it('자리가 없으면 칸은 서지 않는다 — 버튼의 눌림만 바뀐다', async () => {
+    const { client } = paneClient()
+    renderPaneDock([apiConv], client, createRunEventStore(), null)
+    await pickConv('api 대화')
+    await userEvent.click(screen.getByRole('button', { name: '파일' }))
+
+    expect(screen.getByRole('button', { name: '파일' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByRole('region', { name: '코드 칸' })).not.toBeInTheDocument()
+  })
+
+  const apiConv = makeRun({ id: 'a1', cwd: '/tmp/api', status: 'succeeded', endedAt: 2, userPrompt: 'api 대화' })
+  const webConv = makeRun({ id: 'b1', cwd: '/tmp/web', status: 'succeeded', endedAt: 2, userPrompt: 'web 대화', createdAt: 0 })
+  const otherConv = makeRun({ id: 'c1', cwd: '/tmp/elsewhere', status: 'succeeded', endedAt: 2, userPrompt: '기타 대화' })
+
+  async function pickConv(title: string) {
+    await userEvent.click(screen.getByText(title, { selector: '.dock-conv-title' }))
+  }
+
+  it('대화 헤더의 파일 버튼을 누르면 그 대화 repo의 칸이 열리고, 다시 누르면 닫힌다 (FR-1·FR-3·FR-6)', async () => {
+    const { client, files } = paneClient()
+    renderPaneDock([apiConv], client)
+    await pickConv('api 대화')
+
+    const button = screen.getByRole('button', { name: '파일' })
+    expect(button).toHaveAttribute('aria-pressed', 'false')
+    await userEvent.click(button)
+
+    expect(screen.getByRole('region', { name: '코드 칸' })).toBeInTheDocument()
+    expect(button).toHaveAttribute('aria-pressed', 'true')
+    await waitFor(() => expect(files.tree).toHaveBeenCalledWith({ workspaceId: 'w1', repoId: 'r1', fresh: false }))
+
+    await userEvent.click(button)
+    expect(screen.queryByRole('region', { name: '코드 칸' })).not.toBeInTheDocument()
+  })
+
+  it('등록된 repo가 아닌 대화(기타)는 버튼이 비활성이고 이유를 말한다', async () => {
+    const { client } = paneClient()
+    renderPaneDock([otherConv], client)
+    await pickConv('기타 대화')
+
+    const button = screen.getByRole('button', { name: '파일' })
+    expect(button).toHaveAttribute('aria-disabled', 'true')
+    expect(button).toHaveAttribute('title', '이 대화의 작업 디렉토리는 등록된 repo가 아닙니다')
+    await userEvent.click(button)
+    expect(screen.queryByRole('region', { name: '코드 칸' })).not.toBeInTheDocument()
+  })
+
+  it('열린 칸은 도크가 다시 마운트돼도 열린 채다 — 인박스·설정 왕복 (FR-4)', async () => {
+    const { client } = paneClient()
+    const first = renderPaneDock([apiConv], client)
+    await pickConv('api 대화')
+    await userEvent.click(screen.getByRole('button', { name: '파일' }))
+    first.unmount()
+
+    renderPaneDock([apiConv], client)
+    expect(screen.getByRole('region', { name: '코드 칸' })).toBeInTheDocument()
+  })
+
+  it('대화를 바꾸면 칸이 새 대화의 repo를 따른다 — 같은 repo면 칸을 다시 마운트하지 않는다 (FR-2·FR-7)', async () => {
+    const { client, files } = paneClient()
+    const api2 = makeRun({ id: 'a2', cwd: '/tmp/api', status: 'succeeded', endedAt: 2, userPrompt: 'api 둘째', createdAt: 0 })
+    renderPaneDock([apiConv, api2, webConv], client)
+    await pickConv('api 대화')
+    await userEvent.click(screen.getByRole('button', { name: '파일' }))
+    await waitFor(() => expect(files.tree).toHaveBeenCalledTimes(1))
+
+    await pickConv('api 둘째')
+    // 같은 repo — 트리를 다시 읽지 않았다(칸이 다시 마운트되지 않았다)
+    expect(files.tree).toHaveBeenCalledTimes(1)
+
+    await pickConv('web 대화')
+    await waitFor(() => expect(files.tree).toHaveBeenLastCalledWith({ workspaceId: 'w1', repoId: 'r2', fresh: false }))
+  })
+
+  it('새 대화 칸에서는 입력부의 작업 디렉토리 알약을 따른다 (FR-6)', async () => {
+    const { client, files } = paneClient()
+    renderPaneDock([], client)
+
+    await userEvent.click(await screen.findByRole('button', { name: '파일' }))
+    await waitFor(() => expect(files.tree).toHaveBeenLastCalledWith({ workspaceId: 'w1', repoId: 'r1', fresh: false }))
+
+    await userEvent.selectOptions(screen.getByLabelText('작업 디렉토리'), '/tmp/web')
+    await waitFor(() => expect(files.tree).toHaveBeenLastCalledWith({ workspaceId: 'w1', repoId: 'r2', fresh: false }))
+  })
+
+  it('대화록 편집 줄의 코드 칸에서 열기는 칸을 열고 그 파일을 연다 (FR-23)', async () => {
+    const { client, files } = paneClient()
+    const store = createRunEventStore()
+    store.push({
+      type: 'tool_use', runId: 'a1', seq: 0, at: 0, toolUseId: 't1', name: 'Edit', effect: 'write',
+      targetPaths: ['/tmp/api/src/auth.ts'],
+      input: { file_path: '/tmp/api/src/auth.ts', old_string: 'a < b', new_string: 'a <= b' }
+    } as RunEvent)
+    store.push({ type: 'tool_result', runId: 'a1', seq: 1, at: 0, toolUseId: 't1', ok: true, summary: 'ok' } as RunEvent)
+    renderPaneDock([apiConv], client, store)
+    await pickConv('api 대화')
+    await userEvent.click(screen.getByRole('button', { name: '자세히' }))
+
+    await userEvent.click(await screen.findByRole('button', { name: '코드 칸에서 열기' }))
+
+    expect(screen.getByRole('region', { name: '코드 칸' })).toBeInTheDocument()
+    await waitFor(() => expect(files.open).toHaveBeenCalledWith({ workspaceId: 'w1', repoId: 'r1', path: 'src/auth.ts' }))
+  })
+
+  it('폭 경계를 두 번 누르면 기억한 폭을 지운다 (FR-4)', async () => {
+    const { client } = paneClient()
+    localStorage.setItem('one-desk.codePane.kind', 'files')
+    localStorage.setItem('one-desk.codePane.width', '500')
+    renderPaneDock([apiConv], client)
+    await pickConv('api 대화')
+
+    await userEvent.dblClick(screen.getByRole('separator', { name: '코드 칸 폭 조절' }))
+    expect(localStorage.getItem('one-desk.codePane.width')).toBeNull()
   })
 })
