@@ -207,7 +207,9 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
       remove: vi.fn()
     },
     repos: {
-      list: vi.fn(async () => repos),
+      // workspace로 거른다 — 인박스는 workspace마다 읽으므로, 거르지 않으면 "그 workspace의 repo만"을 못 본다
+      // (docs/sdlc/inbox-views/ plan 위험 2)
+      list: vi.fn(async (workspaceId: string) => repos.filter((r) => r.workspaceId === workspaceId)),
       create: vi.fn(async (input: CreateRepoInput) => {
         const created = makeRepo(`r${repos.length + 1}`, input.name, input.path, input.workspaceId)
         repos = [...repos, created]
@@ -574,6 +576,31 @@ describe('App', () => {
     const card = item.closest('.inbox-item')!
     expect(within(card as HTMLElement).getByText('ws2')).toBeInTheDocument()
     expect(within(card as HTMLElement).queryByText('(사라진 workspace)')).toBeNull()
+  })
+
+  it('인박스 항목은 그 workspace의 repo 이름까지 보인다 — 고른 workspace가 없어도 App이 workspace마다 읽어 내린다 (inbox-views FR-16)', async () => {
+    const client = makeClient({}, {
+      workspaces: [workspace, { ...workspace, id: 'w2', name: 'ws2' }],
+      repos: [makeRepo('p1', 'api', '/tmp/api', 'w1'), makeRepo('p2', 'cli', '/tmp/cli', 'w2')],
+      inbox: [
+        makeRun({ id: 'i1', workspaceId: 'w1', cwd: '/tmp/api', userPrompt: '첫째 지시' }),
+        makeRun({ id: 'i2', workspaceId: 'w2', cwd: '/tmp/cli', userPrompt: '둘째 지시' })
+      ]
+    })
+    renderApp(client)
+    await openInbox()
+
+    const card = async (text: string) => (await screen.findByText(text)).closest('.inbox-item') as HTMLElement
+    expect(await within(await card('첫째 지시')).findByText('ws1 · api')).toBeInTheDocument()
+    expect(await within(await card('둘째 지시')).findByText('ws2 · cli')).toBeInTheDocument()
+  })
+
+  it('인박스가 repo를 못 읽으면 그 이유가 인박스에 보인다 — 묶음이 전부 기타로 가는 까닭을 숨기지 않는다 (inbox-views FR-17)', async () => {
+    const client = makeClient({}, { inbox: [makeRun({ id: 'i1', userPrompt: '첫째 지시' })] })
+    client.repos.list = vi.fn().mockRejectedValue(new Error('디스크 오류'))
+    renderApp(client)
+    await openInbox()
+    expect(await screen.findByRole('alert')).toHaveTextContent('repo 목록을 읽지 못했습니다: 디스크 오류')
   })
 
   it('인박스 조회에 실패하면 인박스를 열지 않아도 사이드바에서 드러난다', async () => {

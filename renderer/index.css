@@ -376,6 +376,24 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .inbox-error { margin-top: 4px; font-size: .6875rem; color: var(--danger-text); }
 .inbox-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .inbox-actions button { border: 1px solid var(--border); border-radius: 5px; background: var(--bg); cursor: pointer; font: inherit; font-size: .6875rem; padding: 3px 9px; }
+/* 보기 · 정렬 (docs/sdlc/inbox-views/ FR-1). 보기 세 칸은 상세 본문의 `보기 방식`과 같은 규칙(.inbox-mode)이다. */
+.inbox-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.inbox-order { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: .75rem; padding: 3px 9px; transition: background .12s, color .12s; }
+.inbox-order:hover { background: var(--bg-muted); color: var(--text); }
+.inbox-order svg { flex: 0 0 auto; transition: transform .12s; }
+.inbox-order[data-order="asc"] svg { transform: rotate(180deg); }
+/* 묶음 (FR-12) — 머리는 도크 구획 머리와 같은 결이다. 이름은 식별자라 대문자로 바꾸지 않는다. repo 묶음은 들여 쓴다. */
+.inbox-groups { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.inbox-group-top + .inbox-group-top { padding-top: 10px; border-top: 1px solid var(--border-faint); }
+.inbox-group > .inbox-groups, .inbox-group > .inbox-list { margin-top: 6px; }
+.inbox-group-sub { padding-left: 14px; }
+.inbox-group-head { display: flex; align-items: center; gap: 5px; width: 100%; min-width: 0; border: 0; border-radius: 5px; background: transparent; color: var(--text); cursor: pointer; font: inherit; font-size: .75rem; font-weight: 700; padding: 3px 5px; text-align: left; transition: background .12s, color .12s; }
+.inbox-group-head:hover { background: var(--bg-muted); }
+.inbox-group-sub > .inbox-group-head { color: var(--text-secondary); font-size: .6875rem; }
+.inbox-group-chevron { flex: 0 0 auto; color: var(--text-muted); transform: rotate(90deg); }
+.inbox-group-head[aria-expanded="false"] .inbox-group-chevron { transform: none; }
+.inbox-group-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inbox-group-head .needs-answer { margin: 0 0 0 auto; }
 
 /* stretch였을 때 원형 토글이 카드 높이만큼 늘어나 위쪽에 붙어 보였다.
    원은 세로 가운데에 놓여야 카드 제목과 나란히 읽힌다. */
@@ -461,9 +479,9 @@ select.pill { padding-right: 4px; cursor: pointer; text-overflow: ellipsis; }
    바꿔도 본문 자리가 튀지 않는다. 대화의 .md보다 제목을 키운다: 여기서는 문서를 읽는다. */
 .body-field { flex: 1; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
 .body-field > .detail-body { flex: 1; }
-.body-mode { display: flex; gap: 2px; align-self: flex-start; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-muted); }
-.body-mode-button { padding: 3px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: .75rem; cursor: pointer; }
-.body-mode-button[aria-pressed="true"] { background: var(--bg); color: var(--text); box-shadow: var(--shadow-panel); }
+.body-mode, .inbox-mode { display: flex; gap: 2px; align-self: flex-start; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-muted); }
+.body-mode-button, .inbox-mode-button { padding: 3px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: .75rem; cursor: pointer; }
+.body-mode-button[aria-pressed="true"], .inbox-mode-button[aria-pressed="true"] { background: var(--bg); color: var(--text); box-shadow: var(--shadow-panel); }
 .detail-body-read { overflow-y: auto; cursor: text; }
 .detail-body-read .md { font-size: .9375rem; }
 .detail-body-read .md h1 { font-size: 1.25rem; }

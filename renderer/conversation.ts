@@ -159,12 +159,20 @@ function rootOf(conv: Conversation): Run {
 }
 
 /**
+ * 작업 디렉토리 경로와 같은 등록 repo — 없으면 null. **경로로 repo를 찾는 자리는 이것 하나다**(`docs/sdlc/inbox-views/` NFR-2):
+ * 도크 구획·코드 칸의 대상·인박스 묶음이 같이 쓴다. 따로 적으면 같은 대화를 화면마다 다른 repo로 부른다.
+ */
+export function repoOfCwd(cwd: string, repos: readonly Repo[]): Repo | null {
+  const key = pathKey(cwd)
+  return repos.find((r) => pathKey(r.path) === key) ?? null
+}
+
+/**
  * 대화의 repo (FR-1) — **뿌리 턴의 `cwd`**와 경로가 같은 등록 repo. 이어 가는 대화는 작업 디렉토리를 바꿀 수 없으므로
  * 뿌리 하나로 정해진다. 없으면(등록하지 않은 경로, 지운 repo) null — 목록에서는 `기타`다.
  */
 export function repoOfConversation(conv: Conversation, repos: readonly Repo[]): Repo | null {
-  const key = pathKey(rootOf(conv).cwd)
-  return repos.find((r) => pathKey(r.path) === key) ?? null
+  return repoOfCwd(rootOf(conv).cwd, repos)
 }
 
 /** 구획이 없는 대화의 이름 — 작업 디렉토리 경로의 마지막 조각 */

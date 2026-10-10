@@ -1,8 +1,12 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { InboxPanel } from './InboxPanel'
-import type { Run, Workspace } from '@shared/models'
+import type { Repo, Run, Workspace } from '@shared/models'
+import type { ReposByWorkspace } from '../inboxView'
+
+// 보기·정렬·접힘은 이 장비에 남는다 — 다음 테스트로 새면 기본 보기가 아니다
+afterEach(() => { localStorage.clear() })
 
 const workspaces: Workspace[] = [
   {
@@ -33,6 +37,7 @@ function renderPanel(items: Run[], over: Partial<Parameters<typeof InboxPanel>[0
   const props = {
     items,
     workspaces,
+    reposByWorkspace: {} as ReposByWorkspace,
     error: null,
     onReview: vi.fn(),
     onOpenConversation: vi.fn(),
@@ -160,6 +165,7 @@ describe('InboxPanel', () => {
         <InboxPanel
           items={[run(over)]}
           workspaces={workspaces}
+          reposByWorkspace={{}}
           error={null}
           onReview={vi.fn()}
           onOpenConversation={vi.fn()}
@@ -168,7 +174,9 @@ describe('InboxPanel', () => {
           onMakeIssue={vi.fn()}
         />
       )
-      const actual = screen.getAllByRole('button').map((b) => b.textContent ?? '').sort()
+      // 항목 카드 안의 버튼만 센다 — 도구 줄(보기·정렬)은 행동이 아니다 (inbox-views plan 위험 1)
+      const card = document.querySelector<HTMLElement>('li.inbox-item')!
+      const actual = within(card).getAllByRole('button').map((b) => b.textContent ?? '').sort()
       const sortedExpected = [...expected].sort()
       if (JSON.stringify(actual) !== JSON.stringify(sortedExpected)) {
         mismatches.push({ category, expected: sortedExpected, actual })
@@ -177,5 +185,106 @@ describe('InboxPanel', () => {
     }
 
     expect(mismatches).toEqual([])
+  })
+})
+
+describe('보기와 정렬 (docs/sdlc/inbox-views/)', () => {
+  const api: Repo = { id: 'p-api', workspaceId: 'w1', name: 'api', path: '/work/api', description: null, sortOrder: 0, createdAt: 0 }
+  const repos: ReposByWorkspace = { w1: [api] }
+  // core가 주는 순서(끝난 시각 최신순)
+  const items = [
+    run({ id: 'new', endedAt: 30, cwd: '/work/api', userPrompt: '최근 지시' }),
+    run({ id: 'mid', endedAt: 20, cwd: '/elsewhere', status: 'failed', userPrompt: '중간 지시' }),
+    run({ id: 'old', endedAt: 10, cwd: '/work/api', needsAnswer: true, userPrompt: '오래된 지시' })
+  ]
+  const prompts = () => [...document.querySelectorAll('.inbox-prompt')].map((e) => e.textContent)
+  const groupNames = () => screen.queryAllByRole('button', { name: / 묶음$/ }).map((b) => b.getAttribute('aria-label'))
+
+  it('기본은 시간순 · 최신 먼저이고, 항목 머리의 소속은 workspace · repo다 (FR-1·3·5)', () => {
+    renderPanel(items, { reposByWorkspace: repos })
+    const modes = screen.getByRole('group', { name: '인박스 보기' })
+    expect(within(modes).getByRole('button', { name: '시간순' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(modes).getByRole('button', { name: 'workspace별' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: '정렬: 최신 먼저' })).toBeInTheDocument()
+    expect(prompts()).toEqual(['최근 지시', '중간 지시', '오래된 지시'])
+    expect(screen.getAllByText('앱 · api')).toHaveLength(2)
+    expect(screen.getByText('앱')).toBeInTheDocument()
+    expect(groupNames()).toEqual([])
+  })
+
+  it('항목이 없으면 도구 줄이 없다 (FR-4)', () => {
+    renderPanel([], { reposByWorkspace: repos })
+    expect(screen.queryByRole('group', { name: '인박스 보기' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^정렬/ })).toBeNull()
+  })
+
+  it('정렬 버튼은 순서를 뒤집고 지금 순서를 이름으로 말한다 (FR-1·2)', async () => {
+    renderPanel(items, { reposByWorkspace: repos })
+    await userEvent.click(screen.getByRole('button', { name: '정렬: 최신 먼저' }))
+    expect(prompts()).toEqual(['오래된 지시', '중간 지시', '최근 지시'])
+    expect(screen.getByRole('button', { name: '정렬: 오래된 먼저' })).toBeInTheDocument()
+  })
+
+  it('workspace별은 workspace → repo로 묶고, 묶음 안 항목 머리에서 소속을 뺀다 (FR-6·8·9·12)', async () => {
+    renderPanel(items, { reposByWorkspace: repos })
+    await userEvent.click(screen.getByRole('button', { name: 'workspace별' }))
+    expect(screen.getByRole('button', { name: 'workspace별' })).toHaveAttribute('aria-pressed', 'true')
+    // repo 묶음이 하나여도 머리가 선다(FR-8) — 여기서는 api와 기타 둘, 기타는 맨 아래
+    expect(groupNames()).toEqual(['앱 묶음', '앱 · api 묶음', '앱 · 기타 묶음'])
+    expect(screen.getByRole('button', { name: '앱 묶음' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: '앱 묶음' })).toHaveTextContent('3')
+    expect(screen.getByRole('button', { name: '앱 · api 묶음' })).toHaveTextContent('2')
+    expect(prompts()).toEqual(['최근 지시', '오래된 지시', '중간 지시'])
+    expect(document.querySelectorAll('.inbox-ws')).toHaveLength(0)
+    // 카테고리 칩은 남는다
+    expect(document.querySelectorAll('.inbox-head .status')).toHaveLength(3)
+  })
+
+  it('머리를 누르면 접히고, 접힌 머리는 그 안의 답변 필요를 보인다 — workspace를 접으면 repo 묶음째 숨는다 (FR-12~14)', async () => {
+    renderPanel(items, { reposByWorkspace: repos })
+    await userEvent.click(screen.getByRole('button', { name: 'workspace별' }))
+    const apiHead = screen.getByRole('button', { name: '앱 · api 묶음' })
+    expect(apiHead.querySelector('.needs-answer')).toBeNull()
+    await userEvent.click(apiHead)
+    expect(apiHead).toHaveAttribute('aria-expanded', 'false')
+    expect(prompts()).toEqual(['중간 지시'])
+    expect(within(apiHead).getByText('답변 필요')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '앱 묶음' }))
+    expect(prompts()).toEqual([])
+    expect(groupNames()).toEqual(['앱 묶음'])
+    expect(within(screen.getByRole('button', { name: '앱 묶음' })).getByText('답변 필요')).toBeInTheDocument()
+  })
+
+  it('상태별은 카테고리의 고정 순서로 묶고, 항목 머리에서 칩을 빼고 소속은 남긴다 (FR-10·11·13)', async () => {
+    renderPanel(items, { reposByWorkspace: repos })
+    await userEvent.click(screen.getByRole('button', { name: '상태별' }))
+    expect(groupNames()).toEqual(['답변 필요 묶음', '실패 묶음', '완료 · 미확인 묶음'])
+    expect(prompts()).toEqual(['오래된 지시', '중간 지시', '최근 지시'])
+    expect(document.querySelectorAll('.inbox-head .status')).toHaveLength(0)
+    expect(document.querySelectorAll('.inbox-ws')).toHaveLength(3)
+    // 답변 필요 묶음은 이름이 곧 그것이라 접혀도 표식이 따로 없다
+    const ask = screen.getByRole('button', { name: '답변 필요 묶음' })
+    await userEvent.click(ask)
+    expect(ask.querySelector('.needs-answer')).toBeNull()
+  })
+
+  it('다시 마운트해도 보기·정렬·접힘이 남는다 (FR-3·14)', async () => {
+    const { unmount } = render(
+      <InboxPanel
+        items={items} workspaces={workspaces} reposByWorkspace={repos} error={null}
+        onReview={vi.fn()} onOpenConversation={vi.fn()} onRestart={vi.fn()} onCloseIssue={vi.fn()} onMakeIssue={vi.fn()}
+      />
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'workspace별' }))
+    await userEvent.click(screen.getByRole('button', { name: '정렬: 최신 먼저' }))
+    await userEvent.click(screen.getByRole('button', { name: '앱 · api 묶음' }))
+    unmount()
+
+    renderPanel(items, { reposByWorkspace: repos })
+    expect(screen.getByRole('button', { name: 'workspace별' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '정렬: 오래된 먼저' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '앱 · api 묶음' })).toHaveAttribute('aria-expanded', 'false')
+    expect(prompts()).toEqual(['중간 지시'])
   })
 })

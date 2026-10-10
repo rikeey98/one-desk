@@ -326,6 +326,16 @@ repo는 이어 가는 대화면 뿌리 cwd(`repoOfConversation`), 새 대화면 
 확인(`CloseConfirm` — 앱에서 하나뿐인 모달)이 묻는다. 칸이 보이는 동안 2초마다 디스크를 확인해 고친 것이 없으면 따라간다.
 대화록 편집 줄의 `코드 칸에서 열기`가 그 파일을 그 편집 줄로 연다. `e2e/code-pane.e2e.ts`가 디스크 바이트(CRLF·BOM)까지 본다.
 
+**인박스를 시간순 · workspace별 · 상태별로 본다** (`docs/sdlc/inbox-views/`). 마이그레이션·IPC 없음 — 렌더러만. 목록 위 도구 줄이
+보기 세 칸(`인박스 보기` 그룹)과 정렬 버튼(`정렬: 최신 먼저`/`정렬: 오래된 먼저` — 기준은 대표 턴의 `endedAt`, 오래된 먼저는 최신 먼저를
+**정확히 뒤집은** 순서)이다. 기본은 시간순 · 최신 먼저로 예전 화면 그대로이고(`.inbox-list > li.inbox-item`), 시간순 카드의 소속이
+`workspace · repo`로 넓어졌다. workspace별은 workspace → repo 두 단이고 묶음 순서는 정렬한 목록에서 첫 항목이 나온 순(`기타`는 workspace
+안 맨 아래), 상태별은 답변 필요 → 실패 → 중단됨 → 완료·미확인 → 대기 중 취소됨 고정이다. 묶음 머리의 이름은 `<이름> 묶음`
+(`회사 · api 묶음`)이고 접힘·보기·정렬은 이 장비의 localStorage에 남는다. 판정은 전부 `renderer/inboxView.ts`의 순수 함수다. **항목의 repo는
+그 run의 workspace에 등록된 repo에서만 찾는다**(`repoOfItem`) — 인박스는 workspace를 넘는 목록이라 App이 `useInboxRepos`로 workspace마다
+`repos.list`를 읽어 `InboxPanel`의 필수 prop `reposByWorkspace`로 내린다(인박스가 열려 있을 때만). 경로로 repo를 찾는 것은
+`conversation.ts`의 `repoOfCwd` 한 함수이고 도크 구획·코드 칸이 같이 쓴다.
+
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
 한동안 "5단계 착수 전에 정할 것"으로 잡아두고 **평문 SQLite에 자격 증명을 넣을지**를 막힌 결정으로 남겼던 항목이다. 대상 환경을 실측해 보니 **배관 자체가 불필요했다.**
@@ -870,6 +880,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/period-report/` | 기간 리포트 — intent·spec·plan. workspace를 넘는 읽기를 MCP가 아니라 화면에만 둔 이유(intent, spec FR-1·24), 기간 판정 공유(FR-2), 칸 분류와 합계가 다른 질문인 이유(FR-6·7), 세 보기(FR-16~18), 내보내기 셋(FR-22~24), 상태가 "지금"인 한계(§6). 시안 https://claude.ai/artifact/6bn58ES8XQwBP9k68VfV4E |
 | `docs/sdlc/dock-repo-sections/` | 도크 대화 목록의 repo 구획과 사이드바 거름 — spec·plan. 대화의 repo를 뿌리 cwd로 정하는 이유(FR-1), 구획이 하나면 머리가 없는 이유(FR-5), 거름이 보기만 바꾸는 이유(FR-9), 머리를 대문자로 쓰지 않는 이유(NFR-2) |
 | `docs/sdlc/code-editor/` | 코드 칸(터미널 · 변경사항 · 파일) — intent 하나, spec·plan은 첫 사이클(틀 + 파일 칸). git diff로 가는 결정(intent), 배치 시안(안 A로 구현했다가 안 B — 창 오른쪽 전체 높이로 바꿈, spec §0), 목록 안의 파일만 읽고 쓰는 이유(spec §3-4), 명시적 저장과 해시 충돌(FR-17·19), 줄바꿈·BOM 되살리기(FR-18), 닫기 확인(FR-21), 우려와 승인(§4). plan에 변이 결과와 번들 크기 |
+| `docs/sdlc/inbox-views/` | 인박스의 보기(시간순 · workspace별 · 상태별)와 정렬 — spec·plan. 시간 기준과 정확한 역순(spec FR-2), 묶음 순서가 정렬을 따르는 이유(FR-7)와 상태별 고정 순서(FR-10), 그 workspace의 repo만 보는 이유(FR-6), repo를 App이 읽어 필수 prop으로 내리는 이유(FR-16). plan에 변이 결과 |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |

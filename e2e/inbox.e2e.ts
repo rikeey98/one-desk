@@ -107,4 +107,58 @@ describe('결과 인박스', () => {
     await inboxLink.click()
     await page.getByText('처리할 결과가 없습니다').waitFor({ state: 'visible', timeout: 10_000 })
   })
+
+  /**
+   * **보기와 정렬** (`docs/sdlc/inbox-views/`). 실제 앱에서 repo 이름이 묶음 머리에 오는 것은 App이 workspace마다
+   * `repos.list`를 IPC로 읽어 내렸기 때문이다 — 그 배선이 끊기면 항목은 `기타`로 간다.
+   */
+  it('workspace별은 그 대화의 repo 묶음에 두고, 상태별은 카테고리로 묶고, 정렬을 뒤집을 수 있다', async () => {
+    const app = await launchApp()
+    const page = app.page
+
+    await page.getByPlaceholder('새 workspace 이름…').fill('views-ws')
+    await page.getByPlaceholder('새 workspace 이름…').press('Enter')
+    const wsButton = page.getByRole('button', { name: /^views-ws$/ })
+    await wsButton.waitFor({ state: 'visible', timeout: 10_000 })
+    await wsButton.click()
+
+    await page.getByRole('button', { name: 'repo 등록' }).click()
+    await page.getByPlaceholder('repo 이름').fill('샘플')
+    await page.getByPlaceholder('/절대/경로').fill(app.repoDir)
+    await page.getByRole('button', { name: '추가' }).click()
+    await page.getByRole('button', { name: '샘플 맥락에 담기' })
+      .waitFor({ state: 'visible', timeout: 10_000 })
+
+    await page.getByPlaceholder(/무엇을 시킬지/).fill('묶음으로 볼 대화')
+    await page.getByRole('button', { name: '실행', exact: true }).click()
+    await waitConvStatus(page, '묶음으로 볼 대화', 'succeeded')
+
+    await page.getByRole('navigation').getByRole('button', { name: /인박스/ }).click()
+    const item = page.locator('.inbox-item').filter({ hasText: '묶음으로 볼 대화' })
+    await item.waitFor({ state: 'visible', timeout: 10_000 })
+    // 시간순(기본)의 소속은 workspace · repo다
+    await item.getByText('views-ws · 샘플').waitFor({ state: 'visible', timeout: 5_000 })
+    const sort = page.getByRole('button', { name: '정렬: 최신 먼저' })
+    expect(await sort.count()).toBe(1)
+
+    // workspace별 — workspace 머리와 repo 머리, 항목은 repo 묶음 안에 있다
+    await page.getByRole('group', { name: '인박스 보기' }).getByRole('button', { name: 'workspace별' }).click()
+    await page.getByRole('button', { name: 'views-ws 묶음', exact: true }).waitFor({ state: 'visible', timeout: 5_000 })
+    const repoHead = page.getByRole('button', { name: 'views-ws · 샘플 묶음', exact: true })
+    await repoHead.waitFor({ state: 'visible', timeout: 5_000 })
+    expect(await page.locator('.inbox-group-sub').filter({ has: repoHead }).locator('.inbox-item').count()).toBe(1)
+    // 머리를 누르면 접힌다
+    await repoHead.click()
+    await expect.poll(() => page.locator('.inbox-item').count(), { timeout: 5_000 }).toBe(0)
+    expect(await repoHead.getAttribute('aria-expanded')).toBe('false')
+
+    // 상태별 — 완료 · 미확인 묶음 안에 그 항목
+    await page.getByRole('group', { name: '인박스 보기' }).getByRole('button', { name: '상태별' }).click()
+    await page.getByRole('button', { name: '완료 · 미확인 묶음', exact: true }).waitFor({ state: 'visible', timeout: 5_000 })
+    await item.waitFor({ state: 'visible', timeout: 5_000 })
+
+    // 정렬을 뒤집으면 이름이 지금 순서를 말한다
+    await sort.click()
+    await page.getByRole('button', { name: '정렬: 오래된 먼저' }).waitFor({ state: 'visible', timeout: 5_000 })
+  })
 })

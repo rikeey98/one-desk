@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  contextOf, conversationIdOf, filterByRepo, foldByIssue, groupConversations, repoOfConversation, sectionByRepo, titleOf
+  contextOf, conversationIdOf, filterByRepo, foldByIssue, groupConversations, repoOfConversation, repoOfCwd, sectionByRepo,
+  titleOf
 } from './conversation'
 import type { Repo, Run } from '@shared/models'
 
@@ -293,6 +294,13 @@ describe('repo로 나누기 (docs/sdlc/dock-repo-sections/)', () => {
     // posix 경로는 대소문자가 다르면 다른 디렉토리다
     const [posix] = groupConversations([makeRun({ id: 'p', cwd: '/work/API' })])
     expect(repoOfConversation(posix!, repos)).toBeNull()
+  })
+
+  it('경로로 repo 찾기는 한 함수다 — 도크 구획·코드 칸·인박스 묶음이 같이 쓴다 (inbox-views NFR-2)', () => {
+    expect(repoOfCwd('/work/api/', repos)).toBe(api)
+    expect(repoOfCwd('c:/WORK/web\\', repos)).toBe(web)
+    expect(repoOfCwd('/work/API', repos)).toBeNull()
+    expect(repoOfCwd('/work/api', [])).toBeNull()
   })
 
   const runs = [

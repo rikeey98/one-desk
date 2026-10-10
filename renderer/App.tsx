@@ -11,6 +11,7 @@ import { useRuns } from './hooks/useRuns'
 import { useRepos } from './hooks/useRepos'
 import { useQueue } from './hooks/useQueue'
 import { useInbox } from './hooks/useInbox'
+import { useInboxRepos } from './hooks/useInboxRepos'
 import { useMcpStatus } from './hooks/useMcpStatus'
 import { usePlanUsage } from './hooks/usePlanUsage'
 import { useWorkspaces } from './hooks/useWorkspaces'
@@ -68,6 +69,9 @@ export default function App() {
   // 잡지 못했다). useRepos와 같은 패턴으로(커밋 fbcd0e6) 여기서 한 번만 불러
   // Sidebar·RunPanel·InboxPanel 모두에 내려준다.
   const { workspaces, loading: workspacesLoading, error: workspacesError, refresh: refreshWorkspaces } = useWorkspaces()
+  // 인박스의 묶음과 소속에 쓰는 repo — 인박스는 workspace를 넘는 목록이라 위의 useRepos(고른 workspace 하나)로는 모자라
+  // workspace마다 읽는다. 인박스가 열려 있을 때만 읽는다 (docs/sdlc/inbox-views/ FR-16).
+  const { repos: inboxRepos, error: inboxReposError } = useInboxRepos(workspaces, view === 'inbox')
   // 인박스 행동(확인함/보관/이슈 연동) 실패도 조용히 삼키지 않는다 — inboxError와
   // 같은 자리에 뜨되, 방금 누른 행동의 오류가 더 급하므로 앞에 온다.
   const [inboxActionError, setInboxActionError] = useState<string | null>(null)
@@ -367,7 +371,9 @@ export default function App() {
           <InboxPanel
             items={inboxItems}
             workspaces={workspaces}
-            error={inboxActionError ?? inboxError}
+            reposByWorkspace={inboxRepos}
+            // 방금 누른 행동의 오류 → 목록을 못 읽음 → repo를 못 읽음(묶음이 `기타`로 가는 이유) 순이다
+            error={inboxActionError ?? inboxError ?? inboxReposError}
             onReview={reviewConversation}
             onOpenConversation={openConversation}
             onRestart={restart}

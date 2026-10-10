@@ -1,4 +1,4 @@
-import { pathKey, repoOfConversation, type Conversation } from '../conversation'
+import { repoOfConversation, repoOfCwd, type Conversation } from '../conversation'
 import type { Repo } from '@shared/models'
 
 /** 코드 칸이 여는 repo, 또는 열 수 없는 이유 — 버튼의 비활성 `title`이 이것이다 */
@@ -17,7 +17,6 @@ export function paneTarget(conversation: Conversation | null, newCwd: string, re
   }
   if (repos.length === 0) return { repo: null, reason: '먼저 repo를 등록하세요' }
   if (newCwd === '') return { repo: null, reason: '작업 디렉토리를 먼저 고르세요' }
-  const key = pathKey(newCwd)
-  const repo = repos.find((r) => pathKey(r.path) === key)
+  const repo = repoOfCwd(newCwd, repos)
   return repo ? { repo } : { repo: null, reason: '작업 디렉토리가 등록된 repo가 아닙니다' }
 }
