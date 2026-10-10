@@ -1887,4 +1887,16 @@ describe('코드 칸의 자리 (docs/sdlc/code-editor/ FR-2, 안 B)', () => {
     await selectWorkspace()
     expect(await screen.findByRole('region', { name: '코드 칸' })).toBeInTheDocument()
   })
+
+  it('파일 버튼은 앱 제목 줄에 선다 — 인박스에서는 칸과 함께 없다 (FR-1, 2026-10-10)', async () => {
+    renderApp(withFiles(makeClient({}, { repos: [makeRepo('r1', 'api', '/tmp/api')] })))
+    await selectWorkspace()
+
+    const button = await screen.findByRole('button', { name: '파일' })
+    expect(button.closest('.titlebar')).not.toBeNull()
+    expect(button.closest('.dock')).toBeNull()
+
+    await openInbox()
+    expect(screen.queryByRole('button', { name: '파일' })).not.toBeInTheDocument()
+  })
 })

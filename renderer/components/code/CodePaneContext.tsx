@@ -32,3 +32,16 @@ export const CodePaneSlotContext = createContext<HTMLElement | null>(null)
 export function useCodePaneSlot(): HTMLElement | null {
   return useContext(CodePaneSlotContext)
 }
+
+/**
+ * 코드 칸 버튼(파일 · 앞으로 변경사항 · 터미널)이 설 자리 — 앱이 그리는 제목 줄의 오른쪽 끝, OS의 최소화·최대화·닫기 바로
+ * 왼쪽이다(2026-10-10 — 처음엔 대화 헤더 오른쪽이었다). 칸과 같은 이유로 버튼도 도크가 그려 이 자리에 포털로 보낸다 —
+ * 눌림 상태와 대상 repo를 도크가 쥐기 때문이다. 그래서 버튼은 도크와 같은 수명이다(workspace 화면에서만, 도크를 접어도 남는다).
+ *
+ * **자리가 없으면(null) 버튼이 서지 않는다** — 도크를 혼자 그리는 테스트는 자리를 직접 내린다.
+ */
+export const TitleBarSlotContext = createContext<HTMLElement | null>(null)
+
+export function useTitleBarSlot(): HTMLElement | null {
+  return useContext(TitleBarSlotContext)
+}

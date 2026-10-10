@@ -113,7 +113,16 @@ body { margin: 0; background: var(--bg); color: var(--text); }
    크기를 스스로 정하는 자리(알약)에서는 그 규칙이 이긴다. */
 .path-text, .tool-name { font-family: var(--font-mono); font-size: .92em; }
 
-.app { display: flex; height: 100vh; font-family: system-ui, sans-serif; background: var(--bg-canvas); color: var(--text); }
+/* 앱 창 = 제목 줄 + 그 아래 줄(사이드바 · 본문 · 코드 칸). */
+.app-frame { display: flex; flex-direction: column; height: 100vh; font-family: system-ui, sans-serif; background: var(--bg-canvas); color: var(--text); }
+/* 앱 창의 제목 줄 (docs/sdlc/code-editor/ FR-1, 2026-10-10) — OS 제목 표시줄 대신이다. 빈 곳을 끌면 창이 움직인다. 오른쪽 끝은
+   OS가 최소화·최대화·닫기를 겹쳐 그리는 자리(Window Controls Overlay)라 `env(titlebar-area-*)`만큼 비운다 — macOS는 왼쪽의
+   신호등 자리를 비운다. OS 정보가 없으면(브라우저·테스트) 비우지 않는다. 높이와 바탕은 main이 OS 단추에 준 값과 같다
+   (shared/titleBar.ts — 다르면 OS 단추만 다른 색 띠로 보인다). 아래 선은 그 높이 밖(content-box)에 1px를 더 띄워 긋는다 —
+   높이 바로 밑에 그으면 OS 단추가 배율 반올림으로 그 줄을 덮어 단추 밑에서 선이 끊겨 보였다(캡처). */
+.titlebar { flex: 0 0 auto; box-sizing: content-box; display: flex; align-items: center; justify-content: flex-end; height: env(titlebar-area-height, 36px); padding-bottom: 1px; padding-left: env(titlebar-area-x, 0px); padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)); border-bottom: 1px solid var(--border); user-select: none; -webkit-app-region: drag; app-region: drag; }
+.titlebar-actions { display: flex; align-items: center; gap: 2px; padding: 0 6px; -webkit-app-region: no-drag; app-region: no-drag; }
+.app { display: flex; flex: 1; min-height: 0; }
 .sidebar { flex: 0 0 236px; min-width: 0; overflow-x: hidden; overflow-y: auto; display: flex; flex-direction: column; background: transparent; border-right: 1px solid var(--border); padding: 12px 10px; }
 /* 사이드바 위의 화면 이동(인박스·리포트)과 아래의 설정 — 아이콘 타일 + 글자. 타일은 쉬는 동안에도 테두리가 있어
    제목이 아니라 누르는 줄로 읽히고, 고르면 강조색으로 찬다(2026-10-07). 줄 자체의 hover·선택 면은 workspace 줄과 같다. */
@@ -1231,12 +1240,12 @@ button.report-flow-line:hover { background: var(--bg-muted); }
 .code-pane-resizer { flex: 0 0 9px; cursor: col-resize; touch-action: none; user-select: none; background: transparent; border-radius: 4px; }
 .code-pane-resizer:hover, .code-pane-resizer:focus-visible { background: var(--accent-bg-strong); }
 
-/* 대화 헤더의 버튼 줄 (FR-1). 눌린 것은 파란 면 — 열려 있다는 상태를 말한다 */
-.pane-toggle { display: inline-flex; align-items: center; gap: 4px; height: 24px; border: 1px solid var(--border); border-radius: 5px; padding: 0 8px; background: var(--bg); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: .6875rem; transition: background .12s, color .12s, border-color .12s; }
-.pane-toggle:hover { background: var(--bg-hover); color: var(--text); }
-.pane-toggle-on { border-color: var(--accent-border-soft); background: var(--accent-bg); color: var(--accent-text); }
-.pane-toggle-on:hover { background: var(--accent-bg-strong); color: var(--accent-text); }
-.pane-toggle[aria-disabled="true"] { color: var(--text-muted); background: var(--bg-muted); cursor: default; }
+/* 제목 줄의 코드 칸 버튼 (FR-1, 2026-10-10) — 아이콘뿐이고 OS 창 단추와 같은 결(테두리 없음, hover 면)이다. 눌린 것은
+   파란 면 — 열려 있다는 상태를 말한다. */
+.titlebar-button { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 26px; border: 0; border-radius: 6px; padding: 0; background: transparent; color: var(--text-secondary); cursor: pointer; transition: background .12s, color .12s; }
+.titlebar-button:hover { background: var(--bg-hover); color: var(--text); }
+.titlebar-button-on, .titlebar-button-on:hover { background: var(--accent-bg); color: var(--accent-text); }
+.titlebar-button[aria-disabled="true"], .titlebar-button[aria-disabled="true"]:hover { background: transparent; color: var(--text-muted); cursor: default; }
 
 .code-pane { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; }
 .code-pane-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 6px 7px 12px; border-bottom: 1px solid var(--border-faint); }

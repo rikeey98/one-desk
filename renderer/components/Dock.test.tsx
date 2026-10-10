@@ -7,7 +7,7 @@ import { createRunEventStore, type RunEventStore } from '../store/runEvents'
 import { DraftProvider } from '../store/DraftContext'
 import { createDraftStore } from '../store/drafts'
 import { CodeBufferProvider } from '../store/CodeBufferContext'
-import { CodePaneSlotContext } from './code/CodePaneContext'
+import { CodePaneSlotContext, TitleBarSlotContext } from './code/CodePaneContext'
 import { createCodeBufferStore } from '../store/codeBuffers'
 import { createCloseGuard } from '../store/closeGuard'
 import { createPendingSaves } from '../store/pendingSaves'
@@ -1473,16 +1473,20 @@ describe('repo 구획과 사이드바 거름 (docs/sdlc/dock-repo-sections/)', (
 })
 
 describe('코드 칸 (docs/sdlc/code-editor/ FR-1~FR-7·FR-23)', () => {
-  // 칸이 그려질 자리 — 앱에서는 App이 창 오른쪽 끝에 두는 열이다(안 B). 도크를 혼자 그리므로 직접 만든다.
+  // 칸이 그려질 자리 — 앱에서는 App이 창 오른쪽 끝에 두는 열이다(안 B). 버튼이 설 자리는 App의 제목 줄이다(2026-10-10).
+  // 도크를 혼자 그리므로 둘 다 직접 만든다.
   let slot: HTMLElement
+  let buttonSlot: HTMLElement
   beforeEach(() => {
     localStorage.clear()
     slot = document.createElement('div')
-    document.body.appendChild(slot)
+    buttonSlot = document.createElement('div')
+    document.body.append(slot, buttonSlot)
   })
   afterEach(() => {
     localStorage.clear()
     slot.remove()
+    buttonSlot.remove()
   })
 
   const two: Repo[] = [
@@ -1504,7 +1508,8 @@ describe('코드 칸 (docs/sdlc/code-editor/ FR-1~FR-7·FR-23)', () => {
   }
 
   function renderPaneDock(
-    list: Run[], client: OneDeskClient, store: RunEventStore = createRunEventStore(), paneSlot: HTMLElement | null = slot
+    list: Run[], client: OneDeskClient, store: RunEventStore = createRunEventStore(), paneSlot: HTMLElement | null = slot,
+    titleSlot: HTMLElement | null = buttonSlot
   ) {
     const buffers = createCodeBufferStore()
     const guard = createCloseGuard({ saves: createPendingSaves(), buffers, close: () => {}, save: vi.fn() })
@@ -1514,12 +1519,14 @@ describe('코드 칸 (docs/sdlc/code-editor/ FR-1~FR-7·FR-23)', () => {
           <DraftProvider store={createDraftStore()}>
             <CodeBufferProvider store={buffers} guard={guard}>
               <CodePaneSlotContext.Provider value={paneSlot}>
-                <Dock
-                  runs={list} error={null} workspaceId="w1" workspaces={workspaces} repos={two} reposError={null}
-                  queue={null} queueError={null} onChangeLimit={vi.fn()} chips={[]} onRemoveChip={vi.fn()}
-                  onRunStarted={vi.fn()} draftPrompt="" draftCwd={null} selectedRepoId={null} onClearRepoFilter={vi.fn()}
-                  focusConversationId={null} onFocusConsumed={vi.fn()}
-                />
+                <TitleBarSlotContext.Provider value={titleSlot}>
+                  <Dock
+                    runs={list} error={null} workspaceId="w1" workspaces={workspaces} repos={two} reposError={null}
+                    queue={null} queueError={null} onChangeLimit={vi.fn()} chips={[]} onRemoveChip={vi.fn()}
+                    onRunStarted={vi.fn()} draftPrompt="" draftCwd={null} selectedRepoId={null} onClearRepoFilter={vi.fn()}
+                    focusConversationId={null} onFocusConsumed={vi.fn()}
+                  />
+                </TitleBarSlotContext.Provider>
               </CodePaneSlotContext.Provider>
             </CodeBufferProvider>
           </DraftProvider>
@@ -1552,6 +1559,35 @@ describe('코드 칸 (docs/sdlc/code-editor/ FR-1~FR-7·FR-23)', () => {
     expect(files.tree).toHaveBeenCalledTimes(1)
   })
 
+  it('파일 버튼은 대화 헤더가 아니라 내려받은 제목 줄 자리에 선다 — 아이콘이고 이름은 aria-label이다 (FR-1, 2026-10-10)', async () => {
+    const { client } = paneClient()
+    const { container } = renderPaneDock([apiConv], client)
+    await pickConv('api 대화')
+
+    const button = screen.getByRole('button', { name: '파일' })
+    expect(buttonSlot).toContainElement(button)
+    expect(container.querySelector('.dock')).not.toContainElement(button)
+    expect(button).toHaveTextContent('')
+  })
+
+  it('도크를 접어도 제목 줄의 버튼은 남아 칸을 닫을 수 있다 (FR-1·FR-5)', async () => {
+    const { client } = paneClient()
+    renderPaneDock([apiConv], client)
+    await pickConv('api 대화')
+    await userEvent.click(screen.getByRole('button', { name: '파일' }))
+    await userEvent.click(screen.getByRole('button', { name: '대화창 숨기기' }))
+
+    await userEvent.click(screen.getByRole('button', { name: '파일' }))
+    expect(screen.queryByRole('region', { name: '코드 칸' })).not.toBeInTheDocument()
+  })
+
+  it('제목 줄 자리가 없으면 버튼이 서지 않는다', async () => {
+    const { client } = paneClient()
+    renderPaneDock([apiConv], client, createRunEventStore(), slot, null)
+    await pickConv('api 대화')
+    expect(screen.queryByRole('button', { name: '파일' })).not.toBeInTheDocument()
+  })
+
   it('자리가 없으면 칸은 서지 않는다 — 버튼의 눌림만 바뀐다', async () => {
     const { client } = paneClient()
     renderPaneDock([apiConv], client, createRunEventStore(), null)
@@ -1570,7 +1606,7 @@ describe('코드 칸 (docs/sdlc/code-editor/ FR-1~FR-7·FR-23)', () => {
     await userEvent.click(screen.getByText(title, { selector: '.dock-conv-title' }))
   }
 
-  it('대화 헤더의 파일 버튼을 누르면 그 대화 repo의 칸이 열리고, 다시 누르면 닫힌다 (FR-1·FR-3·FR-6)', async () => {
+  it('파일 버튼을 누르면 그 대화 repo의 칸이 열리고, 다시 누르면 닫힌다 (FR-1·FR-3·FR-6)', async () => {
     const { client, files } = paneClient()
     renderPaneDock([apiConv], client)
     await pickConv('api 대화')

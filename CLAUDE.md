@@ -312,11 +312,13 @@ repo는 **뿌리 턴의 `cwd`**와 경로가 같은 등록 repo(`repoOfConversat
 
 **대화 옆에 코드 칸이 붙었다 — 셋 중 첫째(틀과 파일 칸)** (`docs/sdlc/code-editor/`). 마이그레이션 없음. Claude Code 데스크톱의
 상단 버튼(터미널 · 변경사항 · 폴더)을 들이는 작업이고 intent 하나에 spec → plan → 구현을 **셋으로 따로** 돈다(① 틀 + 파일 칸
-② 변경사항 — **diff는 git diff로 간다, 전체 설계 §10의 스냅샷 방식은 그 spec에서 고친다** ③ 터미널 — 네이티브 모듈 pty). 대화 헤더
-오른쪽 끝의 `파일`(슬롯 prop `paneButtons`, 필수)이 **앱 창 오른쪽 끝에 위아래 전체 높이로** 칸을 연다 — 트리 + CodeMirror 6
-편집기 하나(안 B, 2026-10-10 — 처음 구현한 도크 안 배치를 사용자가 캡처를 보고 바꿨다). 칸의 상태는 `Dock`이 쥐고 App이
-workspace 화면에서만 두는 `.code-column`에 **포털로** 그린다(자리는 `CodePaneSlotContext` — 없으면 칸이 서지 않는다). 그래서 도크를
-접어도 칸이 남고, 인박스·설정에서는 도크와 함께 없다. 대상
+② 터미널 — 네이티브 모듈 pty ③ 변경사항 — **diff는 git diff로 간다, 전체 설계 §10의 스냅샷 방식은 그 spec에서 고친다**. 2026-10-10에
+사용자가 ②·③을 바꿨다). **앱 창은 OS 제목 표시줄 대신 앱이 그린 제목 줄을 쓴다**(아래 함정 절) — 그 오른쪽 끝, OS의
+최소화·최대화·닫기 바로 왼쪽의 `파일` 아이콘(2026-10-10 — 처음엔 대화 헤더 오른쪽 끝의 글자 버튼이었다)이 **앱 창 오른쪽 끝에 위아래
+전체 높이로** 칸을 연다 — 트리 + CodeMirror 6 편집기 하나(안 B, 2026-10-10 — 처음 구현한 도크 안 배치를 사용자가 캡처를 보고
+바꿨다). 칸과 버튼의 상태는 `Dock`이 쥐고 App이 내린 두 자리에 **포털로** 그린다 — 칸은 workspace 화면에서만 두는 `.code-column`
+(`CodePaneSlotContext`), 버튼은 제목 줄의 `.titlebar-actions`(`TitleBarSlotContext`). 자리가 없으면 그것이 서지 않는다. 그래서 도크를
+접어도 칸과 버튼이 남고, 인박스·설정에서는 도크와 함께 없다. 대상
 repo는 이어 가는 대화면 뿌리 cwd(`repoOfConversation`), 새 대화면 입력부의 작업 디렉토리 알약이다(RunPanel의 필수 prop
 `onCwdChange`가 올린다). **앱이 repo 파일을 쓰는 첫 통로다** — 읽기·쓰기 모두 `@` 피커와 같은 `git ls-files -co --exclude-standard`
 목록 안의 파일만 받는다(저장은 캐시가 아닌 새 목록 — `.git/hooks`·무시된 파일을 쓰는 길이 없다). 그래서 **git이 아닌 repo에서는
@@ -417,6 +419,17 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 앱 API가 그 문서에 붙는다. `nav-guard.e2e`의 "패널 창"이 실제 창으로 본다. 패널 창의 범위는 렌더러가 보낸 값을 믿지 않고
 `core.panelScope`가 검증한다(없는 workspace·남의 repo는 던진다). 해시(`#panel/<kind>/<ws>/<repo|all>`)를 만들고 읽는 것은
 `shared/panelWindow.ts` 한 쌍이다.
+
+**앱 창은 OS 제목 표시줄이 없다 — 렌더러의 `.titlebar`가 그 자리다** (`docs/sdlc/code-editor/` FR-1, 2026-10-10). `createMainWindow`만
+`frame: customTitleBar()`(`titleBarStyle: 'hidden'` + `titleBarOverlay` — Windows·Linux는 OS가 창 단추를 그 줄 위에 겹쳐 그리고, macOS는
+신호등이 왼쪽)를 넘기고 패널 창은 OS 제목 표시줄 그대로다. 세 가지가 조용히 깨진다. (1) **OS 단추의 높이·색은 `shared/titleBar.ts`
+한 자리다** — main은 CSS를 못 읽는다. 바탕은 `--bg-canvas`, 기호는 `--text-secondary`와 같아야 하고(다르면 오른쪽 끝에 OS 단추만 다른
+색 띠로 보인다) `core/app/titleBar.test.ts`가 CSS를 읽어 비교한다 — `shared/`에 두지 못한 것은 `shared/`가 렌더러 타입 검사에도 걸려
+node 모듈을 못 쓰기 때문이다. 토큰을 바꾸면 그 상수도 바꾼다. 테마가 바뀌면 main이 `nativeTheme`의 `updated`로 `setTitleBarOverlay`한다.
+(2) **줄은 `-webkit-app-region: drag`다** — 그 안에서 눌러야 하는 것은 전부 `no-drag` 상자(`.titlebar-actions`) 안에 둔다. drag 영역의
+요소는 마우스 이벤트를 받지 않는다. (3) **OS 단추는 `page.screenshot`에 찍히지 않는다**(OS가 그린다) — 제목 줄을 보이는 캡처는 창이
+놓인 화면 영역을 찍어야 한다. e2e는 `navigator.windowControlsOverlay`(`visible`·`getTitlebarAreaRect`)로 버튼이 OS 단추 바로 왼쪽인지
+본다(`code-pane.e2e`) — main의 창 틀을 되돌리면 그것이 빨개진다.
 
 **창을 닫는 것은 React 언마운트가 아니다 — 대기 중인 저장은 `beforeunload`가 흘려보낸다** (FR-15·16a·16b). 디바운스
 자동 저장의 "언마운트 때 흘려보내기"는 창 닫기에서 돌지 않아, 예전에는 앱을 끄기 600ms 안에 친 글자를 잃었다. 지금은
@@ -879,7 +892,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/agent-path-default/` | CLI 경로의 앱 기본값과 workspace 예외 — spec. 해석 순서(FR-1), 키-값 저장(FR-2), 앱 탭·실행 탭 화면(FR-3) |
 | `docs/sdlc/period-report/` | 기간 리포트 — intent·spec·plan. workspace를 넘는 읽기를 MCP가 아니라 화면에만 둔 이유(intent, spec FR-1·24), 기간 판정 공유(FR-2), 칸 분류와 합계가 다른 질문인 이유(FR-6·7), 세 보기(FR-16~18), 내보내기 셋(FR-22~24), 상태가 "지금"인 한계(§6). 시안 https://claude.ai/artifact/6bn58ES8XQwBP9k68VfV4E |
 | `docs/sdlc/dock-repo-sections/` | 도크 대화 목록의 repo 구획과 사이드바 거름 — spec·plan. 대화의 repo를 뿌리 cwd로 정하는 이유(FR-1), 구획이 하나면 머리가 없는 이유(FR-5), 거름이 보기만 바꾸는 이유(FR-9), 머리를 대문자로 쓰지 않는 이유(NFR-2) |
-| `docs/sdlc/code-editor/` | 코드 칸(터미널 · 변경사항 · 파일) — intent 하나, spec·plan은 첫 사이클(틀 + 파일 칸). git diff로 가는 결정(intent), 배치 시안(안 A로 구현했다가 안 B — 창 오른쪽 전체 높이로 바꿈, spec §0), 목록 안의 파일만 읽고 쓰는 이유(spec §3-4), 명시적 저장과 해시 충돌(FR-17·19), 줄바꿈·BOM 되살리기(FR-18), 닫기 확인(FR-21), 우려와 승인(§4). plan에 변이 결과와 번들 크기 |
+| `docs/sdlc/code-editor/` | 코드 칸(터미널 · 변경사항 · 파일) — intent 하나, spec·plan은 첫 사이클(틀 + 파일 칸). git diff로 가는 결정(intent), 배치 시안(안 A로 구현했다가 안 B — 창 오른쪽 전체 높이로 바꿈, spec §0), 버튼을 앱 제목 줄의 OS 창 단추 왼쪽으로 옮긴 것과 사이클 순서 변경(spec §0·FR-1), 목록 안의 파일만 읽고 쓰는 이유(spec §3-4), 명시적 저장과 해시 충돌(FR-17·19), 줄바꿈·BOM 되살리기(FR-18), 닫기 확인(FR-21), 우려와 승인(§4). plan에 변이 결과와 번들 크기 |
 | `docs/sdlc/inbox-views/` | 인박스의 보기(시간순 · workspace별 · 상태별)와 정렬 — spec·plan. 시간 기준과 정확한 역순(spec FR-2), 묶음 순서가 정렬을 따르는 이유(FR-7)와 상태별 고정 순서(FR-10), 그 workspace의 repo만 보는 이유(FR-6), repo를 App이 읽어 필수 prop으로 내리는 이유(FR-16). plan에 변이 결과 |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |

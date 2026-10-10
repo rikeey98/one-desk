@@ -49,7 +49,6 @@ function renderHeader(
     onClose: vi.fn(),
     onCancel: vi.fn(),
     hasDraft: false,
-    paneButtons: null,
     ...over
   }
   const view = render(<ConversationHeader {...props} />)
@@ -239,7 +238,6 @@ describe('ConversationHeader — ⋯ 메뉴 (spec FR-35)', () => {
             onClose={vi.fn()}
             onCancel={vi.fn()}
             hasDraft={false}
-            paneButtons={null}
           />
         </div>
       )
@@ -428,7 +426,6 @@ describe('ConversationHeader — 컨텍스트 링과 사용량 (spec FR-36)', ()
           onClose={vi.fn()}
           onCancel={vi.fn()}
           hasDraft={false}
-          paneButtons={null}
         />
       </div>
     )
@@ -482,16 +479,5 @@ describe('ConversationHeader — 멈추기 (spec FR-29)', () => {
   it('새 대화에는 없다', () => {
     renderHeader(null, { hasDraft: true })
     expect(screen.queryByRole('button', { name: '이 대화의 실행 멈추기' })).toBeNull()
-  })
-})
-
-describe('코드 칸 버튼 슬롯 (docs/sdlc/code-editor/ FR-1)', () => {
-  it('이어 가는 대화와 새 대화 헤더 둘 다 오른쪽 끝에 그린다', () => {
-    const slot = <button type="button">파일</button>
-    const { unmount } = renderHeader(conv(makeRun({ id: 'a1' })), { paneButtons: slot })
-    expect(screen.getByRole('button', { name: '파일' })).toBeInTheDocument()
-    unmount()
-    renderHeader(null, { paneButtons: slot })
-    expect(screen.getByRole('button', { name: '파일' })).toBeInTheDocument()
   })
 })

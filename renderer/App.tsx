@@ -22,7 +22,7 @@ import { confirmSeen } from './conversationSeen'
 import type { AssignedIssue, Memo, Run } from '@shared/models'
 import { ReportPanel, initialReportQuery, POLISH_PROMPT, type ReportQuery } from './components/ReportPanel'
 import { CloseConfirm } from './components/code/CloseConfirm'
-import { CodePaneSlotContext } from './components/code/CodePaneContext'
+import { CodePaneSlotContext, TitleBarSlotContext } from './components/code/CodePaneContext'
 
 export default function App() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
@@ -79,6 +79,8 @@ export default function App() {
   // 코드 칸의 자리 — 창 오른쪽 끝의 위아래 전체 열 (docs/sdlc/code-editor/ FR-2, 안 B, 2026-10-10). 칸의 상태는 도크가
   // 쥐고 이 열에 포털로 그린다. ref 콜백으로 받아야 열이 생기고 없어질 때 도크가 다시 그려진다.
   const [codeSlot, setCodeSlot] = useState<HTMLElement | null>(null)
+  // 코드 칸 버튼이 설 자리 — 제목 줄 오른쪽 끝, OS 창 단추 바로 왼쪽 (code-editor FR-1, 2026-10-10). 버튼도 도크가 그려 보낸다.
+  const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null)
 
   const chipKeys = useMemo(() => new Set(chips.map(chipKey)), [chips])
 
@@ -300,161 +302,170 @@ export default function App() {
   }
 
   return (
-    <div className="app">
-      <Sidebar
-        workspaces={workspaces}
-        loading={workspacesLoading}
-        error={workspacesError}
-        refresh={refreshWorkspaces}
-        selectedId={workspaceId}
-        onSelect={selectWorkspace}
-        view={view}
-        onSelectInbox={() => setView('inbox')}
-        onSelectReport={() => setView('report')}
-        onSelectSettings={() => setView('settings')}
-        counts={inboxCounts}
-        countsError={inboxError}
-        mcpStatus={mcpStatus}
-        planUsage={planUsage}
-        onDeleted={forgetWorkspace}
-        // repo 목록은 사이드바의 고른 workspace 아래에 붙는다 (2026-09-22). 본문 상단에
-        // 있던 것을 옮겼다 — 같은 useRepos 인스턴스를 RunPanel과 나눠 쓰는 것은 그대로다.
-        repoTree={workspaceId ? (
-          <RepoStrip
-            workspaceId={workspaceId}
-            repos={repos}
-            error={reposError}
-            refresh={refreshRepos}
-            selectedRepoId={repoId}
-            onSelect={setRepoId}
-            chipKeys={chipKeys}
-            onToggleContext={toggleChip}
-            onDeleted={forgetRepo}
-          />
-        ) : null}
-      />
-      <main className="main">
-        {view === 'settings' && (
-          <SettingsPanel
-            // Sidebar·RunPanel과 같은 인스턴스를 본다 — 여기서 useWorkspaces()를
-            // 따로 부르면 저장한 기본값이 실행 패널에 닿지 않는다.
-            workspaces={workspaces}
-            workspaceId={workspaceId}
-            // 저장 뒤 목록을 다시 읽어야 RunPanel이 새 기본값을 집는다.
-            onWorkspaceSaved={refreshWorkspaces}
-            // 도크와 같은 스냅샷·같은 IPC를 본다. 여기서 useQueue()를 따로 부르면
-            // 설정에서 바꾼 상한이 도크에 안 보이는 상태가 생긴다(FR-7).
-            queue={queue}
-            onChangeLimit={changeLimitAsync}
-            // RepoStrip·RunPanel과 같은 useRepos 인스턴스다 — 저장 뒤 refreshRepos가
-            // 목록을 다시 읽어야 실행 패널의 작업 디렉토리가 새 경로를 본다.
-            repos={repos}
-            refreshRepos={refreshRepos}
-            // 사이드바 하단 줄과 같은 인스턴스다 — 정보 탭이 다른 말을 하면 안 된다.
-            mcpStatus={mcpStatus}
-          />
-        )}
-        {view === 'report' && (
-          <ReportPanel
-            // 사이드바·인박스와 같은 useWorkspaces 인스턴스다 — 새로 만든 workspace가 곧바로 든다
-            workspaces={workspaces}
-            query={reportQuery}
-            onQueryChange={setReportQuery}
-            targetWorkspaceId={workspaceId}
-            onOpenIssue={openFromReport('issue')}
-            onOpenConversation={openReportConversation}
-            onOpenMemo={openFromReport('memo')}
-            onPolish={polishReport}
-          />
-        )}
-        {view === 'inbox' && (
-          <InboxPanel
-            items={inboxItems}
-            workspaces={workspaces}
-            reposByWorkspace={inboxRepos}
-            // 방금 누른 행동의 오류 → 목록을 못 읽음 → repo를 못 읽음(묶음이 `기타`로 가는 이유) 순이다
-            error={inboxActionError ?? inboxError ?? inboxReposError}
-            onReview={reviewConversation}
-            onOpenConversation={openConversation}
-            onRestart={restart}
-            onCloseIssue={closeIssue}
-            onMakeIssue={makeIssue}
-          />
-        )}
-        {view === 'workspace' && !workspaceId && (
-          <div className="blank">왼쪽에서 workspace를 선택하세요</div>
-        )}
-        {view === 'workspace' && workspaceId && (
-          <>
-            <div className="columns">
-              <IssuePanel
-                workspaceId={workspaceId}
-                repoId={repoId}
-                repos={repos}
-                context={contextPicker}
-                conversations={issueConversations}
-                expanded={openItem?.panel === 'issue'}
-                openId={openItem?.panel === 'issue' ? openItem.id : null}
-                onOpen={(id) => openIn('issue', id)}
-              />
-              <MemoPanel
-                workspaceId={workspaceId}
-                repoId={repoId}
-                repos={repos}
-                context={contextPicker}
-                expanded={openItem?.panel === 'memo'}
-                openId={openItem?.panel === 'memo' ? openItem.id : null}
-                onOpen={(id) => openIn('memo', id)}
-              />
-              <AssetPanel
-                workspaceId={workspaceId}
-                repos={repos}
-                repoId={repoId}
-                context={contextPicker}
-                expanded={openItem?.panel === 'asset'}
-                openId={openItem?.panel === 'asset' ? openItem.id : null}
-                onOpen={(id) => openIn('asset', id)}
-              />
-            </div>
-            <CodePaneSlotContext.Provider value={codeSlot}>
-              <Dock
-                runs={runs}
-                error={runsError}
-                workspaceId={workspaceId}
-                workspaces={workspaces}
-                repos={repos}
-                reposError={reposError}
-                queue={queue}
-                queueError={limitError ?? queueError}
-                onChangeLimit={changeLimit}
-                chips={chips}
-                onRemoveChip={toggleChip}
-                draftPrompt={draftPrompt}
-                draftCwd={draftCwd}
-                selectedRepoId={repoId}
-                // 도크 목록의 거름 줄 — 앱의 repo 거름은 하나라 사이드바 선택을 푼다 (dock-repo-sections FR-8·11)
-                onClearRepoFilter={() => setRepoId(null)}
-                focusConversationId={focusConversationId}
-                // 일회성 지시다 — Dock이 열고 나면 치운다. 남아 있으면 설정에 갔다 오는 것만으로
-                // (Dock 재마운트) 그 대화가 되살아난다 (docs/sdlc/conversation-fixes/ spec FR-22).
-                onFocusConsumed={() => { setFocusConversationId(null); setFocusNew(false) }}
-                // 담은 맥락은 그 턴에만 적용된다. 다음 실행은 빈 상태에서 시작한다. 할당 예정도 첫 턴에 할당이 됐다.
-                onRunStarted={() => { setChips([]); setDraftPrompt(''); setDraftCwd(null); setDraftIssue(null) }}
-                draftIssue={draftIssue}
-                onClearDraftIssue={() => setDraftIssue(null)}
-                focusNew={focusNew}
-                // 헤더의 `할당된 이슈 열기` — 토글(openIn)이 아니라 연다. 이미 열려 있어도 닫지 않는다(FR-21).
-                onOpenIssue={(issueId) => setOpenItem({ panel: 'issue', id: issueId })}
-              />
-            </CodePaneSlotContext.Provider>
-          </>
-        )}
-      </main>
-      {/* 코드 칸이 그려질 열 — workspace 화면에서만 있다(도크와 같은 수명). 칸이 닫혀 있으면 비어 있고 CSS가 접는다. */}
-      {view === 'workspace' && workspaceId && <div className="code-column" ref={setCodeSlot} />}
-      {/* 저장하지 않은 코드 칸 고침이 있는데 창을 닫을 때 (docs/sdlc/code-editor/ FR-21). 도크 밖에 둔다 — 칸이
-          접혀 있거나 인박스·설정에 있어도 보여야 한다. */}
-      <CloseConfirm />
+    <div className="app-frame">
+      {/* 앱 창의 제목 줄 — OS 제목 표시줄 대신이다(electron/windows.ts). 빈 곳을 끌면 창이 움직이고, 오른쪽 끝은 OS가
+          최소화·최대화·닫기를 겹쳐 그린다(CSS가 그 자리를 비운다). 그 바로 왼쪽에 코드 칸 버튼이 선다. */}
+      <header className="titlebar">
+        <div className="titlebar-actions" ref={setTitleSlot} />
+      </header>
+      <div className="app">
+        <Sidebar
+          workspaces={workspaces}
+          loading={workspacesLoading}
+          error={workspacesError}
+          refresh={refreshWorkspaces}
+          selectedId={workspaceId}
+          onSelect={selectWorkspace}
+          view={view}
+          onSelectInbox={() => setView('inbox')}
+          onSelectReport={() => setView('report')}
+          onSelectSettings={() => setView('settings')}
+          counts={inboxCounts}
+          countsError={inboxError}
+          mcpStatus={mcpStatus}
+          planUsage={planUsage}
+          onDeleted={forgetWorkspace}
+          // repo 목록은 사이드바의 고른 workspace 아래에 붙는다 (2026-09-22). 본문 상단에
+          // 있던 것을 옮겼다 — 같은 useRepos 인스턴스를 RunPanel과 나눠 쓰는 것은 그대로다.
+          repoTree={workspaceId ? (
+            <RepoStrip
+              workspaceId={workspaceId}
+              repos={repos}
+              error={reposError}
+              refresh={refreshRepos}
+              selectedRepoId={repoId}
+              onSelect={setRepoId}
+              chipKeys={chipKeys}
+              onToggleContext={toggleChip}
+              onDeleted={forgetRepo}
+            />
+          ) : null}
+        />
+        <main className="main">
+          {view === 'settings' && (
+            <SettingsPanel
+              // Sidebar·RunPanel과 같은 인스턴스를 본다 — 여기서 useWorkspaces()를
+              // 따로 부르면 저장한 기본값이 실행 패널에 닿지 않는다.
+              workspaces={workspaces}
+              workspaceId={workspaceId}
+              // 저장 뒤 목록을 다시 읽어야 RunPanel이 새 기본값을 집는다.
+              onWorkspaceSaved={refreshWorkspaces}
+              // 도크와 같은 스냅샷·같은 IPC를 본다. 여기서 useQueue()를 따로 부르면
+              // 설정에서 바꾼 상한이 도크에 안 보이는 상태가 생긴다(FR-7).
+              queue={queue}
+              onChangeLimit={changeLimitAsync}
+              // RepoStrip·RunPanel과 같은 useRepos 인스턴스다 — 저장 뒤 refreshRepos가
+              // 목록을 다시 읽어야 실행 패널의 작업 디렉토리가 새 경로를 본다.
+              repos={repos}
+              refreshRepos={refreshRepos}
+              // 사이드바 하단 줄과 같은 인스턴스다 — 정보 탭이 다른 말을 하면 안 된다.
+              mcpStatus={mcpStatus}
+            />
+          )}
+          {view === 'report' && (
+            <ReportPanel
+              // 사이드바·인박스와 같은 useWorkspaces 인스턴스다 — 새로 만든 workspace가 곧바로 든다
+              workspaces={workspaces}
+              query={reportQuery}
+              onQueryChange={setReportQuery}
+              targetWorkspaceId={workspaceId}
+              onOpenIssue={openFromReport('issue')}
+              onOpenConversation={openReportConversation}
+              onOpenMemo={openFromReport('memo')}
+              onPolish={polishReport}
+            />
+          )}
+          {view === 'inbox' && (
+            <InboxPanel
+              items={inboxItems}
+              workspaces={workspaces}
+              reposByWorkspace={inboxRepos}
+              // 방금 누른 행동의 오류 → 목록을 못 읽음 → repo를 못 읽음(묶음이 `기타`로 가는 이유) 순이다
+              error={inboxActionError ?? inboxError ?? inboxReposError}
+              onReview={reviewConversation}
+              onOpenConversation={openConversation}
+              onRestart={restart}
+              onCloseIssue={closeIssue}
+              onMakeIssue={makeIssue}
+            />
+          )}
+          {view === 'workspace' && !workspaceId && (
+            <div className="blank">왼쪽에서 workspace를 선택하세요</div>
+          )}
+          {view === 'workspace' && workspaceId && (
+            <>
+              <div className="columns">
+                <IssuePanel
+                  workspaceId={workspaceId}
+                  repoId={repoId}
+                  repos={repos}
+                  context={contextPicker}
+                  conversations={issueConversations}
+                  expanded={openItem?.panel === 'issue'}
+                  openId={openItem?.panel === 'issue' ? openItem.id : null}
+                  onOpen={(id) => openIn('issue', id)}
+                />
+                <MemoPanel
+                  workspaceId={workspaceId}
+                  repoId={repoId}
+                  repos={repos}
+                  context={contextPicker}
+                  expanded={openItem?.panel === 'memo'}
+                  openId={openItem?.panel === 'memo' ? openItem.id : null}
+                  onOpen={(id) => openIn('memo', id)}
+                />
+                <AssetPanel
+                  workspaceId={workspaceId}
+                  repos={repos}
+                  repoId={repoId}
+                  context={contextPicker}
+                  expanded={openItem?.panel === 'asset'}
+                  openId={openItem?.panel === 'asset' ? openItem.id : null}
+                  onOpen={(id) => openIn('asset', id)}
+                />
+              </div>
+              <CodePaneSlotContext.Provider value={codeSlot}>
+                <TitleBarSlotContext.Provider value={titleSlot}>
+                  <Dock
+                    runs={runs}
+                    error={runsError}
+                    workspaceId={workspaceId}
+                    workspaces={workspaces}
+                    repos={repos}
+                    reposError={reposError}
+                    queue={queue}
+                    queueError={limitError ?? queueError}
+                    onChangeLimit={changeLimit}
+                    chips={chips}
+                    onRemoveChip={toggleChip}
+                    draftPrompt={draftPrompt}
+                    draftCwd={draftCwd}
+                    selectedRepoId={repoId}
+                    // 도크 목록의 거름 줄 — 앱의 repo 거름은 하나라 사이드바 선택을 푼다 (dock-repo-sections FR-8·11)
+                    onClearRepoFilter={() => setRepoId(null)}
+                    focusConversationId={focusConversationId}
+                    // 일회성 지시다 — Dock이 열고 나면 치운다. 남아 있으면 설정에 갔다 오는 것만으로
+                    // (Dock 재마운트) 그 대화가 되살아난다 (docs/sdlc/conversation-fixes/ spec FR-22).
+                    onFocusConsumed={() => { setFocusConversationId(null); setFocusNew(false) }}
+                    // 담은 맥락은 그 턴에만 적용된다. 다음 실행은 빈 상태에서 시작한다. 할당 예정도 첫 턴에 할당이 됐다.
+                    onRunStarted={() => { setChips([]); setDraftPrompt(''); setDraftCwd(null); setDraftIssue(null) }}
+                    draftIssue={draftIssue}
+                    onClearDraftIssue={() => setDraftIssue(null)}
+                    focusNew={focusNew}
+                    // 헤더의 `할당된 이슈 열기` — 토글(openIn)이 아니라 연다. 이미 열려 있어도 닫지 않는다(FR-21).
+                    onOpenIssue={(issueId) => setOpenItem({ panel: 'issue', id: issueId })}
+                  />
+                </TitleBarSlotContext.Provider>
+              </CodePaneSlotContext.Provider>
+            </>
+          )}
+        </main>
+        {/* 코드 칸이 그려질 열 — workspace 화면에서만 있다(도크와 같은 수명). 칸이 닫혀 있으면 비어 있고 CSS가 접는다. */}
+        {view === 'workspace' && workspaceId && <div className="code-column" ref={setCodeSlot} />}
+        {/* 저장하지 않은 코드 칸 고침이 있는데 창을 닫을 때 (docs/sdlc/code-editor/ FR-21). 도크 밖에 둔다 — 칸이
+            접혀 있거나 인박스·설정에 있어도 보여야 한다. */}
+        <CloseConfirm />
+      </div>
     </div>
   )
 }

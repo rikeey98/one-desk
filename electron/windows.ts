@@ -1,8 +1,9 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, nativeTheme, shell, BrowserWindow, type BrowserWindowConstructorOptions } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { externalLinkOf, isAppNavigation } from '@shared/links'
 import { panelHash, panelScopeKey, type PanelScope } from '@shared/panelWindow'
+import { TITLEBAR_COLORS, TITLEBAR_HEIGHT } from '@shared/titleBar'
 
 /**
  * 앱의 창들 (docs/sdlc/item-windows/). 앱 창 하나와, (종류, workspace, repo)마다 하나인 패널 창들.
@@ -45,12 +46,35 @@ function hardenWindow(win: BrowserWindow, appUrl: string): void {
   })
 }
 
-function createWindow(opts: { width: number; height: number; hash?: string }): BrowserWindow {
+/** OS 창 단추(최소화·최대화·닫기)의 높이·색 — 지금 테마의 것. 렌더러의 `.titlebar`와 같은 값이다(shared/titleBar.ts). */
+function titleBarOverlay(): { color: string; symbolColor: string; height: number } {
+  return { ...TITLEBAR_COLORS[nativeTheme.shouldUseDarkColors ? 'dark' : 'light'], height: TITLEBAR_HEIGHT }
+}
+
+/**
+ * 앱 창의 제목 줄 (`docs/sdlc/code-editor/` FR-1, 2026-10-10) — OS 제목 표시줄을 숨기고 렌더러가 그린 줄(`.titlebar`)을 쓴다.
+ * 그 오른쪽 끝, OS 창 단추 바로 왼쪽에 코드 칸 버튼이 선다(Claude Code 데스크톱과 같은 자리). Windows·Linux는 OS가 창
+ * 단추를 그 줄 위에 겹쳐 그리고(Window Controls Overlay), macOS는 신호등이 왼쪽에 그대로 선다 — 어느 쪽이든 렌더러는
+ * CSS의 `env(titlebar-area-*)`로 그 자리를 비운다.
+ */
+function customTitleBar(): BrowserWindowConstructorOptions {
+  if (process.platform === 'darwin') return { titleBarStyle: 'hidden', titleBarOverlay: true }
+  return { titleBarStyle: 'hidden', titleBarOverlay: titleBarOverlay() }
+}
+
+function createWindow(opts: {
+  width: number
+  height: number
+  hash?: string
+  /** 창 틀 — 앱 창만 `customTitleBar()`를 넘긴다. 패널 창은 OS 제목 표시줄 그대로다 */
+  frame?: BrowserWindowConstructorOptions
+}): BrowserWindow {
   const win = new BrowserWindow({
     width: opts.width,
     height: opts.height,
     show: false,
     autoHideMenuBar: true,
+    ...opts.frame,
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       sandbox: false,
@@ -85,8 +109,14 @@ export function getAllWindows(): BrowserWindow[] {
 }
 
 export function createMainWindow(): BrowserWindow {
-  const win = createWindow({ width: 1440, height: 900 })
+  const win = createWindow({ width: 1440, height: 900, frame: customTitleBar() })
   mainWindow = win
+  // 테마가 바뀌면 OS 창 단추의 색도 따라간다 — 렌더러는 prefers-color-scheme로 이미 바뀐다. macOS는 신호등이 스스로 맞춘다.
+  if (process.platform !== 'darwin') {
+    const syncOverlay = () => { if (!win.isDestroyed()) win.setTitleBarOverlay(titleBarOverlay()) }
+    nativeTheme.on('updated', syncOverlay)
+    win.on('closed', () => { nativeTheme.off('updated', syncOverlay) })
+  }
   win.on('closed', () => {
     mainWindow = null
     // 패널 창만 남은 앱은 만들지 않는다 (FR-16). close()라서 각 창의 beforeunload — 대기 중인

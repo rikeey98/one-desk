@@ -10,7 +10,7 @@ import { useDraftFilled } from '../store/DraftContext'
 import { SlotIndicator } from './SlotIndicator'
 import { IconChevronDown, IconCollapse, IconFolder, IconMaximize } from './icons'
 import { FilePane, type OpenRequest } from './code/FilePane'
-import { CodePaneContext, useCodePaneSlot, type CodePaneOpener } from './code/CodePaneContext'
+import { CodePaneContext, useCodePaneSlot, useTitleBarSlot, type CodePaneOpener } from './code/CodePaneContext'
 import { paneTarget } from '../code/target'
 import {
   clampPaneWidth, PANE_STEP_PX, readPaneKind, readPaneWidth, resetPaneWidth, writePaneKind, writePaneWidth,
@@ -106,6 +106,7 @@ export function Dock({
   const paneDrag = useRef<{ startX: number; startWidth: number } | null>(null)
   // 칸이 그려질 자리 — 앱 창 오른쪽 끝의 위아래 전체 열이다(안 B, 2026-10-10). 상태는 여기 두고 그 자리에 포털로 그린다
   const paneSlot = useCodePaneSlot()
+  const titleSlot = useTitleBarSlot()
   const slotRef = useRef(paneSlot)
   slotRef.current = paneSlot
 
@@ -467,19 +468,20 @@ export function Dock({
       }
     }
     : null), [targetRepo])
-  // 코드 칸 버튼 줄 (FR-1) — 대화 헤더 오른쪽 끝의 슬롯이다. 대상이 없으면 비활성이고 `title`이 이유를 말한다.
-  // `disabled`가 아니라 `aria-disabled`다 — 비활성 버튼에는 title 풍선이 뜨지 않아 이유가 보이지 않는다.
+  // 코드 칸 버튼 줄 (FR-1) — 앱 제목 줄의 오른쪽 끝, OS 창 단추 바로 왼쪽에 포털로 선다(2026-10-10). 아이콘뿐이라 이름은
+  // aria-label이 주고 `title`이 풍선으로 말한다. 대상이 없으면 비활성이고 `title`이 이유를 말한다 — `disabled`가 아니라
+  // `aria-disabled`다(비활성 버튼에는 title 풍선이 뜨지 않아 이유가 보이지 않는다).
   const paneButtons = (
     <button
       type="button"
-      className={['pane-toggle', paneKind === 'files' && 'pane-toggle-on'].filter(Boolean).join(' ')}
+      className={['titlebar-button', paneKind === 'files' && 'titlebar-button-on'].filter(Boolean).join(' ')}
+      aria-label="파일"
       aria-pressed={paneKind === 'files'}
       aria-disabled={targetRepo ? undefined : true}
-      title={targetRepo ? `${targetRepo.name}의 파일` : target.reason}
+      title={targetRepo ? `파일 — ${targetRepo.name}` : target.reason}
       onClick={() => { if (targetRepo) setPane(paneKind === 'files' ? null : 'files') }}
     >
-      <IconFolder width="13" height="13" />
-      파일
+      <IconFolder width="15" height="15" />
     </button>
   )
 
@@ -608,7 +610,6 @@ export function Dock({
                   onAssignIssue={(issueId) => {
                     if (shownConversation) void assignIssue(shownConversation, issueId)
                   }}
-                  paneButtons={paneButtons}
                 />
                 <ConversationPanel
                   key={draftKeyOf(shownConversation?.id ?? null, workspaceId)}
@@ -632,6 +633,8 @@ export function Dock({
           </div>
         </div>
       )}
+      {/* 코드 칸 버튼 — 앱 제목 줄에 그린다. 도크 본문 밖이라 도크를 접어도 남는다(FR-1·FR-5). */}
+      {titleSlot && createPortal(paneButtons, titleSlot)}
       {/* 코드 칸 — 앱 창 오른쪽 끝의 위아래 전체 열에 그린다 (code-editor FR-2, 안 B). 도크 본문 밖이라 도크를 접어도
           남는다(FR-5). 대상은 그대로 도크가 보는 대화다. 자리가 없으면(도크를 혼자 그린 테스트) 서지 않는다. */}
       {paneKind === 'files' && paneSlot && createPortal(

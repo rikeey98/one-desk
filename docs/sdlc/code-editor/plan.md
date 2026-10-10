@@ -269,3 +269,16 @@
   다시 선다"), `layout.test` 기준 변경. 변이: 포털을 `open &&` 안으로 → 접기 테스트 빨강, App이 자리에 null을 내림 → App
   테스트 빨강. 단위 2,643개·코드 칸 e2e 초록. 1280×800에서는 본문이 약 630px라 이슈 배너 버튼·입력부 알약이 줄바꿈된다(spec
   §4의 5).
+- 2026-10-10 **버튼을 앱 제목 줄로 옮겼다**(사용자 — "클로드 코드 데스크탑 앱처럼 최소화 최대화 x 왼쪽 옆에 넣는건 어때 아이콘으로").
+  대화 헤더의 버튼은 칸과 멀었고, 도크를 접으면 버튼만 사라져 열린 칸을 칸 머리의 닫기로만 닫을 수 있었다. 앱 창만
+  `titleBarStyle: 'hidden'` + `titleBarOverlay`(Windows·Linux — macOS는 `true`, 신호등이 왼쪽)로 OS 제목 표시줄을 숨기고, App이
+  맨 위에 `.titlebar`(36px)를 그린다 — 오른쪽 끝은 `env(titlebar-area-*)`로 OS 창 단추 자리를 비운다. 버튼은 아이콘뿐이고(이름은
+  `aria-label` `파일`) 도크가 `TitleBarSlotContext` 자리에 포털로 그린다(칸과 같은 방식·같은 수명). OS 단추의 높이·색은
+  `shared/titleBar.ts` 한 자리이고 main이 테마가 바뀔 때 따라 바꾼다. 대화 헤더의 `paneButtons` 슬롯은 걷었다(이 작업 전으로
+  되돌렸다). 테스트: `Dock.test` 셋("제목 줄 자리에 선다"·"도크를 접어도 버튼이 남아 칸을 닫는다"·"자리가 없으면 버튼이 없다"),
+  `App.test` 하나("제목 줄에 서고 인박스에서는 없다"), `core/app/titleBar.test.ts` 셋(OS 단추 색이 CSS 토큰과 같다 — `shared/`에
+  두지 못했다: 렌더러 타입 검사에 걸려 node 모듈을 못 쓴다), `code-pane.e2e`에 "버튼의 오른쪽 끝이 OS 단추 영역 바로 왼쪽"
+  (Window Controls Overlay의 `getTitlebarAreaRect`). 변이: 도크가 버튼을 제자리에 그림 → Dock 빨강, App이 자리에 null → App
+  빨강, 다크 바탕색을 토큰과 다르게 → titleBar 빨강, main의 `frame: customTitleBar()`를 지움 → e2e 빨강. 캡처는 OS 단추가
+  `page.screenshot`에 안 찍혀 창이 놓인 화면 영역을 찍었다 — 거기서 제목 줄 아래 선이 OS 단추 밑에서 끊겨 보여(배율 반올림으로
+  단추가 선을 덮었다) 선을 1px 내렸다. 단위 2,681개 · 전체 e2e 28개 파일 · 56개 테스트 초록. 이 결정으로 다음 사이클이 변경사항이 아니라 **터미널**이 됐다(spec §0).

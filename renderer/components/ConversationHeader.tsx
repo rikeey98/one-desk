@@ -290,7 +290,7 @@ function UsageButton({ usage }: { usage: ConversationUsage }) {
  * 편집과 **한 state**라 두 자리에서 같은 대화를 동시에 고치는 상태가 생기지 않는다(FR-34).
  */
 export function ConversationHeader({
-  conversation, repos, renaming, onStartRename, onRename, onCancelRename, onClose, onCancel, hasDraft, paneButtons,
+  conversation, repos, renaming, onStartRename, onRename, onCancelRename, onClose, onCancel, hasDraft,
   // 개발 버전: 선택 prop이다 — plan에서 필수로 올린다 (conversation-issue spec §7).
   workspaceId = '', pendingIssue = null, onClearPendingIssue = () => {}, onOpenIssue = () => {},
   onAssignIssue = () => {}
@@ -313,12 +313,6 @@ export function ConversationHeader({
    * 인자면 도크의 배선 한 줄을 빠뜨려도 조용히 컴파일되고, 멈추기가 영영 안 서거나 늘 선다.
    */
   hasDraft: boolean
-  /**
-   * 코드 칸 버튼 줄 (`docs/sdlc/code-editor/` FR-1) — 오른쪽 끝에 선다. 새 대화 헤더에도 선다(새 대화 칸은 작업
-   * 디렉토리 알약의 repo를 연다). 슬롯이라 헤더는 칸 상태를 모른다(`Sidebar`의 `repoTree`와 같은 모양). **필수다** —
-   * 선택이면 도크의 배선 한 줄을 빠뜨려도 조용히 컴파일되고 버튼이 사라진다.
-   */
-  paneButtons: ReactNode
   /** 이슈 고르기가 읽을 workspace (conversation-issue FR-21) */
   workspaceId?: string
   /** 새 대화 칸에 걸린 할당 예정 이슈 (FR-20). 새 대화일 때만 의미가 있다 */
@@ -358,7 +352,6 @@ export function ConversationHeader({
               </div>
             )}
           </div>
-          <div className="conv-header-side">{paneButtons}</div>
         </div>
       </header>
     )
@@ -460,7 +453,6 @@ export function ConversationHeader({
             </button>
           )}
           {usage && <UsageButton usage={usage} />}
-          {paneButtons}
         </div>
       </div>
       {/* 이 대화가 이미 받은 것. 입력 카드의 칩 줄("이번 턴에 담을 것")과 짝을 이룬다 —

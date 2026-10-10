@@ -77,7 +77,29 @@ describe('코드 칸 (docs/sdlc/code-editor/)', () => {
     await page.getByRole('button', { name: '실행', exact: true }).click()
     await waitConvStatus(page, null, 'succeeded', 30_000)
 
-    await page.getByRole('button', { name: '파일', exact: true }).click()
+    // 버튼은 앱 제목 줄 오른쪽 끝, OS 창 단추 바로 왼쪽에 선다(FR-1, 2026-10-10). Windows·Linux는 OS가 창 단추를 겹쳐
+    // 그리고(Window Controls Overlay) 그 자리를 뺀 것이 titlebar area다 — 버튼의 오른쪽 끝이 그 영역 끝에 붙어 있어야 한다.
+    // OS 제목 표시줄로 되돌아가면(main의 titleBarStyle을 지우면) overlay가 보이지 않는다.
+    const fileButton = page.getByRole('button', { name: '파일', exact: true })
+    if (process.platform !== 'darwin') {
+      // e2e는 DOM 타입이 없는 설정이라 문자열로 넘긴다(composer.e2e와 같다)
+      const placement = await page.evaluate<{ visible: boolean; gap: number | null; below: number | null }>(`(() => {
+        const overlay = navigator.windowControlsOverlay
+        const area = overlay ? overlay.getTitlebarAreaRect() : null
+        const box = document.querySelector('.titlebar [aria-label="파일"]').getBoundingClientRect()
+        return {
+          visible: overlay ? overlay.visible : false,
+          gap: area ? area.x + area.width - box.right : null,
+          below: area ? box.bottom - (area.y + area.height) : null
+        }
+      })()`)
+      expect(placement.visible).toBe(true)
+      expect(placement.gap).toBeGreaterThanOrEqual(0)
+      expect(placement.gap).toBeLessThan(16)
+      expect(placement.below).toBeLessThanOrEqual(0)
+    }
+
+    await fileButton.click()
     await pane(page).waitFor({ timeout: 10_000 })
     await tree(page).getByRole('button', { name: 'win.cs', exact: true }).waitFor({ timeout: 10_000 })
 
