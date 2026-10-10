@@ -43,6 +43,13 @@ export const CHANNELS = {
   settingsSetGlobalRoots: 'settings:setGlobalRoots',
   settingsGetAgentPaths: 'settings:getAgentPaths',
   settingsSetAgentPaths: 'settings:setAgentPaths',
+  settingsGetTerminalShell: 'settings:getTerminalShell',
+  settingsSetTerminalShell: 'settings:setTerminalShell',
+  /** 코드 칸의 터미널 (docs/sdlc/code-editor/terminal-spec.md). write·resize는 응답을 기다리지 않는 한 방향(send)이다 */
+  terminalOpen: 'terminal:open',
+  terminalWrite: 'terminal:write',
+  terminalResize: 'terminal:resize',
+  terminalRestart: 'terminal:restart',
   runsList: 'runs:list',
   runsStart: 'runs:start',
   runsCancel: 'runs:cancel',
@@ -79,7 +86,10 @@ export const EVENT_CHANNELS = {
   mcpStatusUpdate: 'event:mcpStatus',
   planUsageUpdate: 'event:planUsage',
   /** 모든 창으로 간다 — 나머지는 앱 창에만 (docs/sdlc/item-windows/ FR-19) */
-  itemChanged: 'event:itemChanged'
+  itemChanged: 'event:itemChanged',
+  /** 셸 출력·끝남 — 앱 창에만 (terminal-spec FR-20) */
+  terminalData: 'event:terminalData',
+  terminalExit: 'event:terminalExit'
 } as const
 
 export type EventChannelName = (typeof EVENT_CHANNELS)[keyof typeof EVENT_CHANNELS]

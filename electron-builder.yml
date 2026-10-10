@@ -14,9 +14,18 @@ extraResources:
   # 경로를 실행할 수 있는지가 플랫폼마다 미묘하다. 그 불확실성을 살 이유가 없다.
   - from: core/mcp/bridge.mjs
     to: mcp-bridge.mjs
+# 패키징하면서 네이티브 모듈을 다시 빌드하지 않는다 (docs/sdlc/code-editor/terminal-plan.md 11단계).
+# electron-builder의 재빌드(@electron/rebuild)는 node-pty가 품은 N-API 사전 빌드를 알아보지 못하고 소스에서
+# 컴파일하려다 실패한다(npm 패키지에 winpty의 GetCommitHash.bat이 없다 — 2026-10-10 실측). Electron용 빌드는
+# 이미 postinstall(`electron-rebuild -w better-sqlite3`)이 했고, node-pty는 N-API라 다시 빌드할 것이 없다.
+npmRebuild: false
+
 # 네이티브 .node는 asar 안에서 로드되지 않는다.
+# node-pty는 .node 말고도 conpty.dll·OpenConsole.exe·winpty-agent.exe를 자기 폴더에서 찾아 띄운다 —
+# 폴더째 밖에 둔다 (docs/sdlc/code-editor/terminal-plan.md 0단계).
 asarUnpack:
   - '**/node_modules/better-sqlite3/**'
+  - '**/node_modules/node-pty/**'
 
 mac:
   target: dmg

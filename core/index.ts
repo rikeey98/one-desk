@@ -22,6 +22,10 @@ import type {
 } from '@shared/models'
 import { PANEL_KINDS, type PanelScope } from '@shared/panelWindow'
 import { createFileService } from './files/service'
+import { createTerminalService, type SpawnPty } from './terminal/service'
+import { resolveShell, shellEnv, type ShellLookup } from './terminal/shell'
+import { findExecutable } from './runner/executable'
+import { taskkillTree, taskkillTreeSync } from './runner/terminate'
 import { buildReport } from './reports/build'
 import { createIssueRepository } from './db/repositories/issue'
 import { createMemoRepository } from './db/repositories/memo'
@@ -44,7 +48,10 @@ import {
 import { consoleErrorSink, type ErrorSink } from './errors'
 import type { AgentAdapter } from './runner/types'
 import type { RunEvent } from '@shared/events'
-import type { AgentKind, AgentPaths, InboxCounts, ItemChange, McpStatus, PlanUsage, QueueSnapshot, Run, Workspace } from '@shared/models'
+import type {
+  AgentKind, AgentPaths, InboxCounts, ItemChange, McpStatus, PlanUsage, QueueSnapshot, Run, TerminalData, TerminalExit, TerminalOpenInput,
+  TerminalShellSetting, Workspace
+} from '@shared/models'
 
 /**
  * agent 종류 → 어댑터. **밖으로 꺼낸 이유는 테스트가 이 한 줄을 볼 수 있게
@@ -81,6 +88,12 @@ export interface CoreOptions {
    * 조용히 비고, 그것이 이번에 고치려던 증상 그 자체다.
    */
   homeDir: string
+  /**
+   * 코드 칸 터미널의 pty를 띄우는 함수 — main이 `node-pty`의 `spawn`을 넘긴다(docs/sdlc/code-editor/terminal-spec.md FR-21).
+   * 네이티브 모듈이라 core가 직접 import하지 않고 받는다 — 단위 테스트는 가짜를 넘긴다. **선택 인자로 두지 않는다** — main의
+   * 한 줄을 빠뜨려도 조용히 컴파일되면 터미널만 죽는다(`homeDir`와 같은 규칙).
+   */
+  spawnPty: SpawnPty
   /** core가 삼킨 오류를 흘려보낼 곳. 기본은 stderr */
   onError?: ErrorSink
 }
@@ -92,6 +105,8 @@ const INBOX_UPDATE = 'inbox-update'
 const MCP_STATUS = 'mcp-status'
 const PLAN_USAGE = 'plan-usage'
 const ITEM_CHANGED = 'item-changed'
+const TERMINAL_DATA = 'terminal-data'
+const TERMINAL_EXIT = 'terminal-exit'
 
 export function createCore(opts: CoreOptions) {
   const onError = opts.onError ?? consoleErrorSink
@@ -268,6 +283,34 @@ export function createCore(opts: CoreOptions) {
    */
   const files = createFileService({ getRepo: (id) => repos.get(id) })
 
+  /**
+   * 코드 칸의 터미널 (docs/sdlc/code-editor/terminal-spec.md) — repo마다 셸 하나. 셸 경로는 설정(비면 기본값)에서, repo 경로는
+   * 그 workspace의 repo에서 여기서 정한다 — 렌더러는 repo id만 넘긴다(FR-18).
+   */
+  const shellLookup = (): ShellLookup => ({
+    platform: process.platform, env: process.env, find: (name) => findExecutable(name)
+  })
+  const terminal = createTerminalService({
+    spawnPty: opts.spawnPty,
+    resolveShell: () => resolveShell(settings.terminalShell(), shellLookup()),
+    repoOf: (workspaceId, repoId) => {
+      const repo = repos.get(repoId)
+      if (repo.workspaceId !== workspaceId) throw new Error(`이 workspace의 repo가 아닙니다: ${repoId}`)
+      return repo
+    },
+    env: () => shellEnv(process.env),
+    killTree: taskkillTree,
+    killTreeSync: taskkillTreeSync,
+    platform: process.platform,
+    onData: (data) => {
+      try { emitter.emit(TERMINAL_DATA, data) } catch (err) { onError('터미널 출력 알림 실패', err) }
+    },
+    onExit: (exit) => {
+      try { emitter.emit(TERMINAL_EXIT, exit) } catch (err) { onError('터미널 끝남 알림 실패', err) }
+    },
+    onError
+  })
+
   const execution = createExecutionService({
     db,
     runs,
@@ -319,6 +362,14 @@ export function createCore(opts: CoreOptions) {
      */
     workspaces: {
       ...workspaces,
+
+      /** 지우기 전에 그 아래 repo의 셸을 끝낸다 — 지우고 나면 repo 목록이 cascade로 사라진다 (terminal-spec FR-10) */
+      remove(id: string) {
+        const owned = repos.list(id)
+        const result = workspaces.remove(id)
+        for (const repo of owned) terminal.killRepo(repo.id)
+        return result
+      },
 
       /**
        * 지금 이 workspace로 실행하면 두 CLI가 각각 어디서 잡히는가 (설계 §595).
@@ -378,6 +429,13 @@ export function createCore(opts: CoreOptions) {
     repos: {
       ...repos,
 
+      /** 지운 repo의 셸을 끝낸다 (terminal-spec FR-10) */
+      remove(id: string) {
+        const result = repos.remove(id)
+        terminal.killRepo(id)
+        return result
+      },
+
       /**
        * repo를 VS Code **새 창**으로 연다.
        *
@@ -436,6 +494,8 @@ export function createCore(opts: CoreOptions) {
         const { id, ...patch } = input
         const updated = repos.update(id, patch)
         if (updated.path !== before.path) {
+          // 옛 경로에서 계속 돌면 칸의 repo와 셸의 디렉토리가 갈린다 (terminal-spec FR-10)
+          terminal.killRepo(updated.id)
           // 등록 때와 같은 이유로 기다린다. 실패가 갱신을 무르지는 않는다.
           try {
             await assetService.scanRepo(updated.workspaceId, updated.id)
@@ -470,6 +530,24 @@ export function createCore(opts: CoreOptions) {
 
     settings: {
       globalRoots: () => settings.globalRoots(),
+
+      /** 터미널 셸 (terminal-spec FR-11). `resolved`는 지금 잡히는 셸 — 비었으면 기본값이고 설정 칸의 placeholder가 말한다 */
+      async terminalShell(): Promise<TerminalShellSetting> {
+        const path = settings.terminalShell()
+        return { path, resolved: (await resolveShell(path, shellLookup())).file }
+      },
+
+      /** 없는 파일은 거부한다 — 저장해 두면 다음 셸이 조용히 못 뜬다. 빈 값은 기본값으로 돌아간다 */
+      async setTerminalShell(path: string | null): Promise<TerminalShellSetting> {
+        const trimmed = (path ?? '').trim()
+        if (trimmed !== '') {
+          let isFile = false
+          try { isFile = statSync(trimmed).isFile() } catch { isFile = false }
+          if (!isFile) throw new Error(`셸 파일이 없습니다: ${trimmed}`)
+        }
+        settings.setTerminalShell(trimmed === '' ? null : trimmed)
+        return this.terminalShell()
+      },
 
       /** CLI 기본 경로 — workspace가 비워 둔 agent에 쓴다 (`docs/sdlc/agent-path-default/`). */
       agentPaths: (): AgentPaths => settings.agentPaths(),
@@ -642,6 +720,25 @@ export function createCore(opts: CoreOptions) {
      * 이슈·메모·asset·repo·workspace가 바뀔 때 준다 (docs/sdlc/item-windows/ FR-17). IPC로 온 쓰기와 MCP로
      * 온 쓰기, asset 스캔이 전부 이 길이다. 모든 창이 듣는다.
      */
+    /** 코드 칸의 터미널 (docs/sdlc/code-editor/terminal-spec.md) — 핸들러는 이것을 한 줄씩 부른다 */
+    terminal: {
+      open: (input: TerminalOpenInput) => terminal.open(input),
+      write: (repoId: string, data: string) => { terminal.write(repoId, data) },
+      resize: (repoId: string, cols: number, rows: number) => { terminal.resize(repoId, cols, rows) },
+      restart: (input: TerminalOpenInput) => terminal.restart(input)
+    },
+
+    /** 셸 출력 — 16ms마다 모은 덩어리 (terminal-spec FR-20) */
+    onTerminalData(cb: (data: TerminalData) => void): () => void {
+      emitter.on(TERMINAL_DATA, cb)
+      return () => { emitter.off(TERMINAL_DATA, cb) }
+    },
+
+    onTerminalExit(cb: (exit: TerminalExit) => void): () => void {
+      emitter.on(TERMINAL_EXIT, cb)
+      return () => { emitter.off(TERMINAL_EXIT, cb) }
+    },
+
     onItemChanged(cb: (change: ItemChange) => void): () => void {
       emitter.on(ITEM_CHANGED, cb)
       return () => { emitter.off(ITEM_CHANGED, cb) }
@@ -667,6 +764,8 @@ export function createCore(opts: CoreOptions) {
      */
     shutdown(): void {
       manager.cancelAll()
+      // 셸과 셸이 띄운 프로세스(dev 서버)도 트리째, 기다려서 끝낸다 (terminal-spec FR-9)
+      terminal.killAll()
       // 토큰과 설정 파일을 함께 치운다. 프로세스가 죽어도 파일은 남는다.
       mcp.close()
       db.$client.close()

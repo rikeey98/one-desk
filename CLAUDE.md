@@ -328,6 +328,15 @@ repo는 이어 가는 대화면 뿌리 cwd(`repoOfConversation`), 새 대화면 
 확인(`CloseConfirm` — 앱에서 하나뿐인 모달)이 묻는다. 칸이 보이는 동안 2초마다 디스크를 확인해 고친 것이 없으면 따라간다.
 대화록 편집 줄의 `코드 칸에서 열기`가 그 파일을 그 편집 줄로 연다. `e2e/code-pane.e2e.ts`가 디스크 바이트(CRLF·BOM)까지 본다.
 
+**코드 칸의 둘째 — 터미널** (`docs/sdlc/code-editor/terminal-spec.md`·`terminal-plan.md`). 마이그레이션 없음. 제목 줄 `파일` 왼쪽의
+`터미널`이 같은 칸을 그 대화 repo의 셸로 바꾼다(칸은 한 번에 한 종류 — `PaneKind = 'files' | 'terminal'`). **셸은 repo당 하나이고
+core에 산다**(`core/terminal/service.ts`) — 칸을 닫거나 다른 repo로 옮기거나 인박스에 다녀와도 돌고, 칸은 붙었다 떨어진다(셸마다
+최근 출력 512 KiB를 core가 쥐고 다시 붙을 때 준다). 앱을 끄면 `shutdown`이 모든 셸을 **동기로** 트리째 끝내고(`taskkillTreeSync` —
+`cancelAll`과 같은 이유), repo 삭제·경로 변경·workspace 삭제도 그 셸을 끝낸다. 셸은 설정 앱 탭의 `터미널 셸`(`app_setting`의
+`terminal.shell`)이고 비면 PATH의 `pwsh` → Windows PowerShell(posix는 `$SHELL`). 렌더러는 repo id만 넘긴다 — cwd·셸·명령을 정하지
+못한다. pty는 **네이티브 모듈 `node-pty` 1.1.0**이다(아래 함정 절). 화면은 `@xterm/xterm` 6.0.0(지연 로드). `e2e/terminal.e2e.ts`가
+진짜 셸로 출력·repo 전환·다시 시작·셸 바꾸기·**앱을 끄면 셸의 자식 프로세스까지 끝나는지**(pid)를 본다.
+
 **인박스를 시간순 · workspace별 · 상태별로 본다** (`docs/sdlc/inbox-views/`). 마이그레이션·IPC 없음 — 렌더러만. 목록 위 도구 줄이
 보기 세 칸(`인박스 보기` 그룹)과 정렬 버튼(`정렬: 최신 먼저`/`정렬: 오래된 먼저` — 기준은 대표 턴의 `endedAt`, 오래된 먼저는 최신 먼저를
 **정확히 뒤집은** 순서)이다. 기본은 시간순 · 최신 먼저로 예전 화면 그대로이고(`.inbox-list > li.inbox-item`), 시간순 카드의 소속이
@@ -762,6 +771,26 @@ hover하고 바로 누르면 가끔 깨진다 — 눌리지 않은 click이 스�
 (`getClientRects`)가 없어 "처리되지 않은 오류"로 테스트 파일이 실패한다(`FilePane.test`·`Dock.test`가 대역을 둔다). 그래서
 Ctrl+S·바깥 글 교체·처음 갈 줄·언어 조각 불러오기는 `e2e/code-pane.e2e.ts`만 본다 — `CodeEditor`에 판정을 두지 말 것.
 `App`·코드 칸을 그리는 테스트는 `CodeBufferProvider`가 있어야 한다(기본값이 없어 던진다 — 초안 스토어와 같은 규칙).
+xterm도 같다 — `TerminalView`(xterm 껍데기)에 판정을 두지 않고, `TerminalPane.test`는 그것을 대역으로 바꾸며 `Dock.test`는
+`TerminalPane`째 바꾼다. **대역은 `onReady`를 effect에서 한 번만 불러야 한다** — 그릴 때마다 부르면 열기 → state → 다시 그리기가
+끝없이 돈다(실측).
+
+**`node-pty`는 네이티브 모듈이다 — 네 자리가 같이 있어야 한다** (`docs/sdlc/code-editor/terminal-plan.md` 0·11단계). (4)부터:
+**`electron-builder.yml`의 `npmRebuild: false`를 지우지 말 것** — electron-builder는 패키징하며 모든 네이티브 모듈을 다시 빌드하는데
+node-pty의 사전 빌드를 알아보지 못하고 소스에서 컴파일하려다 실패한다(`GetCommitHash.bat` — npm 패키지에 없다). 로컬 `pnpm run pack`과
+CI의 `electron-builder --win`이 같이 깨진다. Electron용 빌드는 postinstall이 이미 했다. (1) `dependencies`
+(패키징에 실린다), (2) `pnpm.onlyBuiltDependencies` — pnpm 10은 목록에 없는 패키지의 설치 스크립트를 건너뛰는데 node-pty의 설치
+스크립트(`prebuild.js || node-gyp rebuild`)가 사전 빌드를 고르는 자리다, (3) `electron-builder.yml`의 `asarUnpack` — `.node`뿐 아니라
+`conpty.dll`·`OpenConsole.exe`를 자기 폴더에서 찾아 띄우므로 폴더째 asar 밖이다. 1.1.0은 N-API 사전 빌드(Windows x64·arm64, macOS)를
+품어 **컴파일하지 않고**, Electron을 올려도 다시 빌드하지 않는다(postinstall의 `electron-rebuild -w better-sqlite3`는 손대지 않는다).
+core는 그것을 import하지 않는다 — `CoreOptions.spawnPty`(**필수**)로 main이 넘긴다. **core 테스트의 가짜 pty pid는 있을 수 없는
+번호(2147483644)여야 한다** — repo 삭제·앱 종료가 Windows에서 진짜 `taskkill /T /F`를 부르므로, 실제 프로세스와 겹치면 그것을 죽인다.
+
+**터미널 e2e는 셸이 조용해질 때까지 기다린 뒤 친다** (`e2e/terminal.e2e.ts`의 `waitShellIdle`). PowerShell은 프로필을 읽는 동안 친
+글자를 버린다 — 이 장비의 conda 프로필은 3초 가까이 걸려 입력이 통째로 사라졌다(실측). 프롬프트 모양에는 기대지 않고, 명령은 계산을
+품게 써서(`echo "api-$(40+2)"`) 되울림이 아니라 출력에만 나타나는 글자(`api-42`)를 기다린다. xterm은 DOM 렌더러라 보이는 줄이
+`.xterm-rows`에 있다. **칸은 개발 모드에서 두 번 마운트된다**(StrictMode) — 열기 응답이 왔을 때 껍데기가 바뀌었으면 버린다
+(`TerminalPane`의 `view.current !== handle`), 안 그러면 스냅샷이 두 번 찍힌다.
 
 **앱 창의 `beforeunload`는 `closeGuard`다 — 패널 창은 `guardUnload` 그대로다** (`renderer/main.tsx`). 대기 중인 저장을 먼저
 흘려보내고, 그 `close()`가 다시 부른 `beforeunload`에서 코드 칸의 고친 글을 본다. **e2e에서 칸에 고친 글을 남긴 채 끝내면
@@ -892,7 +921,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/agent-path-default/` | CLI 경로의 앱 기본값과 workspace 예외 — spec. 해석 순서(FR-1), 키-값 저장(FR-2), 앱 탭·실행 탭 화면(FR-3) |
 | `docs/sdlc/period-report/` | 기간 리포트 — intent·spec·plan. workspace를 넘는 읽기를 MCP가 아니라 화면에만 둔 이유(intent, spec FR-1·24), 기간 판정 공유(FR-2), 칸 분류와 합계가 다른 질문인 이유(FR-6·7), 세 보기(FR-16~18), 내보내기 셋(FR-22~24), 상태가 "지금"인 한계(§6). 시안 https://claude.ai/artifact/6bn58ES8XQwBP9k68VfV4E |
 | `docs/sdlc/dock-repo-sections/` | 도크 대화 목록의 repo 구획과 사이드바 거름 — spec·plan. 대화의 repo를 뿌리 cwd로 정하는 이유(FR-1), 구획이 하나면 머리가 없는 이유(FR-5), 거름이 보기만 바꾸는 이유(FR-9), 머리를 대문자로 쓰지 않는 이유(NFR-2) |
-| `docs/sdlc/code-editor/` | 코드 칸(터미널 · 변경사항 · 파일) — intent 하나, spec·plan은 첫 사이클(틀 + 파일 칸). git diff로 가는 결정(intent), 배치 시안(안 A로 구현했다가 안 B — 창 오른쪽 전체 높이로 바꿈, spec §0), 버튼을 앱 제목 줄의 OS 창 단추 왼쪽으로 옮긴 것과 사이클 순서 변경(spec §0·FR-1), 목록 안의 파일만 읽고 쓰는 이유(spec §3-4), 명시적 저장과 해시 충돌(FR-17·19), 줄바꿈·BOM 되살리기(FR-18), 닫기 확인(FR-21), 우려와 승인(§4). plan에 변이 결과와 번들 크기 |
+| `docs/sdlc/code-editor/` | 코드 칸(터미널 · 변경사항 · 파일) — intent 하나, spec·plan은 첫 사이클(틀 + 파일 칸), `terminal-spec.md`·`terminal-plan.md`는 둘째(터미널 — repo당 셸 하나, 앱 종료의 동기 트리 종료, 렌더러는 repo id만, 출력 이어 붙이기 규칙, node-pty 사전 빌드와 패키징). git diff로 가는 결정(intent), 배치 시안(안 A로 구현했다가 안 B — 창 오른쪽 전체 높이로 바꿈, spec §0), 버튼을 앱 제목 줄의 OS 창 단추 왼쪽으로 옮긴 것과 사이클 순서 변경(spec §0·FR-1), 목록 안의 파일만 읽고 쓰는 이유(spec §3-4), 명시적 저장과 해시 충돌(FR-17·19), 줄바꿈·BOM 되살리기(FR-18), 닫기 확인(FR-21), 우려와 승인(§4). plan에 변이 결과와 번들 크기 |
 | `docs/sdlc/inbox-views/` | 인박스의 보기(시간순 · workspace별 · 상태별)와 정렬 — spec·plan. 시간 기준과 정확한 역순(spec FR-2), 묶음 순서가 정렬을 따르는 이유(FR-7)와 상태별 고정 순서(FR-10), 그 workspace의 repo만 보는 이유(FR-6), repo를 App이 읽어 필수 prop으로 내리는 이유(FR-16). plan에 변이 결과 |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |

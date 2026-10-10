@@ -11,6 +11,7 @@ import { registerFileHandlers } from './files'
 import { registerSettingHandlers } from './settings'
 import { registerRunHandlers } from './runs'
 import { registerAppHandlers } from './app'
+import { registerTerminalHandlers } from './terminal'
 
 import type { PanelScope } from '@shared/panelWindow'
 
@@ -43,4 +44,5 @@ export function registerIpc(core: Core, windows: Windows) {
   registerSettingHandlers(core)
   registerRunHandlers(core, windows.getMainWindow)
   registerAppHandlers(core, windows)
+  registerTerminalHandlers(core, windows)
 }

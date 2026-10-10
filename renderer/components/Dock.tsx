@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useState, useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useClient } from '../client/ClientProvider'
 import { clampDockHeight, readDockHeight, writeDockHeight, DEFAULT_DOCK_RATIO } from '../dockHeight'
@@ -8,8 +8,9 @@ import { ConversationList } from './ConversationList'
 import { draftKeyOf } from '../store/drafts'
 import { useDraftFilled } from '../store/DraftContext'
 import { SlotIndicator } from './SlotIndicator'
-import { IconChevronDown, IconCollapse, IconFolder, IconMaximize } from './icons'
+import { IconChevronDown, IconCollapse, IconFolder, IconMaximize, IconTerminal } from './icons'
 import { FilePane, type OpenRequest } from './code/FilePane'
+import { TerminalPane } from './code/TerminalPane'
 import { CodePaneContext, useCodePaneSlot, useTitleBarSlot, type CodePaneOpener } from './code/CodePaneContext'
 import { paneTarget } from '../code/target'
 import {
@@ -471,18 +472,26 @@ export function Dock({
   // 코드 칸 버튼 줄 (FR-1) — 앱 제목 줄의 오른쪽 끝, OS 창 단추 바로 왼쪽에 포털로 선다(2026-10-10). 아이콘뿐이라 이름은
   // aria-label이 주고 `title`이 풍선으로 말한다. 대상이 없으면 비활성이고 `title`이 이유를 말한다 — `disabled`가 아니라
   // `aria-disabled`다(비활성 버튼에는 title 풍선이 뜨지 않아 이유가 보이지 않는다).
-  const paneButtons = (
+  // 칸은 한 번에 한 종류다 — 같은 종류를 다시 누르면 닫히고, 다른 종류를 누르면 칸이 그 종류로 바뀐다(terminal-spec FR-2).
+  const paneButton = (kind: PaneKind, label: string, icon: ReactNode) => (
     <button
+      key={kind}
       type="button"
-      className={['titlebar-button', paneKind === 'files' && 'titlebar-button-on'].filter(Boolean).join(' ')}
-      aria-label="파일"
-      aria-pressed={paneKind === 'files'}
+      className={['titlebar-button', paneKind === kind && 'titlebar-button-on'].filter(Boolean).join(' ')}
+      aria-label={label}
+      aria-pressed={paneKind === kind}
       aria-disabled={targetRepo ? undefined : true}
-      title={targetRepo ? `파일 — ${targetRepo.name}` : target.reason}
-      onClick={() => { if (targetRepo) setPane(paneKind === 'files' ? null : 'files') }}
+      title={targetRepo ? `${label} — ${targetRepo.name}` : target.reason}
+      onClick={() => { if (targetRepo) setPane(paneKind === kind ? null : kind) }}
     >
-      <IconFolder width="15" height="15" />
+      {icon}
     </button>
+  )
+  const paneButtons = (
+    <>
+      {paneButton('terminal', '터미널', <IconTerminal width="15" height="15" />)}
+      {paneButton('files', '파일', <IconFolder width="15" height="15" />)}
+    </>
   )
 
   return (
@@ -637,7 +646,7 @@ export function Dock({
       {titleSlot && createPortal(paneButtons, titleSlot)}
       {/* 코드 칸 — 앱 창 오른쪽 끝의 위아래 전체 열에 그린다 (code-editor FR-2, 안 B). 도크 본문 밖이라 도크를 접어도
           남는다(FR-5). 대상은 그대로 도크가 보는 대화다. 자리가 없으면(도크를 혼자 그린 테스트) 서지 않는다. */}
-      {paneKind === 'files' && paneSlot && createPortal(
+      {paneKind !== null && paneSlot && createPortal(
         <>
           <div
             role="separator"
@@ -653,21 +662,24 @@ export function Dock({
             onKeyDown={onResizerKey}
           />
           <div className="code-box" style={paneWidth !== null ? { width: paneWidth } : undefined}>
-            {targetRepo
-              ? (
-                <FilePane
-                  workspaceId={workspaceId}
-                  repo={targetRepo}
-                  openRequest={openRequest}
-                  onClose={() => setPane(null)}
-                />
-              )
-              : (
-                <section className="code-pane code-pane-empty" aria-label="코드 칸">
-                  <p className="code-pane-hint">{target.reason}</p>
-                  <button type="button" onClick={() => setPane(null)}>코드 칸 닫기</button>
-                </section>
-              )}
+            {targetRepo && paneKind === 'files' && (
+              <FilePane
+                workspaceId={workspaceId}
+                repo={targetRepo}
+                openRequest={openRequest}
+                onClose={() => setPane(null)}
+              />
+            )}
+            {/* repo가 바뀌면 그 repo의 셸에 새로 붙는다 — 앞 셸은 core에서 계속 돈다(terminal-spec FR-6) */}
+            {targetRepo && paneKind === 'terminal' && (
+              <TerminalPane key={targetRepo.id} workspaceId={workspaceId} repo={targetRepo} onClose={() => setPane(null)} />
+            )}
+            {!targetRepo && (
+              <section className="code-pane code-pane-empty" aria-label="코드 칸">
+                <p className="code-pane-hint">{target.reason}</p>
+                <button type="button" onClick={() => setPane(null)}>코드 칸 닫기</button>
+              </section>
+            )}
           </div>
         </>,
         paneSlot

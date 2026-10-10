@@ -65,6 +65,11 @@ export function IconArrowDown(props: SVGProps<SVGSVGElement>) {
   return <Icon {...props}><path d="M8 3v10M3.5 8.5 8 13l4.5-4.5" /></Icon>
 }
 
+/** 터미널 — 프롬프트 꺾쇠와 밑줄 (docs/sdlc/code-editor/terminal-spec.md FR-1) */
+export function IconTerminal(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><path d="M2.5 3.5h11a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1zM4.5 6.5 6.5 8l-2 1.5M8 10h3" /></Icon>
+}
+
 export function IconFolder(props: SVGProps<SVGSVGElement>) {
   return <Icon {...props}><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 1.5h4.5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z" /></Icon>
 }

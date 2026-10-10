@@ -560,6 +560,53 @@ export interface FileProbeResult {
   hash: string | null
 }
 
+/**
+ * 코드 칸의 터미널 (`docs/sdlc/code-editor/terminal-spec.md`). 셸은 **repo당 하나**라 repo id가 셸의 이름이다(FR-5). 렌더러는
+ * repo id만 넘긴다 — 작업 디렉토리·셸 경로·명령을 렌더러가 정하지 못한다(FR-18).
+ */
+export interface TerminalOpenInput {
+  workspaceId: string
+  repoId: string
+  cols: number
+  rows: number
+}
+
+/**
+ * 칸이 셸에 붙을 때 받는 것. `generation`은 `셸 다시 시작`마다 오른다 — 옛 셸의 늦은 출력을 칸이 버린다.
+ * `snapshot.end`는 지금까지 받은 글자 수다 — 칸은 그보다 앞의 조각을 버린다(같은 출력이 두 번 찍히지 않게).
+ */
+export interface TerminalSession {
+  repoId: string
+  generation: number
+  /** 칸 머리의 셸 이름(`pwsh`) */
+  shell: string
+  /** 셸 실행 파일의 전체 경로 — 머리의 `title` */
+  shellPath: string
+  snapshot: { text: string; end: number }
+  /** 셸이 이미 끝났으면 그 종료 코드 */
+  exited: { exitCode: number } | null
+}
+
+/** 셸 출력 한 덩어리(16ms마다 모은 것). `start`는 이 덩어리의 누적 시작 위치다 */
+export interface TerminalData {
+  repoId: string
+  generation: number
+  start: number
+  data: string
+}
+
+export interface TerminalExit {
+  repoId: string
+  generation: number
+  exitCode: number
+}
+
+/** 설정 앱 탭의 `터미널 셸` (FR-11). `resolved`는 비었을 때 잡히는 기본값 — placeholder가 말한다 */
+export interface TerminalShellSetting {
+  path: string | null
+  resolved: string
+}
+
 export interface Asset {
   id: string
   workspaceId: string

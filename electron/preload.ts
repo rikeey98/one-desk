@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { OneDeskClient, Unsubscribe } from '@shared/client'
-import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult, ReportData, FileTreeResult, FileOpenResult, FileSaveResult, FileProbeResult } from '@shared/models'
+import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult, ReportData, FileTreeResult, FileOpenResult, FileSaveResult, FileProbeResult, TerminalSession, TerminalData, TerminalExit, TerminalShellSetting } from '@shared/models'
 import type { RunEvent } from '@shared/events'
 
 /**
@@ -85,7 +85,15 @@ const client: OneDeskClient = {
     globalRoots: () => call<GlobalRoots>(CHANNELS.settingsGetGlobalRoots),
     setGlobalRoots: (roots) => call<GlobalRoots>(CHANNELS.settingsSetGlobalRoots, roots),
     agentPaths: () => call<AgentPaths>(CHANNELS.settingsGetAgentPaths),
-    setAgentPaths: (paths) => call<AgentPaths>(CHANNELS.settingsSetAgentPaths, paths)
+    setAgentPaths: (paths) => call<AgentPaths>(CHANNELS.settingsSetAgentPaths, paths),
+    terminalShell: () => call<TerminalShellSetting>(CHANNELS.settingsGetTerminalShell),
+    setTerminalShell: (path) => call<TerminalShellSetting>(CHANNELS.settingsSetTerminalShell, path)
+  },
+  terminal: {
+    open: (input) => call<TerminalSession>(CHANNELS.terminalOpen, input),
+    write: (repoId, data) => { ipcRenderer.send(CHANNELS.terminalWrite, repoId, data) },
+    resize: (repoId, cols, rows) => { ipcRenderer.send(CHANNELS.terminalResize, repoId, cols, rows) },
+    restart: (input) => call<TerminalSession>(CHANNELS.terminalRestart, input)
   },
   runs: {
     list: (workspaceId) => call<Run[]>(CHANNELS.runsList, workspaceId),
@@ -150,6 +158,16 @@ const client: OneDeskClient = {
       const listener = (_e: IpcRendererEvent, change: ItemChange) => cb(change)
       ipcRenderer.on(EVENT_CHANNELS.itemChanged, listener)
       return () => { ipcRenderer.off(EVENT_CHANNELS.itemChanged, listener) }
+    },
+    onTerminalData(cb: (data: TerminalData) => void): Unsubscribe {
+      const listener = (_e: IpcRendererEvent, data: TerminalData) => cb(data)
+      ipcRenderer.on(EVENT_CHANNELS.terminalData, listener)
+      return () => { ipcRenderer.off(EVENT_CHANNELS.terminalData, listener) }
+    },
+    onTerminalExit(cb: (exit: TerminalExit) => void): Unsubscribe {
+      const listener = (_e: IpcRendererEvent, exit: TerminalExit) => cb(exit)
+      ipcRenderer.on(EVENT_CHANNELS.terminalExit, listener)
+      return () => { ipcRenderer.off(EVENT_CHANNELS.terminalExit, listener) }
     }
   }
 }

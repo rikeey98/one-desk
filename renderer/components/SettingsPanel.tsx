@@ -10,7 +10,7 @@ import { EFFORT_OPTIONS, effortFieldOf } from '../effort'
 import { InfoTab } from './settings/InfoTab'
 import type {
   AgentKind, AgentPaths, AgentProbes, AgentStatuses, AppInfo, GlobalRoots, McpStatus, Permission,
-  QueueSnapshot, Repo, RevealTarget, Workspace
+  QueueSnapshot, Repo, RevealTarget, TerminalShellSetting, Workspace
 } from '@shared/models'
 
 /**
@@ -105,6 +105,13 @@ export function SettingsPanel({
   const [appOpencodePath, setAppOpencodePath] = useState('')
   const [appPathsError, setAppPathsError] = useState<string | null>(null)
   const [appPathsBusy, setAppPathsBusy] = useState(false)
+  // 앱 탭의 터미널 셸 (docs/sdlc/code-editor/terminal-spec.md FR-11). 저장된 값의 `resolved`가 빈 칸의 placeholder다.
+  const [terminalShell, setTerminalShell] = useState<TerminalShellSetting | null>(null)
+  const [terminalShellDraft, setTerminalShellDraft] = useState('')
+  const [terminalShellError, setTerminalShellError] = useState<string | null>(null)
+  const [terminalShellBusy, setTerminalShellBusy] = useState(false)
+  // 처음 읽기는 기본 셸을 찾느라 PATH를 훑어 느리다 — 그 사이 사람이 칸을 고쳤거나 저장했으면 늦게 온 응답이 덮지 않는다
+  const terminalShellTouched = useRef(false)
   const [agents, setAgents] = useState<AgentStatuses | null>(null)
   // 느린 칸은 따로 담는다 — 빠른 칸이 그것을 기다리면 workspace를 고를 때마다
   // 실행 파일 줄까지 1초씩 비어 있게 된다 (docs/sdlc/agent-setup/ FR-7).
@@ -303,6 +310,35 @@ export function SettingsPanel({
       })
     return () => { alive = false }
   }, [client, applyAppPaths])
+
+  const applyTerminalShell = useCallback((setting: TerminalShellSetting) => {
+    setTerminalShell(setting)
+    setTerminalShellDraft(setting.path ?? '')
+  }, [])
+
+  useEffect(() => {
+    let alive = true
+    client.settings.terminalShell()
+      .then((setting) => { if (alive && !terminalShellTouched.current) applyTerminalShell(setting) })
+      .catch((err: unknown) => {
+        if (alive) setTerminalShellError(err instanceof Error ? err.message : String(err))
+      })
+    return () => { alive = false }
+  }, [client, applyTerminalShell])
+
+  async function saveTerminalShell(): Promise<void> {
+    terminalShellTouched.current = true
+    setTerminalShellBusy(true)
+    setTerminalShellError(null)
+    try {
+      applyTerminalShell(await client.settings.setTerminalShell(terminalShellDraft))
+    } catch (err) {
+      // 입력은 지우지 않는다 — 다른 절과 같은 규칙이다
+      setTerminalShellError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setTerminalShellBusy(false)
+    }
+  }
 
   async function saveAppPaths(): Promise<void> {
     setAppPathsBusy(true)
@@ -655,6 +691,27 @@ export function SettingsPanel({
 
             <button type="button" disabled={appPathsBusy} onClick={() => void saveAppPaths()}>
               CLI 기본 경로 저장
+            </button>
+
+            <h3>터미널 셸</h3>
+            {terminalShellError && <div role="alert" className="form-error">{terminalShellError}</div>}
+            <p className="settings-hint">
+              코드 칸의 터미널이 띄울 셸. 비워두면 PowerShell 7(없으면 Windows PowerShell)이고, macOS·Linux는 로그인 셸입니다.
+              바꾸면 다음에 뜨는 셸부터 적용됩니다 — 도는 셸은 터미널 칸의 &quot;셸 다시 시작&quot;으로 바꿉니다.
+            </p>
+            <label className="settings-field">
+              터미널 셸 실행 파일
+              <input
+                aria-label="터미널 셸 실행 파일"
+                className="path-input"
+                value={terminalShellDraft}
+                // 저장된 경로가 없을 때만 resolved가 기본값이다 — 있으면 resolved는 그 경로 자체다
+                placeholder={terminalShell && terminalShell.path === null ? `기본값: ${terminalShell.resolved}` : '비워두면 기본 셸'}
+                onChange={(e) => { terminalShellTouched.current = true; setTerminalShellDraft(e.target.value) }}
+              />
+            </label>
+            <button type="button" disabled={terminalShellBusy} onClick={() => void saveTerminalShell()}>
+              터미널 셸 저장
             </button>
 
             <h3>글로벌 asset 경로</h3>

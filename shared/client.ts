@@ -12,7 +12,8 @@ import type {
   Asset, CreateAuthoredAssetInput, GuardedUpdateAssetInput, AssetUpdateResult, ListAssetQuery,
   GlobalRoots, AgentPaths, CommandTarget, CommandListResult,
   UpdateRepoInput, AppInfo, RevealTarget, AssetBody, FileSearchInput, FileSearchResult,
-  FileRef, FileTreeInput, FileTreeResult, FileOpenResult, FileSaveInput, FileSaveResult, FileProbeResult
+  FileRef, FileTreeInput, FileTreeResult, FileOpenResult, FileSaveInput, FileSaveResult, FileProbeResult,
+  TerminalOpenInput, TerminalSession, TerminalData, TerminalExit, TerminalShellSetting
 } from './models'
 import type { RunEvent } from './events'
 import type { PanelScope } from './panelWindow'
@@ -161,6 +162,22 @@ export interface OneDeskClient {
     agentPaths(): Promise<AgentPaths>
     /** 둘을 함께 덮는다. 다듬어 저장된 값을 돌려준다 */
     setAgentPaths(paths: AgentPaths): Promise<AgentPaths>
+    /** 터미널 셸 (docs/sdlc/code-editor/terminal-spec.md FR-11). 비었으면 기본값이고 `resolved`가 그것을 말한다 */
+    terminalShell(): Promise<TerminalShellSetting>
+    /** 없는 파일이면 던진다. 빈 값은 기본값으로 돌아간다 */
+    setTerminalShell(path: string | null): Promise<TerminalShellSetting>
+  }
+  /**
+   * 코드 칸의 터미널 (terminal-spec). **repo id만 넘긴다** — 작업 디렉토리·셸·명령은 core가 정한다(FR-18). 셸은 repo당 하나다.
+   */
+  terminal: {
+    /** 그 repo의 셸에 붙는다 — 없으면 띄운다. 지금까지의 출력(스냅샷)을 준다 */
+    open(input: TerminalOpenInput): Promise<TerminalSession>
+    /** 키 입력. 응답을 기다리지 않는다(키마다 왕복하지 않는다) */
+    write(repoId: string, data: string): void
+    resize(repoId: string, cols: number, rows: number): void
+    /** 도는 셸을 트리째 끝내고 새로 띄운다 */
+    restart(input: TerminalOpenInput): Promise<TerminalSession>
   }
   runs: {
     list(workspaceId: string): Promise<Run[]>
@@ -229,5 +246,8 @@ export interface OneDeskClient {
     onPlanUsage(cb: (usage: PlanUsage) => void): Unsubscribe
     /** 이슈·메모·asset·repo·workspace가 바뀌었다. 모든 창이 받는다 (docs/sdlc/item-windows/ FR-17) */
     onItemChanged(cb: (change: ItemChange) => void): Unsubscribe
+    /** 셸 출력 — 16ms마다 모은 덩어리 (terminal-spec FR-20) */
+    onTerminalData(cb: (data: TerminalData) => void): Unsubscribe
+    onTerminalExit(cb: (exit: TerminalExit) => void): Unsubscribe
   }
 }

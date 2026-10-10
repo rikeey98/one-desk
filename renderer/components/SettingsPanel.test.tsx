@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { SettingsPanel } from './SettingsPanel'
@@ -69,6 +69,12 @@ function makeClient(
       setAgentPaths: vi.fn(async (p: AgentPaths) => ({
         claude: (p.claude ?? '').trim() || null, opencode: (p.opencode ?? '').trim() || null
       })),
+      // 실제 core처럼 비면 기본값(resolved)을 돌려준다
+      terminalShell: vi.fn(async () => ({ path: null, resolved: '/opt/pwsh/pwsh' })),
+      setTerminalShell: vi.fn(async (p: string | null) => {
+        const path = (p ?? '').trim() || null
+        return { path, resolved: path ?? '/opt/pwsh/pwsh' }
+      }),
       ...over
     },
     workspaces: {
@@ -935,5 +941,51 @@ describe('SettingsPanel — 정보 탭', () => {
     renderPanel(makeClient({}, {}, {}, { info }))
     await openInfoTab()
     expect(await screen.findByRole('alert')).toHaveTextContent('못 읽음')
+  })
+})
+
+describe('SettingsPanel — 터미널 셸 (docs/sdlc/code-editor/terminal-spec.md FR-11)', () => {
+  it('앱 탭의 칸은 저장된 경로를 보이고, 비었으면 지금 잡히는 기본값을 placeholder로 말한다', async () => {
+    renderPanel(makeClient())
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    expect(screen.getByRole('heading', { name: '터미널 셸' })).toBeInTheDocument()
+    const input = await screen.findByLabelText('터미널 셸 실행 파일')
+    await waitFor(() => expect(input).toHaveAttribute('placeholder', '기본값: /opt/pwsh/pwsh'))
+    expect(input).toHaveValue('')
+  })
+
+  it('저장하면 그 경로를 보내고 돌려받은 값으로 다시 채운다', async () => {
+    const setTerminalShell = vi.fn(async (p: string | null) => ({ path: (p ?? '').trim() || null, resolved: (p ?? '').trim() }))
+    renderPanel(makeClient({ setTerminalShell }))
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    await userEvent.type(await screen.findByLabelText('터미널 셸 실행 파일'), '  /usr/bin/bash ')
+    await userEvent.click(screen.getByRole('button', { name: '터미널 셸 저장' }))
+
+    expect(setTerminalShell).toHaveBeenCalledWith('  /usr/bin/bash ')
+    await waitFor(() => expect(screen.getByLabelText('터미널 셸 실행 파일')).toHaveValue('/usr/bin/bash'))
+  })
+
+  it('처음 읽기가 저장보다 늦게 와도 고친·저장한 칸을 덮지 않는다 — 기본 셸을 찾느라 PATH를 훑어 느리다', async () => {
+    let resolveLoad: (s: { path: string | null; resolved: string }) => void = () => {}
+    const terminalShell = vi.fn(() => new Promise<{ path: string | null; resolved: string }>((r) => { resolveLoad = r }))
+    renderPanel(makeClient({ terminalShell }))
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    await userEvent.type(screen.getByLabelText('터미널 셸 실행 파일'), '/usr/bin/bash')
+    await userEvent.click(screen.getByRole('button', { name: '터미널 셸 저장' }))
+    await waitFor(() => expect(screen.getByLabelText('터미널 셸 실행 파일')).toHaveValue('/usr/bin/bash'))
+
+    await act(async () => { resolveLoad({ path: null, resolved: '/opt/pwsh/pwsh' }) })
+    expect(screen.getByLabelText('터미널 셸 실행 파일')).toHaveValue('/usr/bin/bash')
+  })
+
+  it('없는 파일이면 그 절에 이유를 보이고 입력은 남긴다', async () => {
+    const setTerminalShell = vi.fn().mockRejectedValue(new Error('셸 파일이 없습니다: /없음/셸'))
+    renderPanel(makeClient({ setTerminalShell }))
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    await userEvent.type(await screen.findByLabelText('터미널 셸 실행 파일'), '/없음/셸')
+    await userEvent.click(screen.getByRole('button', { name: '터미널 셸 저장' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('셸 파일이 없습니다')
+    expect(screen.getByLabelText('터미널 셸 실행 파일')).toHaveValue('/없음/셸')
   })
 })

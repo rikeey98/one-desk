@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { createAdapters, createCore, type Core } from './index'
 import { DEFAULT_CONCURRENCY_LIMIT } from './db/repositories/setting'
-import type { InboxCounts, McpStatus, Run } from '@shared/models'
+import type { InboxCounts, McpStatus, Run, TerminalData } from '@shared/models'
+import type { PtyProcess, SpawnPty } from './terminal/service'
 import { INBOX_RULES, inboxCategory } from '@shared/inbox'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -27,10 +28,31 @@ function makeDataDir(): string {
   return dir
 }
 
+/**
+ * 가짜 pty — 터미널은 네이티브 `node-pty`를 주입받는다(docs/sdlc/code-editor/terminal-spec.md FR-21).
+ * **pid는 있을 수 없는 번호다** — 앱 종료·repo 삭제가 Windows에서 진짜 `taskkill /T /F`를 부르므로, 실제 프로세스와 겹치는 번호면
+ * 그 프로세스를 죽인다. 없는 번호라 taskkill이 실패하고 서비스가 pty의 kill로 되돌아간다 — `killed`가 그것을 센다.
+ */
+interface FakePty extends PtyProcess { killed: number; emit(data: string): void }
+const ptys: FakePty[] = []
+const fakeSpawnPty: SpawnPty = () => {
+  const dataCbs: Array<(d: string) => void> = []
+  const pty: FakePty = {
+    pid: 2_147_483_644, killed: 0,
+    onData(cb) { dataCbs.push(cb); return { dispose() {} } },
+    onExit() { return { dispose() {} } },
+    write() {}, resize() {},
+    kill() { this.killed++ },
+    emit(d) { for (const cb of dataCbs) cb(d) }
+  }
+  ptys.push(pty)
+  return pty
+}
+
 function open(dataDir: string, homeDir?: string): Core {
   // 홈은 반드시 임시 경로다 — 진짜 홈을 훑으면 개발자마다 결과가 달라진다.
   const core = createCore({
-    dataDir, migrationsDir: MIGRATIONS_DIR, homeDir: homeDir ?? join(dataDir, 'home')
+    dataDir, migrationsDir: MIGRATIONS_DIR, homeDir: homeDir ?? join(dataDir, 'home'), spawnPty: fakeSpawnPty
   })
   cores.push(core)
   return core
@@ -42,6 +64,7 @@ function close(core: Core): void {
 }
 
 afterEach(() => {
+  ptys.splice(0)
   for (const core of cores.splice(0)) core.shutdown()
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
@@ -1138,5 +1161,74 @@ describe('기간 리포트 배선 (docs/sdlc/period-report/)', () => {
     const before = core.reports.build({ workspaceIds: [a, b], since: 0, until: since })
     expect(before.workspaces.every((w) => w.issues.length === 0 && w.memos.length === 0)).toBe(true)
     close(core)
+  })
+})
+
+describe('core.terminal (docs/sdlc/code-editor/terminal-spec.md)', () => {
+  async function withShell() {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    const repoPath = join(dataDir, 'api')
+    mkdirSync(repoPath)
+    const repoId = (await core.repos.create({ workspaceId, name: 'api', path: repoPath })).id
+    const session = await core.terminal.open({ workspaceId, repoId, cols: 80, rows: 24 })
+    return { core, dataDir, workspaceId, repoId, repoPath, session, pty: ptys[ptys.length - 1]! }
+  }
+
+  it('앱을 끄면 셸을 끝낸다 (FR-9)', async () => {
+    const { core, pty } = await withShell()
+    close(core)
+    expect(pty.killed).toBe(1)
+  })
+
+  it('repo를 지우면 그 셸을 끝낸다 (FR-10)', async () => {
+    const { core, repoId, pty } = await withShell()
+    core.repos.remove(repoId)
+    await vi.waitFor(() => expect(pty.killed).toBe(1), { timeout: 10_000 })
+  })
+
+  it('repo 경로를 바꾸면 그 셸을 끝낸다 — 이름만 바꾸면 그대로다 (FR-10)', async () => {
+    const { core, dataDir, repoId, pty } = await withShell()
+    await core.repos.update({ id: repoId, name: 'api2' })
+    expect(pty.killed).toBe(0)
+    const moved = join(dataDir, 'api-moved')
+    mkdirSync(moved)
+    await core.repos.update({ id: repoId, path: moved })
+    await vi.waitFor(() => expect(pty.killed).toBe(1), { timeout: 10_000 })
+  })
+
+  it('workspace를 지우면 그 아래 repo의 셸을 끝낸다 (FR-10)', async () => {
+    const { core, workspaceId, pty } = await withShell()
+    core.workspaces.remove(workspaceId)
+    await vi.waitFor(() => expect(pty.killed).toBe(1), { timeout: 10_000 })
+  })
+
+  it('남의 workspace repo로는 셸을 열 수 없다 (FR-18)', async () => {
+    const { core, repoId } = await withShell()
+    const other = core.workspaces.create({ name: 'other' }).id
+    await expect(core.terminal.open({ workspaceId: other, repoId, cols: 80, rows: 24 })).rejects.toThrow()
+  })
+
+  it('셸 출력을 구독자에게 낸다', async () => {
+    const { core, pty, repoId } = await withShell()
+    const got: TerminalData[] = []
+    core.onTerminalData((d) => { got.push(d) })
+    pty.emit('hello')
+    await vi.waitFor(() => expect(got.map((d) => d.data).join('')).toBe('hello'))
+    expect(got[0]!.repoId).toBe(repoId)
+  })
+
+  it('셸 설정: 비었으면 기본값을 말하고, 없는 파일은 거부한다 (FR-11)', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const before = await core.settings.terminalShell()
+    expect(before.path).toBeNull()
+    expect(before.resolved).not.toBe('')
+    await expect(core.settings.setTerminalShell(join(dataDir, 'no-such-shell.exe'))).rejects.toThrow('셸 파일이 없습니다')
+    const shell = join(dataDir, 'my-shell.exe')
+    writeFileSync(shell, '')
+    expect(await core.settings.setTerminalShell(`  ${shell} `)).toEqual({ path: shell, resolved: shell })
+    expect((await core.settings.setTerminalShell('')).path).toBeNull()
   })
 })

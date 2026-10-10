@@ -14,4 +14,9 @@ export function registerSettingHandlers(core: Core) {
     CHANNELS.settingsSetAgentPaths,
     (_e, paths: AgentPaths) => core.settings.setAgentPaths(paths)
   )
+  ipcMain.handle(CHANNELS.settingsGetTerminalShell, () => core.settings.terminalShell())
+  ipcMain.handle(
+    CHANNELS.settingsSetTerminalShell,
+    (_e, path: string | null) => core.settings.setTerminalShell(path)
+  )
 }

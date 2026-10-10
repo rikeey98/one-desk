@@ -1,5 +1,6 @@
 import { app, dialog, session } from 'electron'
 import { isAbsolute, join } from 'node:path'
+import { spawn as spawnPty } from 'node-pty'
 import { createCore, type Core } from '@core/index'
 import { registerIpc } from './ipc'
 import { createMainWindow, getAllWindows, getMainWindow, openPanelWindow } from './windows'
@@ -69,6 +70,8 @@ if (dataDirError) {
         homeDir: app.getPath('home'),
         migrationsDir: resolveMigrationsDir(),
         bridgePath: resolveBridgePath(),
+        // 코드 칸 터미널의 pty — 네이티브 모듈이라 core가 직접 import하지 않고 받는다 (docs/sdlc/code-editor/terminal-spec.md FR-21)
+        spawnPty: (file, args, options) => spawnPty(file, args, options),
         // core는 목적지를 모른다. main이 정한다.
         onError: (message, err) => { console.error(message, err) }
       })

@@ -1,7 +1,7 @@
 # Plan: 코드 칸 — 터미널 (2/3)
 
 - 출처: `terminal-spec.md` (승인 2026-10-10)
-- 상태: 승인 (2026-10-10, 사용자 — "좋아 커밋하고 0단계부터 구현 시작해")
+- 상태: 구현 완료 (2026-10-10) — 승인: 사용자, "좋아 커밋하고 0단계부터 구현 시작해"
 
 ## 순서
 
@@ -113,4 +113,42 @@
 
 ## 완료 증명
 
-(구현 뒤에 채운다)
+2026-10-10, Windows 11 · Node 22 · Electron 43.3.0.
+
+- **0단계**: 기준선은 직전 커밋(`9d9cd04`)의 전체 검증(단위 2,681 · 전체 e2e 28개 파일 56개 테스트)이 초록이었다. `pnpm install`이
+  node-pty를 컴파일하지 않았다(`build/Release`에 `.node` 없음 — `post-install.js`가 둔 `conpty`만). Electron 43 런타임에서 ESM
+  `import { spawn } from 'node-pty'`로 `cmd /c echo`를 띄워 출력을 받았다. 의존성을 넣은 뒤 단위 전체에서 `core/index.test.ts`의
+  커맨드 캐시 테스트 하나가 한 번 빨갰다 — 그 파일만 세 번 돌려 셋 다 초록(부하에서 흔들리던 기존 테스트, 코드와 무관).
+- **테스트 먼저**: 셸 해석 8 · 버퍼 4 · 서비스 16 · 설정 저장소 3 · core 배선 7 · Dock 3 · 이어 붙이기 5 · TerminalPane 11 · 설정 절 4를
+  먼저 쓰고 빨간 것을 봤다. 예외: `terminalStream`의 처음 넷은 테스트와 구현을 연달아 써서 빨간 것을 먼저 보지 못했다 — 아래 변이로 대신
+  확인했다.
+- **변이**(전부 되돌린 뒤 초록): 위 표의 열두 줄이 모두 해당 테스트를 빨갛게 했다(마지막 줄 "main이 `spawnPty`를 넘기지 않음"은 typecheck가
+  깨졌다). 그 밖에 — 이어 붙이기가 겹친 앞부분을 자르지 않음 → 2 빨강, 경로 변경·workspace 삭제·`shutdown`의 셸 종료를 각각 지움 → 각 1 빨강,
+  `TerminalPane`이 옛 응답을 버리지 않음 → StrictMode 테스트 빨강, 설정 절이 늦은 처음 읽기로 덮음 → 경합 테스트 빨강.
+- **e2e** `e2e/terminal.e2e.ts` 4개(진짜 PowerShell): 출력 · repo 전환과 복귀 · 파일 칸 왕복 · 두 번 누르는 다시 시작 · `exit`의 끝남 줄 ·
+  설정에서 셸 바꾸기(`cmd.exe`) · **앱을 끄면 셸이 띄운 `node`(pid)가 남지 않는다**.
+- **패키징**(11단계): `pnpm run pack`의 `dist/win-unpacked/one-desk.exe`를 Playwright로 띄워 터미널에서 `echo "packed-$(40+2)"`가 돌았다.
+  node-pty의 `.node`·`conpty.dll`·`OpenConsole.exe`가 `app.asar.unpacked`에 있다.
+- 최종: typecheck·lint 깨끗, 단위 2,742 통과(+61), 전체 e2e 29개 파일 · 60개 테스트 통과(exit 0 — 캡처에서 CSS를 고친 뒤 다시 돌렸다).
+- 번들: 렌더러 첫 JS 1,388 KB(약 +11 KB — 칸·설정·이어 붙이기), xterm은 지연 로드 조각 `TerminalView` 417 KB(CSS 포함은 별도).
+
+## 달라진 것
+
+- **패키징이 node-pty를 소스에서 컴파일하려다 실패했다**(11단계, 위험 3). electron-builder가 패키징하며 모든 네이티브 모듈을
+  `@electron/rebuild`로 다시 빌드하는데, node-pty의 N-API 사전 빌드를 알아보지 못하고 node-gyp로 가 `GetCommitHash.bat`(npm 패키지에 없다)에서
+  멈췄다. **CI의 `electron-builder --win`도 같은 단계를 탄다** — 릴리스 빌드가 깨졌을 것이다. `electron-builder.yml`에 `npmRebuild: false`를
+  더했다 — Electron용 빌드는 이미 postinstall(`electron-rebuild -w better-sqlite3`)이 하고, node-pty는 다시 빌드할 것이 없다.
+- **이어 붙이기의 빈틈**(7단계 설계 중 발견): `셸 다시 시작`의 응답보다 새 셸의 첫 출력이 먼저 오면 "다른 generation"으로 버려졌다. generation은
+  core 전체에서 오르기만 하므로 **지금보다 새 generation의 조각은 모아 둔다**. 테스트 하나를 더했다.
+- **StrictMode의 두 번 마운트**: 개발 모드에서 xterm 껍데기가 두 번 마운트돼 열기 응답 둘이 모두 화면에 써 스냅샷이 두 번 찍혔다. 응답이 왔을 때
+  껍데기가 바뀌었으면 버린다(`view.current !== handle`). StrictMode로 그리는 테스트를 더했다.
+- **설정 절의 경합**(e2e가 찾음): 처음 읽기(`terminalShell`)가 기본 셸을 찾느라 PATH를 훑어 느려, 사람이 저장한 뒤에 도착해 칸을 빈 값으로
+  덮었다. 사람이 칸을 고쳤거나 저장했으면 늦은 처음 읽기는 덮지 않는다. 단위 테스트를 더했다.
+- **e2e는 셸이 조용해질 때까지 기다린다**(`waitShellIdle`) — 이 장비의 PowerShell은 conda 프로필을 읽는 데 3초 가까이 걸리고 그동안 친 글자를
+  버렸다. 프롬프트 모양에는 여전히 기대지 않는다(위험 2).
+- **캡처에서 고친 것**: xterm 화면 아래 남는 몇 px이 xterm 기본 CSS의 검은 viewport 배경으로 보여 `--bg`로 덮었고, 그 viewport의 네이티브
+  스크롤바 화살표가 하나 더 보여 숨겼다(xterm 6은 자기 스크롤바를 그린다 — 휠 스크롤이 그대로 되는 것을 캡처 스크립트로 확인). 칸 머리의
+  `다시 시작`이 두 줄로 접혀 파일 칸의 `버리기`와 같은 폭 규칙을 줬다. 설정의 셸 경로 칸은 UI 글꼴이라 역슬래시가 `₩`로 보여 모노로 바꿨다.
+- 터미널 칸은 셸을 못 띄웠을 때 `다시 시도` 줄을 머리 아래에 둔다(spec에 없던 자리 — 설정 경로가 틀렸을 때의 출구).
+- 한국어(넓은 글자)는 셸 글꼴(Cascadia Mono 등)에 한글이 없으면 대체 글꼴로 그려져 글자 사이가 벌어져 보인다 — xterm이 넓은 글자에 두 칸을
+  주기 때문이고 Windows Terminal도 같다. 고치지 않았다.

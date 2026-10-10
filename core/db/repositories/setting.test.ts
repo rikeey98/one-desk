@@ -135,3 +135,29 @@ describe('SettingRepository — CLI 기본 경로 (agent-path-default FR-2)', ()
     expect(settings3.setAgentPaths({ claude: '/a', opencode: '' })).toEqual({ claude: '/a', opencode: null })
   })
 })
+
+describe('SettingRepository — 터미널 셸 (docs/sdlc/code-editor/terminal-spec.md FR-11)', () => {
+  let db4: Database
+  let settings4: ReturnType<typeof createSettingRepository>
+
+  beforeEach(() => {
+    db4 = makeTestDb()
+    settings4 = createSettingRepository(db4, HOME)
+  })
+
+  it('저장된 값이 없으면 null이다 — 기본 셸을 쓴다', () => {
+    expect(settings4.terminalShell()).toBeNull()
+  })
+
+  it('저장하면 다듬은 값을 돌려주고, 새 저장소에서도 읽힌다', () => {
+    expect(settings4.setTerminalShell('  C:\Git\bin\bash.exe ')).toBe('C:\Git\bin\bash.exe')
+    expect(createSettingRepository(db4, HOME).terminalShell()).toBe('C:\Git\bin\bash.exe')
+  })
+
+  it('비우거나(공백뿐 포함) null을 넘기면 다시 기본값이다', () => {
+    settings4.setTerminalShell('/bin/zsh')
+    expect(settings4.setTerminalShell('   ')).toBeNull()
+    settings4.setTerminalShell('/bin/zsh')
+    expect(settings4.setTerminalShell(null)).toBeNull()
+  })
+})

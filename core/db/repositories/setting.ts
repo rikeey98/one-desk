@@ -24,6 +24,9 @@ export const AGENT_PATH_CLAUDE_KEY = 'agents.path.claude'
 /** opencode CLI 기본 경로를 담는 키 */
 export const AGENT_PATH_OPENCODE_KEY = 'agents.path.opencode'
 
+/** 코드 칸 터미널의 셸 경로를 담는 키 (docs/sdlc/code-editor/terminal-spec.md FR-11) */
+export const TERMINAL_SHELL_KEY = 'terminal.shell'
+
 /** agent 종류별 글로벌 asset 경로 */
 export interface GlobalRoots {
   claude: string[]
@@ -127,6 +130,18 @@ export function createSettingRepository(db: Database, homeDir: string) {
         }
       })
       return this.agentPaths()
+    },
+
+    /** 터미널 셸 경로(FR-11). 비었으면 null — 기본 셸을 쓴다. 파일이 있는지는 core가 본다(저장소는 파일시스템을 모른다) */
+    terminalShell(): string | null {
+      return readPath(TERMINAL_SHELL_KEY)
+    },
+
+    setTerminalShell(path: string | null): string | null {
+      const value = (path ?? '').trim()
+      db.insert(appSetting).values({ key: TERMINAL_SHELL_KEY, value })
+        .onConflictDoUpdate({ target: appSetting.key, set: { value } }).run()
+      return this.terminalShell()
     }
   }
 }

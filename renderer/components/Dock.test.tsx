@@ -20,6 +20,15 @@ import type { RunEvent } from '@shared/events'
 vi.mock('./code/CodeEditor', () => ({
   CodeEditor: ({ text, label }: { text: string; label: string }) => <textarea aria-label={label} value={text} readOnly />
 }))
+// 터미널 칸은 xterm·IPC를 품는다 — 도크 테스트는 어느 repo로 어떤 칸이 서는지만 본다(TerminalPane.test가 칸을 본다)
+vi.mock('./code/TerminalPane', () => ({
+  TerminalPane: ({ repo, onClose }: { repo: Repo; onClose: () => void }) => (
+    <section aria-label="터미널 칸">
+      {repo.name}의 셸
+      <button type="button" onClick={onClose}>코드 칸 닫기</button>
+    </section>
+  )
+}))
 
 const repos: Repo[] = [
   { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, createdAt: 0 }
@@ -1586,6 +1595,52 @@ describe('코드 칸 (docs/sdlc/code-editor/ FR-1~FR-7·FR-23)', () => {
     renderPaneDock([apiConv], client, createRunEventStore(), slot, null)
     await pickConv('api 대화')
     expect(screen.queryByRole('button', { name: '파일' })).not.toBeInTheDocument()
+  })
+
+  it('터미널 버튼은 파일 왼쪽에 서고, 누르면 칸이 그 대화 repo의 셸이 된다 (terminal-spec FR-1·FR-3)', async () => {
+    const { client } = paneClient()
+    renderPaneDock([webConv], client)
+    await pickConv('web 대화')
+
+    const names = [...buttonSlot.querySelectorAll('button')].map((b) => b.getAttribute('aria-label'))
+    expect(names).toEqual(['터미널', '파일'])
+    const terminal = screen.getByRole('button', { name: '터미널' })
+    expect(terminal).toHaveAttribute('title', '터미널 — web')
+    await userEvent.click(terminal)
+
+    expect(terminal).toHaveAttribute('aria-pressed', 'true')
+    const region = screen.getByRole('region', { name: '터미널 칸' })
+    expect(slot).toContainElement(region)
+    expect(region).toHaveTextContent('web의 셸')
+  })
+
+  it('파일과 터미널은 번갈아 선다 — 다른 종류를 누르면 바뀌고, 같은 종류를 다시 누르면 닫힌다 (terminal-spec FR-2)', async () => {
+    const { client } = paneClient()
+    renderPaneDock([apiConv], client)
+    await pickConv('api 대화')
+
+    await userEvent.click(screen.getByRole('button', { name: '파일' }))
+    expect(screen.getByRole('region', { name: '코드 칸' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '터미널' }))
+    expect(screen.queryByRole('region', { name: '코드 칸' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '터미널 칸' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '파일' })).toHaveAttribute('aria-pressed', 'false')
+    expect(localStorage.getItem('one-desk.codePane.kind')).toBe('terminal')
+
+    await userEvent.click(screen.getByRole('button', { name: '터미널' }))
+    expect(screen.queryByRole('region', { name: '터미널 칸' })).not.toBeInTheDocument()
+  })
+
+  it('등록된 repo가 아닌 대화(기타)는 터미널도 비활성이고 이유를 말한다', async () => {
+    const { client } = paneClient()
+    renderPaneDock([otherConv], client)
+    await pickConv('기타 대화')
+    const terminal = screen.getByRole('button', { name: '터미널' })
+    expect(terminal).toHaveAttribute('aria-disabled', 'true')
+    expect(terminal).toHaveAttribute('title', '이 대화의 작업 디렉토리는 등록된 repo가 아닙니다')
+    await userEvent.click(terminal)
+    expect(screen.queryByRole('region', { name: '터미널 칸' })).not.toBeInTheDocument()
   })
 
   it('자리가 없으면 칸은 서지 않는다 — 버튼의 눌림만 바뀐다', async () => {
