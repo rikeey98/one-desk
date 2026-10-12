@@ -1,5 +1,6 @@
 import type { AgentAuth, AgentKind, AgentModel, AgentProbe, AgentProbes } from '@shared/models'
 import type { PreflightResult } from '../runner/types'
+import { HOST_ENV, type ProcessEnvSpec } from '../wsl/env'
 
 /**
  * 준비 상태를 만드는 세 칸의 재료. **전부 주입받는다** — 실행 파일 해석도, 인증
@@ -7,9 +8,12 @@ import type { PreflightResult } from '../runner/types'
  * 설정 화면과 실행 버튼이 다른 판정을 하게 된다(spec NFR-3·NFR-4).
  */
 export interface AgentProbeDeps {
-  /** `resolveAgentPath` → 어댑터 `preflight`. `checkAgents`가 쓰는 것과 같은 길이다 */
-  preflight: (kind: AgentKind, workspaceId: string) => Promise<PreflightResult>
-  checkAuth: (kind: AgentKind, executable: string) => Promise<AgentAuth>
+  /**
+   * `resolveAgentPath` → 어댑터 `preflight`. `checkAgents`가 쓰는 것과 같은 길이다. `cwd`는 WSL 칸(wsl-support FR-13)이
+   * 넘긴다 — 판정이 repo(실행 환경)마다 다르다. host 칸은 null이다.
+   */
+  preflight: (kind: AgentKind, workspaceId: string, cwd: string | null) => Promise<PreflightResult>
+  checkAuth: (kind: AgentKind, executable: string, env: ProcessEnvSpec) => Promise<AgentAuth>
   /** 슬래시 커맨드 probe가 실어 온 것. **캐시를 그쪽과 공유한다** */
   agentInfo: (input: { workspaceId: string; cwd: string }) => Promise<{
     model: string | null
@@ -23,6 +27,8 @@ export interface AgentProbeDeps {
    * 다른 답이 나온다. 없으면 null.
    */
   firstRepoPath: (workspaceId: string) => string | null
+  /** 그 workspace의 첫 WSL repo (wsl-support FR-13). 없으면 null — 그러면 `wsl` 칸이 없다. 생략하면 늘 없다 */
+  wslRepo?: (workspaceId: string) => { distro: string; cwd: string } | null
 }
 
 const KINDS: AgentKind[] = ['claude-code', 'opencode']
@@ -54,9 +60,9 @@ function skipped(reason: string): AgentModel {
  * 실행을 막거나 화면을 비우면 안 된다(FR-6).
  */
 export function createAgentProbeService(deps: AgentProbeDeps) {
-  async function authOf(kind: AgentKind, executable: string): Promise<AgentAuth> {
+  async function authOf(kind: AgentKind, executable: string, env: ProcessEnvSpec): Promise<AgentAuth> {
     try {
-      return await deps.checkAuth(kind, executable)
+      return await deps.checkAuth(kind, executable, env)
     } catch (err) {
       return unknownAuth(`인증 상태를 조회하지 못했습니다 (${message(err)})`)
     }
@@ -71,9 +77,11 @@ export function createAgentProbeService(deps: AgentProbeDeps) {
     }
   }
 
-  async function probeOne(kind: AgentKind, workspaceId: string): Promise<AgentProbe> {
+  async function probeOne(
+    kind: AgentKind, workspaceId: string, target: { env: ProcessEnvSpec; cwd: string | null } = { env: HOST_ENV, cwd: null }
+  ): Promise<AgentProbe> {
     // 1) 실행 파일
-    const pre = await deps.preflight(kind, workspaceId)
+    const pre = await deps.preflight(kind, workspaceId, target.env.kind === 'wsl' ? target.cwd : null)
     if (!pre.ok || !pre.executable) {
       const reason = pre.reason ?? '실행 파일을 찾을 수 없습니다'
       return {
@@ -88,7 +96,7 @@ export function createAgentProbeService(deps: AgentProbeDeps) {
     // 2) 인증. 모델 목록은 인증과 무관하게 조회된다(실측: 자격 증명 0개여도 382개)
     //    — 그래서 같이 띄운다.
     const [auth, models] = await Promise.all([
-      authOf(kind, executable),
+      authOf(kind, executable, target.env),
       modelsOf(kind, executable)
     ])
 
@@ -99,7 +107,7 @@ export function createAgentProbeService(deps: AgentProbeDeps) {
     //    한 번을 아끼고, 무엇보다 못 쓰는 설정에 모델 이름을 붙이지 않는다.
     //    `unknown`일 때는 돌린다: 모르는 것과 없는 것은 다르고, 모른다는 이유로
     //    감추면 `auth status`가 없는 옛 CLI에서 화면이 통째로 빈다.
-    const resolved = await modelAndVersion(kind, workspaceId, auth)
+    const resolved = await modelAndVersion(kind, workspaceId, auth, target.cwd)
     return { auth, model: resolved.model, version: resolved.version, models }
   }
 
@@ -108,7 +116,7 @@ export function createAgentProbeService(deps: AgentProbeDeps) {
    * 있고(`agentInfo`), 여기에 하나 더 두면 `다시 확인`이 그쪽만 비워 옛 값이 남는다.
    */
   async function modelAndVersion(
-    kind: AgentKind, workspaceId: string, auth: AgentAuth
+    kind: AgentKind, workspaceId: string, auth: AgentAuth, cwdOverride: string | null
   ): Promise<{ model: AgentModel; version: string | null }> {
     // OpenCode는 스트림 어디에도 모델이 없다(docs/sdlc/run-info/ 실측).
     // "무엇을 넘겼나"까지만 알 수 있으므로 여기서는 늘 건너뛴다.
@@ -121,7 +129,7 @@ export function createAgentProbeService(deps: AgentProbeDeps) {
     // probe의 cwd는 실행 패널이 쓰는 것과 같아야 한다 — repo의
     // `.claude/settings.json`이 모델을 정할 수 있어, 아무 데서나 돌리면
     // 실행과 다른 답이 나온다.
-    const cwd = deps.firstRepoPath(workspaceId)
+    const cwd = cwdOverride ?? deps.firstRepoPath(workspaceId)
     if (!cwd) {
       return { model: skipped('repo를 등록하면 확인합니다.'), version: null }
     }
@@ -161,7 +169,18 @@ export function createAgentProbeService(deps: AgentProbeDeps) {
           }] as const
         }
       }))
-      return Object.fromEntries(entries) as AgentProbes
+      const probes = Object.fromEntries(entries) as AgentProbes
+      // WSL 칸 (wsl-support FR-13) — 첫 WSL repo의 distro·cwd로. 터져도 host 둘은 그대로다.
+      const wsl = deps.wslRepo?.(workspaceId) ?? null
+      if (wsl) {
+        try {
+          probes.wsl = { distro: wsl.distro, ...(await probeOne('claude-code', workspaceId, { env: { kind: 'wsl', distro: wsl.distro }, cwd: wsl.cwd })) }
+        } catch (err) {
+          const reason = `확인하지 못했습니다 (${message(err)})`
+          probes.wsl = { distro: wsl.distro, auth: unknownAuth(reason), model: skipped(reason), version: null, models: [] }
+        }
+      }
+      return probes
     }
   }
 }

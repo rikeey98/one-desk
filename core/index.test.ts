@@ -49,10 +49,11 @@ const fakeSpawnPty: SpawnPty = () => {
   return pty
 }
 
-function open(dataDir: string, homeDir?: string): Core {
+function open(dataDir: string, homeDir?: string, platform: NodeJS.Platform = 'win32'): Core {
   // 홈은 반드시 임시 경로다 — 진짜 홈을 훑으면 개발자마다 결과가 달라진다.
+  // platform은 WSL 가용성 판정(wsl-support FR-4)만 가른다 — 기본 win32라 개발 장비에서도 WSL repo를 둘 수 있다.
   const core = createCore({
-    dataDir, migrationsDir: MIGRATIONS_DIR, homeDir: homeDir ?? join(dataDir, 'home'), spawnPty: fakeSpawnPty
+    dataDir, migrationsDir: MIGRATIONS_DIR, homeDir: homeDir ?? join(dataDir, 'home'), spawnPty: fakeSpawnPty, platform
   })
   cores.push(core)
   return core
@@ -764,6 +765,93 @@ describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)'
       expect(existsSync(join(dataDir, 'wsl'))).toBe(true)
       close(core)
       expect(pty.killed).toBe(1)
+    })
+  })
+
+  it('agentEnv가 wsl이면 경로가 \\\\wsl$\\<배포판>\\… 모양이어야 하고, Windows가 아니면 저장도 거부한다 (FR-2·FR-4)', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const ws = core.workspaces.create({ name: 'ws' }).id
+    await expect(core.repos.create({ workspaceId: ws, name: 'x', path: 'C:\\work\\api', agentEnv: 'wsl' }))
+      .rejects.toThrow('WSL repo의 경로')
+    const made = await core.repos.create({ workspaceId: ws, name: 'h', path: dataDir })
+    await expect(core.repos.update({ id: made.id, agentEnv: 'wsl' })).rejects.toThrow('WSL repo의 경로')
+    expect(core.repos.get(made.id).agentEnv).toBe('host')
+    // host repo의 경로가 WSL 폴더인 것은 막지 않는다 (FR-2)
+    await expect(core.repos.create({ workspaceId: ws, name: 'wh', path: WSL_PATH })).resolves.toMatchObject({ agentEnv: 'host' })
+    close(core)
+
+    const mac = open(makeDataDir(), undefined, 'darwin')
+    const ws2 = mac.workspaces.create({ name: 'ws' }).id
+    await expect(mac.repos.create({ workspaceId: ws2, name: 'w', path: WSL_PATH, agentEnv: 'wsl' })).rejects.toThrow('Windows에서만')
+    expect(await mac.wsl.listDistros()).toMatchObject({ supported: false, distros: [] })
+    close(mac)
+  })
+
+  it('실행 환경을 바꾸면 그 repo의 셸을 끝내고 그 cwd의 커맨드 캐시를 비운다 (FR-3)', async () => {
+    const dataDir = makeDataDir()
+    const capture = join(dataDir, 'wsl.jsonl')
+    await withWsl({ ONE_DESK_WSL_CAPTURE: capture, ONE_DESK_AGENT_PATH: FAKE_AGENT }, async () => {
+      const core = open(dataDir)
+      const ws = core.workspaces.create({ name: 'ws' }).id
+      const repoId = (await core.repos.create({ workspaceId: ws, name: 'w', path: WSL_PATH })).id
+      await core.terminal.open({ workspaceId: ws, repoId, cols: 80, rows: 24 })
+      const pty = ptys[ptys.length - 1]!
+      // host 판정으로 한 번 채운 캐시
+      await core.commands.list({ workspaceId: ws, cwd: WSL_PATH })
+      expect(existsSync(capture)).toBe(false)
+
+      await core.repos.update({ id: repoId, agentEnv: 'wsl' })
+      expect(pty.killed).toBe(1)
+      // 캐시가 비었으므로 다음 조회는 WSL 안에서 다시 묻는다
+      await core.commands.list({ workspaceId: ws, cwd: WSL_PATH })
+      expect(readCapture(capture).some((c) => c.includes('test'))).toBe(true)
+      close(core)
+    })
+  })
+
+  it('checkAgents·probeAgents는 WSL repo가 있을 때만 wsl 칸을 더한다 — 첫 WSL repo의 distro로 (FR-13)', async () => {
+    const dataDir = makeDataDir()
+    await withWsl({ ONE_DESK_AGENT_PATH: FAKE_AGENT }, async () => {
+      const core = open(dataDir)
+      const ws = core.workspaces.create({ name: 'ws' }).id
+      expect('wsl' in await core.workspaces.checkAgents(ws)).toBe(false)
+      expect('wsl' in await core.workspaces.probeAgents(ws)).toBe(false)
+
+      await core.repos.create({ workspaceId: ws, name: 'w', path: WSL_PATH, agentEnv: 'wsl' })
+      await core.repos.create({ workspaceId: ws, name: 'w2', path: '\\\\wsl$\\Debian\\srv\\x', agentEnv: 'wsl' })
+      const status = await core.workspaces.checkAgents(ws)
+      expect(status.wsl).toEqual({ ok: true, executable: FAKE_AGENT, distro: 'Ubuntu' })
+      const probes = await core.workspaces.probeAgents(ws)
+      expect(probes.wsl?.distro).toBe('Ubuntu')
+      close(core)
+    })
+  })
+
+  it('wsl.listDistros는 wsl.exe --list --quiet를 읽는다 (FR-4)', async () => {
+    await withWsl({}, async () => {
+      const core = open(makeDataDir())
+      expect(await core.wsl.listDistros()).toEqual({ supported: true, distros: ['Ubuntu', 'Debian'], reason: null })
+      close(core)
+    })
+  })
+
+  it('WSL 설정 둘 — claude 경로는 저장하면 판정 캐시를 비우고, 글로벌 skill 경로는 저장하면 다시 훑는다 (FR-12·27)', async () => {
+    const dataDir = makeDataDir()
+    const capture = join(dataDir, 'wsl.jsonl')
+    await withWsl({ ONE_DESK_WSL_CAPTURE: capture }, async () => {
+      const core = open(dataDir)
+      const ws = core.workspaces.create({ name: 'ws' }).id
+      await core.repos.create({ workspaceId: ws, name: 'w', path: WSL_PATH, agentEnv: 'wsl' })
+      expect(core.settings.wslClaudePath()).toBeNull()
+      expect(core.settings.setWslClaudePath('/home/me/bin/claude')).toBe('/home/me/bin/claude')
+      expect(core.settings.wslGlobalRoots()).toEqual(['~/.claude/skills'])
+      // 등록은 그 repo만 훑는 부분 스캔이라 아직 홈을 묻지 않았다
+      expect(existsSync(capture) && readCapture(capture).some((c) => c.join(' ').includes('echo $HOME'))).toBe(false)
+      expect(await core.settings.setWslGlobalRoots(['/opt/skills'])).toEqual(['/opt/skills'])
+      // 저장이 전체를 다시 훑어 그 distro의 홈을 물었다(이 장비에 UNC가 없어 asset은 없다)
+      expect(readCapture(capture).filter((c) => c.join(' ').includes('echo $HOME'))).toHaveLength(1)
+      close(core)
     })
   })
 

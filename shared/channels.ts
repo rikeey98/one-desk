@@ -45,6 +45,12 @@ export const CHANNELS = {
   settingsSetAgentPaths: 'settings:setAgentPaths',
   settingsGetTerminalShell: 'settings:getTerminalShell',
   settingsSetTerminalShell: 'settings:setTerminalShell',
+  /** WSL (docs/sdlc/wsl-support/ FR-4·12·27) */
+  settingsGetWslClaudePath: 'settings:getWslClaudePath',
+  settingsSetWslClaudePath: 'settings:setWslClaudePath',
+  settingsGetWslGlobalRoots: 'settings:getWslGlobalRoots',
+  settingsSetWslGlobalRoots: 'settings:setWslGlobalRoots',
+  wslListDistros: 'wsl:listDistros',
   /** 코드 칸의 터미널 (docs/sdlc/code-editor/terminal-spec.md). write·resize는 응답을 기다리지 않는 한 방향(send)이다 */
   terminalOpen: 'terminal:open',
   terminalWrite: 'terminal:write',

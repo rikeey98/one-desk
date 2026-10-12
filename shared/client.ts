@@ -13,7 +13,7 @@ import type {
   GlobalRoots, AgentPaths, CommandTarget, CommandListResult,
   UpdateRepoInput, AppInfo, RevealTarget, AssetBody, FileSearchInput, FileSearchResult,
   FileRef, FileTreeInput, FileTreeResult, FileOpenResult, FileSaveInput, FileSaveResult, FileProbeResult,
-  TerminalOpenInput, TerminalSession, TerminalData, TerminalExit, TerminalShellSetting
+  TerminalOpenInput, TerminalSession, TerminalData, TerminalExit, TerminalShellSetting, WslDistros
 } from './models'
 import type { RunEvent } from './events'
 import type { PanelScope } from './panelWindow'
@@ -166,6 +166,16 @@ export interface OneDeskClient {
     terminalShell(): Promise<TerminalShellSetting>
     /** 없는 파일이면 던진다. 빈 값은 기본값으로 돌아간다 */
     setTerminalShell(path: string | null): Promise<TerminalShellSetting>
+    /** WSL 안의 claude 경로 (docs/sdlc/wsl-support/ FR-12) — Linux 경로, null이면 WSL의 PATH에서 찾는다 */
+    wslClaudePath(): Promise<string | null>
+    setWslClaudePath(path: string | null): Promise<string | null>
+    /** WSL 글로벌 skill 경로 (FR-27) — Linux 경로 여러 줄, `~`는 그 distro의 홈. 저장하면 다시 훑는다 */
+    wslGlobalRoots(): Promise<string[]>
+    setWslGlobalRoots(roots: string[]): Promise<string[]>
+  }
+  /** WSL (docs/sdlc/wsl-support/). 렌더러는 목록만 읽는다 — distro·경로를 정하는 통로가 아니다(FR-32) */
+  wsl: {
+    listDistros(): Promise<WslDistros>
   }
   /**
    * 코드 칸의 터미널 (terminal-spec). **repo id만 넘긴다** — 작업 디렉토리·셸·명령은 core가 정한다(FR-18). 셸은 repo당 하나다.

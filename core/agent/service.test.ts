@@ -167,3 +167,39 @@ describe('createAgentProbeService — 실패 내성', () => {
     expect(preflight).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('WSL 칸 (docs/sdlc/wsl-support/ FR-13)', () => {
+  const WSL_CWD = '\\\\wsl$\\Ubuntu\\home\\me\\api'
+
+  it('workspace에 WSL repo가 있으면 wsl 칸이 생기고, 그 repo의 cwd로 preflight·인증·모델을 묻는다', async () => {
+    const preflight = vi.fn(async () => OK_PREFLIGHT)
+    const checkAuth = vi.fn(async () => LOGGED_IN)
+    const agentInfo = vi.fn(async () => ({ model: 'claude-opus-5[1m]', version: '2.1.283', error: null }))
+    const service = createAgentProbeService(deps({
+      preflight, checkAuth, agentInfo, wslRepo: () => ({ distro: 'Ubuntu', cwd: WSL_CWD })
+    }))
+    const probes = await service.probeAgents('ws-1')
+    expect(probes.wsl).toMatchObject({ distro: 'Ubuntu', auth: LOGGED_IN, model: { state: 'resolved', model: 'claude-opus-5[1m]' } })
+    // 판정은 그 cwd로 — host 칸은 첫 repo(/tmp/api), wsl 칸은 WSL repo의 UNC
+    expect(preflight).toHaveBeenCalledWith('claude-code', 'ws-1', WSL_CWD)
+    expect(agentInfo).toHaveBeenCalledWith({ workspaceId: 'ws-1', cwd: WSL_CWD })
+    expect(agentInfo).toHaveBeenCalledWith({ workspaceId: 'ws-1', cwd: '/tmp/api' })
+    expect(checkAuth).toHaveBeenCalledWith('claude-code', '/bin/agent', { kind: 'wsl', distro: 'Ubuntu' })
+  })
+
+  it('WSL repo가 없으면 wsl 키 자체가 없다', async () => {
+    const service = createAgentProbeService(deps({ wslRepo: () => null }))
+    const probes = await service.probeAgents('ws-1')
+    expect('wsl' in probes).toBe(false)
+  })
+
+  it('wsl 칸이 터져도 host 둘은 그대로다', async () => {
+    const service = createAgentProbeService(deps({
+      preflight: async (_k, _w, cwd) => cwd === WSL_CWD ? Promise.reject(new Error('wsl 없음')) : OK_PREFLIGHT,
+      wslRepo: () => ({ distro: 'Ubuntu', cwd: WSL_CWD })
+    }))
+    const probes = await service.probeAgents('ws-1')
+    expect(probes['claude-code'].auth).toEqual(LOGGED_IN)
+    expect(probes.wsl?.auth.state).toBe('unknown')
+  })
+})

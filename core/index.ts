@@ -19,7 +19,7 @@ import { describeCommands } from './commands/describe'
 import type { GlobalRoots } from './db/repositories/setting'
 import type {
   UpdateRepoInput, AppPaths, FileSearchInput, BuildReportInput, ReportData, FileTreeInput, FileRef, FileSaveInput
-} from '@shared/models'
+, AgentEnv, WslDistros } from '@shared/models'
 import { PANEL_KINDS, type PanelScope } from '@shared/panelWindow'
 import { createFileService } from './files/service'
 import { createTerminalService, type SpawnPty } from './terminal/service'
@@ -39,6 +39,8 @@ import { envOfRepo, HOST_ENV, type ProcessEnvSpec } from './wsl/env'
 import { createWslPreflight } from './wsl/preflight'
 import { createWslPaths } from './wsl/paths'
 import { createWslHome, expandWslRoots } from './wsl/home'
+import { listDistros } from './wsl/distros'
+import { parseWslPath } from '@shared/wslPath'
 import { killGroup, killGroupSync } from './wsl/kill'
 import { LAUNCHER_FILE } from './wsl/launch'
 import type { AgentDefaults } from './runner/agentPath'
@@ -107,6 +109,11 @@ export interface CoreOptions {
    * 한 줄을 빠뜨려도 조용히 컴파일되면 터미널만 죽는다(`homeDir`와 같은 규칙).
    */
   spawnPty: SpawnPty
+  /**
+   * WSL 가용성 판정에만 쓴다 (docs/sdlc/wsl-support/ FR-4) — Windows가 아니면 `agentEnv: 'wsl'`을 저장도 거부한다. 기본은
+   * `process.platform`. 테스트가 `win32`를 넘겨 개발 장비에서 WSL repo를 둔다. 터미널·취소의 플랫폼 갈래는 이 값을 보지 않는다.
+   */
+  platform?: NodeJS.Platform
   /** core가 삼킨 오류를 흘려보낼 곳. 기본은 stderr */
   onError?: ErrorSink
 }
@@ -167,6 +174,27 @@ export function createCore(opts: CoreOptions) {
   const agentPathOf = (kind: AgentKind, env: ProcessEnvSpec, workspace: Workspace | null) =>
     resolveAgentPath(kind, env, workspace, agentDefaults())
   const workspaceOf = (workspaceId: string) => workspaces.list().find((w) => w.id === workspaceId) ?? null
+
+  const wslSupported = (opts.platform ?? process.platform) === 'win32'
+
+  /**
+   * `agentEnv: 'wsl'`의 조건 (wsl-support FR-2·FR-4) — Windows여야 하고 경로가 `\\wsl$\<배포판>\…` 모양이어야 한다. 저장소는
+   * 파일시스템도 OS도 모르므로 여기서 본다. host repo의 경로가 WSL 폴더인 것은 막지 않는다.
+   */
+  const assertWslRepo = (agentEnv: AgentEnv | undefined, path: string): void => {
+    if (agentEnv !== 'wsl') return
+    if (!wslSupported) throw new Error('WSL은 Windows에서만 쓸 수 있습니다')
+    if (!parseWslPath(path)) throw new Error(`WSL repo의 경로는 \\\\wsl$\\<배포판>\\… 이어야 합니다: ${path}`)
+  }
+
+  /** 그 workspace의 첫 WSL repo (FR-13) — `checkAgents`·`probeAgents`의 `wsl` 칸이 보는 것 */
+  const firstWslRepo = (workspaceId: string): { distro: string; cwd: string } | null => {
+    for (const r of repos.list(workspaceId)) {
+      const env = envOfRepo(r)
+      if (env.kind === 'wsl') return { distro: env.distro, cwd: r.path }
+    }
+    return null
+  }
 
   /** WSL 안의 claude 판정 (wsl-support FR-13) — 설정 화면과 실행이 같이 쓴다. 캐시는 `probeAgents(refresh)`가 비운다 */
   const wslPreflight = createWslPreflight({
@@ -322,9 +350,12 @@ export function createCore(opts: CoreOptions) {
    * 두 줄이 다른 말을 한다.
    */
   const agentProbes = createAgentProbeService({
-    // host 판정이다 — WSL 칸은 11단계(FR-13의 `wsl?` 칸)가 따로 둔다
-    preflight: (kind, workspaceId) => adapters[kind].preflight(agentPathOf(kind, HOST_ENV, workspaceOf(workspaceId))),
-    checkAuth: (kind, executable) => checkAuth(kind, executable, runCli),
+    // host 칸은 workspace 설정으로, wsl 칸(cwd가 있다)은 그 repo의 판정으로 — 실행과 같은 길 (wsl-support FR-13)
+    preflight: (kind, workspaceId, cwd) => cwd
+      ? preflightFor(kind, workspaceId, cwd)
+      : adapters[kind].preflight(agentPathOf(kind, HOST_ENV, workspaceOf(workspaceId))),
+    checkAuth: (kind, executable, env) => checkAuth(kind, executable, runCliIn(env)),
+    wslRepo: firstWslRepo,
     // 슬래시 커맨드 probe와 **같은 캐시**다 — 실행 패널이 이미 돌렸으면 CLI가
     // 새로 뜨지 않는다(spec NFR-3).
     agentInfo: (target) => commands.agentInfo(target),
@@ -467,11 +498,16 @@ export function createCore(opts: CoreOptions) {
        */
       async checkAgents(workspaceId: string): Promise<AgentStatuses> {
         const ws = workspaces.list().find((w) => w.id === workspaceId) ?? null
-        const [claude, opencode] = await Promise.all([
+        const wsl = firstWslRepo(workspaceId)
+        const [claude, opencode, wslClaude] = await Promise.all([
           adapters['claude-code'].preflight(agentPathOf('claude-code', HOST_ENV, ws)),
-          adapters['opencode'].preflight(agentPathOf('opencode', HOST_ENV, ws))
+          adapters['opencode'].preflight(agentPathOf('opencode', HOST_ENV, ws)),
+          // wsl 칸 (wsl-support FR-13) — 실행과 같은 판정(`preflightFor`)
+          wsl ? preflightFor('claude-code', workspaceId, wsl.cwd) : Promise.resolve(null)
         ])
-        return { 'claude-code': claude, opencode }
+        const statuses: AgentStatuses = { 'claude-code': claude, opencode }
+        if (wsl && wslClaude) statuses.wsl = { ...wslClaude, distro: wsl.distro }
+        return statuses
       },
 
       /**
@@ -495,6 +531,14 @@ export function createCore(opts: CoreOptions) {
       }
     },
     commands,
+    /** WSL (wsl-support FR-4). 읽기 전용 — 렌더러가 distro·경로를 정하는 통로가 아니다(FR-32) */
+    wsl: {
+      async listDistros(): Promise<WslDistros> {
+        if (!wslSupported) return { supported: false, distros: [], reason: 'WSL은 Windows에서만 쓸 수 있습니다' }
+        const out = await listDistros({ platform: 'win32' })
+        return { supported: true, ...out }
+      }
+    },
     files: {
       search: (input: FileSearchInput) => files.search(input),
       // 코드 칸 (docs/sdlc/code-editor/) — repo id + 상대 경로로만 받는다. 판정은 전부 서비스에 있다.
@@ -543,6 +587,7 @@ export function createCore(opts: CoreOptions) {
         return { fallbackUrl: null }
       },
       async create(input: Parameters<typeof repos.create>[0]) {
+        assertWslRepo(input.agentEnv, input.path)
         const made = repos.create(input)
         // **스캔을 기다린 뒤에 돌려준다.** 기다리지 않으면 화면이 목록을 다시 읽는
         // 시점에 스캔이 아직 안 끝나 있어, 방금 등록한 repo의 asset이 새로고침을
@@ -573,8 +618,14 @@ export function createCore(opts: CoreOptions) {
           if (!isDir) throw new Error(`존재하지 않는 경로입니다: ${trimmed}`)
         }
         const before = repos.get(input.id)
+        assertWslRepo(input.agentEnv ?? before.agentEnv, (input.path ?? before.path).trim())
         const { id, ...patch } = input
         const updated = repos.update(id, patch)
+        if (updated.agentEnv !== before.agentEnv) {
+          // 환경이 다르면 다른 claude다 (wsl-support FR-3) — 셸은 옛 환경에서 돌고 커맨드·agent 정보 캐시는 옛 판정이다
+          terminal.killRepo(updated.id)
+          commands.invalidate(updated.path)
+        }
         if (updated.path !== before.path) {
           // 옛 경로에서 계속 돌면 칸의 repo와 셸의 디렉토리가 갈린다 (terminal-spec FR-10)
           terminal.killRepo(updated.id)
@@ -639,6 +690,13 @@ export function createCore(opts: CoreOptions) {
       setWslClaudePath: (path: string | null): string | null => {
         const saved = settings.setWslClaudePath(path)
         wslPreflight.clear()
+        return saved
+      },
+      /** WSL 글로벌 skill 경로 (FR-27) — 저장하면 곧바로 다시 훑는다(Windows 글로벌과 같다) */
+      wslGlobalRoots: (): string[] => settings.wslGlobalRoots(),
+      async setWslGlobalRoots(roots: string[]): Promise<string[]> {
+        const saved = settings.setWslGlobalRoots(roots)
+        await assetService.scanAll()
         return saved
       },
 

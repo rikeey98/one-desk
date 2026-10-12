@@ -188,7 +188,11 @@ export interface AgentStatus {
   reason?: string
 }
 
-export type AgentStatuses = Record<AgentKind, AgentStatus>
+/** WSL 안의 claude 판정 — workspace에 WSL repo가 있을 때만, 첫 WSL repo의 distro로 (docs/sdlc/wsl-support/ FR-13) */
+export interface WslAgentStatus extends AgentStatus {
+  distro: string
+}
+export type AgentStatuses = Record<AgentKind, AgentStatus> & { wsl?: WslAgentStatus }
 
 /**
  * 이 CLI로 **지금 대화가 되는가**의 둘째 칸 (docs/sdlc/agent-setup/ FR-1).
@@ -238,7 +242,18 @@ export interface AgentProbe {
   models: string[]
 }
 
-export type AgentProbes = Record<AgentKind, AgentProbe>
+export interface WslAgentProbe extends AgentProbe {
+  distro: string
+}
+export type AgentProbes = Record<AgentKind, AgentProbe> & { wsl?: WslAgentProbe }
+
+/** 설치된 WSL 배포판 (docs/sdlc/wsl-support/ FR-4). `supported`가 false면(Windows가 아니다) 목록은 늘 비어 있다 */
+export interface WslDistros {
+  supported: boolean
+  distros: string[]
+  /** 목록을 못 얻은 이유. 얻었으면 null */
+  reason: string | null
+}
 
 export interface CreateRepoInput {
   workspaceId: string

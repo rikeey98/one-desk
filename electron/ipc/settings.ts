@@ -19,4 +19,10 @@ export function registerSettingHandlers(core: Core) {
     CHANNELS.settingsSetTerminalShell,
     (_e, path: string | null) => core.settings.setTerminalShell(path)
   )
+  // WSL (docs/sdlc/wsl-support/ FR-4·12·27) — core 호출 한 줄씩
+  ipcMain.handle(CHANNELS.settingsGetWslClaudePath, () => core.settings.wslClaudePath())
+  ipcMain.handle(CHANNELS.settingsSetWslClaudePath, (_e, path: string | null) => core.settings.setWslClaudePath(path))
+  ipcMain.handle(CHANNELS.settingsGetWslGlobalRoots, () => core.settings.wslGlobalRoots())
+  ipcMain.handle(CHANNELS.settingsSetWslGlobalRoots, (_e, roots: string[]) => core.settings.setWslGlobalRoots(roots))
+  ipcMain.handle(CHANNELS.wslListDistros, () => core.wsl.listDistros())
 }

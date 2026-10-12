@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { OneDeskClient, Unsubscribe } from '@shared/client'
-import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult, ReportData, FileTreeResult, FileOpenResult, FileSaveResult, FileProbeResult, TerminalSession, TerminalData, TerminalExit, TerminalShellSetting } from '@shared/models'
+import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult, ReportData, FileTreeResult, FileOpenResult, FileSaveResult, FileProbeResult, TerminalSession, TerminalData, TerminalExit, TerminalShellSetting, WslDistros } from '@shared/models'
 import type { RunEvent } from '@shared/events'
 
 /**
@@ -87,7 +87,14 @@ const client: OneDeskClient = {
     agentPaths: () => call<AgentPaths>(CHANNELS.settingsGetAgentPaths),
     setAgentPaths: (paths) => call<AgentPaths>(CHANNELS.settingsSetAgentPaths, paths),
     terminalShell: () => call<TerminalShellSetting>(CHANNELS.settingsGetTerminalShell),
+    wslClaudePath: () => call<string | null>(CHANNELS.settingsGetWslClaudePath),
+    setWslClaudePath: (path) => call<string | null>(CHANNELS.settingsSetWslClaudePath, path),
+    wslGlobalRoots: () => call<string[]>(CHANNELS.settingsGetWslGlobalRoots),
+    setWslGlobalRoots: (roots) => call<string[]>(CHANNELS.settingsSetWslGlobalRoots, roots),
     setTerminalShell: (path) => call<TerminalShellSetting>(CHANNELS.settingsSetTerminalShell, path)
+  },
+  wsl: {
+    listDistros: () => call<WslDistros>(CHANNELS.wslListDistros)
   },
   terminal: {
     open: (input) => call<TerminalSession>(CHANNELS.terminalOpen, input),
