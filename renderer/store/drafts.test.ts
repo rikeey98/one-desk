@@ -54,6 +54,20 @@ describe('초안 스토어', () => {
     store.set('c1', '다시')
     expect(heard).toHaveBeenCalledTimes(2)
   })
+
+  it('덧붙이면 쓰던 글 뒤에 빈 줄 하나를 두고 붙이고, 덧붙인 키로 알린다 — set은 알리지 않는다', () => {
+    const store = createDraftStore()
+    const appended = vi.fn()
+    store.onAppend(appended)
+    store.append('c1', '```\nA\n```\n')
+    expect(store.get('c1')).toBe('```\nA\n```\n')
+    store.append('c1', '```\nB\n```\n')
+    expect(store.get('c1')).toBe('```\nA\n```\n\n```\nB\n```\n')
+    expect(appended).toHaveBeenCalledWith('c1')
+    expect(appended).toHaveBeenCalledTimes(2)
+    store.set('c1', '')
+    expect(appended).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('isBlankDraft', () => {

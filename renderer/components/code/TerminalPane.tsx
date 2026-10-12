@@ -3,7 +3,7 @@ import type { Repo, TerminalSession } from '@shared/models'
 import { useClient } from '../../client/ClientProvider'
 import { createTerminalStream } from '../../code/terminalStream'
 import { ConfirmButton } from '../ConfirmButton'
-import { IconClose } from '../icons'
+import { IconChat, IconClose } from '../icons'
 import type { TerminalViewHandle } from './TerminalView'
 
 // xterm은 처음 터미널을 열 때만 받는다 — 편집기처럼 지연 로드한다 (terminal-spec FR-15)
@@ -15,10 +15,12 @@ const TerminalView = lazy(() => import('./TerminalView').then((m) => ({ default:
  *
  * 붙는 순서가 중요하다: **구독 → 열기 → 스냅샷 쓰기 → 그 뒤 조각 이어 쓰기**. 규칙은 `code/terminalStream.ts`에 있다.
  */
-export function TerminalPane({ workspaceId, repo, onClose }: {
+export function TerminalPane({ workspaceId, repo, onClose, onSendSelection }: {
   workspaceId: string
   repo: Repo
   onClose: () => void
+  /** `대화에 붙이기` — 고른 글을 도크가 보는 대화의 입력칸으로 보낸다(도크가 정한다) */
+  onSendSelection: (text: string) => void
 }) {
   const client = useClient()
   const view = useRef<TerminalViewHandle | null>(null)
@@ -30,6 +32,7 @@ export function TerminalPane({ workspaceId, repo, onClose }: {
   const [session, setSession] = useState<TerminalSession | null>(null)
   const [exited, setExited] = useState<{ exitCode: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [hasSelection, setHasSelection] = useState(false)
 
   // 구독은 열기보다 먼저다 — 열기 응답이 오는 사이의 출력을 잃지 않는다
   useEffect(() => {
@@ -63,6 +66,15 @@ export function TerminalPane({ workspaceId, repo, onClose }: {
     }
   }, [client, workspaceId, repo.id])
 
+  /** 고른 글은 누른 순간 다시 읽는다 — 보낸 뒤에는 선택을 푼다(복사의 Ctrl+C와 같다) */
+  function sendSelection() {
+    const handle = view.current
+    const text = handle?.getSelection() ?? ''
+    if (!handle || text.trim() === '') return
+    onSendSelection(text)
+    handle.clearSelection()
+  }
+
   function onKeyDown(e: KeyboardEvent) {
     // 터미널의 Esc는 셸의 것이다 — 도크 최대화 풀기·App의 "열린 항목 닫기"로 새지 않게 (FR-16, CLAUDE.md의 Esc 규칙)
     if (e.key !== 'Escape') return
@@ -78,6 +90,18 @@ export function TerminalPane({ workspaceId, repo, onClose }: {
           {session && <span className="terminal-shell path-text" title={session.shellPath}>{session.shell}</span>}
         </div>
         <div className="code-pane-actions">
+          {/* 고른 글이 없으면 비활성이고 `title`이 이유를 말한다 — `disabled`면 풍선이 뜨지 않는다 */}
+          <button
+            type="button"
+            className="row-action terminal-send"
+            aria-label="선택 영역을 대화에 붙이기"
+            aria-disabled={hasSelection ? undefined : true}
+            title={hasSelection ? '선택 영역을 대화 입력칸에 붙입니다' : '터미널에서 붙일 글을 먼저 고르세요'}
+            onClick={sendSelection}
+          >
+            <IconChat width="12" height="12" />
+            대화에 붙이기
+          </button>
           {/* 도는 셸만 — 끝난 셸은 끝남 줄의 단추가 다시 띄운다(끝낼 것이 없어 확인도 없다) */}
           {session && !exited && (
             <ConfirmButton
@@ -105,6 +129,7 @@ export function TerminalPane({ workspaceId, repo, onClose }: {
             onReady={(handle) => { view.current = handle; void attach(false) }}
             onData={(data) => { if (!exited) client.terminal.write(repo.id, data) }}
             onResize={(cols, rows) => { client.terminal.resize(repo.id, cols, rows) }}
+            onSelectionChange={setHasSelection}
           />
         </Suspense>
       </div>

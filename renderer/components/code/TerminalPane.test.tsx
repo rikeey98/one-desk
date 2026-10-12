@@ -9,23 +9,26 @@ import { TerminalPane } from './TerminalPane'
 import type { TerminalViewProps } from './TerminalView'
 
 // jsdom에서는 xterm을 그릴 수 없다 — 쓴 글을 기록하고, 키 입력을 흉내 내는 단추를 둔 대역이다(편집기와 같은 방식)
-const view = { written: [] as string[], cleared: 0, focused: 0 }
+const view = { written: [] as string[], cleared: 0, focused: 0, selection: '' }
 vi.mock('./TerminalView', async () => {
   const { useEffect } = await import('react')
   return {
-    TerminalView: ({ onReady, onData }: TerminalViewProps) => {
+    TerminalView: ({ onReady, onData, onSelectionChange }: TerminalViewProps) => {
       // 진짜 껍데기처럼 마운트할 때 한 번만 알린다
       useEffect(() => {
         onReady({
           write: (t) => { view.written.push(t) },
           clear: () => { view.cleared++; view.written.length = 0 },
           size: () => ({ cols: 100, rows: 30 }),
-          focus: () => { view.focused++ }
+          focus: () => { view.focused++ },
+          getSelection: () => view.selection,
+          clearSelection: () => { view.selection = ''; onSelectionChange(false) }
         })
       }, [])
       return (
         <div data-testid="xterm">
           <button type="button" onClick={() => onData('ls\r')}>키 입력</button>
+          <button type="button" onClick={() => { view.selection = 'FAIL a.test.ts'; onSelectionChange(true) }}>글 고르기</button>
         </div>
       )
     }
@@ -44,6 +47,7 @@ function session(over: Partial<TerminalSession> = {}): TerminalSession {
 function setup(open: () => Promise<TerminalSession> = async () => session(), strict = false) {
   view.written.length = 0
   view.cleared = 0
+  view.selection = ''
   const listeners: { data: Array<(d: TerminalData) => void>; exit: Array<(e: TerminalExit) => void> } = { data: [], exit: [] }
   const client = {
     terminal: {
@@ -58,18 +62,19 @@ function setup(open: () => Promise<TerminalSession> = async () => session(), str
     }
   } as unknown as OneDeskClient
   const onClose = vi.fn()
+  const onSendSelection = vi.fn()
   const outer = vi.fn()
   const tree = (
     <ClientProvider client={client}>
       <div onKeyDown={outer}>
-        <TerminalPane workspaceId="w1" repo={repo} onClose={onClose} />
+        <TerminalPane workspaceId="w1" repo={repo} onClose={onClose} onSendSelection={onSendSelection} />
       </div>
     </ClientProvider>
   )
   render(strict ? <StrictMode>{tree}</StrictMode> : tree)
   const emit = (d: TerminalData) => { act(() => { for (const cb of listeners.data) cb(d) }) }
   const exit = (e: TerminalExit) => { act(() => { for (const cb of listeners.exit) cb(e) }) }
-  return { client, onClose, outer, emit, exit }
+  return { client, onClose, onSendSelection, outer, emit, exit }
 }
 
 describe('TerminalPane (docs/sdlc/code-editor/terminal-spec.md)', () => {
@@ -169,5 +174,20 @@ describe('TerminalPane (docs/sdlc/code-editor/terminal-spec.md)', () => {
     await userEvent.click(screen.getByRole('button', { name: '코드 칸 닫기' }))
     expect(onClose).toHaveBeenCalled()
     expect(client.terminal.restart).not.toHaveBeenCalled()
+  })
+
+  it('`대화에 붙이기`는 고른 글이 있을 때만 그 글을 넘기고 선택을 푼다', async () => {
+    const { onSendSelection } = setup()
+    const send = await screen.findByRole('button', { name: '선택 영역을 대화에 붙이기' })
+    expect(send).toHaveAttribute('aria-disabled', 'true')
+    await userEvent.click(send)
+    expect(onSendSelection).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: '글 고르기' }))
+    expect(send).not.toHaveAttribute('aria-disabled')
+    await userEvent.click(send)
+    expect(onSendSelection).toHaveBeenCalledWith('FAIL a.test.ts')
+    expect(view.selection).toBe('')
+    expect(send).toHaveAttribute('aria-disabled', 'true')
   })
 })

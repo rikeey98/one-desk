@@ -6,7 +6,8 @@ import { ConversationPanel } from './ConversationPanel'
 import { ConversationHeader } from './ConversationHeader'
 import { ConversationList } from './ConversationList'
 import { draftKeyOf } from '../store/drafts'
-import { useDraftFilled } from '../store/DraftContext'
+import { useDraftFilled, useDraftStore } from '../store/DraftContext'
+import { terminalSelectionBlock } from '../code/terminalSelection'
 import { SlotIndicator } from './SlotIndicator'
 import { IconChevronDown, IconCollapse, IconFolder, IconMaximize, IconTerminal } from './icons'
 import { FilePane, type OpenRequest } from './code/FilePane'
@@ -85,6 +86,7 @@ export function Dock({
   onOpenIssue?: (issueId: string) => void
 }) {
   const client = useClient()
+  const drafts = useDraftStore()
   const [open, setOpen] = useState(true)
   // 최대화 (`docs/sdlc/conversation-timeline/` spec FR-38) — 도크가 본문 전체 높이를 쓰고 세 패널은
   // CSS로 **숨는다**(언마운트하지 않는다 — 입력 중이던 이슈 본문이 지워지지 않는다). 보기 방식이라
@@ -457,6 +459,17 @@ export function Dock({
   // 2026-09-27). 입력칸이 비면 같은 자리의 전송 버튼이 이미 중지다. 키는 입력부의 초안 키와 같다.
   const hasDraft = useDraftFilled(draftKeyOf(shownConversation?.id ?? null, workspaceId))
 
+  /**
+   * 터미널의 `대화에 붙이기` — 고른 글을 코드 블록으로 지금 보는 대화의 입력칸 끝에 붙인다. 터미널의 repo가 곧 이 대화의
+   * repo라(아래 `paneTarget`) 대상이 갈리지 않는다. 보내지는 않는다. 접힌 도크는 펼친다 — 입력부가 마운트하며 초안을 읽는다.
+   */
+  function sendToConversation(text: string) {
+    const block = terminalSelectionBlock(text)
+    if (!block) return
+    drafts.append(draftKeyOf(shownConversation?.id ?? null, workspaceId), block)
+    setOpen(true)
+  }
+
   // 코드 칸의 대상 repo (FR-6) — 보는 대화의 뿌리 cwd, 새 대화면 입력부의 작업 디렉토리
   const target = paneTarget(shownConversation, newCwd, repos)
   const targetRepo = target.repo
@@ -672,7 +685,13 @@ export function Dock({
             )}
             {/* repo가 바뀌면 그 repo의 셸에 새로 붙는다 — 앞 셸은 core에서 계속 돈다(terminal-spec FR-6) */}
             {targetRepo && paneKind === 'terminal' && (
-              <TerminalPane key={targetRepo.id} workspaceId={workspaceId} repo={targetRepo} onClose={() => setPane(null)} />
+              <TerminalPane
+                key={targetRepo.id}
+                workspaceId={workspaceId}
+                repo={targetRepo}
+                onClose={() => setPane(null)}
+                onSendSelection={sendToConversation}
+              />
             )}
             {!targetRepo && (
               <section className="code-pane code-pane-empty" aria-label="코드 칸">

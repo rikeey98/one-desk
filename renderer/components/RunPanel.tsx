@@ -152,6 +152,15 @@ export function RunPanel({
   useEffect(() => {
     drafts.set(draftKey, prompt)
   }, [drafts, draftKey, prompt])
+  // 밖에서 덧붙인 글(터미널의 `대화에 붙이기`)을 다시 읽고 그 끝에 커서를 둔다
+  useEffect(() => drafts.onAppend((key) => {
+    if (key !== draftKey) return
+    const text = drafts.get(key)
+    setPrompt(text)
+    setCursor(text.length)
+    setHistoryIndex(NO_HISTORY)
+    pendingCursor.current = text.length
+  }), [drafts, draftKey])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const promptRef = inputRef

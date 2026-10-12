@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from './client/ClientProvider'
 import { RunEventProvider } from './store/RunEventContext'
@@ -1907,5 +1907,39 @@ describe('코드 칸의 자리 (docs/sdlc/code-editor/ FR-2, 안 B)', () => {
 
     await openInbox()
     expect(screen.queryByRole('button', { name: '파일' })).not.toBeInTheDocument()
+  })
+})
+
+/** 사이드바 최소화 — 제목 줄의 토글 → Sidebar의 `collapsed` 한 줄을 지킨다 */
+describe('사이드바 최소화 배선', () => {
+  beforeEach(() => { localStorage.clear() })
+  afterEach(() => { localStorage.clear() })
+
+  it('제목 줄의 토글이 사이드바를 아이콘 줄로 접고 되돌린다', async () => {
+    renderApp(makeClient())
+    await screen.findByRole('button', { name: 'ws1' })
+
+    const toggle = screen.getByRole('button', { name: '사이드바 최소화' })
+    expect(toggle.closest('.titlebar')).not.toBeNull()
+    await userEvent.click(toggle)
+
+    expect(screen.getByRole('navigation')).toHaveClass('sidebar-collapsed')
+    expect(screen.queryByRole('button', { name: 'ws1' })).not.toBeInTheDocument()
+    // 접혀도 화면 이동은 그대로 닿는다
+    expect(inboxLink()).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '사이드바 복원' }))
+    expect(screen.getByRole('navigation')).not.toHaveClass('sidebar-collapsed')
+    expect(screen.getByRole('button', { name: 'ws1' })).toBeInTheDocument()
+  })
+
+  it('접은 상태를 이 장비에 기억한다', async () => {
+    renderApp(makeClient())
+    await userEvent.click(await screen.findByRole('button', { name: '사이드바 최소화' }))
+    cleanup()
+
+    renderApp(makeClient())
+    expect(await screen.findByRole('button', { name: '사이드바 복원' })).toBeInTheDocument()
+    expect(screen.getByRole('navigation')).toHaveClass('sidebar-collapsed')
   })
 })

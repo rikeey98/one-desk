@@ -53,6 +53,7 @@ function renderSidebar(over: {
   planUsage?: PlanUsage | null
   onDeleted?: (id: string) => void
   onSelectReport?: () => void
+  collapsed?: boolean
   client?: OneDeskClient
 } = {}) {
   render(
@@ -73,6 +74,7 @@ function renderSidebar(over: {
         mcpStatus={over.mcpStatus ?? { state: 'listening', port: 12345 }}
         planUsage={over.planUsage ?? null}
         onDeleted={over.onDeleted ?? vi.fn()}
+        collapsed={over.collapsed ?? false}
       />
     </ClientProvider>
   )
@@ -154,6 +156,7 @@ function renderSidebarRaw(mcpStatus: McpStatus) {
           countsError={null}
           mcpStatus={status}
           planUsage={null}
+          collapsed={false}
         />
       </ClientProvider>
     )
@@ -177,7 +180,7 @@ describe('MCP 상태 줄', () => {
 
   it('failed면 실패로 보여주고 사유를 title에 담는다', () => {
     renderSidebar({ mcpStatus: { state: 'failed', message: 'EADDRINUSE' } })
-    const row = screen.getByText(/MCP 연결 실패/)
+    const row = screen.getByText(/MCP 연결 실패/).closest('.mcp-status')
     expect(row).toBeInTheDocument()
     expect(row).toHaveAttribute('title', 'EADDRINUSE')
   })
@@ -308,5 +311,23 @@ describe('리포트 진입점 (docs/sdlc/period-report/ FR-13)', () => {
     expect(screen.getByRole('button', { name: '리포트' })).toHaveClass('inbox-link-selected')
     expect(screen.getByRole('button', { name: '리포트' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByRole('button', { name: 'ws-1' })).not.toHaveClass('ws-selected')
+  })
+
+  it('접히면 workspace 목록과 요금제 줄 없이 아이콘 타일만 남는다 — 이름과 배지는 그대로다', () => {
+    const resetsAt = Date.now() + 3_600_000
+    renderSidebar({
+      collapsed: true,
+      counts: { total: 3, byWorkspace: { w1: 2 } },
+      planUsage: { fiveHour: { utilization: 0.1, resetsAt }, sevenDay: { utilization: 0.1, resetsAt }, limited: false, observedAt: Date.now() }
+    })
+    expect(screen.queryByText('ws-1')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('새 workspace 이름…')).not.toBeInTheDocument()
+    expect(screen.queryByText(/요금제/)).not.toBeInTheDocument()
+    const inbox = screen.getByRole('button', { name: /인박스/ })
+    expect(inbox).toHaveTextContent('3')
+    expect(inbox).toHaveAttribute('title', '인박스')
+    expect(screen.getByRole('button', { name: '설정' })).toHaveAttribute('title', '설정')
+    // MCP는 점만 보이므로 상태를 풍선이 말한다
+    expect(document.querySelector('.mcp-status')).toHaveAttribute('title', 'MCP :12345')
   })
 })

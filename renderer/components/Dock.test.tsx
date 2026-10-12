@@ -22,10 +22,11 @@ vi.mock('./code/CodeEditor', () => ({
 }))
 // 터미널 칸은 xterm·IPC를 품는다 — 도크 테스트는 어느 repo로 어떤 칸이 서는지만 본다(TerminalPane.test가 칸을 본다)
 vi.mock('./code/TerminalPane', () => ({
-  TerminalPane: ({ repo, onClose }: { repo: Repo; onClose: () => void }) => (
+  TerminalPane: ({ repo, onClose, onSendSelection }: { repo: Repo; onClose: () => void; onSendSelection: (text: string) => void }) => (
     <section aria-label="터미널 칸">
       {repo.name}의 셸
       <button type="button" onClick={onClose}>코드 칸 닫기</button>
+      <button type="button" onClick={() => onSendSelection('$ npm test  \nFAIL a.test.ts')}>선택 영역을 대화에 붙이기</button>
     </section>
   )
 }))
@@ -1630,6 +1631,32 @@ describe('코드 칸 (docs/sdlc/code-editor/ FR-1~FR-7·FR-23)', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '터미널' }))
     expect(screen.queryByRole('region', { name: '터미널 칸' })).not.toBeInTheDocument()
+  })
+
+  it('터미널의 `대화에 붙이기`는 고른 글을 코드 블록으로 보는 대화의 입력칸 끝에 붙이고 그리로 간다', async () => {
+    const { client } = paneClient()
+    renderPaneDock([webConv], client)
+    await pickConv('web 대화')
+    await userEvent.type(screen.getByLabelText('지시'), '이 실패를 고쳐 줘')
+    await userEvent.click(screen.getByRole('button', { name: '터미널' }))
+
+    await userEvent.click(screen.getByRole('button', { name: '선택 영역을 대화에 붙이기' }))
+    const input = screen.getByLabelText('지시')
+    const expected = '이 실패를 고쳐 줘\n\n```\n$ npm test\nFAIL a.test.ts\n```\n'
+    expect(input).toHaveValue(expected)
+    expect(input).toHaveFocus()
+    expect((input as HTMLTextAreaElement).selectionStart).toBe(expected.length)
+  })
+
+  it('도크를 접은 채 붙이면 도크가 펼쳐지고 입력칸에 글이 있다', async () => {
+    const { client } = paneClient()
+    renderPaneDock([webConv], client)
+    await pickConv('web 대화')
+    await userEvent.click(screen.getByRole('button', { name: '터미널' }))
+    await userEvent.click(screen.getByRole('button', { name: '대화창 숨기기' }))
+
+    await userEvent.click(screen.getByRole('button', { name: '선택 영역을 대화에 붙이기' }))
+    expect(screen.getByLabelText('지시')).toHaveValue('```\n$ npm test\nFAIL a.test.ts\n```\n')
   })
 
   it('등록된 repo가 아닌 대화(기타)는 터미널도 비활성이고 이유를 말한다', async () => {

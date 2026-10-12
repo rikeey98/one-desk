@@ -336,6 +336,13 @@ core에 산다**(`core/terminal/service.ts`) — 칸을 닫거나 다른 repo로
 `terminal.shell`)이고 비면 PATH의 `pwsh` → Windows PowerShell(posix는 `$SHELL`). 렌더러는 repo id만 넘긴다 — cwd·셸·명령을 정하지
 못한다. pty는 **네이티브 모듈 `node-pty` 1.1.0**이다(아래 함정 절). 화면은 `@xterm/xterm` 6.0.0(지연 로드). `e2e/terminal.e2e.ts`가
 진짜 셸로 출력·repo 전환·다시 시작·셸 바꾸기·**앱을 끄면 셸의 자식 프로세스까지 끝나는지**(pid)를 본다.
+터미널 칸 머리의 `대화에 붙이기`(이름 `선택 영역을 대화에 붙이기`)가 고른 글을 코드 블록(`code/terminalSelection.ts`)으로 **도크가
+보는 대화의 입력칸 끝**에 붙인다 — 보내지는 않는다. 통로는 초안 스토어의 `append`/`onAppend`다: 입력부는 글을 state로 쥐므로
+`set`만으로는 모르고, `set`을 들으면 전송이 비우는 자기 쓰기에도 반응한다. 접힌 도크는 펼친다.
+
+**사이드바를 아이콘 줄로 접는다.** 제목 줄 왼쪽 끝의 `사이드바 최소화`/`사이드바 복원`(App이 쥐고 `Sidebar`의 필수 prop
+`collapsed`로 내린다, 이 장비의 localStorage `one-desk.sidebar.collapsed`). 접히면 인박스·리포트·설정 타일과 MCP 점만 남고
+workspace 목록·요금제 줄은 그리지 않는다. 타일의 글자는 화면에서만 숨겨 버튼 이름이 그대로라 e2e의 `{ name: '설정' }`이 산다.
 
 **인박스를 시간순 · workspace별 · 상태별로 본다** (`docs/sdlc/inbox-views/`). 마이그레이션·IPC 없음 — 렌더러만. 목록 위 도구 줄이
 보기 세 칸(`인박스 보기` 그룹)과 정렬 버튼(`정렬: 최신 먼저`/`정렬: 오래된 먼저` — 기준은 대표 턴의 `endedAt`, 오래된 먼저는 최신 먼저를

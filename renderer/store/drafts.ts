@@ -16,24 +16,43 @@
 export function createDraftStore() {
   const drafts = new Map<string, string>()
   const listeners = new Set<() => void>()
+  const appendListeners = new Set<(key: string) => void>()
+
+  const get = (key: string): string => drafts.get(key) ?? ''
+
+  /** 빈 값은 지운다 — 전송이 성공하면 그 키를 비운다. 값이 바뀌었을 때만 알린다. */
+  function set(key: string, value: string): void {
+    if (get(key) === value) return
+    if (value === '') drafts.delete(key)
+    else drafts.set(key, value)
+    for (const listener of listeners) listener()
+  }
 
   return {
-    get(key: string): string {
-      return drafts.get(key) ?? ''
-    },
-
-    /** 빈 값은 지운다 — 전송이 성공하면 그 키를 비운다. 값이 바뀌었을 때만 알린다. */
-    set(key: string, value: string): void {
-      if ((drafts.get(key) ?? '') === value) return
-      if (value === '') drafts.delete(key)
-      else drafts.set(key, value)
-      for (const listener of listeners) listener()
-    },
+    get,
+    set,
 
     /** 바뀔 때마다 부른다. 돌려준 함수로 끊는다 — `useSyncExternalStore`의 모양이다. */
     subscribe(listener: () => void): () => void {
       listeners.add(listener)
       return () => { listeners.delete(listener) }
+    },
+
+    /**
+     * 입력부 밖에서 글을 덧붙인다 — 터미널의 `대화에 붙이기`. 쓰던 글이 있으면 빈 줄 하나를 두고 뒤에 붙인다. 입력부는
+     * 자기 글을 state로 쥐므로 `onAppend`로 듣고 다시 읽는다(떠 있지 않으면 마운트할 때 읽는다). `set`과 알림을 가르는
+     * 것은 전송이 비우는 것 같은 입력부 자신의 쓰기에 입력부가 반응하지 않게 하려는 것이다.
+     */
+    append(key: string, text: string): void {
+      const head = get(key).replace(/\s+$/, '')
+      set(key, head ? `${head}\n\n${text}` : text)
+      for (const listener of appendListeners) listener(key)
+    },
+
+    /** `append`가 덧붙일 때마다 그 키로 부른다 */
+    onAppend(listener: (key: string) => void): () => void {
+      appendListeners.add(listener)
+      return () => { appendListeners.delete(listener) }
     }
   }
 }

@@ -11,9 +11,13 @@ import type { InboxCounts, McpStatus, PlanUsage, Workspace } from '@shared/model
  * 자기 인스턴스를 따로 가지면 다른 인스턴스(App→InboxPanel 등)가 새 workspace를
  * 모르게 된다(App.tsx의 주석 참고). */
 export function Sidebar({
-  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectInbox, onSelectReport, onSelectSettings, counts, countsError, mcpStatus, planUsage, onDeleted, repoTree
+  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectInbox, onSelectReport, onSelectSettings, counts, countsError, mcpStatus, planUsage, onDeleted, repoTree,
+  collapsed
 }: {
   workspaces: Workspace[]
+  /** 아이콘 줄로 접혔는가 — 제목 줄의 `사이드바 최소화`가 App에서 세운다. 접히면 화면 이동·설정·MCP 점만 남고
+   *  workspace 목록과 요금제 줄은 그리지 않는다. 글자는 화면에서만 숨겨 버튼 이름은 그대로다. */
+  collapsed: boolean
   /** 고른 workspace 아래에 들여쓰기로 붙는 repo 목록(App이 RepoStrip을 넘긴다).
    *  본문 상단에 있던 것을 여기로 옮겼다 — 세 패널이 그만큼 높아진다. */
   repoTree?: ReactNode
@@ -63,7 +67,7 @@ export function Sidebar({
   }
 
   return (
-    <nav className="sidebar">
+    <nav className={collapsed ? 'sidebar sidebar-collapsed' : 'sidebar'}>
       {/* workspace를 가로지르는 화면 둘. 아이콘 타일이 있어야 제목이 아니라 누르는 줄로 읽힌다(2026-10-07 —
           굵은 글자만 있던 "인박스"는 구획 제목처럼 보였다). 설정도 같은 모양이다. */}
       <div className="sidebar-nav">
@@ -72,6 +76,7 @@ export function Sidebar({
         className={view === 'inbox' ? 'inbox-link nav-item nav-item-selected inbox-link-selected' : 'inbox-link nav-item'}
         aria-current={view === 'inbox' ? 'page' : undefined}
         onClick={onSelectInbox}
+        title={collapsed ? '인박스' : undefined}
       >
         <span className="nav-icon"><IconInbox /></span>
         <span className="nav-label">인박스</span>
@@ -87,11 +92,13 @@ export function Sidebar({
         className={view === 'report' ? 'inbox-link nav-item nav-item-selected inbox-link-selected' : 'inbox-link nav-item'}
         aria-current={view === 'report' ? 'page' : undefined}
         onClick={onSelectReport}
+        title={collapsed ? '리포트' : undefined}
       >
         <span className="nav-icon"><IconChart /></span>
         <span className="nav-label">리포트</span>
       </button>
       </div>
+      {!collapsed && <>
       <div className="sidebar-label">Workspaces</div>
       <AddForm placeholder="새 workspace 이름…" onSubmit={addWorkspace} />
       {error && <div role="alert" className="form-error">{error}</div>}
@@ -159,18 +166,20 @@ export function Sidebar({
           </li>
         ))}
       </ul>
+      </>}
 
       <button
         type="button"
         className={view === 'settings' ? 'settings-link nav-item nav-item-selected settings-link-selected' : 'settings-link nav-item'}
         aria-current={view === 'settings' ? 'page' : undefined}
         onClick={onSelectSettings}
+        title={collapsed ? '설정' : undefined}
       >
         <span className="nav-icon"><IconSettings /></span>
         <span className="nav-label">설정</span>
       </button>
-      <McpStatusRow status={mcpStatus} />
-      {planUsage && <PlanUsageRow usage={planUsage} />}
+      <McpStatusRow status={mcpStatus} compact={collapsed} />
+      {planUsage && !collapsed && <PlanUsageRow usage={planUsage} />}
     </nav>
   )
 }
@@ -202,7 +211,7 @@ function PlanUsageRow({ usage }: { usage: PlanUsage }) {
  * 포트를 그대로 보여준다 — "서버가 정말 떴는가"와 "몇 번인가"를 눈으로 확인해야
  * 하는 상황이 실제로 있었다. 실패 사유는 길어질 수 있어 title에 넣는다.
  */
-function McpStatusRow({ status }: { status: McpStatus }) {
+function McpStatusRow({ status, compact }: { status: McpStatus; compact: boolean }) {
   const label =
     status.state === 'listening' ? `MCP :${status.port}`
     : status.state === 'starting' ? 'MCP 시작 중'
@@ -212,10 +221,11 @@ function McpStatusRow({ status }: { status: McpStatus }) {
     <div
       className={`mcp-status mcp-status-${status.state}`}
       aria-live="polite"
-      {...(status.state === 'failed' ? { title: status.message } : {})}
+      {...(status.state === 'failed' ? { title: compact ? `${label}: ${status.message}` : status.message } : compact ? { title: label } : {})}
     >
       <span className="mcp-dot" aria-hidden="true" />
-      {label}
+      {/* 접힌 사이드바에서는 점만 보인다 — 글자는 화면에서만 숨긴다 */}
+      <span className="mcp-label">{label}</span>
     </div>
   )
 }

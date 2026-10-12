@@ -140,6 +140,8 @@ body { margin: 0; background: var(--bg); color: var(--text); }
    높이 바로 밑에 그으면 OS 단추가 배율 반올림으로 그 줄을 덮어 단추 밑에서 선이 끊겨 보였다(캡처). */
 .titlebar { flex: 0 0 auto; box-sizing: content-box; display: flex; align-items: center; justify-content: flex-end; height: env(titlebar-area-height, 36px); padding-bottom: 1px; padding-left: env(titlebar-area-x, 0px); padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)); border-bottom: 1px solid var(--border); user-select: none; -webkit-app-region: drag; app-region: drag; }
 .titlebar-actions { display: flex; align-items: center; gap: 2px; padding: 0 6px; -webkit-app-region: no-drag; app-region: no-drag; }
+/* 왼쪽 끝의 사이드바 토글 — 나머지 단추는 오른쪽 끝에 남는다 */
+.titlebar-start { margin-right: auto; }
 .app { display: flex; flex: 1; min-height: 0; }
 .sidebar { flex: 0 0 236px; min-width: 0; overflow-x: hidden; overflow-y: auto; display: flex; flex-direction: column; background: transparent; border-right: 1px solid var(--border); padding: 12px 10px; }
 /* 사이드바 위의 화면 이동(인박스·리포트)과 아래의 설정 — 아이콘 타일 + 글자. 타일은 쉬는 동안에도 테두리가 있어
@@ -156,6 +158,14 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .settings-link.nav-item { color: var(--text-secondary); }
 .settings-link.nav-item-selected { color: var(--accent-text); }
 @media (prefers-reduced-motion: reduce) { .nav-item:active .nav-icon { transform: none; } }
+/* 아이콘 줄로 접은 사이드바 — 제목 줄의 `사이드바 최소화`. 타일만 남기고 글자는 화면에서만 숨긴다(버튼 이름은 그대로라
+   `title` 풍선이 말한다). 배지는 타일 오른쪽 위에 얹고, 설정과 MCP 점은 바닥으로 내린다. */
+.sidebar-collapsed { flex-basis: 52px; padding: 12px 8px; }
+.sidebar-collapsed .nav-item { position: relative; justify-content: center; padding: 5px 0; }
+.sidebar-collapsed .nav-label, .sidebar-collapsed .mcp-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.sidebar-collapsed .nav-item .badge { position: absolute; top: 0; right: 0; padding: 0 4px; }
+.sidebar-collapsed .settings-link { margin-top: auto; }
+.sidebar-collapsed .mcp-status { margin-top: 6px; justify-content: center; padding: 10px 0 0; cursor: help; }
 .sidebar-label { font-size: .6875rem; letter-spacing: .07em; text-transform: uppercase; color: var(--text-muted); font-weight: 700; margin: 10px 0 6px; }
 .sidebar ul { list-style: none; margin: 0; padding: 0; }
 .ws { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; padding: 6px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text); cursor: pointer; font: inherit; font-size: .8125rem; transition: background .12s; }
@@ -1291,6 +1301,8 @@ button.report-flow-line:hover { background: var(--bg-muted); }
 .code-pane > .conflict-banner { flex-wrap: wrap; }
 .code-pane > .conflict-banner button, .code-pane-note button { white-space: nowrap; }
 .code-pane-discard.row-action, .terminal-restart.row-action { width: auto; padding: 0 7px; white-space: nowrap; }
+.terminal-send.row-action { width: auto; gap: 4px; padding: 0 7px; white-space: nowrap; }
+.terminal-send[aria-disabled="true"], .terminal-send[aria-disabled="true"]:hover { background: transparent; color: var(--text-muted); cursor: default; }
 
 .code-pane-body { flex: 1 1 auto; display: flex; min-width: 0; min-height: 0; }
 .code-pane-editor { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; }

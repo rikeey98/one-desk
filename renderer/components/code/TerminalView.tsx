@@ -15,6 +15,9 @@ export interface TerminalViewHandle {
   clear(): void
   size(): { cols: number; rows: number }
   focus(): void
+  /** 고른 글 — 없으면 빈 문자열 */
+  getSelection(): string
+  clearSelection(): void
 }
 
 export interface TerminalViewProps {
@@ -23,6 +26,8 @@ export interface TerminalViewProps {
   /** 키 입력·붙여넣기 */
   onData: (data: string) => void
   onResize: (cols: number, rows: number) => void
+  /** 고른 글이 생기고 없어질 때 */
+  onSelectionChange: (hasSelection: boolean) => void
 }
 
 /** 색은 토큰에서 온다 — 테마가 바뀌면 다시 읽는다(DESIGN.md: 색은 `:root` 토큰에서만) */
@@ -45,11 +50,11 @@ function themeFromTokens(): ITheme {
   }
 }
 
-export function TerminalView({ onReady, onData, onResize }: TerminalViewProps) {
+export function TerminalView({ onReady, onData, onResize, onSelectionChange }: TerminalViewProps) {
   const host = useRef<HTMLDivElement | null>(null)
   // 콜백은 마운트 한 번에 걸린다 — 바뀐 콜백을 ref로 따라간다
-  const handlers = useRef({ onReady, onData, onResize })
-  handlers.current = { onReady, onData, onResize }
+  const handlers = useRef({ onReady, onData, onResize, onSelectionChange })
+  handlers.current = { onReady, onData, onResize, onSelectionChange }
 
   useEffect(() => {
     const el = host.current
@@ -83,6 +88,7 @@ export function TerminalView({ onReady, onData, onResize }: TerminalViewProps) {
 
     const dataSub = term.onData((data) => { handlers.current.onData(data) })
     const resizeSub = term.onResize(({ cols, rows }) => { handlers.current.onResize(cols, rows) })
+    const selectionSub = term.onSelectionChange(() => { handlers.current.onSelectionChange(term.hasSelection()) })
     // 칸의 폭(경계 끌기)·높이(창 크기)가 바뀌면 열·행을 다시 잰다
     const observer = new ResizeObserver(() => {
       try { fit.fit() } catch { /* 칸이 접히는 순간에는 잴 수 없다 */ }
@@ -96,7 +102,9 @@ export function TerminalView({ onReady, onData, onResize }: TerminalViewProps) {
       write: (text) => { term.write(text) },
       clear: () => { term.reset() },
       size: () => ({ cols: term.cols, rows: term.rows }),
-      focus: () => { term.focus() }
+      focus: () => { term.focus() },
+      getSelection: () => term.getSelection(),
+      clearSelection: () => { term.clearSelection() }
     })
 
     return () => {
@@ -104,6 +112,7 @@ export function TerminalView({ onReady, onData, onResize }: TerminalViewProps) {
       observer.disconnect()
       dataSub.dispose()
       resizeSub.dispose()
+      selectionSub.dispose()
       term.dispose()
     }
   }, [])

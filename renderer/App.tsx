@@ -23,6 +23,8 @@ import type { AssignedIssue, Memo, Run } from '@shared/models'
 import { ReportPanel, initialReportQuery, POLISH_PROMPT, type ReportQuery } from './components/ReportPanel'
 import { CloseConfirm } from './components/code/CloseConfirm'
 import { CodePaneSlotContext, TitleBarSlotContext } from './components/code/CodePaneContext'
+import { IconSidebar } from './components/icons'
+import { readSidebarCollapsed, writeSidebarCollapsed } from './sidebarCollapsed'
 
 export default function App() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
@@ -81,6 +83,14 @@ export default function App() {
   const [codeSlot, setCodeSlot] = useState<HTMLElement | null>(null)
   // 코드 칸 버튼이 설 자리 — 제목 줄 오른쪽 끝, OS 창 단추 바로 왼쪽 (code-editor FR-1, 2026-10-10). 버튼도 도크가 그려 보낸다.
   const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null)
+  // 사이드바를 아이콘 줄로 접었는가 — 토글이 제목 줄에 있어 여기서 쥔다. 이 장비에 기억한다
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed)
+
+  function toggleSidebar() {
+    const next = !sidebarCollapsed
+    setSidebarCollapsed(next)
+    writeSidebarCollapsed(next)
+  }
 
   const chipKeys = useMemo(() => new Set(chips.map(chipKey)), [chips])
 
@@ -306,6 +316,19 @@ export default function App() {
       {/* 앱 창의 제목 줄 — OS 제목 표시줄 대신이다(electron/windows.ts). 빈 곳을 끌면 창이 움직이고, 오른쪽 끝은 OS가
           최소화·최대화·닫기를 겹쳐 그린다(CSS가 그 자리를 비운다). 그 바로 왼쪽에 코드 칸 버튼이 선다. */}
       <header className="titlebar">
+        {/* 왼쪽 열(사이드바)의 토글은 왼쪽 끝, 오른쪽 열(코드 칸)의 버튼은 오른쪽 끝이다. 이름에 "접기"·"펼치기"를 넣지
+            않는다 — 턴의 `접기`와 부분 일치로 부딪힌다(CLAUDE.md의 새 이름 항목). */}
+        <div className="titlebar-actions titlebar-start">
+          <button
+            type="button"
+            className="titlebar-button"
+            aria-label={sidebarCollapsed ? '사이드바 복원' : '사이드바 최소화'}
+            title={sidebarCollapsed ? '사이드바 복원' : '사이드바 최소화'}
+            onClick={toggleSidebar}
+          >
+            <IconSidebar width="15" height="15" />
+          </button>
+        </div>
         <div className="titlebar-actions" ref={setTitleSlot} />
       </header>
       <div className="app">
@@ -325,6 +348,7 @@ export default function App() {
           mcpStatus={mcpStatus}
           planUsage={planUsage}
           onDeleted={forgetWorkspace}
+          collapsed={sidebarCollapsed}
           // repo 목록은 사이드바의 고른 workspace 아래에 붙는다 (2026-09-22). 본문 상단에
           // 있던 것을 옮겼다 — 같은 useRepos 인스턴스를 RunPanel과 나눠 쓰는 것은 그대로다.
           repoTree={workspaceId ? (
