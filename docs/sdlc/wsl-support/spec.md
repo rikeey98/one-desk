@@ -139,12 +139,14 @@ MCP는 지금 구조 그대로다 — 브리지는 Windows 프로세스이고, W
 - **FR-22** **브리지는 WSL run에서 env에 기대지 않는다.** interop 경계에서 Linux 환경이 Windows 프로세스로 넘어가는지는
   문서가 분명하지 않다(`WSLENV`는 그 목록을 "포함할 변수"라고 말한다). 그래서 `ELECTRON_RUN_AS_NODE`·`ONE_DESK_MCP_URL`·
   `ONE_DESK_MCP_TOKEN`을 env로 주는 대신 — (1) `ELECTRON_RUN_AS_NODE`는 **Windows 쪽 설정 파일 하나로 대체할 수 없으므로**
-  §4의 1이 실측 1순위다(안 넘어가면 FR-23의 대안), (2) URL·토큰은 브리지가 둘째 인자의 파일에서 읽는다(파일은 Windows
+  FR-23의 배치 파일이 세운다(실측을 못 해 env에 기대지 않는 쪽으로 갔다 — §4-A), (2) URL·토큰은 브리지가 둘째 인자의 파일에서 읽는다(파일은 Windows
   쪽 0600, 토큰은 인자에 나가지 않는다 — 지금의 "토큰은 커맨드 인자에 넣지 않는다" 그대로). 브리지(`bridge.mjs`)는 env가
   있으면 env, 없으면 둘째 인자의 파일 — 둘 중 하나다. Windows run은 바뀌지 않는다(env).
-- **FR-23** (§4의 1이 "env가 안 넘어간다"로 나오면) `command`를 `/mnt/c/Windows/System32/cmd.exe`, `args`를
-  `['/c', 'set ELECTRON_RUN_AS_NODE=1&& "<exe>" "<bridge>" "<config>"']`로 한다. 인용은 `cmd.exe` 규칙 하나뿐이라
-  결정적이다. spec은 둘 다 적어 두고 plan이 실측으로 하나를 고른다.
+- **FR-23** **(개정 2026-10-12 — 실측 없이 가기로 해 이것이 유일한 길이다)** `command`는 `cmd.exe`의 Linux 경로
+  (`/mnt/c/Windows/System32/cmd.exe`, `%SystemRoot%`를 `wslpath`로), `args`는 `['/c', '<Windows 경로>\<runId>.bridge.cmd']`뿐이고
+  `env`가 없다. 그 배치가 `set ELECTRON_RUN_AS_NODE=1` 뒤에 `"<exe>" "<bridge>" "<bridge.json>"`(전부 Windows 경로)을 띄운다 —
+  env가 interop 경계를 넘든 안 넘든 같다. 인용은 배치 안의 따옴표뿐이고(`%`만 `%%`), `cmd.exe /c "<경로>"`는 인자가 하나라
+  interop의 인용 규칙에 걸릴 것이 없다. 원래의 "실측으로 FR-22(env)와 둘 중 하나를 고른다"는 사라졌다.
 - **FR-24** `--allowedTools`의 `mcp__one-desk` 접두사·`--strict-mcp-config`·`mcpToolPrefixes`는 그대로다. MCP 도구의
   시각·권한·workspace 경계(전체 설계 §8)는 환경을 모른다 — 토큰이 run을 정한다.
 
@@ -157,8 +159,8 @@ MCP는 지금 구조 그대로다 — 브리지는 Windows 프로세스이고, W
   이 함수라 **한 자리다.**
 - **FR-26** 파일 읽기(`@`·코드 칸)·쓰기·해시·asset 스캔·`readBody`는 **바뀌지 않는다** — `repo.path`가 UNC라 지금 코드가
   그대로 Windows에서 읽고 쓴다. 줄바꿈·BOM 되살리기도 그대로다(파일은 그 바이트 그대로 9P를 지난다). `resolveRepoPath`의
-  realpath가 UNC에서도 "루트 밖"을 가르는지는 §5의 실측 항목이다(`\\?\UNC\…` 접두사로 돌아올 수 있다 — 그러면 비교 전에
-  양쪽을 같은 형태로 맞춘다. 순수 함수이므로 단위 테스트가 그 모양을 고정한다).
+  realpath가 UNC를 어느 형태로 돌려주는지는 실측하지 못했으므로(`\\?\UNC\…` 접두사·`wsl.localhost`) 비교 전에 양쪽을
+  `foldUncPrefix`로 같은 형태(`\\wsl$\…`)로 맞춘다 — 순수 함수이고 단위 테스트가 그 모양을 고정한다(개정 2026-10-12).
 - **FR-27** 글로벌 asset 경로: 앱 탭의 `글로벌 skill 경로 (claude)` 옆에 **`WSL 글로벌 skill 경로 (claude)`** 칸이 선다
   (`app_setting`의 `assets.globalRoots.claude.wsl`, 여러 줄, **Linux 경로**, 기본 `~/.claude/skills`). 스캔은 WSL repo가
   있는 workspace에서 그 repo들의 distro마다 `~`를 그 distro의 홈(`wsl.exe -d <distro> -- sh -c 'echo $HOME'`, distro마다
@@ -221,9 +223,9 @@ IPC 새 채널은 `wsl.listDistros` 하나다. 나머지는 기존 채널의 타
 
 ## 4. 우려
 
-1. **interop 경계를 env가 넘는가 (실측 1순위, 설계가 갈린다).** FR-21의 브리지는 Windows 프로세스인데 `ELECTRON_RUN_AS_NODE`가
-   없으면 Electron이 **창을 띄운다.** Linux에서 `FOO=1 /mnt/c/Windows/System32/cmd.exe /c set FOO`로 본다. 넘으면 FR-22,
-   안 넘으면 FR-23. 둘 다 안 되면(interop 자체가 꺼진 distro — `wsl.conf`의 `interop.enabled=false`) WSL 쪽 node로 브리지를
+1. **interop 경계를 env가 넘는가.** FR-21의 브리지는 Windows 프로세스인데 `ELECTRON_RUN_AS_NODE`가
+   없으면 Electron이 **창을 띄운다.** 원래는 실측 1순위였으나 **2026-10-12에 사용자가 실측을 건너뛰기로 해**("내가 실측을
+   할수 없는 환경이라 실측은 건너뛰고 만들어줘") 어느 쪽이든 되는 FR-23(배치 파일)으로 갔다. 그것도 안 되면(interop 자체가 꺼진 distro — `wsl.conf`의 `interop.enabled=false`) WSL 쪽 node로 브리지를
    띄우고 호스트 IP로 HTTP를 건너는 intent의 원안으로 돌아가야 하고, 그것은 MCP 서버의 바인딩을 바꾸는 별도 spec이다.
    **interop이 꺼진 distro는 이번 범위에서 지원하지 않는다**(preflight가 `interop`을 한 번 확인해 거부한다 — plan).
 2. **`wsl.exe`의 파이프 통과.** 자식 명령의 stdout/stdin이 바이트 그대로 지나는지(UTF-16 변환·`\r\n` 삽입 없음), 큰 출력
@@ -267,8 +269,10 @@ IPC 새 채널은 `wsl.listDistros` 하나다. 나머지는 기존 채널의 타
   안 되고, e2e가 `\\wsl$\…`가 없는 장비에서도 라디오를 바꿔 볼 수 있다. 경로를 **바꿀 때**는 지금처럼 검사한다.
 - `AgentStatuses`·`AgentProbes`의 `wsl` 칸은 `distro`를 품는다(FR-13). `WslDistros`에 `supported`가 있어 렌더러가 Windows가 아닌
   장비에서 라디오·앱 탭의 두 절을 그리지 않는다(FR-4).
-- **실측은 하나도 하지 못했다** — 구현 환경이 Linux 컨테이너다. §4의 1·2·3, `realpath`의 UNC 형태, `wslpath`, 실제 run·MCP·취소·
-  터미널·앱 종료는 전부 사용자 Windows 장비에서 봐야 하고, plan의 "완료 증명"에 그 명령이 있다.
+- **실측은 하지 않는다 — 사용자 결정(2026-10-12).** 구현 환경이 Linux 컨테이너이고 사용자도 WSL 장비가 없어 §4의 1·2·3,
+  `realpath`의 UNC 형태, `wslpath`, 실제 run·MCP·취소·터미널·앱 종료를 보지 않은 채로 간다. 결과에 따라 설계가 갈리던 두 자리는
+  **어느 쪽이든 되게** 바꿨다: 브리지는 FR-23의 배치 파일(env에 기대지 않는다), `resolveRepoPath`는 `foldUncPrefix`(FR-26).
+  나머지(파이프·그룹 kill·`wslpath`)는 spec대로 구현했고 처음 쓰는 사람이 본다 — 릴리스 노트가 그렇게 말한다.
 
 ## 5. 검증
 
@@ -285,6 +289,6 @@ IPC 새 채널은 `wsl.listDistros` 하나다. 나머지는 기존 채널의 타
   **가짜 `wsl.exe`**(`ONE_DESK_FAKE_WSL` — 인자를 캡처 파일에 쓰고 안의 명령을 그대로 띄우는 node 스크립트)로 run이 `wsl.exe
   -d <distro> --cd <linux 경로> -- …` 모양으로 떴는지, `--mcp-config`가 Linux 경로인지, 취소가 `kill -TERM -- -<pgid>`를
   보냈는지. 이 가짜는 e2e의 기존 가짜 CLI 규칙을 따른다(기본 시나리오를 건드리지 않는다).
-- 실측(사용자 Windows 장비, plan의 완료 증명): §4의 1·2·3, `realpath`의 UNC 형태, `wslpath` 변환, 실제 claude로 한 턴 +
-  MCP `list_issues` 한 번 + 취소 한 번 + 터미널에서 `echo` + 앱 종료 뒤 WSL 안에 프로세스가 남지 않음(`ps` 확인).
+- 실측은 없다(§4-A — 사용자 결정). 처음 WSL repo를 쓰는 사람이 보는 것이 곧 첫 실측이다: 한 턴 + MCP `list_issues` + 취소 +
+  터미널 `echo` + 앱 종료 뒤 WSL 안에 프로세스가 남지 않음(`ps`). 안 되는 것은 이슈로 받는다.
 - 캡처(라이트·다크): repo 탭의 라디오와 안내, 실행 탭의 WSL 줄, 터미널 칸 머리 `wsl · Ubuntu`.

@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { buildServer, type McpHostDeps } from './tools'
-import { bridgeFileOf, clearMcpConfigs, MCP_SERVER_NAME, removeMcpConfig, writeMcpConfig } from './configFile'
+import { clearMcpConfigs, MCP_SERVER_NAME, removeMcpConfig, writeMcpConfig } from './configFile'
 import type { ProcessEnvSpec } from '../wsl/env'
 import { consoleErrorSink, type ErrorSink } from '../errors'
 import type { AgentKind, McpStatus, Permission } from '@shared/models'
@@ -43,6 +43,8 @@ export interface McpHostOptions {
   execPath: string
   /** Windows 경로 → 그 distro 안의 경로 (wsl-support FR-11). WSL run이 있을 때만 쓰며, 없으면 WSL run의 준비가 실패한다 */
   toLinux?: (distro: string, windowsPath: string) => Promise<string>
+  /** WSL run의 브리지를 띄우는 `cmd.exe` (wsl-support FR-23). 기본은 `%SystemRoot%\System32\cmd.exe` */
+  cmdExePath?: string
   bridgePath: string
   onError?: ErrorSink
 }
@@ -151,18 +153,17 @@ export function createMcpHost(opts: McpHostOptions) {
       const url = `http://127.0.0.1:${port}/mcp`
       const target = { execPath: opts.execPath, bridgePath: opts.bridgePath, url, token }
       if (ctx.env.kind === 'wsl') {
-        // 브리지는 Windows에 남고 claude만 WSL 안이다 — 설정 파일·브리지·실행 파일의 경로를 전부 WSL 안에서 보는 것으로
-        // 바꾼다(FR-21). 실패하면 토큰을 돌려놓는다 — 호출자가 release()를 부르지만 등록된 적이 있는지 모른다.
+        // 브리지는 Windows에 남고 claude만 WSL 안이다 — claude가 읽는 두 경로(cmd.exe·설정 파일)만 WSL 안에서 보는 것으로
+        // 바꾼다(FR-21·23). 브리지 자신의 경로는 `.bridge.cmd`가 Windows 경로로 품는다. 실패하면 토큰을 돌려놓는다 — 호출자가 release()를 부르지만 등록된 적이 있는지 모른다.
         try {
           if (!opts.toLinux) throw new Error('WSL 경로 변환이 배선되지 않았습니다')
           const { distro } = ctx.env
-          const [execPath, bridgePath, bridgeFile, configFile] = await Promise.all([
-            opts.toLinux(distro, opts.execPath),
-            opts.toLinux(distro, opts.bridgePath),
-            opts.toLinux(distro, bridgeFileOf(opts.configDir, ctx.runId)),
+          const cmdExeHost = opts.cmdExePath ?? `${process.env['SystemRoot'] ?? 'C:\\Windows'}\\System32\\cmd.exe`
+          const [cmdExe, configFile] = await Promise.all([
+            opts.toLinux(distro, cmdExeHost),
             opts.toLinux(distro, join(opts.configDir, `${ctx.runId}.json`))
           ])
-          writeMcpConfig(opts.configDir, ctx.runId, target, ctx.agentKind, { execPath, bridgePath, bridgeFile })
+          writeMcpConfig(opts.configDir, ctx.runId, target, ctx.agentKind, { cmdExe })
           // claude에 넘기는 `--mcp-config`는 WSL 안의 경로다
           return { token, url, configFile }
         } catch (err) {

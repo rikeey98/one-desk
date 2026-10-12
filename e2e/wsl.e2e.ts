@@ -7,7 +7,7 @@ import { waitConvStatus } from './dock'
 
 /**
  * WSL repo (docs/sdlc/wsl-support/ plan 14단계). 진짜 WSL이 없는 장비에서 **가짜 wsl.exe**(`fake-wsl.mjs`)로 "WSL repo의 프로세스가
- * 어떤 모양으로 떴나"를 본다 — interop·파이프·kill은 흉내내지 않는다(그것은 사용자 장비의 실측, plan 15단계).
+ * 어떤 모양으로 떴나"를 본다 — interop·파이프·kill은 흉내내지 않는다(실측은 건너뛰기로 했다 — spec §4-A).
  *
  * 등록은 UNC 경로 그대로다 — 등록은 존재를 검사하지 않고, 같은 경로를 다시 보내는 저장도 검사하지 않는다. 그래서 `\\wsl$\…`가
  * 없는 장비에서도 repo 탭에서 실행 환경을 WSL로 바꿀 수 있다. **Windows에서만 WSL을 고를 수 있다**(FR-4) — 다른 OS에서는 라디오가

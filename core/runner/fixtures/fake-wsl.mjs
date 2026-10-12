@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 가짜 `wsl.exe` (docs/sdlc/wsl-support/ plan 14단계). 진짜 WSL이 없는 장비에서 "WSL repo의 프로세스가 어떤 모양으로
-// 떴나"를 보는 데 쓴다 — interop·파이프·kill은 흉내내지 않는다(실측은 사용자 장비의 몫).
+// 떴나"를 보는 데 쓴다 — interop·파이프·kill은 흉내내지 않는다(실측은 건너뛰기로 했다 — spec §4-A).
 //
 //   wsl.exe --list --quiet                       → UTF-16LE로 'Ubuntu\r\nDebian\r\n' (진짜와 같은 인코딩)
 //   wsl.exe -d <D> -- wslpath -a -u <P>          → /mnt/<drive>/… (기본 automount 규칙; POSIX 개발 장비의 절대 경로는 /mnt/host/…)

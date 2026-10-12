@@ -723,9 +723,9 @@ describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)'
       expect(i).toBeGreaterThan(0)
       expect(launch![i + 1]).toMatch(/^\/mnt\/.*launcher\.sh$/)
       expect(launch![i + 2]).toMatch(new RegExp(`^/mnt/.*/wsl/${run.id}\\.pid$`))
-      // wslpath는 userData 아래를 접두사로 만든다 — 묻는 것은 userData·런처·Electron 실행 파일·브리지(설치 폴더) 넷뿐이고
-      // pidfile·MCP 설정 파일·브리지 인자 파일은 userData 아래라 묻지 않는다 (FR-11)
-      expect(calls.filter((c) => c.includes('wslpath'))).toHaveLength(4)
+      // wslpath는 userData 아래를 접두사로 만든다 — 묻는 것은 userData·런처·cmd.exe 셋뿐이고 pidfile·MCP 설정 파일은 userData
+      // 아래라 묻지 않는다 (FR-11). 브리지·Electron 실행 파일의 경로는 배치 파일에 Windows 경로로 남아 묻지 않는다(FR-23)
+      expect(calls.filter((c) => c.includes('wslpath'))).toHaveLength(3)
       // 끝나면 pidfile이 없다 (FR-19)
       expect(existsSync(join(dataDir, 'wsl', `${run.id}.pid`))).toBe(false)
       // MCP 설정 파일도 WSL 안의 경로로 넘어간다 (FR-21) — 브리지는 Windows에 남는다

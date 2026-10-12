@@ -12,7 +12,7 @@ import { createWorkspaceRepository } from '../db/repositories/workspace'
 import { claudeCodeAdapter } from '../runner/adapters/claudeCode'
 import { HOST_ENV } from '../wsl/env'
 import { createMcpHost, MCP_SERVER_NAME, type McpHost } from './host'
-import { bridgeFileOf } from './configFile'
+import { bridgeFileOf, bridgeCmdOf } from './configFile'
 import { rpc } from './testing'
 
 let host: McpHost
@@ -137,23 +137,24 @@ describe('McpHost', () => {
 })
 
 describe('prepare — WSL run (docs/sdlc/wsl-support/ FR-21)', () => {
-  it('설정 파일의 경로를 전부 Linux로 바꿔 쓰고, claude에 넘길 configFile도 Linux 경로다', async () => {
+  it('cmd.exe와 설정 파일의 경로만 Linux로 바꾸고, 브리지 경로는 배치 파일에 Windows 경로로 남는다', async () => {
     const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-host-wsl-'))
     const db = makeTestDb()
     const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
     const asked: string[] = []
     const host = createMcpHost({
       deps: { repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db), runs: createRunRepository(db) },
-      configDir: resolve(dir, 'mcp'), execPath: '/host/electron', bridgePath: '/host/bridge.mjs',
+      configDir: resolve(dir, 'mcp'), execPath: '/host/electron', bridgePath: '/host/bridge.mjs', cmdExePath: 'C:\\Windows\\System32\\cmd.exe',
       toLinux: async (distro, p) => { asked.push(`${distro}:${p}`); return `/mnt/host${p.replace(/\\/g, '/')}` }
     })
     try {
       const p = await host.prepare({ runId: 'r-wsl', workspaceId, permission: 'edit', agentKind: 'claude-code', env: { kind: 'wsl', distro: 'Ubuntu' } })
       expect(p.configFile).toBe(`/mnt/host${resolve(dir, 'mcp', 'r-wsl.json').replace(/\\/g, '/')}`)
       const body = JSON.parse(readFileSync(resolve(dir, 'mcp', 'r-wsl.json'), 'utf8'))
-      expect(body.mcpServers[MCP_SERVER_NAME].command).toBe('/mnt/host/host/electron')
-      expect(body.mcpServers[MCP_SERVER_NAME].args).toEqual(['/mnt/host/host/bridge.mjs', `/mnt/host${bridgeFileOf(resolve(dir, 'mcp'), 'r-wsl').replace(/\\/g, '/')}`])
-      expect(asked.every((a) => a.startsWith('Ubuntu:'))).toBe(true)
+      expect(body.mcpServers[MCP_SERVER_NAME].command).toBe('/mnt/hostC:/Windows/System32/cmd.exe')
+      expect(body.mcpServers[MCP_SERVER_NAME].args).toEqual(['/c', bridgeCmdOf(resolve(dir, 'mcp'), 'r-wsl')])
+      expect(readFileSync(bridgeCmdOf(resolve(dir, 'mcp'), 'r-wsl'), 'utf8')).toContain('"/host/electron" "/host/bridge.mjs"')
+      expect(asked).toEqual([`Ubuntu:C:\\Windows\\System32\\cmd.exe`, `Ubuntu:${resolve(dir, 'mcp', 'r-wsl.json')}`])
       // 토큰은 유효하다 — 인자 파일로 붙는 브리지가 쓴다
       expect(JSON.parse(readFileSync(bridgeFileOf(resolve(dir, 'mcp'), 'r-wsl'), 'utf8')).token).toBe(p.token)
     } finally {

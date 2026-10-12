@@ -1,7 +1,8 @@
 # Plan: WSL2 안의 repo를 WSL 안의 claude로 돌린다
 
 - 출처: `spec.md` (승인 2026-10-12 — "승인, UNC 저장으로 가고 plan 써 줘")
-- 상태: 구현 완료 — 단위·typecheck·lint까지 (2026-10-12). **e2e·실측은 사용자 Windows 장비에서** (아래 완료 증명의 "남은 것")
+- 상태: 구현 완료 — 단위·typecheck·lint까지 (2026-10-12). **실측은 하지 않는다**(사용자 결정 — "내가 실측을 할수 없는 환경이라
+  실측은 건너뛰고 만들어줘"). e2e `wsl.e2e.ts`는 CI의 Windows 잡이 처음 돌린다.
 
 ## 순서
 
@@ -176,7 +177,7 @@
 ## 완료 증명
 
 2026-10-12, **Linux 컨테이너 · Node 22** (Claude Code 세션). WSL도 Electron 바이너리도 없는 환경이라 **단위 테스트·typecheck·lint까지**다 —
-e2e와 실측은 아래 "남은 것"에 있다.
+e2e는 아래 "남은 것"에, 실측을 건너뛴 결정은 그 바로 위에 있다.
 
 - **0단계 기준선**: typecheck·lint 깨끗, 단위 2,766 통과 · **4 실패**(이 환경의 것 — root는 읽기 전용 파일을 쓸 수 있고(`write.test`),
   Windows 경로 규칙·`.mjs` 실행 권한 테스트 셋(`executable`·`opencode.version`·`probe`)이 Linux root에서 갈린다. 코드와 무관하며
@@ -189,27 +190,19 @@ e2e와 실측은 아래 "남은 것"에 있다.
 - **최종**: typecheck 0 · lint 0 · 단위 **core 1,413 + renderer 1,468 통과**, 실패는 기준선의 넷뿐. 새 파일: `shared/wslPath.ts`,
   `core/wsl/{env,launch,distros,paths,kill,preflight,home}.ts`·`launcher.sh`, `core/runner/fixtures/fake-wsl.mjs`, `renderer/agentEnv.ts`,
   `e2e/wsl.e2e.ts`, `drizzle/0011_*.sql`.
-- **남은 것 (사용자 Windows 장비)**:
-  1. **1단계 실측** — WSL 셸에서:
-     ```sh
-     FOO=1 /mnt/c/Windows/System32/cmd.exe /c "set FOO"          # env가 interop 경계를 넘는가 (FR-22 vs FR-23)
-     ```
-     PowerShell에서(Node):
-     ```powershell
-     node -e "const c=require('child_process').spawn('wsl.exe',['-d','Ubuntu','--','cat']);let o='';c.stdout.on('data',d=>o+=d);c.on('close',k=>console.log(k,JSON.stringify(o)));c.stdin.write('한글\n'.repeat(3));c.stdin.end()"
-     node -e "const c=require('child_process').spawn('wsl.exe',['-d','Ubuntu','--','sleep','1000']);setTimeout(()=>{require('child_process').execFileSync('taskkill',['/PID',String(c.pid),'/T','/F']);setTimeout(()=>console.log(require('child_process').execFileSync('wsl.exe',['-d','Ubuntu','--','pgrep','-a','sleep']).toString()),1000)},1500)"
-     node -e "console.log(require('fs').realpathSync('\\\\wsl$\\Ubuntu\\home'))"   # realpath의 UNC 형태 (§4의 5)
-     ```
-  2. 9·15단계 — `pnpm dev`로 WSL repo를 등록해 한 턴(MCP `list_issues` 포함) · 취소 · 터미널 `echo` · 앱 종료 뒤 `ps`. 결과를 여기에 적고
-     FR-22/23·FR-18의 순서를 확정한다.
-  3. `pnpm test:e2e` — `e2e/wsl.e2e.ts`는 Windows에서만 WSL 시나리오를 돈다(다른 OS는 "라디오가 없다"만). 이 환경에서 한 번도 돌리지 못했다.
-  4. 릴리스 노트(`docs/releases/`)의 WSL 절 — 환경변수는 WSL의 `~/.profile`, 세션은 환경마다, interop 필요, 설치 폴더가 `/mnt/c`로 보여야 한다.
+- **실측은 건너뛴다 (사용자 결정, 2026-10-12).** 1·9·15단계의 명령은 더 이상 할 일이 아니다. 결과에 따라 갈리던 두 자리를 어느 쪽이든
+  되게 바꿨다(아래 "달라진 것"의 첫 항목) — 그 뒤 typecheck 0 · lint 0 · core 1,432 통과(실패는 기준선의 넷뿐).
+- **남은 것**: `pnpm test:e2e`의 `e2e/wsl.e2e.ts`(Windows에서만 WSL 시나리오) — CI의 Windows 잡이 처음 돌린다. 릴리스 노트는
+  `docs/releases/v0.24.0.md`에 미리 써 두었다(태그 전에 버전만 맞춘다).
 
 ## 달라진 것
 
-- **실측을 못 했다.** 1단계(interop·파이프·kill)와 9단계(실제 run·`realpath`)는 이 환경에 WSL이 없어 건너뛰었고, 설계는 spec FR-22
-  (env가 넘는다고 가정, `ELECTRON_RUN_AS_NODE`만 env)로 구현했다. 안 넘으면 FR-23(`cmd.exe /c set …`)으로 `claudeWslBody` 한 함수만
-  바꾸면 된다. 취소 순서(TERM → KILL → taskkill)도 실측 없이 spec대로다 — `taskkill`만으로 안의 프로세스가 죽는다면 단순화는 spec 개정으로.
+- **실측을 하지 않았고, 하지 않기로 했다.** 1단계(interop·파이프·kill)와 9단계(실제 run·`realpath`)는 이 환경에 WSL이 없어
+  건너뛰었고, 사용자도 잴 장비가 없어 2026-10-12에 건너뛰기로 정했다. 그래서 결과에 따라 갈리던 두 자리를 **어느 쪽이든 되는 쪽**으로
+  바꿨다: 브리지는 FR-22(env)가 아니라 FR-23 — `cmd.exe /c <runId>.bridge.cmd`, 배치가 `ELECTRON_RUN_AS_NODE`를 스스로 세운다
+  (`configFile.ts`의 `bridgeCmdOf`·`bridgeCmdBody`, host는 cmd.exe와 설정 파일만 `wslpath`로 바꾼다). `resolveRepoPath`는 realpath의
+  두 결과를 `foldUncPrefix`로 같은 형태로 맞춘 뒤 비교한다(`\\?\UNC\`·`wsl.localhost` 어느 쪽으로 와도 같다). 취소 순서(TERM → KILL →
+  taskkill)는 spec대로다 — `taskkill`만으로 안의 프로세스가 죽는다면 단순화는 spec 개정으로.
 - **브리지 인자 파일**은 설정 파일이 아니라 `<runId>.bridge.json`이다(spec §4-A).
 - **`parseWslPath`는 `shared/`에** 있다 — 렌더러가 같은 판정을 쓴다(spec §4-A).
 - **`launcherPath`는 선택 인자**(`bridgePath`와 같은 규칙)이고, 그 대신 `CoreOptions.platform`(WSL 가용성 판정만)이 생겼다 — 테스트가

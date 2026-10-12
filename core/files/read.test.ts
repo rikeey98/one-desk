@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readRepoFile, openRepoFile, resolveRepoPath, MAX_FILE_BYTES, MAX_OPEN_BYTES } from './read'
+import { readRepoFile, openRepoFile, resolveRepoPath, foldUncPrefix, MAX_FILE_BYTES, MAX_OPEN_BYTES } from './read'
 import { hashBytes } from './text'
 
 const dirs: string[] = []
@@ -164,5 +164,24 @@ describe('resolveRepoPath — 읽기와 쓰기가 같이 쓰는 경로 검사', 
     const root = makeDir()
     linkDir(outside, join(root, 'link'))
     expect((await resolveRepoPath(root, 'link/secret.txt')).kind).toBe('outside')
+  })
+})
+
+describe('foldUncPrefix — Windows realpath의 UNC 형태 (docs/sdlc/wsl-support/ FR-26)', () => {
+  it.each([
+    [String.raw`\\?\UNC\wsl$\Ubuntu\home\me`, String.raw`\\wsl$\Ubuntu\home\me`],
+    [String.raw`\\wsl.localhost\Ubuntu\home\me`, String.raw`\\wsl$\Ubuntu\home\me`],
+    [String.raw`\\?\UNC\wsl.localhost\Ubuntu`, String.raw`\\wsl$\Ubuntu`],
+    [String.raw`\\wsl$\Ubuntu\home\me`, String.raw`\\wsl$\Ubuntu\home\me`],
+    [String.raw`C:\repo`, String.raw`C:\repo`],
+    [String.raw`\\server\share\x`, String.raw`\\server\share\x`]
+  ])('%s → %s', (input, expected) => {
+    expect(foldUncPrefix(input)).toBe(expected)
+  })
+
+  it('루트와 파일이 다른 형태로 와도 같은 repo 안이다', () => {
+    const root = foldUncPrefix(String.raw`\\?\UNC\wsl$\Ubuntu\home\me\api`)
+    const file = foldUncPrefix(String.raw`\\wsl.localhost\Ubuntu\home\me\api\src\a.ts`)
+    expect(file.startsWith(`${root}\\`)).toBe(true)
   })
 })

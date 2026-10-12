@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { MCP_SERVER_NAME, writeMcpConfig, removeMcpConfig, clearMcpConfigs, bridgeFileOf } from './configFile'
+import { MCP_SERVER_NAME, writeMcpConfig, removeMcpConfig, clearMcpConfigs, bridgeFileOf, bridgeCmdOf } from './configFile'
 
 let dir: string
 
@@ -88,16 +88,15 @@ describe('writeMcpConfig', () => {
   })
 })
 
-describe('writeMcpConfig — WSL run (docs/sdlc/wsl-support/ FR-21·22)', () => {
-  const wsl = { execPath: '/mnt/c/app/one-desk.exe', bridgePath: '/mnt/c/app/resources/mcp-bridge.mjs', bridgeFile: '/mnt/c/data/mcp/run-1.bridge.json' }
+describe('writeMcpConfig — WSL run (docs/sdlc/wsl-support/ FR-21·22·23)', () => {
+  const wsl = { cmdExe: '/mnt/c/Windows/System32/cmd.exe' }
 
-  it('command·args가 WSL 안에서 보는 Linux 경로이고, URL·토큰은 env가 아니라 인자 파일에 있다', () => {
+  it('command는 cmd.exe의 Linux 경로, 인자는 /c <배치의 Windows 경로>뿐이고 env가 없다 — URL·토큰은 인자 파일에 있다', () => {
     const file = writeMcpConfig(join(dir, 'mcp'), 'run-1', target({ url: 'http://127.0.0.1:9/mcp', token: 'tok-abc' }), 'claude-code', wsl)
     const body = JSON.parse(readFileSync(file, 'utf8'))
     expect(body.mcpServers[MCP_SERVER_NAME]).toEqual({
-      command: '/mnt/c/app/one-desk.exe',
-      args: ['/mnt/c/app/resources/mcp-bridge.mjs', '/mnt/c/data/mcp/run-1.bridge.json'],
-      env: { ELECTRON_RUN_AS_NODE: '1' }
+      command: '/mnt/c/Windows/System32/cmd.exe',
+      args: ['/c', bridgeCmdOf(join(dir, 'mcp'), 'run-1')]
     })
     // 토큰은 설정 파일 본문 어디에도 없다 — 인자에 실리면 ps로 샌다
     expect(readFileSync(file, 'utf8')).not.toContain('tok-abc')
@@ -105,17 +104,35 @@ describe('writeMcpConfig — WSL run (docs/sdlc/wsl-support/ FR-21·22)', () => 
     expect(bridge).toEqual({ url: 'http://127.0.0.1:9/mcp', token: 'tok-abc' })
   })
 
+  it('배치 파일이 ELECTRON_RUN_AS_NODE를 스스로 세우고 Windows 경로로 브리지를 띄운다 — env가 interop을 넘는지에 기대지 않는다', () => {
+    writeMcpConfig(join(dir, 'mcp'), 'run-1', target({ token: 'tok-abc' }), 'claude-code', wsl)
+    const cmd = readFileSync(bridgeCmdOf(join(dir, 'mcp'), 'run-1'), 'utf8')
+    expect(cmd.split('\r\n')).toEqual([
+      '@echo off',
+      'set ELECTRON_RUN_AS_NODE=1',
+      `"/fake/electron" "/fake/bridge.mjs" "${bridgeFileOf(join(dir, 'mcp'), 'run-1')}"`,
+      ''
+    ])
+    expect(cmd).not.toContain('tok-abc')
+  })
+
+  it('경로의 %는 cmd가 변수로 펼치므로 %%로 둔다', () => {
+    writeMcpConfig(join(dir, 'mcp'), 'run-1', { ...target({}), execPath: 'C:\\Users\\100%\\one-desk.exe' }, 'claude-code', wsl)
+    expect(readFileSync(bridgeCmdOf(join(dir, 'mcp'), 'run-1'), 'utf8')).toContain('"C:\\Users\\100%%\\one-desk.exe"')
+  })
+
   it.skipIf(POSIX_ONLY)('인자 파일도 0600이다', () => {
     writeMcpConfig(join(dir, 'mcp'), 'run-1', target({}), 'claude-code', wsl)
     expect(statSync(bridgeFileOf(join(dir, 'mcp'), 'run-1')).mode & 0o777).toBe(0o600)
   })
 
-  it('removeMcpConfig가 인자 파일도 지운다', () => {
+  it('removeMcpConfig가 인자 파일과 배치 파일도 지운다', () => {
     const mcpDir = join(dir, 'mcp')
     writeMcpConfig(mcpDir, 'run-1', target({}), 'claude-code', wsl)
     removeMcpConfig(mcpDir, 'run-1')
     expect(existsSync(join(mcpDir, 'run-1.json'))).toBe(false)
     expect(existsSync(bridgeFileOf(mcpDir, 'run-1'))).toBe(false)
+    expect(existsSync(bridgeCmdOf(mcpDir, 'run-1'))).toBe(false)
   })
 
   it('WSL에서 opencode는 던진다 (FR-7)', () => {

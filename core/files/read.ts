@@ -26,6 +26,15 @@ export type RepoPath =
 interface PathOptions { platform?: NodeJS.Platform }
 
 /**
+ * Windows realpath가 돌려주는 UNC 형태를 하나로 (`docs/sdlc/wsl-support/` FR-26). `\\?\UNC\…`는 `\\…`로,
+ * `\\wsl.localhost\`는 `\\wsl$\`로 — 실측을 못 해 루트와 파일이 어느 형태로 와도 같은 비교가 되게 한다. Windows 규칙에서만 쓴다.
+ */
+export function foldUncPrefix(path: string): string {
+  const plain = path.replace(/^\\\\\?\\UNC\\/i, '\\\\')
+  return plain.replace(/^\\\\wsl\.localhost(?=\\|$)/i, '\\\\wsl$')
+}
+
+/**
  * repo 상대 경로를 실제 경로로 푼다. **읽기와 쓰기가 같이 쓰는 검사다** — 따로 두면 한쪽만 junction 탈출을 막는다.
  *
  * 절대 경로·`..`·**실제 경로(realpath)가 루트의 실제 경로 밖**(심링크·junction 탈출)이면 밖이다. 정규화한 문자열만
@@ -54,7 +63,7 @@ export async function resolveRepoPath(root: string, rel: string, opts: PathOptio
   } catch {
     return { kind: 'missing' }
   }
-  const relative = p.relative(realRoot, realFile)
+  const relative = p === win32 ? p.relative(foldUncPrefix(realRoot), foldUncPrefix(realFile)) : p.relative(realRoot, realFile)
   if (relative === '' || relative.startsWith('..') || p.isAbsolute(relative)) return { kind: 'outside' }
   return { kind: 'inside', realFile }
 }

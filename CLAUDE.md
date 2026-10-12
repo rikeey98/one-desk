@@ -354,11 +354,13 @@ core에 산다**(`core/terminal/service.ts`) — 칸을 닫거나 다른 repo로
 `repo.path`를 읽는 자리(존재 검사·asset `file_path` 접두사·`run.cwd`·`repoOfCwd`·폴더 선택)가 전부 Windows 경로를 전제라 한 줄도
 안 바뀐다(spec §0). 파일 읽기/쓰기·asset 스캔은 지금처럼 Windows가 UNC로 한다. **MCP 브리지는 Windows에 남는다** — WSL 안의
 claude가 interop으로 Windows 실행 파일을 자식으로 띄우고 stdio가 경계를 넘는다(설정 파일의 경로는 Linux, URL·토큰은 env가 아니라
-`<runId>.bridge.json`을 인자로 — interop 경계에서 env가 넘어가는지에 기대지 않는다). spawn 직전의 변환은 `core/wsl/launch.ts`의
+`<runId>.bridge.json`을 인자로, `ELECTRON_RUN_AS_NODE`는 `cmd.exe /c <runId>.bridge.cmd` 배치가 스스로 세운다 — interop 경계에서
+env가 넘어가는지에 **아무것도** 기대지 않는다). spawn 직전의 변환은 `core/wsl/launch.ts`의
 `wrapForEnv` 하나이고 `agentCommand`가 **실행 환경을 필수 인자**로 받는다(아래 함정 절). WSL claude 경로·WSL 글로벌 skill 경로는
-앱 탭의 두 절(각자 저장)이고, WSL repo에서 OpenCode는 막는다. **이 환경(Linux 컨테이너)에서는 진짜 WSL 실측을 못 했다** —
-plan 1·9·15단계의 실측(interop을 env가 넘는가, 파이프, kill, `realpath`의 UNC 형태)은 사용자 Windows 장비의 몫으로 남아 있고
-spec §4·plan "달라진 것"에 적혀 있다.
+앱 탭의 두 절(각자 저장)이고, WSL repo에서 OpenCode는 막는다. **진짜 WSL 실측은 하지 않았고 하지 않기로 했다**(2026-10-12,
+사용자 결정 — 구현 환경은 Linux 컨테이너이고 사용자도 WSL 장비가 없다). 그래서 결과에 따라 갈리던 두 자리는 어느 쪽이든 되게
+만들었다 — 브리지의 배치 파일(spec FR-23)과 `resolveRepoPath`의 `foldUncPrefix`(FR-26). 파이프·그룹 kill·`wslpath`는 spec대로
+구현만 돼 있어 **처음 WSL repo를 쓰는 사람이 첫 실측이다**(spec §4-A, 릴리스 노트).
 
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
@@ -956,7 +958,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/dock-repo-sections/` | 도크 대화 목록의 repo 구획과 사이드바 거름 — spec·plan. 대화의 repo를 뿌리 cwd로 정하는 이유(FR-1), 구획이 하나면 머리가 없는 이유(FR-5), 거름이 보기만 바꾸는 이유(FR-9), 머리를 대문자로 쓰지 않는 이유(NFR-2) |
 | `docs/sdlc/code-editor/` | 코드 칸(터미널 · 변경사항 · 파일) — intent 하나, spec·plan은 첫 사이클(틀 + 파일 칸), `terminal-spec.md`·`terminal-plan.md`는 둘째(터미널 — repo당 셸 하나, 앱 종료의 동기 트리 종료, 렌더러는 repo id만, 출력 이어 붙이기 규칙, node-pty 사전 빌드와 패키징). git diff로 가는 결정(intent), 배치 시안(안 A로 구현했다가 안 B — 창 오른쪽 전체 높이로 바꿈, spec §0), 버튼을 앱 제목 줄의 OS 창 단추 왼쪽으로 옮긴 것과 사이클 순서 변경(spec §0·FR-1), 목록 안의 파일만 읽고 쓰는 이유(spec §3-4), 명시적 저장과 해시 충돌(FR-17·19), 줄바꿈·BOM 되살리기(FR-18), 닫기 확인(FR-21), 우려와 승인(§4). plan에 변이 결과와 번들 크기 |
 | `docs/sdlc/inbox-views/` | 인박스의 보기(시간순 · workspace별 · 상태별)와 정렬 — spec·plan. 시간 기준과 정확한 역순(spec FR-2), 묶음 순서가 정렬을 따르는 이유(FR-7)와 상태별 고정 순서(FR-10), 그 workspace의 repo만 보는 이유(FR-6), repo를 App이 읽어 필수 prop으로 내리는 이유(FR-16). plan에 변이 결과 |
-| `docs/sdlc/wsl-support/` | WSL2 안의 repo를 WSL 안의 claude로 — intent·spec·plan. UNC를 저장하는 이유(spec §0), spawn 변환 한 자리와 필수 인자(FR-8·9), 런처와 그룹 종료(FR-10·18), 브리지가 Windows에 남는 이유와 인자 파일(FR-21·22), WSL 판정 캐시 규칙(FR-13), 실측이 설계를 가르는 자리(§4의 1~3). plan의 "달라진 것"에 Linux 컨테이너에서 못 한 실측 목록 |
+| `docs/sdlc/wsl-support/` | WSL2 안의 repo를 WSL 안의 claude로 — intent·spec·plan. UNC를 저장하는 이유(spec §0), spawn 변환 한 자리와 필수 인자(FR-8·9), 런처와 그룹 종료(FR-10·18), 브리지가 Windows에 남는 이유와 인자 파일(FR-21·22), WSL 판정 캐시 규칙(FR-13), 실측을 건너뛴 결정과 그래서 어느 쪽이든 되게 만든 두 자리(§4-A). plan의 "달라진 것" |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |
