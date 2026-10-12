@@ -192,6 +192,9 @@ e2e는 아래 "남은 것"에, 실측을 건너뛴 결정은 그 바로 위에 �
   `e2e/wsl.e2e.ts`, `drizzle/0011_*.sql`.
 - **실측은 건너뛴다 (사용자 결정, 2026-10-12).** 1·9·15단계의 명령은 더 이상 할 일이 아니다. 결과에 따라 갈리던 두 자리를 어느 쪽이든
   되게 바꿨다(아래 "달라진 것"의 첫 항목) — 그 뒤 typecheck 0 · lint 0 · core 1,432 통과(실패는 기준선의 넷뿐).
+- **v0.24.0 첫 태그 빌드(Windows 러너)가 `pnpm test`에서 깨졌다** — `listDistros`가 가짜 wsl.exe(`.mjs`)를 런처 없이 띄워
+  `spawn EFTYPE`, 그리고 실행 환경 변경 테스트가 Windows의 비동기 taskkill을 기다리지 않았다. wsl.exe를 띄우는 모양을
+  `wslExeLaunch` 한 자리로 모았다(`wrapForEnv`·`listDistros`가 같이 쓴다). 이 컨테이너(Linux)에서는 둘 다 초록이라 못 잡았다.
 - **남은 것**: `pnpm test:e2e`의 `e2e/wsl.e2e.ts`(Windows에서만 WSL 시나리오) — CI의 Windows 잡이 처음 돌린다. 릴리스 노트는
   `docs/releases/v0.24.0.md`에 미리 써 두었다(태그 전에 버전만 맞춘다).
 

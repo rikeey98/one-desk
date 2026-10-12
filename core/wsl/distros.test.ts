@@ -74,4 +74,10 @@ describe('listDistros', () => {
     await listDistros({ platform: 'win32', spawn, env: { ONE_DESK_WSL_PATH: '/tmp/fake-wsl.mjs' } })
     expect(calls[0]?.cmd).toBe('/tmp/fake-wsl.mjs')
   })
+
+  it('가짜 wsl.exe는 ONE_DESK_AGENT_LAUNCHER로 띄운다 — Windows에서 .mjs는 셔뱅으로 뜨지 않는다 (spawn EFTYPE)', async () => {
+    const { spawn, calls } = fakeSpawn(Buffer.from('Ubuntu\n'))
+    await listDistros({ platform: 'win32', spawn, env: { ONE_DESK_WSL_PATH: '/tmp/fake-wsl.mjs', ONE_DESK_AGENT_LAUNCHER: '/bin/node' } })
+    expect(calls[0]).toMatchObject({ cmd: '/bin/node', args: ['/tmp/fake-wsl.mjs', '--list', '--quiet'] })
+  })
 })

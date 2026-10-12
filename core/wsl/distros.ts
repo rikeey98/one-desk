@@ -1,5 +1,5 @@
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
-import { WSL_EXE_ENV } from './launch'
+import { wslExeLaunch } from './launch'
 
 export type Spawn = (cmd: string, args: string[], opts: SpawnOptions) => ChildProcess
 
@@ -44,13 +44,13 @@ export function listDistros(opts: {
   }
   const spawn = opts.spawn ?? nodeSpawn
   const env = opts.env ?? process.env
-  const exe = env[WSL_EXE_ENV] || 'wsl.exe'
+  const launch = wslExeLaunch(['--list', '--quiet'], env)
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
 
   return new Promise((resolve) => {
     let child: ChildProcess
     try {
-      child = spawn(exe, ['--list', '--quiet'], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+      child = spawn(launch.cmd, launch.args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     } catch (err) {
       resolve({ distros: [], reason: `wsl.exe를 띄우지 못했습니다: ${message(err)}` })
       return

@@ -812,7 +812,8 @@ describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)'
       expect(existsSync(capture)).toBe(false)
 
       await core.repos.update({ id: repoId, agentEnv: 'wsl' })
-      expect(pty.killed).toBe(1)
+      // Windows는 taskkill이 비동기로 실패한 뒤에야 pty.kill로 되돌아온다 — "repo를 지우면 그 셸을 끝낸다"와 같은 기다림
+      await vi.waitFor(() => expect(pty.killed).toBe(1), { timeout: 10_000 })
       // 캐시가 비었으므로 다음 조회는 WSL 안에서 다시 묻는다
       await core.commands.list({ workspaceId: ws, cwd: WSL_PATH })
       expect(readCapture(capture).some((c) => c.includes('test'))).toBe(true)

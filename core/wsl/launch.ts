@@ -57,9 +57,17 @@ export function wrapForEnv(
   out.push('--')
   if (opts.launcher) out.push('/bin/sh', opts.launcher.path, opts.launcher.pidfile)
   out.push(cmd, ...args)
+  return { ...wslExeLaunch(out, processEnv), cwd: undefined }
+}
+
+/**
+ * `wsl.exe <args>`를 띄우는 모양 — `wrapForEnv`와 `listDistros`가 같이 쓴다. 가짜 wsl.exe(`.mjs` 픽스처)는 Windows에서
+ * 셔뱅으로 뜨지 않으므로(`spawn EFTYPE`) agent 픽스처와 같은 런처(`ONE_DESK_AGENT_LAUNCHER`)로 띄운다 — 한 자리에만
+ * 두면 다른 자리가 Windows CI에서만 깨진다(v0.24.0 첫 빌드가 그랬다).
+ */
+export function wslExeLaunch(args: readonly string[], processEnv: NodeJS.ProcessEnv = process.env): { cmd: string; args: string[] } {
   const exe = processEnv[WSL_EXE_ENV]
-  if (!exe) return { cmd: DEFAULT_WSL_EXE, args: out, cwd: undefined }
-  // 가짜 wsl.exe(`.mjs` 픽스처)는 Windows에서 셔뱅으로 뜨지 않는다 — agent 픽스처와 같은 런처로 띄운다.
+  if (!exe) return { cmd: DEFAULT_WSL_EXE, args: [...args] }
   const launcher = processEnv['ONE_DESK_AGENT_LAUNCHER']
-  return launcher ? { cmd: launcher, args: [exe, ...out], cwd: undefined } : { cmd: exe, args: out, cwd: undefined }
+  return launcher ? { cmd: launcher, args: [exe, ...args] } : { cmd: exe, args: [...args] }
 }
