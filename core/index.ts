@@ -275,6 +275,8 @@ export function createCore(opts: CoreOptions) {
     execPath: opts.execPath ?? process.execPath,
     // 번들되지 않는 원본 .mjs다 — import.meta.url 기준으로 찾는다.
     bridgePath: opts.bridgePath ?? fileURLToPath(new URL('./mcp/bridge.mjs', import.meta.url)),
+    // WSL run의 설정 파일 경로 변환 (wsl-support FR-21) — 런처와 같은 캐시다
+    toLinux: (distro, windowsPath) => wslPaths.toLinux(distro, windowsPath),
     onError
   })
 

@@ -9,6 +9,7 @@ import { createIssueRepository } from '../db/repositories/issue'
 import { createMemoRepository } from '../db/repositories/memo'
 import { createWorkspaceRepository } from '../db/repositories/workspace'
 import { createRunRepository } from '../db/repositories/run'
+import { HOST_ENV } from '../wsl/env'
 import { createMcpHost, type McpHost } from './host'
 import { rpc } from './testing'
 import type { Permission } from '@shared/models'
@@ -68,7 +69,7 @@ afterEach(() => {
 async function call(
   workspaceId: string, permission: Permission, name: string, args: unknown = {}
 ): Promise<{ text: string; isError: boolean }> {
-  const p = await f.host.prepare({ runId: `run-${name}-${Math.random()}`, workspaceId, permission, agentKind: 'claude-code' })
+  const p = await f.host.prepare({ runId: `run-${name}-${Math.random()}`, workspaceId, permission, agentKind: 'claude-code', env: HOST_ENV })
   const res = await rpc(p.url, p.token, {
     jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args }
   })
@@ -77,7 +78,7 @@ async function call(
 }
 
 async function toolNames(workspaceId: string, permission: Permission): Promise<string[]> {
-  const p = await f.host.prepare({ runId: `list-${permission}`, workspaceId, permission, agentKind: 'claude-code' })
+  const p = await f.host.prepare({ runId: `list-${permission}`, workspaceId, permission, agentKind: 'claude-code', env: HOST_ENV })
   const res = await rpc(p.url, p.token, { jsonrpc: '2.0', id: 1, method: 'tools/list' })
   return res.json.result.tools.map((t: { name: string }) => t.name)
 }

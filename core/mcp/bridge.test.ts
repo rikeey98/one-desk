@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
@@ -12,6 +12,7 @@ import { createIssueRepository } from '../db/repositories/issue'
 import { createMemoRepository } from '../db/repositories/memo'
 import { createRunRepository } from '../db/repositories/run'
 import { createWorkspaceRepository } from '../db/repositories/workspace'
+import { HOST_ENV } from '../wsl/env'
 import { createMcpHost, type McpHost } from './host'
 
 const BRIDGE = fileURLToPath(new URL('./bridge.mjs', import.meta.url))
@@ -52,10 +53,14 @@ afterEach(() => {
  * 연결을 받지 못한다. 제품이 멀쩡한데 실패로 보이는 함정에 실제로 빠진 적이 있다.
  */
 function runBridge(
-  env: Record<string, string>, lines: string[], expected: number, waitMs = 3000
+  env: Record<string, string>, lines: string[], expected: number, waitMs = 3000, args: string[] = []
 ): Promise<string[]> {
   return new Promise((done, fail) => {
-    const proc = spawn(process.execPath, [BRIDGE], { env: { ...process.env, ...env } })
+    // env의 접속 정보는 지우고 시작한다 — 인자 파일 테스트가 바깥 env에 기대지 않게
+    const base = { ...process.env }
+    delete base['ONE_DESK_MCP_URL']
+    delete base['ONE_DESK_MCP_TOKEN']
+    const proc = spawn(process.execPath, [BRIDGE, ...args], { env: { ...base, ...env } })
     child = proc
     const out: string[] = []
     let buf = ''
@@ -74,7 +79,7 @@ function runBridge(
 
 describe('stdio 브리지', () => {
   it('tools/list를 서버까지 왕복시킨다', async () => {
-    const p = await host.prepare({ runId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code' })
+    const p = await host.prepare({ runId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
     const [line] = await runBridge(
       { ONE_DESK_MCP_URL: p.url, ONE_DESK_MCP_TOKEN: p.token },
       [JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })],
@@ -87,7 +92,7 @@ describe('stdio 브리지', () => {
 
   it('read_only 토큰에는 쓰기 도구가 안 보인다 — 권한은 서버가 정한다', async () => {
     // 브리지는 멍청한 파이프다. 권한 게이팅을 브리지로 옮기지 않았다는 것을 고정한다.
-    const p = await host.prepare({ runId: 'r2', workspaceId, permission: 'read_only', agentKind: 'claude-code' })
+    const p = await host.prepare({ runId: 'r2', workspaceId, permission: 'read_only', agentKind: 'claude-code', env: HOST_ENV })
     const [line] = await runBridge(
       { ONE_DESK_MCP_URL: p.url, ONE_DESK_MCP_TOKEN: p.token },
       [JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })],
@@ -98,8 +103,20 @@ describe('stdio 브리지', () => {
     expect(names).not.toContain('create_issue')
   })
 
+  it('env 없이 인자 파일만으로 URL·토큰을 얻는다 — WSL run의 브리지 (wsl-support FR-22)', async () => {
+    const p = await host.prepare({ runId: 'r-wsl', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
+    const file = resolve(dir, 'bridge.json')
+    writeFileSync(file, JSON.stringify({ url: p.url, token: p.token }))
+    const [line] = await runBridge(
+      {}, [JSON.stringify({ jsonrpc: '2.0', id: 11, method: 'tools/list' })], 1, 3000, [file]
+    )
+    const res = JSON.parse(line!)
+    expect(res.id).toBe(11)
+    expect(res.result.tools.length).toBeGreaterThan(0)
+  })
+
   it('토큰이 틀리면 매달리지 않고 JSON-RPC 오류를 돌려준다', async () => {
-    const p = await host.prepare({ runId: 'r3', workspaceId, permission: 'edit', agentKind: 'claude-code' })
+    const p = await host.prepare({ runId: 'r3', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
     const [line] = await runBridge(
       { ONE_DESK_MCP_URL: p.url, ONE_DESK_MCP_TOKEN: 'wrong' },
       [JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/list' })],
@@ -120,7 +137,7 @@ describe('stdio 브리지', () => {
   })
 
   it('id 없는 알림에는 아무것도 쓰지 않는다 (진짜 서버)', async () => {
-    const p = await host.prepare({ runId: 'r4', workspaceId, permission: 'edit', agentKind: 'claude-code' })
+    const p = await host.prepare({ runId: 'r4', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
     const out = await runBridge(
       { ONE_DESK_MCP_URL: p.url, ONE_DESK_MCP_TOKEN: p.token },
       [JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })],

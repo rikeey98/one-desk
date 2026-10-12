@@ -23,6 +23,13 @@ function resolveBridgePath(): string {
     : join(app.getAppPath(), 'core/mcp/bridge.mjs')
 }
 
+/** WSL 런처 — 브리지와 같은 방식으로 extraResources에서 찾는다 (docs/sdlc/wsl-support/ FR-10) */
+function resolveLauncherPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'wsl-launcher.sh')
+    : join(app.getAppPath(), 'core/wsl/launcher.sh')
+}
+
 // e2e와 개발용으로 데이터 디렉토리를 갈아끼운다. app 이벤트 등록보다,
 // 그리고 아래 requestSingleInstanceLock()보다 먼저 해야 한다 — 잠금이 userData
 // 디렉토리를 기준으로 걸리기 때문이다(아래 주석 참고).
@@ -70,6 +77,7 @@ if (dataDirError) {
         homeDir: app.getPath('home'),
         migrationsDir: resolveMigrationsDir(),
         bridgePath: resolveBridgePath(),
+        launcherPath: resolveLauncherPath(),
         // 코드 칸 터미널의 pty — 네이티브 모듈이라 core가 직접 import하지 않고 받는다 (docs/sdlc/code-editor/terminal-spec.md FR-21)
         spawnPty: (file, args, options) => spawnPty(file, args, options),
         // core는 목적지를 모른다. main이 정한다.

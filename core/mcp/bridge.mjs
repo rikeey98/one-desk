@@ -15,12 +15,31 @@
  * 응답을 고를 때** 하나뿐이다(`pickResponse`).
  */
 import { createInterface } from 'node:readline'
+import { readFileSync } from 'node:fs'
 
-const url = process.env.ONE_DESK_MCP_URL
-const token = process.env.ONE_DESK_MCP_TOKEN
+/**
+ * 접속 정보는 env가 먼저이고, 없으면 첫 인자의 파일이다 (`docs/sdlc/wsl-support/` spec FR-22). WSL 안의 claude가 interop으로
+ * 이 브리지(Windows 프로세스)를 띄울 때 env가 경계를 넘는지에 기대지 않는다 — Windows 쪽 0600 파일의 경로만 인자로 온다.
+ * 토큰은 어느 경우에도 인자에 실리지 않는다.
+ */
+function readTarget() {
+  const fromEnv = { url: process.env.ONE_DESK_MCP_URL, token: process.env.ONE_DESK_MCP_TOKEN }
+  if (fromEnv.url && fromEnv.token) return fromEnv
+  const file = process.argv[2]
+  if (!file) return fromEnv
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8'))
+    return { url: parsed.url, token: parsed.token }
+  } catch (err) {
+    process.stderr.write(`[one-desk] 브리지 인자 파일을 읽지 못했습니다: ${file} (${err instanceof Error ? err.message : String(err)})\n`)
+    return fromEnv
+  }
+}
+
+const { url, token } = readTarget()
 
 if (!url || !token) {
-  process.stderr.write('[one-desk] ONE_DESK_MCP_URL과 ONE_DESK_MCP_TOKEN이 필요합니다.\n')
+  process.stderr.write('[one-desk] ONE_DESK_MCP_URL과 ONE_DESK_MCP_TOKEN(또는 인자 파일)이 필요합니다.\n')
   process.exit(1)
 }
 

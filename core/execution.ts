@@ -475,7 +475,8 @@ export function createExecutionService(opts: ExecutionOptions) {
           runId: created.id,
           workspaceId: spec.workspaceId,
           permission: spec.permission,
-          agentKind: spec.agentKind
+          agentKind: spec.agentKind,
+          env: envOfCwd(spec)
         })
         mcp = { serverName: MCP_SERVER_NAME, ...prepared }
       } catch (err) {

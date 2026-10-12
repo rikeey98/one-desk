@@ -1,9 +1,11 @@
 import { randomBytes } from 'node:crypto'
+import { join } from 'node:path'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { buildServer, type McpHostDeps } from './tools'
-import { clearMcpConfigs, MCP_SERVER_NAME, removeMcpConfig, writeMcpConfig } from './configFile'
+import { bridgeFileOf, clearMcpConfigs, MCP_SERVER_NAME, removeMcpConfig, writeMcpConfig } from './configFile'
+import type { ProcessEnvSpec } from '../wsl/env'
 import { consoleErrorSink, type ErrorSink } from '../errors'
 import type { AgentKind, McpStatus, Permission } from '@shared/models'
 
@@ -18,6 +20,8 @@ export interface RunContext {
   permission: Permission
   /** 설정 파일 형식이 CLI마다 다르다. */
   agentKind: AgentKind
+  /** 어디서 뜨나 — wsl이면 설정 파일의 경로가 전부 Linux 경로다 (wsl-support FR-21). 필수다 */
+  env: ProcessEnvSpec
 }
 
 export interface PreparedMcp {
@@ -37,6 +41,8 @@ export interface McpHostOptions {
    * 마이그레이션 디렉토리와 같은 방식이다.
    */
   execPath: string
+  /** Windows 경로 → 그 distro 안의 경로 (wsl-support FR-11). WSL run이 있을 때만 쓰며, 없으면 WSL run의 준비가 실패한다 */
+  toLinux?: (distro: string, windowsPath: string) => Promise<string>
   bridgePath: string
   onError?: ErrorSink
 }
@@ -143,12 +149,28 @@ export function createMcpHost(opts: McpHostOptions) {
       const token = randomBytes(32).toString('base64url')
       tokens.set(token, ctx)
       const url = `http://127.0.0.1:${port}/mcp`
-      const configFile = writeMcpConfig(opts.configDir, ctx.runId, {
-        execPath: opts.execPath,
-        bridgePath: opts.bridgePath,
-        url,
-        token
-      }, ctx.agentKind)
+      const target = { execPath: opts.execPath, bridgePath: opts.bridgePath, url, token }
+      if (ctx.env.kind === 'wsl') {
+        // 브리지는 Windows에 남고 claude만 WSL 안이다 — 설정 파일·브리지·실행 파일의 경로를 전부 WSL 안에서 보는 것으로
+        // 바꾼다(FR-21). 실패하면 토큰을 돌려놓는다 — 호출자가 release()를 부르지만 등록된 적이 있는지 모른다.
+        try {
+          if (!opts.toLinux) throw new Error('WSL 경로 변환이 배선되지 않았습니다')
+          const { distro } = ctx.env
+          const [execPath, bridgePath, bridgeFile, configFile] = await Promise.all([
+            opts.toLinux(distro, opts.execPath),
+            opts.toLinux(distro, opts.bridgePath),
+            opts.toLinux(distro, bridgeFileOf(opts.configDir, ctx.runId)),
+            opts.toLinux(distro, join(opts.configDir, `${ctx.runId}.json`))
+          ])
+          writeMcpConfig(opts.configDir, ctx.runId, target, ctx.agentKind, { execPath, bridgePath, bridgeFile })
+          // claude에 넘기는 `--mcp-config`는 WSL 안의 경로다
+          return { token, url, configFile }
+        } catch (err) {
+          tokens.delete(token)
+          throw err
+        }
+      }
+      const configFile = writeMcpConfig(opts.configDir, ctx.runId, target, ctx.agentKind)
       return { token, url, configFile }
     },
 

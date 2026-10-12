@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { MCP_SERVER_NAME, writeMcpConfig, removeMcpConfig, clearMcpConfigs } from './configFile'
+import { MCP_SERVER_NAME, writeMcpConfig, removeMcpConfig, clearMcpConfigs, bridgeFileOf } from './configFile'
 
 let dir: string
 
@@ -85,6 +85,41 @@ describe('writeMcpConfig', () => {
     writeMcpConfig(mcpDir, 'b', target({ url: 'http://127.0.0.1:1/mcp', token: 't' }), 'claude-code')
     clearMcpConfigs(mcpDir)
     expect(existsSync(mcpDir)).toBe(false)
+  })
+})
+
+describe('writeMcpConfig — WSL run (docs/sdlc/wsl-support/ FR-21·22)', () => {
+  const wsl = { execPath: '/mnt/c/app/one-desk.exe', bridgePath: '/mnt/c/app/resources/mcp-bridge.mjs', bridgeFile: '/mnt/c/data/mcp/run-1.bridge.json' }
+
+  it('command·args가 WSL 안에서 보는 Linux 경로이고, URL·토큰은 env가 아니라 인자 파일에 있다', () => {
+    const file = writeMcpConfig(join(dir, 'mcp'), 'run-1', target({ url: 'http://127.0.0.1:9/mcp', token: 'tok-abc' }), 'claude-code', wsl)
+    const body = JSON.parse(readFileSync(file, 'utf8'))
+    expect(body.mcpServers[MCP_SERVER_NAME]).toEqual({
+      command: '/mnt/c/app/one-desk.exe',
+      args: ['/mnt/c/app/resources/mcp-bridge.mjs', '/mnt/c/data/mcp/run-1.bridge.json'],
+      env: { ELECTRON_RUN_AS_NODE: '1' }
+    })
+    // 토큰은 설정 파일 본문 어디에도 없다 — 인자에 실리면 ps로 샌다
+    expect(readFileSync(file, 'utf8')).not.toContain('tok-abc')
+    const bridge = JSON.parse(readFileSync(bridgeFileOf(join(dir, 'mcp'), 'run-1'), 'utf8'))
+    expect(bridge).toEqual({ url: 'http://127.0.0.1:9/mcp', token: 'tok-abc' })
+  })
+
+  it.skipIf(POSIX_ONLY)('인자 파일도 0600이다', () => {
+    writeMcpConfig(join(dir, 'mcp'), 'run-1', target({}), 'claude-code', wsl)
+    expect(statSync(bridgeFileOf(join(dir, 'mcp'), 'run-1')).mode & 0o777).toBe(0o600)
+  })
+
+  it('removeMcpConfig가 인자 파일도 지운다', () => {
+    const mcpDir = join(dir, 'mcp')
+    writeMcpConfig(mcpDir, 'run-1', target({}), 'claude-code', wsl)
+    removeMcpConfig(mcpDir, 'run-1')
+    expect(existsSync(join(mcpDir, 'run-1.json'))).toBe(false)
+    expect(existsSync(bridgeFileOf(mcpDir, 'run-1'))).toBe(false)
+  })
+
+  it('WSL에서 opencode는 던진다 (FR-7)', () => {
+    expect(() => writeMcpConfig(join(dir, 'mcp'), 'run-1', target({}), 'opencode', wsl)).toThrow('OpenCode')
   })
 })
 
