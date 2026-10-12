@@ -62,6 +62,8 @@ describe.skipIf(POSIX_ONLY)('probeCommands — init 수신 후 즉시 종료 (FR
       slashCommands: ['code-review', 'compact', 'doctor', 'color', 'reload-plugins', 'pinetest'],
       terminalSlashCommands: ['doctor', 'color', 'reload-plugins'],
       plugins: [],
+      model: 'claude-fake-5[1m]',
+      version: '9.9.9-fake',
       error: null
     })
     // 마커 타이머(200ms)가 충분히 지난 뒤에 본다. 안 죽였으면 여기서 파일이 있다.

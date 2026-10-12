@@ -187,7 +187,8 @@ describe('unwrapNpmShim', () => {
     writeFileSync(join(dir, 'opencode.cmd'), shim)
     if (withExe) {
       mkdirSync(join(dir, 'node_modules', 'opencode-ai', 'bin'), { recursive: true })
-      writeFileSync(join(dir, 'node_modules', 'opencode-ai', 'bin', 'opencode.exe'), '')
+      // posix의 X_OK는 실행 비트를 본다 — 없으면 이 테스트만 posix에서 null이 된다.
+      writeFileSync(join(dir, 'node_modules', 'opencode-ai', 'bin', 'opencode.exe'), '', { mode: 0o755 })
     }
     return join(dir, 'opencode.cmd')
   }
