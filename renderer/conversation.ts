@@ -1,6 +1,7 @@
 import type { AssignedIssue, ContextItemView, Issue, Repo, Run } from '@shared/models'
 import { representativeTurn } from '@shared/inbox'
 import { collectContext, conversationTitle, titleOf } from '@shared/conversationTitle'
+import { parseWslPath, wslUncOf } from '@shared/wslPath'
 
 export { titleOf }
 
@@ -148,6 +149,10 @@ export function foldByIssue(conversations: Conversation[]): ConversationListEntr
  * 칸은 "등록된 repo가 아닙니다"인 어긋남이 생긴다.
  */
 export function pathKey(path: string): string {
+  // WSL UNC는 두 접두사(`\\wsl$`·`\\wsl.localhost`)가 같은 폴더다 (`docs/sdlc/wsl-support/` §4의 9). 접두사와
+  // distro는 Windows 규칙(대소문자 무시)으로, 그 뒤의 Linux 경로는 posix 규칙으로 — `\\wsl$\\U\\a`와 `\\wsl$\\U\\A`는 다른 디렉토리다.
+  const wsl = parseWslPath(path)
+  if (wsl) return `${wslUncOf(wsl.distro.toLowerCase(), '/')}\\${wsl.linuxPath}`
   const windows = /^[a-zA-Z]:/.test(path) || path.includes('\\')
   const trimmed = path.replace(/[\\/]+$/, '')
   return windows ? trimmed.replace(/\//g, '\\').toLowerCase() : trimmed

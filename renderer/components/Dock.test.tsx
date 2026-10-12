@@ -31,7 +31,7 @@ vi.mock('./code/TerminalPane', () => ({
 }))
 
 const repos: Repo[] = [
-  { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, createdAt: 0 }
+  { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 }
 ]
 
 // Dock 자신은 workspaces를 쓰지 않는다 — RunPanel까지 그대로 흘려 보낼 뿐이다
@@ -1310,7 +1310,7 @@ describe('Dock 대화 헤더', () => {
     // 이 파일의 기본 픽스처는 이름('api')이 경로의 마지막 칸('/tmp/api')과 같아, Dock이 repos를
     // 내리지 않아도 부제가 같게 나온다(리뷰가 찾은 것) — 이름과 디렉토리가 다른 repo로 본다.
     const named: Repo[] = [
-      { id: 'r9', workspaceId: 'w1', name: '결제 서버', path: '/tmp/pay-svc', description: null, sortOrder: 0, createdAt: 0 }
+      { id: 'r9', workspaceId: 'w1', name: '결제 서버', path: '/tmp/pay-svc', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 }
     ]
     const props: Parameters<typeof Dock>[0] = {
       runs: [makeRun({ id: 'a1', rootRunId: 'a1', status: 'succeeded', cwd: '/tmp/pay-svc', userPrompt: '결제 대화' })],
@@ -1391,8 +1391,8 @@ describe('Dock 이슈 줄 (conversation-issue FR-28)', () => {
 
 describe('repo 구획과 사이드바 거름 (docs/sdlc/dock-repo-sections/)', () => {
   const twoRepos: Repo[] = [
-    { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, createdAt: 0 },
-    { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 1, createdAt: 0 }
+    { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 },
+    { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 1, agentEnv: 'host', createdAt: 0 }
   ]
   const runs = [
     makeRun({ id: 'w-new', cwd: '/tmp/web', userPrompt: 'web 최근 대화', status: 'succeeded', createdAt: 50 }),
@@ -1500,7 +1500,7 @@ describe('코드 칸 (docs/sdlc/code-editor/ FR-1~FR-7·FR-23)', () => {
 
   const two: Repo[] = [
     ...repos,
-    { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 1, createdAt: 0 }
+    { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 1, agentEnv: 'host', createdAt: 0 }
   ]
 
   function paneClient() {

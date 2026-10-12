@@ -1,3 +1,4 @@
+import type { AgentEnv } from '@shared/models'
 import { sqliteTable, text, integer, real, primaryKey, index, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import { sql } from 'drizzle-orm'
 
@@ -32,6 +33,11 @@ export const repo = sqliteTable('repo', {
   path: text('path').notNull(),
   description: text('description'),
   sortOrder: integer('sort_order').notNull().default(0),
+  /**
+   * claude 실행 환경 (`docs/sdlc/wsl-support/` FR-1) — `host`(이 Windows) | `wsl`(경로의 `\\wsl$\<distro>` 안).
+   * CHECK 제약은 두지 않는다(`asset.kind`와 같다). 기본값이 곧 지금 동작이라 백필이 없다.
+   */
+  agentEnv: text('agent_env').$type<AgentEnv>().notNull().default('host'),
   createdAt: integer('created_at').notNull().default(nowMs())
 }, (t) => [index('repo_workspace_idx').on(t.workspaceId)])
 

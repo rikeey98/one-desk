@@ -33,7 +33,7 @@ vi.mock('./CodeEditor', () => ({
   )
 }))
 
-const REPO: Repo = { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, createdAt: 0 }
+const REPO: Repo = { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 }
 const OPENED: FileOpenResult = { ok: true, text: 'one\n', eol: 'lf', bom: false, hash: 'h1', bytes: 4 }
 
 function makeClient(over: {

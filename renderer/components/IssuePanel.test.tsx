@@ -408,7 +408,7 @@ describe('IssuePanel 훑기', () => {
 describe('IssuePanel repo 배선', () => {
   const REPOS: Repo[] = [{
     id: 'r1', workspaceId: 'ws', name: 'api', path: '/tmp/r1',
-    description: null, sortOrder: 0, createdAt: 0
+    description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0
   }]
 
   it('훑기 카드에 workspace의 repo가 내려간다', async () => {

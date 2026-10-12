@@ -3,7 +3,7 @@ import { assemblePrompt } from './assemble'
 
 const repo = {
   id: 'r1', workspaceId: 'w1', name: 'api-server', path: '/tmp/api',
-  description: '백엔드', sortOrder: 0, createdAt: 0
+  description: '백엔드', sortOrder: 0, agentEnv: 'host' as const, createdAt: 0
 }
 const issue = {
   id: 'i1', workspaceId: 'w1', title: '토큰 만료 버그', body: 'UTC 변환 누락',

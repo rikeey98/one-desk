@@ -5,7 +5,7 @@ import type { RepoFileRead } from './read'
 import type { FileOpenResult, FileSaveResult, Repo } from '@shared/models'
 
 const REPO: Repo = {
-  id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, createdAt: 0
+  id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0
 }
 
 /** 부를 때마다 차례로 목록을 주는 가짜 git. 부른 횟수를 센다. */

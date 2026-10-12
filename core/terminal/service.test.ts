@@ -27,8 +27,8 @@ function fakePty(pid: number): FakePty {
 }
 
 const repos: Record<string, Repo> = {
-  api: { id: 'api', workspaceId: 'w1', name: 'api', path: 'C:\\work\\api', description: null, sortOrder: 0, createdAt: 0 },
-  web: { id: 'web', workspaceId: 'w1', name: 'web', path: 'C:\\work\\web', description: null, sortOrder: 1, createdAt: 0 }
+  api: { id: 'api', workspaceId: 'w1', name: 'api', path: 'C:\\work\\api', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 },
+  web: { id: 'web', workspaceId: 'w1', name: 'web', path: 'C:\\work\\web', description: null, sortOrder: 1, agentEnv: 'host', createdAt: 0 }
 }
 
 function setup(platform: NodeJS.Platform = 'win32') {

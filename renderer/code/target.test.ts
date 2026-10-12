@@ -3,8 +3,8 @@ import { paneTarget } from './target'
 import { groupConversations } from '../conversation'
 import type { Repo, Run } from '@shared/models'
 
-const API: Repo = { id: 'r1', workspaceId: 'w', name: 'api', path: String.raw`D:\work\api`, description: null, sortOrder: 0, createdAt: 0 }
-const WEB: Repo = { id: 'r2', workspaceId: 'w', name: 'web', path: '/home/me/web', description: null, sortOrder: 1, createdAt: 0 }
+const API: Repo = { id: 'r1', workspaceId: 'w', name: 'api', path: String.raw`D:\work\api`, description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 }
+const WEB: Repo = { id: 'r2', workspaceId: 'w', name: 'web', path: '/home/me/web', description: null, sortOrder: 1, agentEnv: 'host', createdAt: 0 }
 
 function run(over: Partial<Run> & { id: string }): Run {
   return {

@@ -136,4 +136,20 @@ describe('RepoRepository.update', () => {
   it('없는 id는 NotFoundError다', () => {
     expect(() => repos.update('없음', { name: 'x' })).toThrow(NotFoundError)
   })
+
+  // docs/sdlc/wsl-support/ FR-1·3 — claude 실행 환경은 repo의 속성이다
+  it('agentEnv는 기본이 host이고 create가 받는다 (wsl-support FR-1·5)', () => {
+    expect(repos.create({ workspaceId, name: 'api', path: '/tmp/api' }).agentEnv).toBe('host')
+    const wsl = repos.create({ workspaceId, name: 'w', path: '\\\\wsl$\\Ubuntu\\home\\me\\w', agentEnv: 'wsl' })
+    expect(wsl.agentEnv).toBe('wsl')
+    expect(repos.get(wsl.id).agentEnv).toBe('wsl')
+    expect(repos.list(workspaceId).map((r) => r.agentEnv).sort()).toEqual(['host', 'wsl'])
+  })
+
+  it('update는 agentEnv만 바꿀 수 있고 다른 필드는 그대로다 (wsl-support FR-3)', () => {
+    const made = repos.create({ workspaceId, name: 'w', path: '\\\\wsl$\\Ubuntu\\home\\me\\w', description: '설명' })
+    const row = repos.update(made.id, { agentEnv: 'wsl' })
+    expect(row).toMatchObject({ name: 'w', path: made.path, description: '설명', agentEnv: 'wsl' })
+    expect(repos.update(made.id, { description: '다른' }).agentEnv).toBe('wsl')
+  })
 })

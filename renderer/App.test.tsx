@@ -29,7 +29,7 @@ const workspace: Workspace = {
 }
 
 function makeRepo(id: string, name: string, path: string, workspaceId = 'w1'): Repo {
-  return { id, workspaceId, name, path, description: null, sortOrder: 0, createdAt: 0 }
+  return { id, workspaceId, name, path, description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 }
 }
 
 function makeRun(over: Partial<Run> = {}): Run {
@@ -1694,7 +1694,7 @@ describe('App — asset repo 필터 배선', () => {
     const queries: (string | null)[] = []
     const repo: Repo = {
       id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api',
-      description: null, sortOrder: 0, createdAt: 0
+      description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0
     }
     renderApp(makeClient({}, { repos: [repo], assetQueries: queries }))
     await selectWorkspace()
@@ -1710,7 +1710,7 @@ describe('App — asset repo 필터 배선', () => {
 describe('App — 메모 repo 배선', () => {
   const REPO: Repo = {
     id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api',
-    description: null, sortOrder: 0, createdAt: 0
+    description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0
   }
 
   it('메모 상세에서 repo를 고를 수 있다', async () => {

@@ -13,7 +13,7 @@ import type { Conversation } from '../conversation'
 import type { ContextChip } from '../context'
 
 const repos: Repo[] = [
-  { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, createdAt: 0 }
+  { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 }
 ]
 
 function makeWorkspace(
@@ -221,7 +221,7 @@ describe('RunPanel', () => {
     const start = vi.fn().mockResolvedValue({ id: 'run-1' } as Run)
     const client = makeClient({ start })
     const other: Repo[] = [
-      { id: 'r2', workspaceId: 'w2', name: 'web', path: '/tmp/web', description: null, sortOrder: 0, createdAt: 0 }
+      { id: 'r2', workspaceId: 'w2', name: 'web', path: '/tmp/web', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 }
     ]
 
     const { rerender } = render(panel(client, repos, [], vi.fn()))
@@ -251,7 +251,7 @@ describe('RunPanel', () => {
     const start = vi.fn().mockResolvedValue({ id: 'run-1' } as Run)
     const two: Repo[] = [
       ...repos,
-      { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 0, createdAt: 0 }
+      { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 }
     ]
     renderPanel(makeClient({ start }), two, [], vi.fn(), { draftCwd: '/tmp/web' })
 
@@ -265,7 +265,7 @@ describe('RunPanel', () => {
   describe('사이드바에서 고른 repo', () => {
     const two: Repo[] = [
       ...repos,
-      { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 1, createdAt: 0 }
+      { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 1, agentEnv: 'host', createdAt: 0 }
     ]
 
     it('새 대화의 작업 디렉토리가 된다 — 첫 repo가 아니라', async () => {
@@ -1464,7 +1464,7 @@ describe('RunPanel — ↑로 이전 지시 불러오기 (docs/sdlc/prompt-histo
 describe('RunPanel — @ 파일 참조 (docs/sdlc/input-triggers/)', () => {
   const twoRepos: Repo[] = [
     ...repos,
-    { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 1, createdAt: 0 }
+    { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 1, agentEnv: 'host', createdAt: 0 }
   ]
   /** 작업 디렉토리가 둘째 repo인 opencode 대화 — 첫 repo로 떨어지면 잡히게 */
   function webConversation(prompts: string[] = ['첫 지시']): Conversation {
@@ -1557,7 +1557,7 @@ describe('RunPanel — @ 파일 참조 (docs/sdlc/input-triggers/)', () => {
 describe('작업 디렉토리 알리기 (docs/sdlc/code-editor/ FR-6)', () => {
   const two: Repo[] = [
     ...repos,
-    { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 1, createdAt: 0 }
+    { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 1, agentEnv: 'host', createdAt: 0 }
   ]
 
   it('폴백 · 사이드바 선택 · 알약 변경 어느 길로 바뀌든 도크에 알린다', async () => {

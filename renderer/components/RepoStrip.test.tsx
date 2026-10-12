@@ -7,8 +7,8 @@ import type { OneDeskClient } from '@shared/client'
 import type { Repo } from '@shared/models'
 
 const repos: Repo[] = [
-  { id: 'r1', workspaceId: 'w1', name: 'api-server', path: '/tmp/api', description: null, sortOrder: 0, createdAt: 0 },
-  { id: 'r2', workspaceId: 'w1', name: 'web-client', path: '/tmp/web', description: null, sortOrder: 0, createdAt: 0 }
+  { id: 'r1', workspaceId: 'w1', name: 'api-server', path: '/tmp/api', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 },
+  { id: 'r2', workspaceId: 'w1', name: 'web-client', path: '/tmp/web', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 }
 ]
 
 const client = {

@@ -1,6 +1,11 @@
 import type { RunUsage } from './events'
 export type AgentKind = 'claude-code' | 'opencode'
 export type Permission = 'read_only' | 'edit' | 'full'
+/**
+ * repo의 claude 실행 환경 (`docs/sdlc/wsl-support/`). `host`는 앱이 도는 OS, `wsl`은 경로(`\\wsl$\<distro>\…`)가 가리키는
+ * WSL2 배포판 안 — 그 repo의 **모든 프로세스**(claude·probe·git·터미널)가 `wsl.exe -d <distro>`로 뜬다.
+ */
+export type AgentEnv = 'host' | 'wsl'
 
 /**
  * MCP 서버의 기동 상태. 앱이 켜져 있는 동안 이 셋 중 하나다.
@@ -81,6 +86,7 @@ export interface Repo {
   path: string
   description: string | null
   sortOrder: number
+  agentEnv: AgentEnv
   createdAt: number
 }
 
@@ -239,6 +245,8 @@ export interface CreateRepoInput {
   name: string
   path: string
   description?: string | null
+  /** 기본 `host` */
+  agentEnv?: AgentEnv
 }
 
 /**
@@ -265,6 +273,7 @@ export interface UpdateRepoInput {
   name?: string
   path?: string
   description?: string | null
+  agentEnv?: AgentEnv
 }
 
 export interface CreateIssueInput {

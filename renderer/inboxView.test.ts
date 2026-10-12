@@ -27,7 +27,7 @@ function makeWorkspace(id: string, name: string): Workspace {
 }
 
 function makeRepo(id: string, workspaceId: string, name: string, path: string): Repo {
-  return { id, workspaceId, name, path, description: null, sortOrder: 0, createdAt: 0 }
+  return { id, workspaceId, name, path, description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 }
 }
 
 const ids = (runs: readonly Run[]) => runs.map((r) => r.id)

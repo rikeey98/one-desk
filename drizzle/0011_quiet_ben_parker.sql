@@ -1,0 +1,1 @@
+ALTER TABLE `repo` ADD `agent_env` text DEFAULT 'host' NOT NULL;

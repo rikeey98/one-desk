@@ -278,7 +278,7 @@ describe('foldByIssue', () => {
 
 describe('repo로 나누기 (docs/sdlc/dock-repo-sections/)', () => {
   const repo = (id: string, name: string, path: string): Repo =>
-    ({ id, workspaceId: 'ws', name, path, description: null, sortOrder: 0, createdAt: 0 })
+    ({ id, workspaceId: 'ws', name, path, description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 })
   const api = repo('r-api', 'api', '/work/api')
   const web = repo('r-web', 'web', 'C:\\work\\Web')
   const repos = [api, web]
@@ -301,6 +301,15 @@ describe('repo로 나누기 (docs/sdlc/dock-repo-sections/)', () => {
     expect(repoOfCwd('c:/WORK/web\\', repos)).toBe(web)
     expect(repoOfCwd('/work/API', repos)).toBeNull()
     expect(repoOfCwd('/work/api', [])).toBeNull()
+  })
+
+  it('WSL UNC의 두 접두사는 같은 폴더다 — `\\\\wsl.localhost\\U\\a`와 `\\\\wsl$\\U\\a` (wsl-support §4의 9)', () => {
+    const wsl: Repo = { ...api, id: 'wsl', name: 'wsl', path: '\\\\wsl$\\Ubuntu\\home\\me\\proj' }
+    const all = [...repos, wsl]
+    expect(repoOfCwd('\\\\wsl.localhost\\Ubuntu\\home\\me\\proj', all)).toBe(wsl)
+    expect(repoOfCwd('\\\\WSL$\\Ubuntu\\home\\me\\proj\\', all)).toBe(wsl)
+    // Linux 경로 부분은 대소문자가 다르면 다른 디렉토리다 — Windows 규칙으로 접지 않는다
+    expect(repoOfCwd('\\\\wsl$\\Ubuntu\\home\\me\\PROJ', all)).toBeNull()
   })
 
   const runs = [

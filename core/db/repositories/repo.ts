@@ -29,6 +29,7 @@ export function createRepoRepository(db: Database) {
         name: input.name,
         path: input.path,
         description: input.description ?? null,
+        agentEnv: input.agentEnv ?? 'host',
         createdAt: Date.now()
       }).returning().all()
       if (!row) throw new Error('repo 생성에 실패했습니다')
@@ -62,7 +63,7 @@ export function createRepoRepository(db: Database) {
      * 여기서 보지 않는다 — 파일시스템은 core 표면의 몫이다.
      */
     update(id: string, patch: Omit<UpdateRepoInput, 'id'>): Repo {
-      const set: Partial<Pick<Repo, 'name' | 'path' | 'description'>> = {}
+      const set: Partial<Pick<Repo, 'name' | 'path' | 'description' | 'agentEnv'>> = {}
       if (patch.name !== undefined) {
         const trimmed = patch.name.trim()
         if (trimmed === '') throw new Error('이름은 비울 수 없습니다.')
@@ -74,6 +75,8 @@ export function createRepoRepository(db: Database) {
         set.path = trimmed
       }
       if (patch.description !== undefined) set.description = patch.description
+      // 경로 모양·플랫폼 검증은 core 표면(`repos.update`)의 몫이다 — 저장소는 파일시스템도 OS도 모른다.
+      if (patch.agentEnv !== undefined) set.agentEnv = patch.agentEnv
 
       return db.transaction((tx) => {
         const current = tx.select().from(repo).where(eq(repo.id, id)).get()

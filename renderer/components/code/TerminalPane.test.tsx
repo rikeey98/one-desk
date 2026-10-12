@@ -32,7 +32,7 @@ vi.mock('./TerminalView', async () => {
   }
 })
 
-const repo: Repo = { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, createdAt: 0 }
+const repo: Repo = { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 }
 
 function session(over: Partial<TerminalSession> = {}): TerminalSession {
   return {

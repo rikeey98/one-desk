@@ -189,7 +189,7 @@ describe('InboxPanel', () => {
 })
 
 describe('보기와 정렬 (docs/sdlc/inbox-views/)', () => {
-  const api: Repo = { id: 'p-api', workspaceId: 'w1', name: 'api', path: '/work/api', description: null, sortOrder: 0, createdAt: 0 }
+  const api: Repo = { id: 'p-api', workspaceId: 'w1', name: 'api', path: '/work/api', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 }
   const repos: ReposByWorkspace = { w1: [api] }
   // core가 주는 순서(끝난 시각 최신순)
   const items = [

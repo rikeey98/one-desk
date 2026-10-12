@@ -66,8 +66,8 @@ describe('groupIssues', () => {
 
   it('repo 축은 repo 이름으로 묶고, 태그가 여럿이면 여러 그룹에 나타난다', () => {
     const repos: Repo[] = [
-      { id: 'r1', workspaceId: 'ws', name: 'api', path: '/a', description: null, sortOrder: 0, createdAt: 0 },
-      { id: 'r2', workspaceId: 'ws', name: 'web', path: '/b', description: null, sortOrder: 1, createdAt: 0 }
+      { id: 'r1', workspaceId: 'ws', name: 'api', path: '/a', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 },
+      { id: 'r2', workspaceId: 'ws', name: 'web', path: '/b', description: null, sortOrder: 1, agentEnv: 'host', createdAt: 0 }
     ]
     const groups = groupIssues([
       makeIssue({ id: 'both', repoIds: ['r1', 'r2'] }),

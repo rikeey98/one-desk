@@ -7,7 +7,7 @@ import type { Repo } from '@shared/models'
 function makeRepo(id: string, name: string): Repo {
   return {
     id, workspaceId: 'ws', name, path: `/tmp/${id}`,
-    description: null, sortOrder: 0, createdAt: 0
+    description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0
   }
 }
 

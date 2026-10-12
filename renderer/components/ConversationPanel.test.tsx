@@ -13,7 +13,7 @@ import type { Conversation } from '../conversation'
 import type { Repo, Run, Workspace } from '@shared/models'
 
 const repos: Repo[] = [
-  { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, createdAt: 0 }
+  { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 }
 ]
 
 const workspace: Workspace = {

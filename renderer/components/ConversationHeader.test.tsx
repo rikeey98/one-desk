@@ -7,7 +7,7 @@ import type { Repo, Run } from '@shared/models'
 import type { RunUsage } from '@shared/events'
 
 const repos: Repo[] = [
-  { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, createdAt: 0 }
+  { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 }
 ]
 
 function makeRun(over: Partial<Run> & { id: string }): Run {
