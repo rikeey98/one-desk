@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { spawn } from 'node:child_process'
-import { statSync } from 'node:fs'
+import { mkdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { openDb } from './db/open'
@@ -37,6 +37,8 @@ import { opencodeAdapter } from './runner/adapters/opencode'
 import { resolveAgentPath } from './runner/agentPath'
 import { envOfRepo, HOST_ENV, type ProcessEnvSpec } from './wsl/env'
 import { createWslPreflight } from './wsl/preflight'
+import { createWslPaths } from './wsl/paths'
+import { LAUNCHER_FILE } from './wsl/launch'
 import type { AgentDefaults } from './runner/agentPath'
 import type { PreflightResult } from './runner/types'
 import { findVscodeExecutable, newWindowArgs } from './editor/vscodeLaunch'
@@ -81,6 +83,11 @@ export interface CoreOptions {
    * `pnpm dev`가 그 경로로 돈다. 패키징된 앱은 main이 resourcesPath를 넘긴다.
    */
   bridgePath?: string
+  /**
+   * WSL 런처 스크립트(`core/wsl/launcher.sh`)의 경로 — 브리지와 같은 이유로 extraResources다(`docs/sdlc/wsl-support/` FR-10).
+   * 생략하면 이 파일 기준으로 찾는다(테스트·`pnpm dev`). 패키징된 앱은 main이 resourcesPath를 넘긴다.
+   */
+  launcherPath?: string
   /** 브리지를 띄울 실행 파일. 기본은 현재 프로세스(패키징 앱에서는 Electron 바이너리). */
   execPath?: string
   /**
@@ -253,6 +260,15 @@ export function createCore(opts: CoreOptions) {
   // 남아 있는 run은 이전 실행이 비정상 종료된 흔적이다.
   runs.reapStale()
 
+  /**
+   * WSL (`docs/sdlc/wsl-support/`). pidfile은 run마다 `<dataDir>/wsl/<runId>.pid` — run이 끝나면 manager가 지우고, 지난
+   * 실행이 남긴 것은 여기서 디렉토리째 치운다(FR-19, MCP 설정 파일과 같은 규칙).
+   */
+  const wslDir = join(opts.dataDir, 'wsl')
+  rmSync(wslDir, { recursive: true, force: true })
+  const wslPaths = createWslPaths({ userDataDir: opts.dataDir })
+  const launcherPath = opts.launcherPath ?? LAUNCHER_FILE
+
   const mcp = createMcpHost({
     deps: { repos, issues, memos, runs },
     configDir: join(opts.dataDir, 'mcp'),
@@ -353,6 +369,15 @@ export function createCore(opts: CoreOptions) {
     onError,
     // 이 한 줄이 빠지면 멘션이 전부 중화될 뿐 아무것도 실리지 않는다 — 실패가 조용하다.
     files,
+    // WSL run의 런처 — 이 한 줄이 빠지면 WSL repo의 run이 "런처가 배선되지 않았습니다"로 끝난다.
+    wsl: {
+      async launcherFor(distro, runId) {
+        mkdirSync(wslDir, { recursive: true })
+        const pidfileHost = join(wslDir, `${runId}.pid`)
+        const [path, pidfile] = await Promise.all([wslPaths.toLinux(distro, launcherPath), wslPaths.toLinux(distro, pidfileHost)])
+        return { path, pidfile, pidfileHost }
+      }
+    },
     // 설정 화면·probe와 같은 판정이다 (wsl-support FR-7·13)
     resolveExecutable: (agentKind, workspaceId, cwd) => preflightFor(agentKind, workspaceId, cwd),
     verifyRunnable: async (agentKind, input) => {

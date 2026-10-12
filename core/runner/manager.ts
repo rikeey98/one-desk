@@ -5,7 +5,9 @@ import type { RunEvent, RunEventInit, RunUsage } from '@shared/events'
 import type { AgentAdapter, McpRunConfig } from './types'
 import { createLineSplitter } from './stream'
 import { createLogWriter, createRawLogWriter, RAW_LOG_MAX_BYTES } from './logWriter'
-import { taskkillTreeSync, terminate, type TreeKiller } from './terminate'
+import { taskkillTreeSync, terminate, readPgid } from './terminate'
+import { killGroup as killGroupAsync, killGroupSync as killGroupSyncDefault, type GroupKiller } from '../wsl/kill'
+import { rmSync } from 'node:fs'
 import { agentCommand } from './executable'
 import type { ErrorSink } from '../errors'
 import type { ProcessEnvSpec } from '../wsl/env'
@@ -38,6 +40,9 @@ export interface RunManagerOptions {
    * 두고 `RAW_LOG_MAX_BYTES`(32 MiB)를 쓴다(spec FR-3).
    */
   rawLogMaxBytes?: number
+  /** WSL 그룹 종료 — 비동기(취소)·동기(앱 종료). 테스트가 바꿔 끼운다 (wsl-support FR-18) */
+  killGroup?: GroupKiller
+  killGroupSync?: GroupKiller
 }
 
 export interface StartSpec {
@@ -56,8 +61,11 @@ export interface StartSpec {
    * 빠뜨려도 조용히 컴파일되고 WSL repo의 run이 Windows에서 돈다. 실행 서비스가 cwd의 repo에서 만든다.
    */
   env: ProcessEnvSpec
-  /** WSL 런처(FR-10) — 둘 다 Linux 경로. wsl이 아니면 없다 */
-  launcher?: { path: string; pidfile: string }
+  /**
+   * WSL 런처(FR-10·18) — `path`·`pidfile`은 WSL에 넘기는 Linux 경로, `pidfileHost`는 같은 pidfile의 Windows 경로(취소가
+   * 읽고 끝나면 지운다). wsl이 아니면 없다.
+   */
+  launcher?: { path: string; pidfile: string; pidfileHost: string }
   /** MCP 접속 정보. 없으면 어댑터가 MCP 인자를 통째로 건너뛴다 */
   mcp?: McpRunConfig | null
   timeoutMs?: number | null
@@ -157,7 +165,8 @@ export interface RunOutcome {
 export function createRunManager(opts: RunManagerOptions) {
   const active = new Map<string, ChildProcess>()
   /** 실행 중인 run의 멈추기. 트리 종료를 바꿔 끼울 수 있다 — 앱 종료 경로는 동기로 죽인다 */
-  const cancels = new Map<string, (killTree?: TreeKiller) => void>()
+  /** run id → 취소. 인자는 "앱 종료 경로인가" — true면 동기 트리·그룹 종료다 (wsl-support FR-18) */
+  const cancels = new Map<string, (shutdown: boolean) => void>()
 
   /**
    * run의 로그 파일 경로. 이 함수가 경로의 단일 출처다.
@@ -303,9 +312,21 @@ export function createRunManager(opts: RunManagerOptions) {
     })
     active.set(spec.runId, child)
     // 등록은 spawn 직후여야 한다. 종료를 기다린 뒤에 등록하면 영원히 등록되지 않는다.
-    cancels.set(spec.runId, (killTree) => {
+    const wsl = spec.env.kind === 'wsl' && spec.launcher
+      ? { distro: spec.env.distro, pidfileHost: spec.launcher.pidfileHost }
+      : null
+    cancels.set(spec.runId, (shutdown) => {
       canceled = true
-      terminate(child, killTree ? { killTree } : {})
+      if (!shutdown) {
+        terminate(child, wsl ? { wsl: { ...wsl, killGroup: opts.killGroup ?? killGroupAsync } } : {})
+        return
+      }
+      // 앱 종료 경로 — 전부 동기로, 돌아오기 전에 끝나야 한다 (`cancelAll`의 주석).
+      if (wsl) {
+        const pgid = readPgid(wsl.pidfileHost)
+        if (pgid !== null) (opts.killGroupSync ?? killGroupSyncDefault)(wsl.distro, pgid, 'KILL', () => {})
+      }
+      terminate(child, { killTree: taskkillTreeSync })
     })
 
     // 프롬프트는 stdin으로 넘긴다 (인자 길이 제한 회피).
@@ -350,6 +371,8 @@ export function createRunManager(opts: RunManagerOptions) {
     active.delete(spec.runId)
     // 등록을 지우지 않으면 이미 끝난 run의 클로저가 계속 쌓인다.
     cancels.delete(spec.runId)
+    // 런처가 적은 그룹 id는 이 run과 함께 끝난다 (wsl-support FR-19). 부팅 때 디렉토리째 치우는 것이 그 짝이다.
+    if (spec.launcher) rmSync(spec.launcher.pidfileHost, { force: true })
     // 둘 다 닫은 뒤에 돌려준다. 닫지 않으면 run마다 파일 핸들이 하나씩 새고, 기다리지
     // 않으면 돌려받은 쪽이 아직 쓰는 중인 파일을 본다. close는 실패한 writer에서도
     // 매달리지 않는다(매달리면 동시 실행 슬롯이 영영 점유된다).
@@ -374,7 +397,7 @@ export function createRunManager(opts: RunManagerOptions) {
   }
 
   function cancel(runId: string): void {
-    cancels.get(runId)?.()
+    cancels.get(runId)?.(false)
   }
 
   /**
@@ -385,7 +408,7 @@ export function createRunManager(opts: RunManagerOptions) {
    * (`docs/sdlc/conversation-fixes/` spec FR-18). POSIX는 지금대로다.
    */
   function cancelAll(): void {
-    for (const fn of cancels.values()) fn(taskkillTreeSync)
+    for (const fn of cancels.values()) fn(true)
   }
 
   return { start, cancel, cancelAll, isRunning, logPathFor, rawLogPathFor }

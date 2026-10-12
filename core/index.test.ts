@@ -717,8 +717,26 @@ describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)'
       expect(launch).toContain('--output-format')
       // run 행의 cwd는 UNC 그대로다 (FR-15)
       expect(core.runs.get(run.id).cwd).toBe(WSL_PATH)
+      // 런처: /bin/sh <launcher.sh의 Linux 경로> <pidfile의 Linux 경로> 가 실행 파일 앞에 선다 (FR-10·11) — 둘 다 wslpath로 바꾼 것
+      const i = launch!.indexOf('/bin/sh')
+      expect(i).toBeGreaterThan(0)
+      expect(launch![i + 1]).toMatch(/^\/mnt\/.*launcher\.sh$/)
+      expect(launch![i + 2]).toMatch(new RegExp(`^/mnt/.*/wsl/${run.id}\\.pid$`))
+      // wslpath는 distro마다 userData 하나만 묻는다 — 런처(설치 폴더)까지 둘
+      expect(calls.filter((c) => c.includes('wslpath'))).toHaveLength(2)
+      // 끝나면 pidfile이 없다 (FR-19)
+      expect(existsSync(join(dataDir, 'wsl', `${run.id}.pid`))).toBe(false)
       close(core)
     })
+  })
+
+  it('부팅 때 지난 실행이 남긴 pidfile을 디렉토리째 치운다 (FR-19)', () => {
+    const dataDir = makeDataDir()
+    mkdirSync(join(dataDir, 'wsl'), { recursive: true })
+    writeFileSync(join(dataDir, 'wsl', 'stale.pid'), '123\n')
+    const core = open(dataDir)
+    expect(existsSync(join(dataDir, 'wsl', 'stale.pid'))).toBe(false)
+    close(core)
   })
 
   it('WSL claude 경로가 비었으면 로그인 셸의 command -v로 찾고, 앱 설정에 두면 그 경로를 test -x로 본다 (FR-12)', async () => {

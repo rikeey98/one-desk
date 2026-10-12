@@ -1,4 +1,6 @@
 import { execFile, execFileSync, type ChildProcess } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import type { GroupKiller } from '../wsl/kill'
 
 /** SIGTERM 후 SIGKILL까지의 유예 */
 export const KILL_GRACE_MS = 3000
@@ -43,11 +45,34 @@ export const taskkillTreeSync: TreeKiller = (pid, onFail) => {
   }
 }
 
+export interface WslTerminate {
+  distro: string
+  /** 런처가 그룹 id를 적는 pidfile의 **Windows 쪽** 경로 — 이 프로세스가 읽는다 */
+  pidfileHost: string
+  killGroup: GroupKiller
+}
+
 export interface TerminateOptions {
   /** 기본은 `process.platform`. 개발 장비에서 다른 OS의 갈래를 검증하려고 받는다 */
   platform?: NodeJS.Platform
   /** Windows 트리 종료. 기본은 `taskkillTree` */
   killTree?: TreeKiller
+  /** WSL 안에서 뜬 프로세스면 그 그룹을 안에서 먼저 끝낸다 (`docs/sdlc/wsl-support/` spec FR-18) */
+  wsl?: WslTerminate
+}
+
+/** pidfile의 그룹 id. 아직 안 썼거나 수가 아니면 null */
+export function readPgid(pidfileHost: string): number | null {
+  try {
+    const n = Number.parseInt(readFileSync(pidfileHost, 'utf8').trim(), 10)
+    return Number.isInteger(n) && n > 0 ? n : null
+  } catch {
+    return null
+  }
+}
+
+function alive(child: ChildProcess): boolean {
+  return child.exitCode === null && child.signalCode === null
 }
 
 /**
@@ -64,6 +89,31 @@ export interface TerminateOptions {
  */
 export function terminate(child: ChildProcess, opts: TerminateOptions = {}): void {
   const platform = opts.platform ?? process.platform
+
+  // 호스트(wsl.exe 자신)를 끝내는 마지막 수단 — 플랫폼 갈래 그대로다.
+  const killHost = (): void => {
+    if (platform === 'win32' && child.pid !== undefined) {
+      ;(opts.killTree ?? taskkillTree)(child.pid, () => { child.kill() })
+    } else {
+      child.kill('SIGKILL')
+    }
+  }
+
+  // WSL (`docs/sdlc/wsl-support/` spec FR-18): wsl.exe는 얇은 클라이언트라 그것만 죽이면 안의 agent와 Bash 도구의
+  // 손자가 남을 수 있다. 런처가 적은 그룹 id로 **안에서** TERM → 유예 → KILL → 그래도 남으면 호스트를 트리째.
+  // pidfile이 아직 없으면(런처가 쓰기 전의 취소) 호스트만 끝낸다. 플랫폼과 무관하다 — 개발 장비에서 그대로 돈다.
+  if (opts.wsl) {
+    const pgid = readPgid(opts.wsl.pidfileHost)
+    if (pgid === null) { killHost(); return }
+    const { distro, killGroup } = opts.wsl
+    killGroup(distro, pgid, 'TERM', () => { killHost() })
+    setTimeout(() => {
+      if (!alive(child)) return
+      killGroup(distro, pgid, 'KILL', () => { killHost() })
+      setTimeout(() => { if (alive(child)) killHost() }, KILL_GRACE_MS).unref()
+    }, KILL_GRACE_MS).unref()
+    return
+  }
 
   if (platform === 'win32') {
     // spawn이 실패하면 pid가 없다. 죽일 트리도 없으니 직계 경로만 탄다.

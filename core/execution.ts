@@ -6,7 +6,7 @@ import { assemblePrompt, type AssetForPrompt } from './context/assemble'
 import { readAssetBody } from './assets/body'
 import type { FileService, ResolvedMentions } from './files/service'
 import type { FinishRunInput, RunRepository } from './db/repositories/run'
-import type { RunManager } from './runner/manager'
+import type { RunManager, StartSpec } from './runner/manager'
 import type { RunQueue } from './runner/queue'
 import type { McpRunConfig, PreflightResult, VerifyRunnableInput } from './runner/types'
 import { MCP_SERVER_NAME, type McpHost } from './mcp/host'
@@ -52,6 +52,11 @@ export interface ExecutionOptions {
    * 멘션은 전부 중화되어 CLI에 간다(펼치지 못한다).
    */
   files?: Pick<FileService, 'resolveMentions'>
+  /**
+   * WSL run의 런처 (`docs/sdlc/wsl-support/` spec FR-10·11) — 런처 스크립트와 pidfile의 Linux 경로를 만든다(`wslpath`,
+   * async). 없으면 WSL repo의 run을 시작할 수 없다 — 테스트 통로이고 core는 늘 넘긴다.
+   */
+  wsl?: { launcherFor(distro: string, runId: string): Promise<NonNullable<StartSpec['launcher']>> }
 }
 
 export function createExecutionService(opts: ExecutionOptions) {
@@ -190,6 +195,8 @@ export function createExecutionService(opts: ExecutionOptions) {
     executable: string
     /** 어디서 띄우나 — cwd의 repo가 정한다 (wsl-support FR-8) */
     env: ProcessEnvSpec
+    /** wsl이면 런처 둘의 Linux 경로와 pidfile의 Windows 경로 (FR-10·18) */
+    launcher: StartSpec['launcher']
     mcp: McpRunConfig | null
     /** 이어받을 대화. null이면 새 세션이다 */
     resumeFromRootRunId: string | null
@@ -276,6 +283,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       resumeSessionId,
       executable: spec.executable,
       env: spec.env,
+      ...(spec.launcher ? { launcher: spec.launcher } : {}),
       // 이 한 줄이 빠지면 MCP가 통째로 꺼진다.
       mcp: spec.mcp,
       timeoutMs: spec.timeoutMs,
@@ -492,6 +500,25 @@ export function createExecutionService(opts: ExecutionOptions) {
       }
     }
 
+    // WSL run은 런처 둘의 Linux 경로가 있어야 뜬다 (wsl-support FR-10·11). `wslpath`를 묻는 await라 MCP와 같은 자리에서
+    // 같은 규칙으로 — 실패하면 시작 전 실패이고, 그 사이의 취소가 먼저다.
+    const env = envOfCwd(spec)
+    let launcher: StartSpec['launcher']
+    if (env.kind === 'wsl') {
+      try {
+        if (!opts.wsl) throw new Error('WSL 런처가 배선되지 않았습니다')
+        launcher = await opts.wsl.launcherFor(env.distro, created.id)
+      } catch (err) {
+        if (cancelRequested()) return finishUnstarted(created.id)
+        releaseMcp(created.id)
+        return notify(opts.runs.markFinished(created.id, {
+          status: 'failed', resultText: null, externalSessionId: null, needsAnswer: false, exitCode: null,
+          errorMessage: err instanceof Error ? err.message : String(err),
+          usage: null
+        }))
+      }
+    }
+
     // MCP 준비(await) 뒤이자 enqueue 직전의 확인이다. prepare()가 토큰을 이미
     // 등록했으므로 finishUnstarted가 폐기까지 맡는다.
     if (cancelRequested()) return finishUnstarted(created.id)
@@ -504,7 +531,8 @@ export function createExecutionService(opts: ExecutionOptions) {
       permission: spec.permission,
       prompt: assembled,
       executable,
-      env: envOfCwd(spec),
+      env,
+      launcher,
       mcp,
       resumeFromRootRunId: spec.resumeFromRootRunId,
       timeoutMs: spec.timeoutMs,

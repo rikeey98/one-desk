@@ -12,7 +12,7 @@ import { createAssetRepository } from './db/repositories/asset'
 import { createRunManager, type RunManager, type RunOutcome, type StartSpec } from './runner/manager'
 import { createRunQueue } from './runner/queue'
 import { claudeCodeAdapter } from './runner/adapters/claudeCode'
-import { createExecutionService } from './execution'
+import { createExecutionService, type ExecutionOptions } from './execution'
 import type { AgentKind, Run } from '@shared/models'
 import type { PreflightResult, VerifyRunnableInput } from './runner/types'
 import type { McpHost } from './mcp/host'
@@ -43,6 +43,8 @@ interface SetupOptions {
   ) => Promise<PreflightResult>
   /** `@` 파일 참조의 해석 (docs/sdlc/input-triggers/). 없으면 멘션이 전부 중화된다 */
   files?: Pick<FileService, 'resolveMentions'>
+  /** WSL 런처 (wsl-support FR-10). 없으면 WSL repo의 run은 시작 전에 실패한다 */
+  wsl?: ExecutionOptions['wsl']
 }
 
 function setup(options: SetupOptions = {}) {
@@ -68,6 +70,7 @@ function setup(options: SetupOptions = {}) {
     ...(options.onError ? { onError: options.onError } : {}),
     ...(options.verifyRunnable ? { verifyRunnable: options.verifyRunnable } : {}),
     ...(options.files ? { files: options.files } : {}),
+    ...(options.wsl ? { wsl: options.wsl } : {}),
     resolveExecutable: options.preflight ?? (async () => ({ ok: true, executable: process.execPath })),
     onRunUpdate: (run) => {
       updates.push(run)
@@ -1748,6 +1751,7 @@ function createPerRunManager() {
   const resumeSessionIds = new Map<string, string | null>()
   // manager.start()에 넘어온 실행 환경 (wsl-support FR-8) — 배선이 빠지면 WSL repo의 run이 Windows에서 돈다
   const envs = new Map<string, StartSpec['env']>()
+  const launchers = new Map<string, StartSpec['launcher']>()
   // manager.cancel()이 불린 run. 실제 manager처럼 프로세스를 죽이지는 않는다 —
   // 끝나는 순간은 테스트가 finish()로 정한다.
   const cancelRequests: string[] = []
@@ -1759,6 +1763,7 @@ function createPerRunManager() {
       seen.add(spec.runId)
       resumeSessionIds.set(spec.runId, spec.resumeSessionId)
       envs.set(spec.runId, spec.env)
+      launchers.set(spec.runId, spec.launcher)
       return new Promise<RunOutcome>((r) => settlers.set(spec.runId, r))
     },
     cancel: (runId) => { cancelRequests.push(runId) },
@@ -1771,6 +1776,7 @@ function createPerRunManager() {
     started: (runId: string) => seen.has(runId),
     sessionIdFor: (runId: string) => resumeSessionIds.get(runId) ?? null,
     envFor: (runId: string) => envs.get(runId),
+    launcherFor: (runId: string) => launchers.get(runId),
     cancelRequests,
     finish(runId: string, sessionId: string | null = null, status: RunOutcome['status'] = 'succeeded') {
       const settle = settlers.get(runId)
@@ -1850,9 +1856,13 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 describe('실행 환경 배선 (docs/sdlc/wsl-support/ FR-8·FR-15)', () => {
   const WSL_PATH = '\\\\wsl$\\Ubuntu\\home\\me\\api'
 
+  const launcherStub = {
+    launcherFor: async (_distro: string, runId: string) => ({ path: '/mnt/c/l.sh', pidfile: `/mnt/c/w/${runId}.pid`, pidfileHost: `C:\\w\\${runId}.pid` })
+  }
+
   it('WSL repo를 작업 디렉토리로 한 run은 manager.start에 그 distro의 wsl 환경을 넘긴다 — cwd는 UNC 그대로다', async () => {
     const fake = createPerRunManager()
-    const ctx2 = setup({ manager: fake.manager })
+    const ctx2 = setup({ manager: fake.manager, wsl: launcherStub })
     createRepoRepository(ctx2.db).create({ workspaceId: ctx2.workspaceId, name: 'wsl', path: WSL_PATH, agentEnv: 'wsl' })
     const run = await ctx2.service.start({
       workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: WSL_PATH,
@@ -1862,6 +1872,43 @@ describe('실행 환경 배선 (docs/sdlc/wsl-support/ FR-8·FR-15)', () => {
     expect(fake.envFor(run.id)).toEqual({ kind: 'wsl', distro: 'Ubuntu' })
     expect(ctx2.runs.get(run.id).cwd).toBe(WSL_PATH)
     fake.finish(run.id)
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+
+  it('WSL run은 런처 둘의 Linux 경로와 pidfile의 Windows 경로를 manager에 넘긴다 — host run에는 없다 (FR-10)', async () => {
+    const fake = createPerRunManager()
+    const launcherFor = vi.fn(async (distro: string, runId: string) => ({
+      path: `/mnt/c/app/launcher.sh`, pidfile: `/mnt/c/data/wsl/${runId}.pid`, pidfileHost: `C:\\data\\wsl\\${runId}.pid`, distro
+    }))
+    const ctx2 = setup({ manager: fake.manager, wsl: { launcherFor } })
+    createRepoRepository(ctx2.db).create({ workspaceId: ctx2.workspaceId, name: 'wsl', path: WSL_PATH, agentEnv: 'wsl' })
+    const wslRun = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: WSL_PATH, permission: 'edit', userPrompt: 'x', context: []
+    })
+    const hostRun = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(), permission: 'edit', userPrompt: 'y', context: []
+    })
+    await vi.waitFor(() => expect(fake.started(wslRun.id) && fake.started(hostRun.id)).toBe(true))
+    expect(launcherFor).toHaveBeenCalledWith('Ubuntu', wslRun.id)
+    expect(fake.launcherFor(wslRun.id)).toMatchObject({ path: '/mnt/c/app/launcher.sh', pidfile: `/mnt/c/data/wsl/${wslRun.id}.pid` })
+    expect(fake.launcherFor(hostRun.id)).toBeUndefined()
+    fake.finish(wslRun.id)
+    fake.finish(hostRun.id)
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+
+  it('런처 경로를 못 만들면(wslpath 실패) 시작 전 실패다 — startedAt이 null이고 이유가 남는다 (FR-11)', async () => {
+    const fake = createPerRunManager()
+    const ctx2 = setup({ manager: fake.manager, wsl: { launcherFor: async () => { throw new Error('WSL 경로를 변환하지 못했습니다 (Ubuntu): x') } } })
+    createRepoRepository(ctx2.db).create({ workspaceId: ctx2.workspaceId, name: 'wsl', path: WSL_PATH, agentEnv: 'wsl' })
+    const run = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: WSL_PATH, permission: 'edit', userPrompt: 'x', context: []
+    })
+    const stored = ctx2.runs.get(run.id)
+    expect(stored.status).toBe('failed')
+    expect(stored.startedAt).toBeNull()
+    expect(stored.errorMessage).toContain('WSL 경로를 변환하지 못했습니다')
+    expect(fake.started(run.id)).toBe(false)
     rmSync(ctx2.logDir, { recursive: true, force: true })
   })
 

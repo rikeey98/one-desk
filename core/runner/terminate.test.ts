@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { KILL_GRACE_MS, taskkillTreeSync, terminate, type TreeKiller } from './terminate'
+import type { GroupKiller } from '../wsl/kill'
 
 /**
  * `terminate`의 플랫폼 갈래 (`docs/sdlc/conversation-fixes/` spec FR-18).
@@ -92,6 +96,82 @@ describe('terminate — POSIX', () => {
 
     expect(child.kill).toHaveBeenCalledTimes(1)
     expect(child.kill).toHaveBeenCalledWith('SIGTERM')
+  })
+})
+
+/**
+ * WSL 갈래 (`docs/sdlc/wsl-support/` spec FR-18). wsl.exe는 얇은 클라이언트라 그것을 죽여도 안의 프로세스가 남을 수 있다 —
+ * 런처가 pidfile에 적은 그룹 id로 **안에서** 끝낸다: TERM → 유예 → KILL → 그래도 남으면 wsl.exe를 트리째. 플랫폼과 무관하다 —
+ * 개발 장비(macOS·Linux)에서 그대로 돈다.
+ */
+describe('terminate — WSL', () => {
+  const dirs: string[] = []
+  afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }) })
+  function pidfile(content: string | null): string {
+    const dir = mkdtempSync(join(tmpdir(), 'one-desk-term-'))
+    dirs.push(dir)
+    const file = join(dir, 'r.pid')
+    if (content !== null) writeFileSync(file, content)
+    return file
+  }
+  const wslOf = (file: string, killGroup: GroupKiller, killTree: TreeKiller = vi.fn<TreeKiller>()) =>
+    ({ platform: 'win32' as const, killTree, wsl: { distro: 'Ubuntu', pidfileHost: file, killGroup } })
+
+  it('pidfile의 그룹에 TERM을 보내고, 유예 뒤에도 살아 있으면 KILL, 그 뒤에도 살아 있으면 wsl.exe를 트리째 죽인다', () => {
+    vi.useFakeTimers()
+    const child = fakeChild(4242)
+    const killGroup = vi.fn<GroupKiller>()
+    const killTree = vi.fn<TreeKiller>()
+
+    terminate(child, wslOf(pidfile('2147483644\n'), killGroup, killTree))
+
+    expect(killGroup).toHaveBeenCalledTimes(1)
+    expect(killGroup.mock.calls[0]!.slice(0, 3)).toEqual(['Ubuntu', 2147483644, 'TERM'])
+    expect(killTree).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(KILL_GRACE_MS + 10)
+    expect(killGroup).toHaveBeenCalledTimes(2)
+    expect(killGroup.mock.calls[1]!.slice(0, 3)).toEqual(['Ubuntu', 2147483644, 'KILL'])
+    expect(killTree).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(KILL_GRACE_MS + 10)
+    expect(killTree).toHaveBeenCalledWith(4242, expect.any(Function))
+  })
+
+  it('유예 안에 끝났으면 KILL도 트리 종료도 보내지 않는다', () => {
+    vi.useFakeTimers()
+    const child = fakeChild(4242)
+    const killGroup = vi.fn<GroupKiller>()
+    const killTree = vi.fn<TreeKiller>()
+    terminate(child, wslOf(pidfile('77\n'), killGroup, killTree))
+    Object.assign(child, { exitCode: 0 })
+    vi.advanceTimersByTime(KILL_GRACE_MS * 2 + 20)
+    expect(killGroup).toHaveBeenCalledTimes(1)
+    expect(killTree).not.toHaveBeenCalled()
+  })
+
+  it('pidfile이 아직 없거나 수가 아니면 wsl.exe만 트리째 죽인다 — 런처가 쓰기 전의 취소', () => {
+    const killGroup = vi.fn<GroupKiller>()
+    const killTree = vi.fn<TreeKiller>()
+    terminate(fakeChild(4242), wslOf(pidfile(null), killGroup, killTree))
+    terminate(fakeChild(4243), wslOf(pidfile('abc'), killGroup, killTree))
+    expect(killGroup).not.toHaveBeenCalled()
+    expect(killTree).toHaveBeenCalledTimes(2)
+  })
+
+  it('그룹 종료가 실패하면(wsl.exe가 없다) 곧바로 wsl.exe를 트리째 죽인다', () => {
+    const killGroup: GroupKiller = (_d, _p, _s, onFail) => onFail(new Error('wsl 없음'))
+    const killTree = vi.fn<TreeKiller>()
+    terminate(fakeChild(4242), wslOf(pidfile('5\n'), killGroup, killTree))
+    expect(killTree).toHaveBeenCalledWith(4242, expect.any(Function))
+  })
+
+  it('posix 호스트에서도 같은 순서다 — 트리 종료 자리에 child.kill이 선다', () => {
+    vi.useFakeTimers()
+    const child = fakeChild(4242)
+    const killGroup = vi.fn<GroupKiller>()
+    terminate(child, { platform: 'linux', wsl: { distro: 'Ubuntu', pidfileHost: pidfile('5\n'), killGroup } })
+    vi.advanceTimersByTime(KILL_GRACE_MS * 2 + 20)
+    expect(killGroup).toHaveBeenCalledTimes(2)
+    expect(child.kill).toHaveBeenCalledWith('SIGKILL')
   })
 })
 

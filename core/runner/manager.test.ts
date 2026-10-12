@@ -1,13 +1,14 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
-import { mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createRunManager, judgeStatus, mergeUsage, type RunManagerOptions } from './manager'
 import { claudeCodeAdapter } from './adapters/claudeCode'
 import { opencodeAdapter } from './adapters/opencode'
 import { consoleErrorSink } from '../errors'
 import { HOST_ENV } from '../wsl/env'
+import type { GroupKiller } from '../wsl/kill'
 import type { RunEvent, RunEventInit, RunUsage } from '@shared/events'
 import { emptyUsage } from './adapters/common'
 import type { PlanUsage } from '@shared/models'
@@ -41,7 +42,7 @@ vi.mock('./logWriter', async (importOriginal) => {
 })
 
 function makeManager(
-  extra: Partial<Pick<RunManagerOptions, 'onError' | 'rawLogMaxBytes' | 'onPlanUsage'>> = {}
+  extra: Partial<Pick<RunManagerOptions, 'onError' | 'rawLogMaxBytes' | 'onPlanUsage' | 'killGroup' | 'killGroupSync'>> = {}
 ) {
   const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-run-'))
   const events: RunEvent[] = []
@@ -424,6 +425,82 @@ describe('RunManager — WSL 실행 환경 (docs/sdlc/wsl-support/ FR-8·FR-9)',
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  it('런처가 있으면 /bin/sh <launcher> <pidfile>이 명령 앞에 서고, 끝나면 pidfile(Windows 쪽)을 지운다 (FR-10·19)', async () => {
+    const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-wsl-'))
+    const capture = resolve(dir, 'wsl.jsonl')
+    const pidfileHost = resolve(dir, 'r.pid')
+    const { manager, cleanup } = makeManager()
+    try {
+      await withEnv({ ONE_DESK_WSL_PATH: FAKE_WSL, ONE_DESK_AGENT_LAUNCHER: process.execPath, ONE_DESK_WSL_CAPTURE: capture }, async () => {
+        const outcome = await manager.start({
+          ...spec('success'), cwd: WSL_CWD, env: { kind: 'wsl', distro: 'Ubuntu' }, executable: FAKE,
+          // 가짜 wsl은 pidfile에 있을 수 없는 pgid를 쓰고 명령을 그대로 띄운다 — Linux 경로 자리에 호스트 경로를 둔다
+          launcher: { path: '/mnt/c/app/launcher.sh', pidfile: pidfileHost, pidfileHost }
+        })
+        expect(outcome.status).toBe('succeeded')
+        const argv = (JSON.parse(readFileSync(capture, 'utf8').trim().split('\n')[0]!) as { argv: string[] }).argv
+        expect(argv.slice(0, 8)).toEqual(['-d', 'Ubuntu', '--cd', '/home/me/api', '--', '/bin/sh', '/mnt/c/app/launcher.sh', pidfileHost])
+        expect(argv[8]).toBe(FAKE)
+        expect(existsSync(pidfileHost)).toBe(false)
+      })
+    } finally {
+      cleanup()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('취소는 pidfile의 그룹에 안에서 TERM을 보낸다 — wsl.exe만 죽이면 안의 agent가 남는다 (FR-18)', async () => {
+    const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-wsl-'))
+    const pidfileHost = resolve(dir, 'r.pid')
+    // 가짜 wsl이 pidfile에 안쪽 프로세스의 진짜 pid를 쓴다 — 그것을 죽이는 것이 "안에서 끝냈다"다
+    const killGroup = vi.fn<GroupKiller>((_d, pgid, signal) => { process.kill(pgid, `SIG${signal}`) })
+    const { manager, cleanup } = makeManager({ killGroup })
+    try {
+      await withEnv({ ONE_DESK_WSL_PATH: FAKE_WSL, ONE_DESK_AGENT_LAUNCHER: process.execPath }, async () => {
+        const promise = manager.start({
+          ...spec('hang'), cwd: WSL_CWD, env: { kind: 'wsl', distro: 'Ubuntu' }, executable: FAKE,
+          launcher: { path: '/mnt/c/app/launcher.sh', pidfile: pidfileHost, pidfileHost }
+        })
+        await vi.waitFor(() => expect(manager.isRunning('r-hang')).toBe(true))
+        await vi.waitFor(() => expect(existsSync(pidfileHost)).toBe(true))
+        const pgid = Number(readFileSync(pidfileHost, 'utf8').trim())
+        manager.cancel('r-hang')
+        expect(killGroup).toHaveBeenCalledTimes(1)
+        expect(killGroup.mock.calls[0]!.slice(0, 3)).toEqual(['Ubuntu', pgid, 'TERM'])
+        const outcome = await promise
+        expect(outcome.status).toBe('canceled')
+      })
+    } finally {
+      cleanup()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 15_000)
+
+  it('앱 종료(cancelAll)는 동기 그룹 KILL을 먼저 보낸다', async () => {
+    const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-wsl-'))
+    const pidfileHost = resolve(dir, 'r.pid')
+    const killGroupSync = vi.fn<GroupKiller>((_d, pgid, signal) => { process.kill(pgid, `SIG${signal}`) })
+    const { manager, cleanup } = makeManager({ killGroupSync })
+    try {
+      await withEnv({ ONE_DESK_WSL_PATH: FAKE_WSL, ONE_DESK_AGENT_LAUNCHER: process.execPath }, async () => {
+        const promise = manager.start({
+          ...spec('hang'), cwd: WSL_CWD, env: { kind: 'wsl', distro: 'Ubuntu' }, executable: FAKE,
+          launcher: { path: '/mnt/c/app/launcher.sh', pidfile: pidfileHost, pidfileHost }
+        })
+        await vi.waitFor(() => expect(existsSync(pidfileHost)).toBe(true))
+        const pgid = Number(readFileSync(pidfileHost, 'utf8').trim())
+        manager.cancelAll()
+        // 돌아온 순간 이미 불렸다 — 기다리지 않았다
+        expect(killGroupSync).toHaveBeenCalledTimes(1)
+        expect(killGroupSync.mock.calls[0]!.slice(0, 3)).toEqual(['Ubuntu', pgid, 'KILL'])
+        await promise
+      })
+    } finally {
+      cleanup()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 15_000)
 
   it('가짜 CLI를 안쪽 명령으로 두면 WSL 갈래로도 run이 성공한다 — 스트림이 wsl.exe를 지나 그대로 온다', async () => {
     const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-wsl-'))
