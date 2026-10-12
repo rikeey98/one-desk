@@ -262,9 +262,10 @@ describe('opencodeAdapter.preflight — 버전 게이트', () => {
 describe('opencodeAdapter.preflight — 기본 버전 읽기', () => {
   /**
    * **배선 잠금.** 위 시나리오들은 게이트를 주입하므로 기본 읽기가 실제로 무엇을 띄우는지는
-   * 보지 않는다. 여기서는 진짜로 띄운다 — 실행 권한도 셔뱅도 없는 `.mjs`라
-   * `agentCommand`를 거치지 않으면 어느 OS에서도 뜨지 않고, 그러면 "못 읽음 → 통과"가 되어
-   * 이 테스트가 빨개진다. 스크립트는 stdin이 닫힐 때까지 기다린다 — 읽는 쪽이 stdin을
+   * 보지 않는다. 여기서는 진짜로 띄운다 — 셔뱅이 없는 `.mjs`라 `agentCommand`를 거치지
+   * 않으면 어느 OS에서도 node로 뜨지 않고, 그러면 "못 읽음 → 통과"가 되어
+   * 이 테스트가 빨개진다. 실행 비트는 posix preflight의 X_OK를 지나려고 준다.
+   * 스크립트는 stdin이 닫힐 때까지 기다린다 — 읽는 쪽이 stdin을
    * 닫지 않으면 타임아웃까지 매달렸다가 역시 통과로 떨어진다.
    */
   it('ONE_DESK_AGENT_LAUNCHER로 --version을 띄워 2.x를 거부한다', async () => {
@@ -276,7 +277,7 @@ describe('opencodeAdapter.preflight — 기본 버전 읽기', () => {
       "process.stdin.on('end', () => {",
       "  if (process.argv.includes('--version')) process.stdout.write('2.0.18\\n')",
       '})'
-    ].join('\n'), { mode: 0o644 })
+    ].join('\n'), { mode: 0o755 })
 
     const previous = process.env['ONE_DESK_AGENT_LAUNCHER']
     process.env['ONE_DESK_AGENT_LAUNCHER'] = process.execPath
