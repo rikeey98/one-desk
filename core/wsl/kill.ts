@@ -19,7 +19,7 @@ export type GroupKiller = (
 export const GROUP_KILL_TIMEOUT_MS = 5_000
 
 /**
- * `wsl.exe -d <distro> -- kill -<SIG> -- -<pgid>` — 음수 pid가 그룹이다. pgid는 **양의 정수**여야 한다: 0·음수가 섞이면
+ * `wsl.exe -d <distro> --exec kill -<SIG> -- -<pgid>` — 음수 pid가 그룹이다. pgid는 **양의 정수**여야 한다: 0·음수가 섞이면
  * `kill -- -0`·`kill -- 0`이 되어 호출자의 그룹 전체나 엉뚱한 것을 죽인다.
  */
 export function groupKillArgs(distro: string, pgid: number, signal: GroupSignal, env: NodeJS.ProcessEnv = process.env): Launch {

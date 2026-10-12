@@ -26,9 +26,15 @@ export interface WrapOptions {
 /**
  * spawn 직전의 마지막 변환 (`docs/sdlc/wsl-support/` spec FR-8).
  *
- * host면 그대로다. wsl이면 `wsl.exe -d <distro> [--cd <linux cwd>] -- [/bin/sh <launcher> <pidfile>] <cmd> <args…>`.
+ * host면 그대로다. wsl이면 `wsl.exe -d <distro> [--cd <linux cwd>] --exec [/bin/sh <launcher> <pidfile>] <cmd> <args…>`.
  * **인자는 배열 원소 그대로 간다**(FR-33) — 어느 갈래에서도 셸 문자열에 끼워 넣지 않는다. 런처의 `bash -lc`도 고정
  * 상수(`exec "$0" "$@"`)이고 사용자 값은 인자로만 들어간다.
+ *
+ * **`--`가 아니라 `--exec`다.** wsl.exe는 `--` 뒤의 명령줄을 그 배포판의 기본 셸에 `bash -c` **문자열**로 넘긴다 — 배열로
+ * 보낸 인자가 셸 문법이 되어 Windows 경로의 `\`가 이스케이프로 먹히고(`C:\WINDOWS\…` → `C:WINDOWS…`, 그래서 `wslpath`가
+ * 실패해 모든 run이 시작조차 못 했다) `$(…)`가 실행된다. `--exec`만 셸 없이 argv를 그대로 넘긴다(2026-10-12 실측,
+ * WSL 3.0.1 · Ubuntu-24.04 — spec FR-8 다듬음). 그래서 안쪽 명령은 셸 내장이 아니라 실행 파일이어야 하고(`kill`은
+ * `/usr/bin/kill`), 셸이 필요하면 `sh -c`·`bash -lc`를 명시한다.
  *
  * `ONE_DESK_AGENT_LAUNCHER`(Windows에서 `.mjs`를 node로 띄우는 e2e 이음매)는 **안쪽 명령에는 붙지 않는다** — 안쪽은
  * Linux라 뜻이 없다. 붙는 자리는 하나, `ONE_DESK_WSL_PATH`로 가짜 wsl.exe(`.mjs`)를 물렸을 때 그 픽스처를 띄우는 것이다.
@@ -54,7 +60,8 @@ export function wrapForEnv(
     }
     out.push('--cd', parsed.linuxPath)
   }
-  out.push('--')
+  // `--`로 되돌리지 말 것 — 위 주석. 가짜 wsl.exe(`fake-wsl.mjs`)는 `--`를 받으면 실패한다
+  out.push('--exec')
   if (opts.launcher) out.push('/bin/sh', opts.launcher.path, opts.launcher.pidfile)
   out.push(cmd, ...args)
   return { ...wslExeLaunch(out, processEnv), cwd: undefined }

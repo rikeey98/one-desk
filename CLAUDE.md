@@ -364,10 +364,20 @@ claude가 interop으로 Windows 실행 파일을 자식으로 띄우고 stdio가
 `<runId>.bridge.json`을 인자로, `ELECTRON_RUN_AS_NODE`는 `cmd.exe /c <runId>.bridge.cmd` 배치가 스스로 세운다 — interop 경계에서
 env가 넘어가는지에 **아무것도** 기대지 않는다). spawn 직전의 변환은 `core/wsl/launch.ts`의
 `wrapForEnv` 하나이고 `agentCommand`가 **실행 환경을 필수 인자**로 받는다(아래 함정 절). WSL claude 경로·WSL 글로벌 skill 경로는
-앱 탭의 두 절(각자 저장)이고, WSL repo에서 OpenCode는 막는다. **진짜 WSL 실측은 하지 않았고 하지 않기로 했다**(2026-10-12,
-사용자 결정 — 구현 환경은 Linux 컨테이너이고 사용자도 WSL 장비가 없다). 그래서 결과에 따라 갈리던 두 자리는 어느 쪽이든 되게
-만들었다 — 브리지의 배치 파일(spec FR-23)과 `resolveRepoPath`의 `foldUncPrefix`(FR-26). 파이프·그룹 kill·`wslpath`는 spec대로
-구현만 돼 있어 **처음 WSL repo를 쓰는 사람이 첫 실측이다**(spec §4-A, 릴리스 노트).
+앱 탭의 두 절(각자 저장)이고, WSL repo에서 OpenCode는 막는다. 구현은 실측 없이 나갔고(v0.24.0, spec §4-A) **v0.24.0·v0.25.0의
+WSL run은 전부 시작조차 못 했다** — `wsl.exe -- …`가 인자를 `bash -c` 문자열로 넘겨 `wslpath`가 깨졌다(아래 함정 절). **첫 실측
+(2026-10-12, Ubuntu-24.04 · claude 2.1.296 — spec §4-B)**이 그것을 `--exec`로 고치고(v0.25.1) 나머지를 확인했다: MCP 도구 호출
+(`list_issues` — 배치 파일 브리지가 interop으로 뜬다), `@` 멘션의 UNC 읽기, 코드 칸, WSL 터미널, 340 KB 셸 출력, 취소 2초 안에
+손자와 Windows 쪽 브리지까지, 앱 종료 뒤 터미널 셸·브리지가 WSL·Windows에 남지 않음(셸의 백그라운드 작업은 예외 — 아래). 그 수정의 리뷰가 둘을 더
+찾아 같이 고쳤다 — 릴리스 빌드의 CRLF 런처와 한글 사용자 경로의 브리지 배치(아래 함정 절). **남은 것 셋은 spec §4-B "남은 것"이다**:
+CLI 상태의 인증·모델 판정이 로그인 셸(`~/.profile`) 밖에서 돌아 Bedrock 변수를 거기 둔 사람에게 "로그인 필요"를 띄운다(run은 된다 —
+"`checkAgents`는 실행과 같은 판정"이 WSL에서 깨진 자리), 터미널 셸의 백그라운드 작업(`npm run dev &`)이 셸 종료의 그룹 KILL을
+비켜 앱을 끈 뒤에도 남는다, 배치 경로에 `&`·`^`·`%이름%`이 있으면 브리지가 안 뜬다. 같은 시나리오가 **선택 실행 e2e
+`e2e/wsl-real.e2e.ts`**다(`ONE_DESK_REAL_WSL=1`, 배포판은
+`ONE_DESK_REAL_WSL_DISTRO` 기본 `Ubuntu-24.04` — WSL 안의 claude가 로그인돼 있어야 하고 실제 모델을 세 번 부른다. 관찰은
+`ONE_DESK_REAL_WSL_OUT`(기본 `e2e/artifacts/wsl-real-<시각>`)에 로그·스크린샷과 함께 남는다). 같은 작업에서 **repo 탭의 저장이 실행
+환경·경로가 바뀌면 CLI 상태를 다시 판정한다**(`SettingsPanel`의 `saveRepo`) — 예전에는 workspace를 고를 때만 물어 WSL 줄이 1분 넘게
+"확인 중"이었다.
 
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
@@ -687,8 +697,29 @@ wsl.exe 자신이 거기서 뜨려다 실패할 수 있다). 인자는 **배열 
 (`core/runner/fixtures/fake-wsl.mjs`, `ONE_DESK_WSL_PATH`로 물린다)는 인자를 캡처하고 안의 명령을 그대로 띄우되 pidfile에 그
 자식의 **진짜 pid**를 쓴다 — 자식과 파이프를 나눠 쓰는 픽스처라 자신만 죽으면 run이 안 끝나고, 테스트의 가짜 killGroup이 그
 pid를 죽여 "안에서 끝냈다"를 흉내낸다. core 테스트의 `open()`은 `platform: 'win32'`를 넘겨 개발 장비에서 WSL repo를 둔다(그
-값은 WSL 가용성 판정만 가른다). **e2e의 WSL 시나리오(`e2e/wsl.e2e.ts`)는 Windows에서만 돌고 Linux 컨테이너에서는 실행해 보지
-못했다** — CI의 Windows 잡이 처음 돌리는 자리다.
+값은 WSL 가용성 판정만 가른다). **e2e의 WSL 시나리오(`e2e/wsl.e2e.ts`)는 Windows에서만 돈다** — 가짜 wsl.exe라 모양만 본다.
+진짜는 `e2e/wsl-real.e2e.ts`(위 WSL 절).
+
+**`wsl.exe`의 구분자는 `--`가 아니라 `--exec`다 — `--`로 되돌리지 말 것** (`core/wsl/launch.ts`, `docs/sdlc/wsl-support/` spec
+§4-B). wsl.exe는 `--` 뒤의 명령줄을 그 배포판의 기본 셸에 `/bin/bash -c` **문자열**로 넘긴다 — Node가 배열로 보낸 인자가 셸
+문법이 되어 `C:\WINDOWS\…`의 `\`가 이스케이프로 먹히고(`C:WINDOWS…`) `$HOME`이 펼쳐지고 `$(…)`가 실행된다(2026-10-12 실측, 앱과
+같은 `spawnSync` 인자 배열). v0.24.0·v0.25.0은 `--`였고 **모든 WSL run이 `wslpath` 단계에서 시작조차 못 했는데** 단위·e2e는 전부
+초록이었다 — 가짜 wsl.exe가 `--` 뒤를 배열 그대로 띄웠기 때문이다. 그래서 가짜는 이제 **`--`를 받으면 exit 2로 실패한다**(진짜와
+뜻이 다른 것은 흉내내지 말고 거부한다). `--exec`는 셸이 없으므로 안쪽 명령은 실행 파일이어야 한다(`kill`은 `/usr/bin/kill`이다).
+셸이 필요하면 `sh -c`·`bash -lc`를 명시하고 그 문자열은 고정 상수여야 한다(FR-33). 되살리면 `launch.test.ts`의 "안쪽 명령 앞의
+구분자는 `--`가 아니라 `--exec`다"와 manager의 WSL run 테스트들(가짜가 exit 2)이 빨개진다. **e2e 실측에서 Claude Code는 단독
+`sleep N`을 스스로 막는다**(`Blocked: standalone sleep`) — 오래 도는 프로세스가 필요하면 다른 명령으로 잔다(`wsl-real.e2e.ts`는 python).
+
+**`core/wsl/launcher.sh`는 어느 체크아웃에서도 LF여야 한다 — `.gitattributes`의 `*.sh text eol=lf`를 지우지 말 것** (spec §4-B).
+Git for Windows의 기본은 `core.autocrlf=true`이고 릴리스 CI의 Windows 러너는 그것을 끄지 않는다(이 장비는 `.git/config`가 끈다 —
+그래서 로컬에서는 드러나지 않는다). 패키징된 런처가 CRLF면 WSL의 dash가 `shift: not found`로 거부해 모든 WSL run·터미널이 깨지는데
+probe·인증·git은 런처를 안 써 CLI 상태는 초록이다. `launcher.test.ts`의 "CR이 없다"는 **Windows에서도 도는 유일한 런처 테스트**다 —
+나머지는 sh가 없어 Windows에서 건너뛴다. WSL 안에서 읽힐 파일을 새로 패키징하면 같은 규칙을 건다.
+
+**브리지 배치(`<run>.bridge.cmd`)의 둘째 줄 `chcp 65001 >nul`을 지우지 말 것** (`core/mcp/configFile.ts`, spec §4-B). 배치는
+UTF-8로 쓰지만 cmd.exe는 OEM 코드 페이지(한국어 Windows 949)로 읽어, `C:\Users\홍길동`처럼 ASCII가 아닌 사용자 경로가 깨진다 —
+브리지가 `Cannot find module`로 죽고 claude는 MCP를 failed로 두고 도구 없이 "성공"한다. 화면에는 "MCP 서버에 연결하지 못했습니다"만
+남는다. e2e의 데이터 폴더(`mkdtemp`)와 개발 장비 경로가 ASCII라 실측 e2e는 못 잡는다 — `configFile.test`의 "ASCII가 아닌 경로는…"이 지킨다.
 
 **OpenCode 전체 허용의 플래그는 `--auto`가 아니라 `--dangerously-skip-permissions`다** (2026-10-02). `--auto`는
 1.18.0에서 생긴 별칭이라 1.4.0~1.17.x는 모르는 옵션으로 보고 **이유 한 줄 없이 도움말만** 찍고 exit 1로 끝난다 —
@@ -965,7 +996,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/dock-repo-sections/` | 도크 대화 목록의 repo 구획과 사이드바 거름 — spec·plan. 대화의 repo를 뿌리 cwd로 정하는 이유(FR-1), 구획이 하나면 머리가 없는 이유(FR-5), 거름이 보기만 바꾸는 이유(FR-9), 머리를 대문자로 쓰지 않는 이유(NFR-2) |
 | `docs/sdlc/code-editor/` | 코드 칸(터미널 · 변경사항 · 파일) — intent 하나, spec·plan은 첫 사이클(틀 + 파일 칸), `terminal-spec.md`·`terminal-plan.md`는 둘째(터미널 — repo당 셸 하나, 앱 종료의 동기 트리 종료, 렌더러는 repo id만, 출력 이어 붙이기 규칙, node-pty 사전 빌드와 패키징). git diff로 가는 결정(intent), 배치 시안(안 A로 구현했다가 안 B — 창 오른쪽 전체 높이로 바꿈, spec §0), 버튼을 앱 제목 줄의 OS 창 단추 왼쪽으로 옮긴 것과 사이클 순서 변경(spec §0·FR-1), 목록 안의 파일만 읽고 쓰는 이유(spec §3-4), 명시적 저장과 해시 충돌(FR-17·19), 줄바꿈·BOM 되살리기(FR-18), 닫기 확인(FR-21), 우려와 승인(§4). plan에 변이 결과와 번들 크기 |
 | `docs/sdlc/inbox-views/` | 인박스의 보기(시간순 · workspace별 · 상태별)와 정렬 — spec·plan. 시간 기준과 정확한 역순(spec FR-2), 묶음 순서가 정렬을 따르는 이유(FR-7)와 상태별 고정 순서(FR-10), 그 workspace의 repo만 보는 이유(FR-6), repo를 App이 읽어 필수 prop으로 내리는 이유(FR-16). plan에 변이 결과 |
-| `docs/sdlc/wsl-support/` | WSL2 안의 repo를 WSL 안의 claude로 — intent·spec·plan. UNC를 저장하는 이유(spec §0), spawn 변환 한 자리와 필수 인자(FR-8·9), 런처와 그룹 종료(FR-10·18), 브리지가 Windows에 남는 이유와 인자 파일(FR-21·22), WSL 판정 캐시 규칙(FR-13), 실측을 건너뛴 결정과 그래서 어느 쪽이든 되게 만든 두 자리(§4-A). plan의 "달라진 것" |
+| `docs/sdlc/wsl-support/` | WSL2 안의 repo를 WSL 안의 claude로 — intent·spec·plan. UNC를 저장하는 이유(spec §0), spawn 변환 한 자리와 필수 인자(FR-8·9), 런처와 그룹 종료(FR-10·18), 브리지가 Windows에 남는 이유와 인자 파일(FR-21·22), WSL 판정 캐시 규칙(FR-13), 실측을 건너뛴 결정과 그래서 어느 쪽이든 되게 만든 두 자리(§4-A), 첫 실측이 찾은 `--`의 셸 해석과 고친 뒤의 결과(§4-B). plan의 "달라진 것" |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |

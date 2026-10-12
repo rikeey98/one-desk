@@ -258,7 +258,7 @@ describe('셸 서비스 — WSL repo (docs/sdlc/wsl-support/ FR-29~31)', () => {
     const [file, args, opts] = spawnPty.mock.calls[0]!
     expect(file).toBe('wsl.exe')
     expect(args).toEqual([
-      '-d', 'Ubuntu', '--cd', '/home/me/api', '--',
+      '-d', 'Ubuntu', '--cd', '/home/me/api', '--exec',
       '/bin/sh', '/mnt/c/app/launcher.sh', '/mnt/c/data/wsl/term-wsl.pid',
       'sh', '-c', 'exec "${SHELL:-/bin/bash}" -l'
     ])

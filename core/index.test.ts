@@ -711,10 +711,10 @@ describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)'
       await vi.waitFor(() => expect(core.runs.get(run.id).endedAt).toBeTypeOf('number'))
       const calls = readCapture(capture)
       // 판정: 명시 경로(ONE_DESK_AGENT_PATH)는 WSL 안의 test -x로 본다 — Windows의 access()가 아니다
-      expect(calls[0]).toEqual(['-d', 'Ubuntu', '--', 'test', '-x', FAKE_AGENT])
+      expect(calls[0]).toEqual(['-d', 'Ubuntu', '--exec', 'test', '-x', FAKE_AGENT])
       // 실행: 그 distro 안, 그 Linux 경로에서
       const launch = calls.find((c) => c.includes('--cd'))
-      expect(launch?.slice(0, 5)).toEqual(['-d', 'Ubuntu', '--cd', '/home/me/api', '--'])
+      expect(launch?.slice(0, 5)).toEqual(['-d', 'Ubuntu', '--cd', '/home/me/api', '--exec'])
       expect(launch).toContain('--output-format')
       // run 행의 cwd는 UNC 그대로다 (FR-15)
       expect(core.runs.get(run.id).cwd).toBe(WSL_PATH)
@@ -745,7 +745,7 @@ describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)'
       await core.assets.rescan(ws)
       await core.assets.rescan(ws)
       const homes = readCapture(capture).filter((c) => c.join(' ').includes('echo $HOME'))
-      expect(homes).toEqual([['-d', 'Ubuntu', '--', 'sh', '-c', 'echo $HOME']])
+      expect(homes).toEqual([['-d', 'Ubuntu', '--exec', 'sh', '-c', 'echo $HOME']])
       // UNC 루트(`\\\\wsl$\\Ubuntu\\home\\me\\.claude\\skills`)는 이 장비에 없어 asset이 생기지 않는다 — 훑으려 한 흔적만 본다
       expect(core.assets.list({ workspaceId: ws })).toEqual([])
       close(core)
@@ -887,12 +887,12 @@ describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)'
 
       const found = await core.commands.list({ workspaceId: ws, cwd: WSL_PATH })
       expect(found.error).toBeNull()
-      expect(readCapture(capture)[0]).toEqual(['-d', 'Ubuntu', '--', 'bash', '-lc', 'command -v claude'])
+      expect(readCapture(capture)[0]).toEqual(['-d', 'Ubuntu', '--exec', 'bash', '-lc', 'command -v claude'])
 
       core.settings.setWslClaudePath('/home/me/bin/claude')
       await core.commands.refresh({ workspaceId: ws, cwd: WSL_PATH })
       const after = readCapture(capture)
-      expect(after.some((c) => c.join(' ') === '-d Ubuntu -- test -x /home/me/bin/claude')).toBe(true)
+      expect(after).toContainEqual(['-d', 'Ubuntu', '--exec', 'test', '-x', '/home/me/bin/claude'])
       close(core)
     })
   })

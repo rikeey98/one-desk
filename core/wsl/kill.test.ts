@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { groupKillArgs, killGroup, killGroupSync } from './kill'
 
 /**
- * WSL 안의 프로세스 그룹 종료 (`docs/sdlc/wsl-support/` spec FR-18). `wsl.exe -d <distro> -- kill -<SIG> -- -<pgid>` —
+ * WSL 안의 프로세스 그룹 종료 (`docs/sdlc/wsl-support/` spec FR-18). `wsl.exe -d <distro> --exec kill -<SIG> -- -<pgid>` —
  * 음수 pid가 그룹이다. 비동기판은 일반 취소, 동기판은 앱 종료 경로 전용(`cancelAll`).
  */
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -15,7 +15,7 @@ const FAKE_WSL = resolve(HERE, '../runner/fixtures/fake-wsl.mjs')
 describe('groupKillArgs', () => {
   it('kill -<SIG> -- -<pgid>를 그 distro 안에서 — 인자는 배열 그대로다', () => {
     expect(groupKillArgs('Ubuntu', 4242, 'TERM', {})).toEqual({
-      cmd: 'wsl.exe', args: ['-d', 'Ubuntu', '--', 'kill', '-TERM', '--', '-4242'], cwd: undefined
+      cmd: 'wsl.exe', args: ['-d', 'Ubuntu', '--exec', 'kill', '-TERM', '--', '-4242'], cwd: undefined
     })
     expect(groupKillArgs('Ubuntu', 7, 'KILL', {}).args.slice(-3)).toEqual(['-KILL', '--', '-7'])
   })
@@ -47,7 +47,7 @@ describe.skipIf(process.platform === 'win32')('killGroup — 가짜 wsl.exe', ()
           killGroup('Ubuntu', 2147483644, 'TERM', onFail, () => {
             expect(onFail).not.toHaveBeenCalled()
             const line = JSON.parse(readFileSync(capture, 'utf8').trim()) as { argv: string[] }
-            expect(line.argv).toEqual(['-d', 'Ubuntu', '--', 'kill', '-TERM', '--', '-2147483644'])
+            expect(line.argv).toEqual(['-d', 'Ubuntu', '--exec', 'kill', '-TERM', '--', '-2147483644'])
             done()
           })
         }))

@@ -3,6 +3,7 @@
 - Intent: `docs/sdlc/wsl-support/intent.md` (승인 2026-10-12, 가정 그대로)
 - 작성자: 권용현 (초안: Claude)
 - 상태: 승인 (2026-10-12, 사용자 — "승인, UNC 저장으로 가고 plan 써 줘". §0의 경로 표기는 UNC 저장으로 확정)
+- 개정: 2026-10-12 첫 실측(§4-B) — `wsl.exe`의 구분자를 `--`에서 `--exec`로(FR-8·FR-33, 사용자 승인 "응 진행해줘")
 - 작성일: 2026-10-12
 - 적용한 규칙: CLAUDE.md의 세 경계 · `agentCommand`를 거치지 않는 spawn을 만들지 않는다 · 렌더러가 경로·명령을 정하지
   못한다(`reveal`·파일 칸·터미널 FR-18) · Windows 트리 종료(앱 종료 경로는 동기) · `checkAgents`는 실행과 같은 판정 ·
@@ -73,8 +74,12 @@ MCP는 지금 구조 그대로다 — 브리지는 Windows 프로세스이고, W
 
 - **FR-8** `core/wsl/launch.ts`의 순수 함수 `wrapForEnv(env: ProcessEnvSpec, cmd, args, cwd)`가 **spawn 직전의 마지막
   변환**이다. `host`면 그대로(`agentCommand`가 하던 것 그대로 — 런처 포함), `wsl`이면
-  `wsl.exe -d <distro> --cd <linux cwd> -- /bin/sh <launcher.sh> <pidfile> <linux cmd> <args…>`다. `ProcessEnvSpec`은
+  `wsl.exe -d <distro> --cd <linux cwd> --exec /bin/sh <launcher.sh> <pidfile> <linux cmd> <args…>`다. `ProcessEnvSpec`은
   `{ kind: 'host' } | { kind: 'wsl'; distro: string }`이고 **repo에서만 나온다**(`envOfRepo(repo)`).
+  **구분자는 `--`가 아니라 `--exec`다**(개정 2026-10-12 — §4-B). wsl.exe는 `--` 뒤의 명령줄을 기본 셸에 `bash -c` 문자열로
+  넘겨 인자 배열이 셸 문법이 된다 — Windows 경로의 `\`가 이스케이프로 먹히고 `$(…)`가 실행된다. `--exec`만 셸 없이 argv를
+  그대로 넘긴다. 그래서 안쪽 명령은 실행 파일이어야 하고(`kill`은 `/usr/bin/kill`), 셸이 필요한 자리는 `sh -c`·`bash -lc`를
+  명시한다(FR-12·FR-27·FR-29 — 코드는 셋 다 이미 그랬다). 이 문서의 다른 자리에 적힌 `wsl.exe -d <distro> --exec …`도 같은 개정이다.
 - **FR-9** `agentCommand`가 `ProcessEnvSpec`을 **필수 인자**로 받게 바뀐다(`agentCommand(env, executable, args)`). 선택
   인자로 두면 한 호출 자리만 빠뜨려도 그 경로가 조용히 Windows에서 돈다 — `resolveAgentPath`가 앱 기본 경로를 필수로
   받는 것과 같은 이유. 호출 자리는 넷이다: run(`manager.ts`), 슬래시 커맨드 probe(`commands/probe.ts`), CLI 한 번
@@ -88,7 +93,7 @@ MCP는 지금 구조 그대로다 — 브리지는 Windows 프로세스이고, W
   있다). **stdin·stdout·stderr는 건드리지 않는다** — `wsl.exe`가 파이프를 그대로 잇고 claude의 JSON 스트림이 그 위로
   흐른다(`wsl.exe`는 자식 명령의 stdout에 UTF-16 변환을 하지 않는다 — 그것은 `--list` 같은 자기 출력뿐이다. §4의 2).
 - **FR-11** `<pidfile>`은 Windows 쪽 `<userData>/wsl/<runId | 'term-' + repoId>.pid`를 Linux 경로로 옮긴 것이다
-  (`/mnt/c/Users/…`). Windows 경로 → Linux 경로 변환은 `wsl.exe -d <distro> -- wslpath -a -u <path>`로 하되
+  (`/mnt/c/Users/…`). Windows 경로 → Linux 경로 변환은 `wsl.exe -d <distro> --exec wslpath -a -u <path>`로 하되
   **distro마다 `userData` 하나를 한 번만 묻고** 그 아래는 접두사로 만든다(`core/wsl/paths.ts`, 캐시 — automount 루트가
   `/mnt`가 아닌 설정을 따른다). 못 묻으면(wslpath 실패) 그 run은 시작 전에 실패다(`WSL 경로를 변환하지 못했습니다`).
 - **FR-12** WSL 쪽 claude의 실행 파일은 **Linux 경로**다. 해석 순서는 지금과 평행하되 자리가 다르다: `ONE_DESK_AGENT_PATH`
@@ -96,7 +101,7 @@ MCP는 지금 구조 그대로다 — 브리지는 Windows 프로세스이고, W
   비면 다음) → `bash -lc 'command -v claude'`의 결과. workspace 예외(`claude_path`)는 Windows 경로라 WSL에는 쓰지 않는다
   (실행 탭의 그 칸은 WSL repo에 적용되지 않는다고 placeholder가 말한다). 탐색 결과는 (distro, 설정값)으로 캐시하고 `다시
   확인`이 비운다. **`PATHEXT`·`.cmd` 거부·npm 껍데기 벗기기는 WSL 갈래에 없다** — Linux에는 그 개념이 없다.
-- **FR-13** preflight(claude)의 WSL 갈래는 `wsl.exe -d <distro> -- test -x <경로>`다(없으면 `실행 파일이 없습니다
+- **FR-13** preflight(claude)의 WSL 갈래는 `wsl.exe -d <distro> --exec test -x <경로>`다(없으면 `실행 파일이 없습니다
   (<distro>): <경로>`). `checkAgents`가 이 판정을 그대로 쓴다 — 실행과 같은 길(CLAUDE.md). **`checkAgents`·`probeAgents`는
   workspace 단위라 repo마다 환경이 다를 수 있다** — 결과가 `AgentStatuses`에서 `{ host: …, wsl?: { distro, … } }`로
   넓어지고, `wsl` 칸은 그 workspace에 WSL repo가 있을 때만 있으며 **첫 WSL repo의 distro**로 판정한다(두 distro를 섞은
@@ -117,10 +122,10 @@ MCP는 지금 구조 그대로다 — 브리지는 Windows 프로세스이고, W
   환경이지 claude의 환경이 아니다.** claude의 환경은 WSL 쪽 로그인 셸(FR-10)이 만든다 — Bedrock 변수·프록시는 WSL의
   `~/.profile`·`/etc/environment`에 있어야 한다. `WSLENV`로 Windows 변수를 넘기지 않는다(어느 변수를 넘길지 앱이 정하면
   사용자가 WSL 쪽에 둔 값과 겹쳐 어느 쪽이 이기는지 사람이 모른다). 릴리스 노트가 이것을 말한다.
-- **FR-18** 취소: WSL run의 `cancel`은 `wsl.exe -d <distro> -- kill -TERM -- -<pgid>`(pidfile의 그룹 id, 음수 = 그룹)이고,
+- **FR-18** 취소: WSL run의 `cancel`은 `wsl.exe -d <distro> --exec kill -TERM -- -<pgid>`(pidfile의 그룹 id, 음수 = 그룹)이고,
   유예(`KILL_GRACE_MS`) 뒤에도 wsl.exe가 살아 있으면 `-KILL`로 한 번 더, 그래도 남으면 `taskkill /T /F`로 `wsl.exe`를
   죽인다(연결이 끊기면 run은 끝난다 — 안의 프로세스가 남는 것은 §4의 1). pidfile이 아직 없으면(런처가 쓰기 전) wsl.exe만
-  `taskkill`한다. **앱 종료(`cancelAll`)는 동기판**이다 — `execFileSync('wsl.exe', ['-d', distro, '--', 'kill', '-KILL', '--',
+  `taskkill`한다. **앱 종료(`cancelAll`)는 동기판**이다 — `execFileSync('wsl.exe', ['-d', distro, '--exec', 'kill', '-KILL', '--',
   `-${pgid}`])`, `SHUTDOWN_KILL_TIMEOUT_MS` 안에서. `terminate.ts`에 `TreeKiller`와 평행한 `GroupKiller`가 생기고
   **플랫폼·distro·spawn을 인자로 받아** macOS에서 단위 테스트가 돈다(실제 WSL은 §5의 실측).
 - **FR-19** pidfile은 run이 끝나면(어느 상태로든) 지우고, 부팅 때 `<userData>/wsl/`을 통째로 치운다(`clearMcpConfigs`와
@@ -145,15 +150,17 @@ MCP는 지금 구조 그대로다 — 브리지는 Windows 프로세스이고, W
 - **FR-23** **(개정 2026-10-12 — 실측 없이 가기로 해 이것이 유일한 길이다)** `command`는 `cmd.exe`의 Linux 경로
   (`/mnt/c/Windows/System32/cmd.exe`, `%SystemRoot%`를 `wslpath`로), `args`는 `['/c', '<Windows 경로>\<runId>.bridge.cmd']`뿐이고
   `env`가 없다. 그 배치가 `set ELECTRON_RUN_AS_NODE=1` 뒤에 `"<exe>" "<bridge>" "<bridge.json>"`(전부 Windows 경로)을 띄운다 —
-  env가 interop 경계를 넘든 안 넘든 같다. 인용은 배치 안의 따옴표뿐이고(`%`만 `%%`), `cmd.exe /c "<경로>"`는 인자가 하나라
-  interop의 인용 규칙에 걸릴 것이 없다. 원래의 "실측으로 FR-22(env)와 둘 중 하나를 고른다"는 사라졌다.
+  env가 interop 경계를 넘든 안 넘든 같다. 인용은 배치 안의 따옴표뿐이고(`%`만 `%%`), 배치는 `chcp 65001`을 먼저 둔다(§4-B — 없으면
+  ASCII가 아닌 사용자 경로가 깨진다). 원래의 "실측으로 FR-22(env)와 둘 중 하나를 고른다"는 사라졌다. ~~`cmd.exe /c "<경로>"`는 인자가
+  하나라 interop의 인용 규칙에 걸릴 것이 없다~~ — 틀렸다(§4-B 남은 것 3): cmd.exe는 `/c` 뒤를 자기 규칙으로 다시 읽어, 배치 경로
+  (`<userData>\mcp\…`)에 `&`·`^`·`%이름%`이 있으면 쪼개거나 바꾼다.
 - **FR-24** `--allowedTools`의 `mcp__one-desk` 접두사·`--strict-mcp-config`·`mcpToolPrefixes`는 그대로다. MCP 도구의
   시각·권한·workspace 경계(전체 설계 §8)는 환경을 모른다 — 토큰이 run을 정한다.
 
 ### (E) git · 파일 · asset
 
 - **FR-25** `listRepoFiles`가 `ProcessEnvSpec`을 받아 WSL repo면 `git`을 WSL 안에서 띄운다(`wsl.exe -d <distro> --cd <linux>
-  -- git ls-files …` — 런처·pidfile 없이, 5초 안에 끝나는 조회다. FR-8의 변환에서 런처를 빼는 선택지가 있다:
+  --exec git ls-files …` — 런처·pidfile 없이, 5초 안에 끝나는 조회다. FR-8의 변환에서 런처를 빼는 선택지가 있다:
   `wrapForEnv(env, cmd, args, cwd, { launcher: false })`). git은 WSL의 `git`이고 `findExecutable('git')`(Windows PATH)은
   타지 않는다. 출력(`-z`, 상대 경로 `/` 구분)은 그대로 쓴다. `@` 피커·멘션 해석·파일 칸 트리·저장 전 목록 확인이 전부
   이 함수라 **한 자리다.**
@@ -163,7 +170,7 @@ MCP는 지금 구조 그대로다 — 브리지는 Windows 프로세스이고, W
   `foldUncPrefix`로 같은 형태(`\\wsl$\…`)로 맞춘다 — 순수 함수이고 단위 테스트가 그 모양을 고정한다(개정 2026-10-12).
 - **FR-27** 글로벌 asset 경로: 앱 탭의 `글로벌 skill 경로 (claude)` 옆에 **`WSL 글로벌 skill 경로 (claude)`** 칸이 선다
   (`app_setting`의 `assets.globalRoots.claude.wsl`, 여러 줄, **Linux 경로**, 기본 `~/.claude/skills`). 스캔은 WSL repo가
-  있는 workspace에서 그 repo들의 distro마다 `~`를 그 distro의 홈(`wsl.exe -d <distro> -- sh -c 'echo $HOME'`, distro마다
+  있는 workspace에서 그 repo들의 distro마다 `~`를 그 distro의 홈(`wsl.exe -d <distro> --exec sh -c 'echo $HOME'`, distro마다
   한 번 캐시)으로 풀고 UNC(`\\wsl$\<distro>\home\me\.claude\skills`)로 바꿔 지금의 `scanDir`로 훑는다. asset 행의
   `file_path`는 그 UNC다(동일성 키는 그대로 `(workspace_id, file_path)` — distro가 경로 안에 있어 두 distro의 같은 skill이
   두 행이 되는 것이 **맞다**). Windows 글로벌 경로는 WSL repo에도 그대로 훑는다(글로벌은 workspace 범위다 — WSL repo만
@@ -173,11 +180,14 @@ MCP는 지금 구조 그대로다 — 브리지는 Windows 프로세스이고, W
 
 ### (F) 터미널
 
-- **FR-29** WSL repo의 터미널 셸은 **WSL 안의 로그인 셸**이다 — pty로 `wsl.exe -d <distro> --cd <linux 경로>`를 띄운다
-  (명령 없이 — distro의 기본 셸, `wsl.conf`의 사용자). 앱 탭의 `터미널 셸` 설정은 WSL repo에 적용되지 않는다(칸 밑에 한
-  줄: `WSL repo는 그 배포판의 기본 셸입니다`). 칸 머리의 셸 이름은 `wsl · <distro>`.
+- **FR-29** WSL repo의 터미널 셸은 **WSL 안의 로그인 셸**이다 — pty로 `wsl.exe -d <distro> --cd <linux 경로> --exec /bin/sh
+  <launcher.sh> <pidfile> sh -c 'exec "${SHELL:-/bin/bash}" -l'`을 띄운다(그 사용자의 `$SHELL`, 없으면 bash — `wsl.conf`의 사용자).
+  앱 탭의 `터미널 셸` 설정은 WSL repo에 적용되지 않는다(칸 밑에 한 줄: `WSL repo는 그 배포판의 기본 셸입니다`). 칸 머리의 셸
+  이름은 `wsl · <distro>`. (개정 2026-10-12 — 원래 문장 "명령 없이 — distro의 기본 셸"은 FR-30의 런처와 맞지 않았다. 코드는 처음부터
+  이 모양이었다.)
 - **FR-30** `셸 다시 시작`·repo 삭제·경로/환경 변경·앱 종료의 트리 종료는 FR-18의 `GroupKiller`를 탄다 — pty를 런처로
-  띄워(FR-10, 명령은 `exec $SHELL -l`) pidfile에 그룹 id가 있다. 앱 종료는 동기다(터미널 FR-9).
+  띄워(FR-10, 명령은 FR-29의 `sh -c '… -l'`) pidfile에 그룹 id가 있다. 앱 종료는 동기다(터미널 FR-9). **셸의 백그라운드 작업은
+  그룹 밖이다**(§4-B 남은 것 2).
 - **FR-31** 환경: `shellEnv`(앱 내부 변수를 뺀 Windows 환경)는 wsl.exe에 주고 안쪽 셸의 환경은 WSL이 만든다 — FR-17과 같다.
 
 ### (G) 경계와 보안
@@ -186,7 +196,9 @@ MCP는 지금 구조 그대로다 — 브리지는 Windows 프로세스이고, W
   core가 `repo.path`에서 판다. `listDistros`는 읽기 전용이다.
 - **FR-33** `wsl.exe` 호출은 **전부 인자 배열**이고 `shell: true`가 없다. 런처의 `bash -lc`는 문자열이 고정 상수(`exec "$0"
   "$@"`)이고 사용자 값(경로·프롬프트·distro)은 인자로만 들어간다. distro 이름은 `wsl --list`의 값이거나 UNC에서 판 것이고
-  `-`로 시작하면 거부한다(`wsl.exe`의 옵션으로 읽힐 수 있다).
+  `-`로 시작하면 거부한다(`wsl.exe`의 옵션으로 읽힐 수 있다). **Node 쪽의 배열은 이 보장의 절반이다** — 나머지 절반은 wsl.exe가
+  그 배열을 안쪽에 배열로 넘기는 것이고, 그것은 `--exec`일 때뿐이다(FR-8 개정). v0.24.0·v0.25.0은 `--`로 띄워 이 조항이 지켜지지
+  않았다(§4-B).
 - **FR-34** `core/`는 `wsl.exe`를 **직접 찾지 않는다** — `%SystemRoot%\System32\wsl.exe`는 Windows 경로 규칙이라
   `executable.ts`의 PATH 탐색(`findExecutable('wsl')`)을 쓰고, 테스트는 `spawn`을 주입한다. `core/wsl/*`의 모든 함수가
   `platform`과 `spawn`을 인자로 받는다 — macOS 개발 장비에서 두 갈래가 다 돈다.
@@ -273,6 +285,77 @@ IPC 새 채널은 `wsl.listDistros` 하나다. 나머지는 기존 채널의 타
   `realpath`의 UNC 형태, `wslpath`, 실제 run·MCP·취소·터미널·앱 종료를 보지 않은 채로 간다. 결과에 따라 설계가 갈리던 두 자리는
   **어느 쪽이든 되게** 바꿨다: 브리지는 FR-23의 배치 파일(env에 기대지 않는다), `resolveRepoPath`는 `foldUncPrefix`(FR-26).
   나머지(파이프·그룹 kill·`wslpath`)는 spec대로 구현했고 처음 쓰는 사람이 본다 — 릴리스 노트가 그렇게 말한다.
+  → **그 첫 실측이 §4-B다.** 결과에 따라 갈리던 것은 전부 되는 쪽이었지만, 실측 없이 가정한 것 하나(`wsl.exe -- …`가 인자를
+  배열로 넘긴다)가 틀려 모든 run이 시작조차 못 했다.
+
+## 4-B. 첫 실측 (2026-10-12 — Windows 11 Home 26200 · WSL 3.0.1 · Ubuntu-24.04 · claude 2.1.296)
+
+v0.25.0을 진짜 WSL과 진짜 claude로 처음 돌렸다(`e2e/wsl-real.e2e.ts`의 첫 실행). 결함이 둘 나왔다.
+
+**하나: `wsl.exe -- …`는 셸을 거친다.** wsl.exe는 `--` 뒤의 명령줄을 기본 셸에 `/bin/bash -c` **문자열**로 넘긴다 — Node가 배열로
+보낸 인자가 셸 문법이 된다. 앱과 같은 인자 배열(Node `spawnSync`)로 `printf '[%s]\n' 'C:\WINDOWS\System32\cmd.exe' '$HOME'
+'$(echo INJECTED)'`를 보내면 `--`는 `[C:WINDOWSSystem32cmd.exe]` · `[/home/rikeey]` · `[INJECTED]`를 찍고(인자에 홑따옴표가
+하나 있으면 `unexpected EOF`로 실행조차 안 된다), `--exec`(`-e`)는 여덟 인자를 바이트 그대로 넘긴다.
+
+- **증상**: 모든 WSL run이 시작 전에 `MCP 서버를 준비하지 못했습니다: WSL 경로를 변환하지 못했습니다 (Ubuntu-24.04): wslpath:
+  C:WINDOWSSystem32cmd.exe`로 실패했다(FR-23의 `cmd.exe` 경로가 첫 `wslpath`다). 터미널도 런처 경로를 변환하지 못해 뜨지 않았다.
+  `bash -lc 'command -v claude'`·`test -x`·`git ls-files`는 인자에 `\`가 없어 우연히 됐다 — 그래서 CLI 상태와 `@` 목록은 초록이었다.
+- **셸 해석이 닿은 사용자 값은 하나다 — 앱 탭의 `WSL claude 경로`.** CLI 상태 판정은 돌았으므로 그 값이 `test -x <경로>`·`auth status`·
+  probe의 명령으로 `bash -c`를 지났다(`$`·`$(…)`·따옴표·`\`가 해석됐다). 사용자가 자기 장비에 친 값이라 신뢰 경계를 넘지는 않았다.
+  프롬프트는 stdin이라 닿지 않았고, `--model`(자유 입력) 같은 run 인자는 run이 경로 변환에서 먼저 막혀 닿지 않았다.
+- **테스트가 못 잡은 이유**: 가짜 wsl.exe(`fake-wsl.mjs`)가 `--` 뒤를 배열 그대로 띄웠다 — 진짜와 뜻이 다른 것을 흉내냈다. 가짜는 이제
+  `--`를 받으면 exit 2로 실패한다(되돌리면 manager의 WSL run 테스트들이 `failed`로 빨개진다).
+- **고침**: FR-8의 구분자를 `--exec`로. 안쪽 명령(`wslpath`·`test`·`bash -lc`·`sh -c`·`git`·`kill` = `/usr/bin/kill`)은 전부 실행
+  파일이라 셸 없이 돈다(실측).
+
+**둘: 실행 환경을 바꿔 저장해도 CLI 상태를 다시 판정하지 않았다.** 설정 화면은 workspace를 고를 때만 `checkAgents`·`probeAgents`를
+불렀다 — 방금 WSL로 바꾼 repo의 WSL 줄이 무엇이 다시 묻게 할 때까지 "확인 중"이었다(세 번 재서 27초 · 62초 · 90초 넘게). core는
+FR-3대로 캐시를 비웠으니 화면만의 일이다. `SettingsPanel`의 `saveRepo`가 실행 환경이나 경로가 바뀐 저장 뒤 둘을 다시 부른다 —
+6.1초(probe가 실제로 CLI를 띄우는 시간). 이름·설명만 고친 저장은 다시 부르지 않는다.
+
+**고친 뒤** (같은 시나리오 — 실제 모델 호출 세 번):
+
+| 무엇 | 결과 |
+|---|---|
+| §4의 1 — interop · 브리지(FR-23) | WSL의 claude가 `mcp__one-desk__list_issues`를 불러 `[]`를 받았다. 배치 파일 브리지가 interop으로 뜨고 Windows의 `127.0.0.1`에 닿는다 |
+| §4의 2 — 파이프 | 프롬프트(stdin)가 들어가고 EOF가 넘어간다(턴이 곧바로 시작). 셸 출력 340 KB 턴의 `raw.jsonl` 47 KB가 밀리지 않았다 — claude가 30 KB를 넘는 도구 출력을 파일로 빼고 미리보기만 싣기 때문이다. 수 MB짜리 한 줄은 재지 않았다 |
+| §4의 3 — 취소 | `중지` 1.3초 뒤 canceled, 1.4~1.9초 뒤 claude · Bash 도구의 셸 · 그 손자(python)가 WSL에서, MCP 브리지(`cmd.exe`와 Electron 브리지)가 Windows에서 전부 사라졌다. 손자 둘은 claude와 **다른 프로세스 그룹**이었다(Bash 도구가 그룹을 따로 만든다) — 그룹 TERM을 받은 claude가 자식을 거둔 것이다. `run_in_background`로 띄운 프로세스는 재지 않았다 |
+| 앱 종료 | 터미널 셸(런처 그룹)·브리지가 WSL·Windows 어디에도 남지 않았다 — WSL은 cwd가 repo 아래인 프로세스, Windows는 데이터 폴더와 `.bridge.`를 품은 명령줄로 찾는다(`wsl-real.e2e.ts`). 셸의 **백그라운드 작업**은 예외다(아래 남은 것 2) |
+| FR-26 — realpath의 UNC 형태 | `@README.md` 멘션이 실려 답에 그 내용이 나왔다(`foldUncPrefix`를 거친 비교 통과). 코드 칸도 UNC로 읽는다 |
+| FR-25 · FR-29 | `@` 목록은 WSL의 git, 터미널은 `bash -l`(cwd = repo, 커널 `6.18.40.1-microsoft-standard-WSL2`) |
+| probe(슬래시 커맨드 · 모델) | init 직후 끊긴 probe의 세션 파일에 assistant 응답이 없다 — wsl.exe를 죽이면 안의 claude도 모델 호출 전에 끝난다 |
+
+참고: Claude Code는 단독 `sleep N`을 스스로 막는다(`Blocked: standalone sleep 300`) — 취소 시나리오는 python으로 잔다.
+
+**고친 뒤의 리뷰가 찾은 것 둘 (같은 v0.25.1에서 고쳤다).**
+
+- **릴리스 빌드의 `launcher.sh`가 CRLF였을 것이다.** 저장소에 `.gitattributes`가 없고 Git for Windows의 기본은 `core.autocrlf=true`다 —
+  이 장비의 작업 트리가 LF인 것은 `.git/config`가 끄기 때문이고(`docs/windows-setup.md`), 릴리스 CI의 Windows 러너는 끄지 않는다.
+  CRLF 런처를 WSL의 dash는 `shift: not found`·`Syntax error`로 거부해 pidfile도 안 쓰고 끝난다(실측) — 모든 WSL run과 터미널이
+  다시 깨지는데 probe·인증·git은 런처를 안 써서 CLI 상태는 초록이다. `.gitattributes`의 `*.sh text eol=lf`가 막고,
+  `launcher.test.ts`의 "CR이 없다"가 **Windows에서도** 바이트로 본다(그 describe는 다른 테스트와 달리 건너뛰지 않는다).
+- **ASCII가 아닌 사용자 경로에서 브리지가 뜨지 않았다.** 배치(FR-23)는 UTF-8로 쓰지만 cmd.exe는 OEM 코드 페이지(949)로 읽는다 —
+  `C:\Users\홍길동` 같은 계정이면 경로가 깨져 브리지가 `Cannot find module`로 죽고, claude는 MCP를 failed로 두고 도구 없이 "성공"한다.
+  배치의 둘째 줄 `chcp 65001 >nul`이 고친다(실측 — WSL interop으로 `한글 폴더` 아래 배치를 띄워 없으면 exit 1, 있으면 통과).
+
+**남은 것 (이 개정의 범위 밖 — 따로 정한다).**
+
+1. **CLI 상태의 인증·모델 판정이 로그인 셸 밖에서 돈다.** run은 런처의 `bash -lc`라 `~/.profile`을 읽지만, `auth status`(`runCliIn`)와
+   probe(`probeCommands`)는 런처 없이 `--exec <claude>`로 떠 `~/.profile`의 변수(Bedrock·프록시 — FR-17이 거기 두라고 한 것)를 못
+   본다. 그런 사용자에게 설정 화면은 "로그인 필요"를 띄우는데 run은 된다 — "`checkAgents`는 실행과 같은 판정"(CLAUDE.md)이 WSL에서
+   깨진 자리다. `--`와 `--exec`의 환경은 같으므로(PWD·SHLVL·`_`·WSL_INTEROP만 다르다 — 리뷰 실측) 이 개정이 만든 것이 아니라 run이
+   처음 돌면서 보이게 된 것이다. 고치는 길은 그 둘도 고정 상수 `bash -lc 'exec "$0" "$@"'`로 감싸는 것이고, 로그인 셸이 stdout에
+   찍는 글자가 `auth status --json`의 파싱을 깨지 않게 해야 한다.
+2. **터미널 셸의 백그라운드 작업이 셸 종료를 비켜 간다.** 터미널은 작업 제어가 있는 대화형 `bash -l`이라 작업마다 프로세스 그룹이
+   따로다. 끝낼 때의 그룹 KILL(FR-30)은 셸의 그룹만 맞히고, 셸이 SIGKILL로 죽어 HUP을 넘기지 못하므로 `npm run dev &`나 `bg`로 보낸
+   작업은 앱을 끈 뒤에도 WSL에 남는다(리뷰 실측 — 앱 종료 경로에서 재현, 셸 다시 시작·repo 삭제에서는 경합). 포그라운드 작업은 pty가
+   끊길 때의 HUP으로 죽는다. 고치는 길은 그룹 대신 **세션**을 끝내거나(`pkill -KILL -s <sid>` — 런처가 세션 리더면 pidfile의 수가 곧
+   sid), KILL 앞에 HUP을 보내 bash가 작업에 넘기게 하는 것이다. run 쪽은 Bash 도구의 자식이 다른 그룹이어도 claude가 TERM을 받고
+   거둬 남지 않았다(위 표) — `run_in_background`로 띄운 것은 재지 않았다.
+3. **배치 경로(`<userData>\mcp\…`)에 `&`·`^`·`%이름%`이 있으면 cmd.exe가 `/c` 뒤를 쪼개거나 바꾼다**(리뷰 실측). Windows 계정 이름에
+   그 글자가 허용되므로 그런 장비에서는 브리지가 뜨지 않고 run은 MCP 없이 "성공"한다. 막는 길은 둘이다 — run 전에 그 경로를 거부하고
+   이유를 말하거나, cmd.exe를 걷어내고 Electron 실행 파일을 interop으로 직접 띄우며 `ELECTRON_RUN_AS_NODE`를 `WSLENV`로 넘기는 것
+   (리뷰가 실측에서 통과를 봤다 — FR-22로 돌아가는 설계 변경이다).
 
 ## 5. 검증
 
@@ -287,8 +370,9 @@ IPC 새 채널은 `wsl.listDistros` 하나다. 나머지는 기존 채널의 타
   남는다) · `AgentStatusList`의 WSL 줄 · `RunPanel`의 opencode `disabled` · App 배선(`listDistros`·`agentEnv` prop).
 - e2e(가짜 CLI, Windows·macOS): `agentEnv`가 IPC를 왕복해 repo 탭에 반영된다 · WSL repo를 고르면 opencode가 막힌다 ·
   **가짜 `wsl.exe`**(`ONE_DESK_FAKE_WSL` — 인자를 캡처 파일에 쓰고 안의 명령을 그대로 띄우는 node 스크립트)로 run이 `wsl.exe
-  -d <distro> --cd <linux 경로> -- …` 모양으로 떴는지, `--mcp-config`가 Linux 경로인지, 취소가 `kill -TERM -- -<pgid>`를
-  보냈는지. 이 가짜는 e2e의 기존 가짜 CLI 규칙을 따른다(기본 시나리오를 건드리지 않는다).
-- 실측은 없다(§4-A — 사용자 결정). 처음 WSL repo를 쓰는 사람이 보는 것이 곧 첫 실측이다: 한 턴 + MCP `list_issues` + 취소 +
-  터미널 `echo` + 앱 종료 뒤 WSL 안에 프로세스가 남지 않음(`ps`). 안 되는 것은 이슈로 받는다.
+  -d <distro> --cd <linux 경로> --exec …` 모양으로 떴는지, `--mcp-config`가 Linux 경로인지, 취소가 `kill -TERM -- -<pgid>`를
+  보냈는지. 이 가짜는 e2e의 기존 가짜 CLI 규칙을 따른다(기본 시나리오를 건드리지 않는다). **가짜는 `--`를 받으면 exit 2로
+  실패한다**(§4-B) — 진짜와 뜻이 다른 것을 배열 그대로 흉내내던 것이 결함을 가렸다.
+- ~~실측은 없다(§4-A — 사용자 결정).~~ 첫 실측은 §4-B다. 같은 시나리오를 **선택 실행 e2e `e2e/wsl-real.e2e.ts`**
+  (`ONE_DESK_REAL_WSL=1`, 배포판은 `ONE_DESK_REAL_WSL_DISTRO`)가 진짜 wsl.exe·진짜 claude로 다시 돈다 — 실제 모델을 세 번 부른다.
 - 캡처(라이트·다크): repo 탭의 라디오와 안내, 실행 탭의 WSL 줄, 터미널 칸 머리 `wsl · Ubuntu`.

@@ -29,12 +29,12 @@ function fakeWslpath(answer: (path: string) => string | Error) {
 const USER_DATA = 'C:\\Users\\me\\AppData\\Roaming\\one-desk'
 
 describe('createWslPaths.toLinux', () => {
-  it('wslpath -a -u로 묻고 끝 줄바꿈을 걷는다 — wsl.exe -d <distro> -- wslpath …', async () => {
+  it('wslpath -a -u로 묻고 끝 줄바꿈을 걷는다 — wsl.exe -d <distro> --exec wslpath …', async () => {
     const { spawn, calls } = fakeWslpath(() => '/mnt/c/Program Files/one-desk/one-desk.exe')
     const paths = createWslPaths({ spawn, env: {}, userDataDir: USER_DATA })
     await expect(paths.toLinux('Ubuntu', 'C:\\Program Files\\one-desk\\one-desk.exe'))
       .resolves.toBe('/mnt/c/Program Files/one-desk/one-desk.exe')
-    expect(calls).toEqual([['-d', 'Ubuntu', '--', 'wslpath', '-a', '-u', 'C:\\Program Files\\one-desk\\one-desk.exe']])
+    expect(calls).toEqual([['-d', 'Ubuntu', '--exec', 'wslpath', '-a', '-u', 'C:\\Program Files\\one-desk\\one-desk.exe']])
   })
 
   it('userData 아래 경로는 userData를 한 번만 묻고 접두사로 만든다 — 대소문자·구분자 무시', async () => {
@@ -47,7 +47,7 @@ describe('createWslPaths.toLinux', () => {
     expect(a).toBe('/mnt/c/Users/me/AppData/Roaming/one-desk/mcp/r1.json')
     expect(b).toBe('/mnt/c/Users/me/AppData/Roaming/one-desk/wsl/r1.pid')
     expect(calls).toHaveLength(1)
-    expect(calls[0]).toEqual(['-d', 'Ubuntu', '--', 'wslpath', '-a', '-u', USER_DATA])
+    expect(calls[0]).toEqual(['-d', 'Ubuntu', '--exec', 'wslpath', '-a', '-u', USER_DATA])
   })
 
   it('이름이 userData로 시작하기만 하는 형제 폴더는 접두사로 치지 않는다', async () => {

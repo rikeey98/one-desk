@@ -397,7 +397,7 @@ describe('RunManager — WSL 실행 환경 (docs/sdlc/wsl-support/ FR-8·FR-9)',
     })
   }
 
-  it('env가 wsl이면 wsl.exe -d <distro> --cd <linux cwd> -- 로 감싸 띄우고 run은 그 안의 결과로 끝난다', async () => {
+  it('env가 wsl이면 wsl.exe -d <distro> --cd <linux cwd> --exec 로 감싸 띄우고 run은 그 안의 결과로 끝난다', async () => {
     const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-wsl-'))
     const capture = resolve(dir, 'wsl.jsonl')
     const { manager, cleanup } = makeManager()
@@ -411,7 +411,7 @@ describe('RunManager — WSL 실행 환경 (docs/sdlc/wsl-support/ FR-8·FR-9)',
         const lines = readFileSync(capture, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { argv: string[] })
         expect(lines).toHaveLength(1)
         const argv = lines[0]!.argv
-        expect(argv.slice(0, 5)).toEqual(['-d', 'Ubuntu', '--cd', '/home/me/api', '--'])
+        expect(argv.slice(0, 5)).toEqual(['-d', 'Ubuntu', '--cd', '/home/me/api', '--exec'])
         // Windows 쪽 cwd는 넘기지 않았다 — UNC를 cwd로 주면 wsl.exe 자신이 그 자리에서 뜨려다 실패할 수 있다
         expect((lines[0] as unknown as { cwd: string }).cwd).toBe(process.cwd())
         // 안쪽 명령은 실행 파일 그대로이고, 그 뒤에 claude 인자가 온다
@@ -440,7 +440,7 @@ describe('RunManager — WSL 실행 환경 (docs/sdlc/wsl-support/ FR-8·FR-9)',
         })
         expect(outcome.status).toBe('succeeded')
         const argv = (JSON.parse(readFileSync(capture, 'utf8').trim().split('\n')[0]!) as { argv: string[] }).argv
-        expect(argv.slice(0, 8)).toEqual(['-d', 'Ubuntu', '--cd', '/home/me/api', '--', '/bin/sh', '/mnt/c/app/launcher.sh', pidfileHost])
+        expect(argv.slice(0, 8)).toEqual(['-d', 'Ubuntu', '--cd', '/home/me/api', '--exec', '/bin/sh', '/mnt/c/app/launcher.sh', pidfileHost])
         expect(argv[8]).toBe(FAKE)
         expect(existsSync(pidfileHost)).toBe(false)
       })

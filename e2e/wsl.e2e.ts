@@ -7,7 +7,8 @@ import { waitConvStatus } from './dock'
 
 /**
  * WSL repo (docs/sdlc/wsl-support/ plan 14단계). 진짜 WSL이 없는 장비에서 **가짜 wsl.exe**(`fake-wsl.mjs`)로 "WSL repo의 프로세스가
- * 어떤 모양으로 떴나"를 본다 — interop·파이프·kill은 흉내내지 않는다(실측은 건너뛰기로 했다 — spec §4-A).
+ * 어떤 모양으로 떴나"를 본다 — interop·파이프·kill은 흉내내지 않는다. 가짜는 모양만 본다: 진짜 wsl.exe와 진짜 claude는
+ * `e2e/wsl-real.e2e.ts`(선택 실행, spec §4-B)다.
  *
  * 등록은 UNC 경로 그대로다 — 등록은 존재를 검사하지 않고, 같은 경로를 다시 보내는 저장도 검사하지 않는다. 그래서 `\\wsl$\…`가
  * 없는 장비에서도 repo 탭에서 실행 환경을 WSL로 바꿀 수 있다. **Windows에서만 WSL을 고를 수 있다**(FR-4) — 다른 OS에서는 라디오가
@@ -70,10 +71,11 @@ describe('WSL repo (docs/sdlc/wsl-support/)', () => {
     await page.getByRole('button', { name: '실행', exact: true }).click()
     await waitConvStatus(page, '샘플', 'succeeded', 30_000)
 
-    // 5. 모양: wsl.exe -d Ubuntu --cd /home/me/api -- /bin/sh <launcher> <pidfile> <claude> … --mcp-config /mnt/…
+    // 5. 모양: wsl.exe -d Ubuntu --cd /home/me/api --exec /bin/sh <launcher> <pidfile> <claude> … --mcp-config /mnt/…
     const lines = readFileSync(capture, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { argv: string[] })
-    const launch = lines.map((l) => l.argv).find((a) => a.includes('--cd'))
-    expect(launch?.slice(0, 5)).toEqual(['-d', 'Ubuntu', '--cd', '/home/me/api', '--'])
+    // run은 `--mcp-config`가 있는 호출이다 — 저장 직후의 CLI 상태 재판정(probe)도 `--cd`로 먼저 떠 캡처의 앞에 있다
+    const launch = lines.map((l) => l.argv).find((a) => a.includes('--mcp-config'))
+    expect(launch?.slice(0, 5)).toEqual(['-d', 'Ubuntu', '--cd', '/home/me/api', '--exec'])
     expect(launch?.[5]).toBe('/bin/sh')
     expect(launch?.[6]).toMatch(/launcher\.sh$/)
     expect(launch?.[launch.indexOf('--mcp-config') + 1]).toMatch(/^\/mnt\//)

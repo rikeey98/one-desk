@@ -68,10 +68,18 @@ function claudeWslBody(dir: string, runId: string, wsl: WslConfigTarget): string
 /**
  * 브리지를 띄우는 배치 파일의 본문. 경로는 전부 Windows 쪽 그대로다 — cmd.exe가 Windows 프로세스라 Linux 경로를 모른다.
  * `%`가 든 경로는 cmd가 변수로 펼치므로 `%%`로 둔다(그 밖의 글자는 따옴표 안에서 그대로다).
+ *
+ * **`chcp 65001`이 경로 줄보다 앞에 있어야 한다.** 파일은 UTF-8로 쓰지만 cmd.exe는 배치를 콘솔의 OEM 코드 페이지(한국어
+ * Windows는 949)로 읽는다 — 사용자 폴더(`C:\Users\홍길동`)·userData에 ASCII가 아닌 글자가 하나라도 있으면 경로가 깨져 브리지가
+ * `Cannot find module`로 죽고, claude는 MCP 서버를 failed로 두고 그대로 진행해 도구 없는 run이 성공으로 끝난다. cmd는 배치를
+ * 줄마다 그때의 코드 페이지로 읽으므로 이 줄 뒤부터 UTF-8이다(2026-10-12 실측 — WSL interop으로 `한글 폴더` 아래 배치를 띄워
+ * 없으면 exit 1, 있으면 통과. spec §4-B).
  */
 function bridgeCmdBody(target: McpConfigTarget, bridgeFile: string): string {
   const q = (p: string) => `"${p.replace(/%/g, '%%')}"`
-  return ['@echo off', 'set ELECTRON_RUN_AS_NODE=1', `${q(target.execPath)} ${q(target.bridgePath)} ${q(bridgeFile)}`, ''].join('\r\n')
+  return [
+    '@echo off', 'chcp 65001 >nul', 'set ELECTRON_RUN_AS_NODE=1', `${q(target.execPath)} ${q(target.bridgePath)} ${q(bridgeFile)}`, ''
+  ].join('\r\n')
 }
 
 function claudeBody(target: McpConfigTarget): string {

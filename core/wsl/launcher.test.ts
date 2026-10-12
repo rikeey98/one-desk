@@ -27,6 +27,16 @@ function run(args: string[], detached: boolean) {
   })
 }
 
+// **Windows에서도 돈다** — 릴리스 CI의 Windows 러너가 이 파일을 체크아웃한 그대로 패키징한다. Git for Windows의 기본값
+// (core.autocrlf=true)이 CRLF로 바꾸면 WSL의 dash가 `shift: not found`·`Syntax error`로 거부해 pidfile도 안 쓰고 끝난다 —
+// 모든 WSL run과 WSL 터미널이 깨지는데 probe·인증·git은 런처를 안 써서 CLI 상태는 초록이다(spec §4-B). `.gitattributes`가 막는다.
+describe('launcher.sh의 줄바꿈', () => {
+  it('CR이 없다 — LF로만 끝나야 WSL의 /bin/sh가 읽는다', () => {
+    const bytes = readFileSync(LAUNCHER_FILE)
+    expect(bytes.includes(0x0d)).toBe(false)
+  })
+})
+
 describe.skipIf(process.platform === 'win32')('launcher.sh', () => {
   it('인자를 그대로 넘겨 명령을 exec한다 — 공백·따옴표·$가 뜻을 잃지 않는다', async () => {
     const out = await run(['/bin/sh', '-c', 'printf "%s|" "$@"', 'sh', 'a b', '"q"', '$HOME', 'x;y'], true)

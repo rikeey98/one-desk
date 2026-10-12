@@ -93,7 +93,7 @@ describe('listRepoFiles (FR-5)', () => {
 })
 
 describe('listRepoFiles — WSL repo (docs/sdlc/wsl-support/ FR-25)', () => {
-  it('wsl.exe -d <distro> --cd <linux> -- git ls-files … 를 띄우고 Windows의 git은 찾지 않는다', async () => {
+  it('wsl.exe -d <distro> --cd <linux> --exec git ls-files … 를 띄우고 Windows의 git은 찾지 않는다', async () => {
     const calls: { cmd: string; args: string[]; cwd: string | undefined }[] = []
     const findGit = vi.fn(async () => '/windows/git.exe')
     const spawn = (cmd: string, args: string[], opts: SpawnOptions) => {
@@ -109,7 +109,7 @@ describe('listRepoFiles — WSL repo (docs/sdlc/wsl-support/ FR-25)', () => {
     expect(findGit).not.toHaveBeenCalled()
     expect(calls).toEqual([{
       cmd: 'wsl.exe',
-      args: ['-d', 'Ubuntu', '--cd', '/home/me/api', '--', 'git', 'ls-files', '-co', '--exclude-standard', '-z'],
+      args: ['-d', 'Ubuntu', '--cd', '/home/me/api', '--exec', 'git', 'ls-files', '-co', '--exclude-standard', '-z'],
       cwd: undefined
     }])
   })

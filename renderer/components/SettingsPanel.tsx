@@ -197,14 +197,22 @@ export function SettingsPanel({
   async function saveRepo(id: string): Promise<void> {
     const draft = repoDrafts[id]
     if (!draft) return
+    const before = repos.find((r) => r.id === id)
     setRepoBusyId(id)
     setRepoErrors((prev) => { const next = { ...prev }; delete next[id]; return next })
     try {
       // 넷을 전부 보낸다 — 바뀐 것만 고르면 "무엇이 덮이는지"가 흐려진다(updateDefaults와 같은 규칙).
-      await client.repos.update({
+      const updated = await client.repos.update({
         id, name: draft.name, path: draft.path, description: draft.description.trim() || null, agentEnv: draft.agentEnv
       })
       await refreshRepos()
+      // 실행 환경이나 경로가 바뀌면 실행 탭의 CLI 상태가 다른 claude·다른 cwd를 봐야 한다 — core는 캐시를 비웠지만(wsl-support
+      // FR-3) 화면은 workspace를 고를 때만 다시 묻는다. 그대로 두면 방금 WSL로 바꾼 repo의 WSL 줄이 무엇이 다시 묻게 할 때까지
+      // "확인 중"이다(2026-10-12 실측: 27초·62초·90초 넘게).
+      if (workspace && before && (updated.agentEnv !== before.agentEnv || updated.path !== before.path)) {
+        void check(workspace.id)
+        void probe(workspace.id)
+      }
     } catch (err) {
       // 입력은 지우지 않는다(FR-12). 없는 경로를 넣었다면 그 문장이 그대로 보인다.
       setRepoErrors((prev) => ({ ...prev, [id]: err instanceof Error ? err.message : String(err) }))

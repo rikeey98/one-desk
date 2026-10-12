@@ -1,8 +1,9 @@
 # Plan: WSL2 안의 repo를 WSL 안의 claude로 돌린다
 
 - 출처: `spec.md` (승인 2026-10-12 — "승인, UNC 저장으로 가고 plan 써 줘")
-- 상태: 구현 완료 — 단위·typecheck·lint까지 (2026-10-12). **실측은 하지 않는다**(사용자 결정 — "내가 실측을 할수 없는 환경이라
-  실측은 건너뛰고 만들어줘"). e2e `wsl.e2e.ts`는 CI의 Windows 잡이 처음 돌린다.
+- 상태: 구현 완료 — 단위·typecheck·lint까지 (2026-10-12). 실측 없이 나갔고(사용자 결정 — "내가 실측을 할수 없는 환경이라
+  실측은 건너뛰고 만들어줘"), **첫 실측은 같은 날 사용자의 WSL 장비에서 했다**(spec §4-B, v0.25.1 — 아래 "달라진 것"). 진짜 WSL은
+  선택 실행 e2e `e2e/wsl-real.e2e.ts`(`ONE_DESK_REAL_WSL=1`)가, 가짜 wsl.exe의 모양은 `e2e/wsl.e2e.ts`가 본다.
 
 ## 순서
 
@@ -15,7 +16,7 @@
    명령·출력 그대로 적는다.
    - env가 interop 경계를 넘는가: `FOO=1 /mnt/c/Windows/System32/cmd.exe /c set FOO`. 넘으면 FR-22(브리지 env 그대로), 안 넘으면 FR-23(`cmd.exe /c set …`).
      어느 쪽이든 **URL·토큰은 인자 파일**이다(FR-22의 (2)) — 결정은 `ELECTRON_RUN_AS_NODE` 하나다.
-   - `wsl.exe -d <D> -- cat`에 Node가 `stdin.write` 뒤 `end()`하면 안쪽이 EOF를 받고 바이트가 그대로 돌아오는가(UTF-8 한글·`\n` 보존·1 MB).
+   - `wsl.exe -d <D> --exec cat`에 Node가 `stdin.write` 뒤 `end()`하면 안쪽이 EOF를 받고 바이트가 그대로 돌아오는가(UTF-8 한글·`\n` 보존·1 MB).
    - `wsl.exe`를 `taskkill /T /F`하면 안의 `sleep 1000`이 죽는가(`ps`로 확인). 죽으면 FR-18의 그룹 kill은 **보조**가 되고 pidfile은 남긴다(터미널
      다시 시작과 앱 종료의 동기 경로가 그것을 쓴다) — 단순화는 spec 개정으로 적는다.
 2. **경로** `core/wsl/path.ts` + 테스트 (FR-2·§4의 9)
@@ -35,8 +36,8 @@
      (`execPath` — 설치 폴더)은 그때마다 `wslpath`. 드라이브 문자·역슬래시만 보는 결정적 변환으로 **대신하지 않는다**(automount 루트가 설정값이다).
 5. **spawn 변환** `core/wsl/launch.ts` + `core/runner/executable.ts` + 테스트 (FR-8~10·33)
    - `wrapForEnv(env, cmd, args, cwd, { launcher, launcherPath, pidfile })` → `{ cmd, args, cwd }`. host면 `agentCommand`의 런처 규칙 그대로
-     (`ONE_DESK_AGENT_LAUNCHER`), wsl이면 `['wsl.exe', '-d', distro, '--cd', linuxCwd, '--', '/bin/sh', launcherPath, pidfile, cmd, ...args]`
-     (launcher=false면 `'--', cmd, ...args`). **cwd는 Windows 쪽에서는 넘기지 않는다**(`wsl.exe`는 `--cd`로 받는다 — Node의 `cwd` 옵션에 UNC를
+     (`ONE_DESK_AGENT_LAUNCHER`), wsl이면 `['wsl.exe', '-d', distro, '--cd', linuxCwd, '--exec', '/bin/sh', launcherPath, pidfile, cmd, ...args]`
+     (launcher=false면 `'--exec', cmd, ...args`). **cwd는 Windows 쪽에서는 넘기지 않는다**(`wsl.exe`는 `--cd`로 받는다 — Node의 `cwd` 옵션에 UNC를
      주면 `wsl.exe` 자신이 그 UNC에서 뜨려다 실패할 수 있다). 테스트: 인자가 문자열에 끼지 않는다(프롬프트·경로에 `"`·`$`·공백·`;`가 있어도 배열
      원소 그대로), distro가 `-`로 시작하면 던진다.
    - `agentCommand(env, executable, args)` — **env 필수.** 네 호출 자리(`manager.ts`·`commands/probe.ts`·`agent/exec.ts`·`adapters/opencode.ts`)를
@@ -85,9 +86,9 @@
     - `listRepoFiles(root, { env, … })`: wsl이면 `wrapForEnv(launcher=false)`로 `git` 그대로(Windows PATH 탐색 없음). `files/service.ts`가 `getRepo`에서
       `envOfRepo`를 만들어 넘긴다(목록 캐시 키는 root 그대로).
     - `assets/service.ts`의 `globalRoots(workspaceId)`: 그 workspace의 wsl repo distro마다 `assets.globalRoots.claude.wsl`(여러 줄, 기본 `~/.claude/skills`)의
-      `~`를 `wsl.exe -d <d> -- sh -c 'echo $HOME'`(distro마다 한 번 캐시, 실패는 캐시하지 않음)으로 풀어 UNC로 바꿔 더한다. 설정 저장소에 키·getter·setter.
+      `~`를 `wsl.exe -d <d> --exec sh -c 'echo $HOME'`(distro마다 한 번 캐시, 실패는 캐시하지 않음)으로 풀어 UNC로 바꿔 더한다. 설정 저장소에 키·getter·setter.
       스캔 자체는 그대로(`scanDir`에 UNC). 테스트: 두 distro → 두 루트, 홈 조회 실패 → 그 distro만 빠지고 나머지는 훑는다, Windows 글로벌은 그대로.
-    - 터미널: `launch`가 `envOfRepo(repo)`를 보고 wsl이면 `spawnPty('wsl.exe', ['-d', distro, '--cd', linuxPath, '--', '/bin/sh', launcher, pidfile,
+    - 터미널: `launch`가 `envOfRepo(repo)`를 보고 wsl이면 `spawnPty('wsl.exe', ['-d', distro, '--cd', linuxPath, '--exec', '/bin/sh', launcher, pidfile,
       'sh', '-c', 'exec "${SHELL:-/bin/bash}" -l'], { cwd: <userData> })`. `resolveShell` 설정은 무시, 세션의 `shell`은 `wsl · <distro>`. `killRepo`·
       `restart`·`killAll`이 `killGroup`/`killGroupSync`를 먼저 부르고 pty.kill. 테스트(가짜 pty·spawn): 인자 모양, 설정 셸 무시, 동기 경로.
 11. **core 배선** `core/index.ts` + 테스트 (FR-3·13·14)
@@ -109,10 +110,11 @@
 13. **CSS·DESIGN.md** — 라디오 줄·파싱 결과 줄(`--text-muted`, 모노 `.path-text`)·경고(`--warning` 토큰이 있으면 그것). 토큰만.
 14. **e2e** `e2e/wsl.e2e.ts`(가짜 `wsl.exe`) + 전체 e2e
     - 가짜 `core/runner/fixtures/fake-wsl.mjs`: 인자를 `ONE_DESK_WSL_CAPTURE`에 JSON 한 줄로 적고, `--list --quiet`면 UTF-16LE로 `Ubuntu\r\nDebian\r\n`,
-      `wslpath`면 `/mnt/c/...`를 규칙으로 만들어 찍고, `-- kill …`이면 캡처만, 그 밖(`--`, 명령)이면 **런처·pidfile을 건너뛰고 안의 명령을 그대로
-      띄운다**(가짜 claude가 돌게 — `ONE_DESK_AGENT_LAUNCHER`를 그대로 적용). 드라이버가 `ONE_DESK_WSL_PATH`로 물린다(`findExecutable('wsl')`
+      `wslpath`면 `/mnt/c/...`를 규칙으로 만들어 찍고, `--exec kill …`이면 캡처만, 그 밖(`--exec` 명령)이면 **런처·pidfile을 건너뛰고 안의 명령을
+      그대로 띄운다**(가짜 claude가 돌게 — `ONE_DESK_AGENT_LAUNCHER`를 그대로 적용). 안쪽 명령 앞에 `--`가 오면 **exit 2로 실패한다** — 진짜
+      wsl.exe는 그 뒤를 `bash -c` 문자열로 넘기는데 그것을 배열 그대로 흉내내던 것이 v0.24.0·v0.25.0의 결함을 가렸다(spec §4-B). 드라이버가 `ONE_DESK_WSL_PATH`로 물린다(`findExecutable('wsl')`
       앞의 테스트 이음매 — `ONE_DESK_AGENT_PATH`와 같은 성격). **기본 시나리오는 건드리지 않는다.**
-    - 시나리오: repo 탭에서 WSL로 바꿔 저장 → IPC 왕복 → 다시 열어도 WSL · 한 턴이 `wsl.exe -d Ubuntu --cd /home/me/proj -- /bin/sh <launcher> …`
+    - 시나리오: repo 탭에서 WSL로 바꿔 저장 → IPC 왕복 → 다시 열어도 WSL · 한 턴이 `wsl.exe -d Ubuntu --cd /home/me/proj --exec /bin/sh <launcher> …`
       모양으로 떴고 `--mcp-config`가 `/mnt/c/…` · 취소가 `kill -TERM -- -<pgid>`를 캡처에 남긴다 · opencode가 막힌다 · 글로벌 WSL 경로 저장.
     - Windows·macOS 둘 다 돈다(가짜라서). macOS에서는 `agentEnv='wsl'` 저장이 거부되는 것을 **대신** 본다(`platform` 분기 — 드라이버가 `ONE_DESK_FAKE_PLATFORM`
       같은 이음매를 두지 않는다. OS마다 다른 테스트가 도는 것이 맞다).
@@ -218,6 +220,18 @@ e2e는 아래 "남은 것"에, 실측을 건너뛴 결정은 그 바로 위에 �
   spec FR-29·30 그대로이되 pidfile 이름은 `term-<repoId>`다.
 - e2e `wsl.e2e.ts`는 Windows에서만 WSL 시나리오를 돈다 — 다른 OS에서는 "라디오가 없다"를 본다(spec FR-4). plan 14단계의
   "Windows·macOS 둘 다 돈다"는 그 뜻으로 좁혔다.
+- **첫 실측(2026-10-12, v0.25.0 → v0.25.1)이 결함 둘을 찾았다 — spec §4-B.** (1) `wrapForEnv`의 구분자 `--`는 wsl.exe에서
+  `bash -c` 문자열이라 모든 WSL run이 `wslpath` 단계에서 실패했다 → `--exec`. 가짜 wsl.exe는 `--`를 받으면 exit 2. 단위 기대값 20곳이
+  `'--'` → `'--exec'`. (2) repo 탭의 저장이 CLI 상태를 다시 판정하지 않았다 → `saveRepo`가 실행 환경·경로가 바뀐 저장 뒤
+  `check`·`probe`. 그리고 선택 실행 e2e `e2e/wsl-real.e2e.ts`(`ONE_DESK_REAL_WSL=1`)가 9·15단계의 실측을 대신한다(1단계의 파이프
+  측정 중 수 MB 한 줄과 `cat` 바이트 왕복은 하지 않았다).
+  변이: 구분자를 `--`로 되돌림 → launch 7 · manager 5 빨강, 재판정을 끔 → 1 빨강, 늘 재판정 → 1 빨강, 경로 조건을 지움 → 1 빨강.
+- **그 수정을 리뷰한 워크플로(다섯 관점 · 지적마다 반박 시도)가 15개를 남겼다.** 고친 것: `.gitattributes`(`*.sh eol=lf` — 릴리스
+  CI의 Windows 체크아웃이 런처를 CRLF로 바꿔 dash가 거부했을 것이다, 변이: CRLF로 바꿈 → 1 빨강), 브리지 배치의 `chcp 65001`(한글
+  사용자 경로, 변이: 지움 → 2 빨강), 문자열 형태로 남은 옛 `--` 기대값 하나(`index.test.ts`), `wsl.e2e.ts`가 run 대신 저장 직후의
+  probe를 집던 것(`--mcp-config`로 고른다), 경로만 바꾼 저장의 재판정 테스트, `wsl-real.e2e.ts`의 남은 프로세스 감지(cwd · Windows의
+  브리지 — 예전 필터는 터미널 셸을 못 봤다), 문서의 과장(MCP 쓰기, FR-23의 인용, FR-29·30의 터미널 명령). 남긴 것 셋은 spec §4-B의
+  "남은 것"이다(로그인 셸 밖의 인증 판정 · 터미널 백그라운드 작업 · 배치 경로의 cmd 메타문자).
 - 단위 테스트 전체에서 `core/index.test.ts`의 "rescan은 다시 훑고 갱신된 목록을 준다"가 한 번 빨갰다 — 단독으로 세 번 돌려 전부 초록.
   `globalRoots`가 비동기가 되며 부하에서 흔들리는 폭이 넓어졌을 수 있다(CLAUDE.md가 적어 둔 커맨드 캐시 테스트의 흔들림과 같은 성격).
   다시 나면 그 테스트의 등록 뒤 대기를 늘린다.

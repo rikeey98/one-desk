@@ -109,11 +109,24 @@ describe('writeMcpConfig — WSL run (docs/sdlc/wsl-support/ FR-21·22·23)', ()
     const cmd = readFileSync(bridgeCmdOf(join(dir, 'mcp'), 'run-1'), 'utf8')
     expect(cmd.split('\r\n')).toEqual([
       '@echo off',
+      'chcp 65001 >nul',
       'set ELECTRON_RUN_AS_NODE=1',
       `"/fake/electron" "/fake/bridge.mjs" "${bridgeFileOf(join(dir, 'mcp'), 'run-1')}"`,
       ''
     ])
     expect(cmd).not.toContain('tok-abc')
+  })
+
+  // cmd.exe는 배치를 OEM 코드 페이지(한국어 Windows 949)로 읽는다 — UTF-8로 쓴 한글 경로가 깨져 브리지가 안 뜬다(spec §4-B 실측)
+  it('ASCII가 아닌 경로는 UTF-8 바이트 그대로이고, 그 줄보다 먼저 코드 페이지를 UTF-8로 바꾼다', () => {
+    const execPath = 'C:\\Users\\홍길동\\AppData\\Local\\Temp\\one-desk.exe'
+    writeMcpConfig(join(dir, 'mcp'), 'run-1', { ...target({}), execPath }, 'claude-code', wsl)
+    const bytes = readFileSync(bridgeCmdOf(join(dir, 'mcp'), 'run-1'))
+    expect(bytes.includes(Buffer.from(execPath, 'utf8'))).toBe(true)
+    const lines = bytes.toString('utf8').split('\r\n')
+    const chcp = lines.indexOf('chcp 65001 >nul')
+    expect(chcp).toBeGreaterThan(-1)
+    expect(chcp).toBeLessThan(lines.findIndex((l) => l.includes('홍길동')))
   })
 
   it('경로의 %는 cmd가 변수로 펼치므로 %%로 둔다', () => {

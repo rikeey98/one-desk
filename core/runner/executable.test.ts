@@ -152,7 +152,7 @@ describe('agentCommand', () => {
       { cwd: '\\\\wsl$\\Ubuntu\\home\\me\\api' }, { ONE_DESK_AGENT_LAUNCHER: '/usr/bin/node' })
     expect(out).toEqual({
       cmd: 'wsl.exe',
-      args: ['-d', 'Ubuntu', '--cd', '/home/me/api', '--', '/home/me/.local/bin/claude', '-p'],
+      args: ['-d', 'Ubuntu', '--cd', '/home/me/api', '--exec', '/home/me/.local/bin/claude', '-p'],
       cwd: undefined
     })
   })

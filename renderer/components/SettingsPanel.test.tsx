@@ -926,6 +926,53 @@ describe('SettingsPanel — repo 탭의 claude 실행 환경 (docs/sdlc/wsl-supp
     expect(update).toHaveBeenCalledWith({ id: 'r1', name: 'api', path: WSL_PATH, description: null, agentEnv: 'wsl' })
   })
 
+  // 판정은 workspace를 고를 때만 돌았다 — 방금 WSL로 바꾼 repo의 WSL 줄이 1분 넘게 "확인 중"이었다(2026-10-12 실측)
+  it('실행 환경을 바꿔 저장하면 CLI 상태를 다시 판정한다', async () => {
+    const update = vi.fn(async (input: UpdateRepoInput) => makeRepo({ ...input } as Partial<Repo>))
+    const checkAgents = vi.fn(async () => AGENTS_OK)
+    const probeAgents = vi.fn(async () => PROBES_OK)
+    renderPanel(makeClient({}, { checkAgents, probeAgents }, { update }), { repos: [makeRepo({ path: WSL_PATH })] })
+    await waitFor(() => expect(probeAgents).toHaveBeenCalledTimes(1))
+    expect(checkAgents).toHaveBeenCalledTimes(1)
+    await openRepoTab()
+    const group = await screen.findByRole('radiogroup', { name: 'api claude 실행 환경' })
+    await userEvent.click(within(group).getByRole('radio', { name: 'WSL' }))
+    await userEvent.click(screen.getByRole('button', { name: 'api 저장' }))
+    await waitFor(() => expect(probeAgents).toHaveBeenCalledTimes(2))
+    expect(checkAgents).toHaveBeenCalledTimes(2)
+    expect(probeAgents).toHaveBeenLastCalledWith('w1', false)
+  })
+
+  // 첫 repo의 경로는 host 줄 모델 probe의 cwd이고, WSL repo의 경로는 배포판·cwd를 정한다
+  it('경로만 바꿔 저장해도 CLI 상태를 다시 판정한다', async () => {
+    const update = vi.fn(async (input: UpdateRepoInput) => makeRepo({ ...input } as Partial<Repo>))
+    const checkAgents = vi.fn(async () => AGENTS_OK)
+    const probeAgents = vi.fn(async () => PROBES_OK)
+    renderPanel(makeClient({}, { checkAgents, probeAgents }, { update }), { repos: [makeRepo()] })
+    await waitFor(() => expect(probeAgents).toHaveBeenCalledTimes(1))
+    await openRepoTab()
+    const path = await screen.findByLabelText('api 경로')
+    await userEvent.clear(path)
+    await userEvent.type(path, '/srv/api2')
+    await userEvent.click(screen.getByRole('button', { name: 'api 저장' }))
+    await waitFor(() => expect(probeAgents).toHaveBeenCalledTimes(2))
+    expect(checkAgents).toHaveBeenCalledTimes(2)
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ path: '/srv/api2', agentEnv: 'host' }))
+  })
+
+  it('이름만 고쳐 저장하면 다시 판정하지 않는다 — CLI를 띄우는 조회다', async () => {
+    const update = vi.fn(async (input: UpdateRepoInput) => makeRepo({ ...input } as Partial<Repo>))
+    const probeAgents = vi.fn(async () => PROBES_OK)
+    renderPanel(makeClient({}, { probeAgents }, { update }), { repos: [makeRepo({ path: WSL_PATH })] })
+    await waitFor(() => expect(probeAgents).toHaveBeenCalledTimes(1))
+    await openRepoTab()
+    const name = await screen.findByLabelText('api 이름')
+    await userEvent.type(name, '2')
+    await userEvent.click(screen.getByRole('button', { name: 'api 저장' }))
+    await waitFor(() => expect(update).toHaveBeenCalled())
+    expect(probeAgents).toHaveBeenCalledTimes(1)
+  })
+
   it('WSL을 고르면 경로의 배포판과 Linux 경로를 보여주고, 모양이 아니면 거부 문구다', async () => {
     renderPanel(makeClient(), { repos: [makeRepo({ path: WSL_PATH })] })
     await openRepoTab()
