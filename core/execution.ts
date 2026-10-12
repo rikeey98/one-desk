@@ -33,7 +33,8 @@ export interface ExecutionOptions {
   mcp?: McpHost
   /** core가 삼킨 오류를 흘려보낼 곳 */
   onError?: ErrorSink
-  resolveExecutable: (agentKind: AgentKind, workspaceId: string) => Promise<PreflightResult>
+  /** cwd까지 받는다 — 판정이 repo(실행 환경)마다 다르다 (wsl-support FR-13) */
+  resolveExecutable: (agentKind: AgentKind, workspaceId: string, cwd: string) => Promise<PreflightResult>
   /**
    * preflight 뒤 마지막 확인. 어댑터가 구현했을 때만 불린다.
    * 실행 파일 탐색과 달리 cwd와 권한이 있어야 하는 검사라 자리가 따로다.
@@ -416,7 +417,7 @@ export function createExecutionService(opts: ExecutionOptions) {
 
     // preflight는 큐에 넣기 전에 본다. 실행 파일이 없는 run이 슬롯을 잡았다
     // 놓는 낭비가 없고, "preflight 실패는 startedAt이 null"이라는 성질도 남는다.
-    const preflight = await opts.resolveExecutable(spec.agentKind, spec.workspaceId)
+    const preflight = await opts.resolveExecutable(spec.agentKind, spec.workspaceId, spec.cwd)
     if (cancelRequested()) return finishUnstarted(created.id)
     if (!preflight.ok || !preflight.executable) {
       return notify(opts.runs.markFinished(created.id, {

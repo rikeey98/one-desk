@@ -130,6 +130,15 @@ describe('SettingRepository — CLI 기본 경로 (agent-path-default FR-2)', ()
     expect(settings3.setAgentPaths({ claude: '   ', opencode: '' })).toEqual({ claude: null, opencode: null })
   })
 
+  it('WSL claude 경로는 따로다 — agents.path.claude.wsl, 비면 null (wsl-support FR-12)', () => {
+    expect(settings3.wslClaudePath()).toBeNull()
+    expect(settings3.setWslClaudePath('  /home/me/.local/bin/claude ')).toBe('/home/me/.local/bin/claude')
+    expect(createSettingRepository(db3, HOME).wslClaudePath()).toBe('/home/me/.local/bin/claude')
+    expect(settings3.setWslClaudePath('  ')).toBeNull()
+    // Windows 경로 둘은 건드리지 않는다
+    expect(settings3.agentPaths()).toEqual({ claude: null, opencode: null })
+  })
+
   it('둘을 함께 덮는다 — 한쪽만 비우면 그쪽만 null이다', () => {
     settings3.setAgentPaths({ claude: '/a', opencode: '/b' })
     expect(settings3.setAgentPaths({ claude: '/a', opencode: '' })).toEqual({ claude: '/a', opencode: null })

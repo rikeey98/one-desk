@@ -13,7 +13,7 @@ import { createCommandService } from './commands/service'
 import { createAgentProbeService } from './agent/service'
 import { createModelCatalog } from './agent/models'
 import { checkAuth } from './agent/auth'
-import { runCli } from './agent/exec'
+import { runCli, runCliIn } from './agent/exec'
 import { probeCommands } from './commands/probe'
 import { describeCommands } from './commands/describe'
 import type { GlobalRoots } from './db/repositories/setting'
@@ -36,6 +36,9 @@ import { claudeCodeAdapter } from './runner/adapters/claudeCode'
 import { opencodeAdapter } from './runner/adapters/opencode'
 import { resolveAgentPath } from './runner/agentPath'
 import { envOfRepo, HOST_ENV, type ProcessEnvSpec } from './wsl/env'
+import { createWslPreflight } from './wsl/preflight'
+import type { AgentDefaults } from './runner/agentPath'
+import type { PreflightResult } from './runner/types'
 import { findVscodeExecutable, newWindowArgs } from './editor/vscodeLaunch'
 import { vscodeFolderUrl } from './editor/vscodeUrl'
 import type { AgentProbes, AgentStatuses } from '@shared/models'
@@ -151,8 +154,32 @@ export function createCore(opts: CoreOptions) {
    * 실행 파일 경로의 유일한 해석 자리 — 실행·설정 화면·슬래시 커맨드·인증 확인이 전부 여기를 탄다.
    * 앱 기본값은 매번 읽는다(설정에서 바뀐다). `docs/sdlc/agent-path-default/` FR-1.
    */
-  const agentPathOf = (kind: AgentKind, workspace: Workspace | null) =>
-    resolveAgentPath(kind, workspace, settings.agentPaths())
+  const agentDefaults = (): AgentDefaults => ({ ...settings.agentPaths(), claudeWsl: settings.wslClaudePath() })
+  const agentPathOf = (kind: AgentKind, env: ProcessEnvSpec, workspace: Workspace | null) =>
+    resolveAgentPath(kind, env, workspace, agentDefaults())
+  const workspaceOf = (workspaceId: string) => workspaces.list().find((w) => w.id === workspaceId) ?? null
+
+  /** WSL 안의 claude 판정 (wsl-support FR-13) — 설정 화면과 실행이 같이 쓴다. 캐시는 `probeAgents(refresh)`가 비운다 */
+  const wslPreflight = createWslPreflight({
+    run: (env, executable, args) => runCliIn(env)({ executable, args })
+  })
+
+  /**
+   * "이 작업 디렉토리에서 이 CLI를 띄울 수 있나"의 **유일한 판정** (wsl-support FR-7·FR-13). 실행 서비스의
+   * `resolveExecutable`·슬래시 커맨드 probe·인증 확인이 전부 여기를 탄다 — 갈라지면 설정 화면은 초록인데 실행은 막힌다.
+   * WSL repo면 claude는 WSL 안에서 판정하고 opencode는 아직 막는다(FR-7 — 어댑터는 repo를 모르므로 여기서 가른다).
+   */
+  const preflightFor = (kind: AgentKind, workspaceId: string, cwd: string): Promise<PreflightResult> => {
+    const env = envOfCwd(workspaceId, cwd)
+    const ws = workspaceOf(workspaceId)
+    if (env.kind === 'wsl') {
+      if (kind === 'opencode') {
+        return Promise.resolve({ ok: false, reason: 'WSL repo에서는 OpenCode를 아직 쓸 수 없습니다' })
+      }
+      return wslPreflight.claude(env.distro, agentPathOf(kind, env, ws))
+    }
+    return adapters[kind].preflight(agentPathOf(kind, env, ws))
+  }
 
   /**
    * 그 작업 디렉토리의 프로세스를 어디서 띄우나 (`docs/sdlc/wsl-support/` spec FR-8) — cwd와 경로가 같은 그 workspace의
@@ -165,8 +192,7 @@ export function createCore(opts: CoreOptions) {
 
   const commands = createCommandService({
     probe: async ({ workspaceId, cwd }) => {
-      const workspace = workspaces.list().find((w) => w.id === workspaceId) ?? null
-      const resolved = await claudeCodeAdapter.preflight(agentPathOf('claude-code', workspace))
+      const resolved = await preflightFor('claude-code', workspaceId, cwd)
       const result = resolved.ok && resolved.executable
         ? await probeCommands({ executable: resolved.executable, cwd, env: envOfCwd(workspaceId, cwd) })
         : {
@@ -180,11 +206,10 @@ export function createCore(opts: CoreOptions) {
     describe: (input) => describeCommands({ ...input, homeDir: opts.homeDir }),
     // 실패를 캐시할 때 적어 두고, 로그인한 뒤 그 실패를 버리는 데 쓴다
     // (docs/sdlc/command-cache-auth/ FR-2·FR-3). 실행 파일 해석은 probe와 같은 길이다.
-    checkAuth: async ({ workspaceId }) => {
-      const workspace = workspaces.list().find((w) => w.id === workspaceId) ?? null
-      const resolved = await claudeCodeAdapter.preflight(agentPathOf('claude-code', workspace))
+    checkAuth: async ({ workspaceId, cwd }) => {
+      const resolved = await preflightFor('claude-code', workspaceId, cwd)
       if (!resolved.ok || !resolved.executable) return 'unknown'
-      return (await checkAuth('claude-code', resolved.executable, runCli)).state
+      return (await checkAuth('claude-code', resolved.executable, runCliIn(envOfCwd(workspaceId, cwd)))).state
     }
   })
 
@@ -254,10 +279,8 @@ export function createCore(opts: CoreOptions) {
    * 두 줄이 다른 말을 한다.
    */
   const agentProbes = createAgentProbeService({
-    preflight: (kind, workspaceId) => {
-      const workspace = workspaces.list().find((w) => w.id === workspaceId) ?? null
-      return adapters[kind].preflight(agentPathOf(kind, workspace))
-    },
+    // host 판정이다 — WSL 칸은 11단계(FR-13의 `wsl?` 칸)가 따로 둔다
+    preflight: (kind, workspaceId) => adapters[kind].preflight(agentPathOf(kind, HOST_ENV, workspaceOf(workspaceId))),
     checkAuth: (kind, executable) => checkAuth(kind, executable, runCli),
     // 슬래시 커맨드 probe와 **같은 캐시**다 — 실행 패널이 이미 돌렸으면 CLI가
     // 새로 뜨지 않는다(spec NFR-3).
@@ -330,10 +353,8 @@ export function createCore(opts: CoreOptions) {
     onError,
     // 이 한 줄이 빠지면 멘션이 전부 중화될 뿐 아무것도 실리지 않는다 — 실패가 조용하다.
     files,
-    resolveExecutable: async (agentKind, workspaceId) => {
-      const ws = workspaces.list().find((w) => w.id === workspaceId) ?? null
-      return adapters[agentKind].preflight(agentPathOf(agentKind, ws))
-    },
+    // 설정 화면·probe와 같은 판정이다 (wsl-support FR-7·13)
+    resolveExecutable: (agentKind, workspaceId, cwd) => preflightFor(agentKind, workspaceId, cwd),
     verifyRunnable: async (agentKind, input) => {
       const adapter = adapters[agentKind]
       return adapter.verifyRunnable ? adapter.verifyRunnable(input) : { ok: true }
@@ -397,8 +418,8 @@ export function createCore(opts: CoreOptions) {
       async checkAgents(workspaceId: string): Promise<AgentStatuses> {
         const ws = workspaces.list().find((w) => w.id === workspaceId) ?? null
         const [claude, opencode] = await Promise.all([
-          adapters['claude-code'].preflight(agentPathOf('claude-code', ws)),
-          adapters['opencode'].preflight(agentPathOf('opencode', ws))
+          adapters['claude-code'].preflight(agentPathOf('claude-code', HOST_ENV, ws)),
+          adapters['opencode'].preflight(agentPathOf('opencode', HOST_ENV, ws))
         ])
         return { 'claude-code': claude, opencode }
       },
@@ -414,6 +435,7 @@ export function createCore(opts: CoreOptions) {
        */
       async probeAgents(workspaceId: string, refresh = false): Promise<AgentProbes> {
         if (refresh) {
+          wslPreflight.clear()
           modelCatalog.refresh()
           // 첫 repo만이 아니다 — 실행 패널에서 다른 repo를 골랐으면 그 cwd의 옛 실패가
           // 남는다(docs/sdlc/command-cache-auth/ FR-1). 비우기만 하고 띄우지는 않는다.
@@ -562,6 +584,13 @@ export function createCore(opts: CoreOptions) {
       /** CLI 기본 경로 — workspace가 비워 둔 agent에 쓴다 (`docs/sdlc/agent-path-default/`). */
       agentPaths: (): AgentPaths => settings.agentPaths(),
       setAgentPaths: (paths: AgentPaths): AgentPaths => settings.setAgentPaths(paths),
+      /** WSL 안의 claude 경로 (wsl-support FR-12) — Windows 둘과 절도 저장도 따로다. 바꾸면 WSL 판정 캐시를 비운다 */
+      wslClaudePath: (): string | null => settings.wslClaudePath(),
+      setWslClaudePath: (path: string | null): string | null => {
+        const saved = settings.setWslClaudePath(path)
+        wslPreflight.clear()
+        return saved
+      },
 
       /**
        * 경로를 저장하고 **곧바로 전부 다시 훑는다.**

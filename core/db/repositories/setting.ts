@@ -23,6 +23,8 @@ export const GLOBAL_ROOTS_OPENCODE_KEY = 'assets.globalRoots.opencode'
 export const AGENT_PATH_CLAUDE_KEY = 'agents.path.claude'
 /** opencode CLI 기본 경로를 담는 키 */
 export const AGENT_PATH_OPENCODE_KEY = 'agents.path.opencode'
+/** WSL 안의 claude 경로(Linux 경로) — WSL repo의 실행 파일 해석이 본다 (docs/sdlc/wsl-support/ FR-12). 비면 WSL의 PATH */
+export const AGENT_PATH_CLAUDE_WSL_KEY = 'agents.path.claude.wsl'
 
 /** 코드 칸 터미널의 셸 경로를 담는 키 (docs/sdlc/code-editor/terminal-spec.md FR-11) */
 export const TERMINAL_SHELL_KEY = 'terminal.shell'
@@ -130,6 +132,18 @@ export function createSettingRepository(db: Database, homeDir: string) {
         }
       })
       return this.agentPaths()
+    },
+
+    /** WSL 안의 claude 경로 (wsl-support FR-12). Windows 둘(`agentPaths`)과 따로다 — 절이 따로이고 저장도 따로다 */
+    wslClaudePath(): string | null {
+      return readPath(AGENT_PATH_CLAUDE_WSL_KEY)
+    },
+
+    setWslClaudePath(path: string | null): string | null {
+      const value = (path ?? '').trim()
+      db.insert(appSetting).values({ key: AGENT_PATH_CLAUDE_WSL_KEY, value })
+        .onConflictDoUpdate({ target: appSetting.key, set: { value } }).run()
+      return this.wslClaudePath()
     },
 
     /** 터미널 셸 경로(FR-11). 비었으면 null — 기본 셸을 쓴다. 파일이 있는지는 core가 본다(저장소는 파일시스템을 모른다) */

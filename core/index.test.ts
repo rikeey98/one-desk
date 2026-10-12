@@ -657,6 +657,93 @@ describe('슬래시 커맨드 배선', () => {
   })
 })
 
+describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)', () => {
+  const FAKE_WSL = resolve(HERE, 'runner/fixtures/fake-wsl.mjs')
+  const WSL_PATH = '\\\\wsl$\\Ubuntu\\home\\me\\api'
+
+  /** 가짜 wsl.exe·런처·캡처를 걸었다가 반드시 되돌린다 */
+  async function withWsl<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
+    const keys = ['ONE_DESK_WSL_PATH', 'ONE_DESK_AGENT_LAUNCHER', 'ONE_DESK_WSL_CAPTURE', 'ONE_DESK_AGENT_PATH', 'ONE_DESK_FAKE_WSL_CLAUDE'] as const
+    const previous = keys.map((k) => process.env[k])
+    for (const k of keys) delete process.env[k]
+    process.env['ONE_DESK_WSL_PATH'] = FAKE_WSL
+    process.env['ONE_DESK_AGENT_LAUNCHER'] = process.execPath
+    for (const [k, v] of Object.entries(vars)) { if (v !== undefined) process.env[k] = v }
+    try {
+      return await fn()
+    } finally {
+      keys.forEach((k, i) => { if (previous[i] === undefined) delete process.env[k]; else process.env[k] = previous[i] })
+    }
+  }
+
+  function readCapture(file: string): string[][] {
+    return readFileSync(file, 'utf8').trim().split('\n').map((l) => (JSON.parse(l) as { argv: string[] }).argv)
+  }
+
+  it('WSL repo에서 OpenCode는 시작 전에 막힌다 — 어댑터가 아니라 core의 판정이다 (FR-7)', async () => {
+    await withWsl({}, async () => {
+      const dataDir = makeDataDir()
+      const core = open(dataDir)
+      const ws = core.workspaces.create({ name: 'ws' }).id
+      await core.repos.create({ workspaceId: ws, name: 'w', path: WSL_PATH, agentEnv: 'wsl' })
+      const run = await core.execution.start({
+        workspaceId: ws, agentKind: 'opencode', cwd: WSL_PATH, permission: 'edit', userPrompt: 'x', context: []
+      })
+      const stored = core.runs.get(run.id)
+      expect(stored.status).toBe('failed')
+      expect(stored.startedAt).toBeNull()
+      expect(stored.errorMessage).toContain('WSL repo에서는 OpenCode')
+      close(core)
+    })
+  })
+
+  it('WSL repo의 claude는 WSL 안에서 판정하고(test -x) wsl.exe -d <distro> --cd <linux 경로>로 뜬다', async () => {
+    const dataDir = makeDataDir()
+    const capture = join(dataDir, 'wsl.jsonl')
+    await withWsl({ ONE_DESK_WSL_CAPTURE: capture, ONE_DESK_AGENT_PATH: FAKE_AGENT }, async () => {
+      const core = open(dataDir)
+      const ws = core.workspaces.create({ name: 'ws' }).id
+      await core.repos.create({ workspaceId: ws, name: 'w', path: WSL_PATH, agentEnv: 'wsl' })
+      const run = await core.execution.start({
+        workspaceId: ws, agentKind: 'claude-code', cwd: WSL_PATH, permission: 'edit', userPrompt: 'x', context: []
+      })
+      await vi.waitFor(() => expect(core.runs.get(run.id).endedAt).toBeTypeOf('number'))
+      const calls = readCapture(capture)
+      // 판정: 명시 경로(ONE_DESK_AGENT_PATH)는 WSL 안의 test -x로 본다 — Windows의 access()가 아니다
+      expect(calls[0]).toEqual(['-d', 'Ubuntu', '--', 'test', '-x', FAKE_AGENT])
+      // 실행: 그 distro 안, 그 Linux 경로에서
+      const launch = calls.find((c) => c.includes('--cd'))
+      expect(launch?.slice(0, 5)).toEqual(['-d', 'Ubuntu', '--cd', '/home/me/api', '--'])
+      expect(launch).toContain('--output-format')
+      // run 행의 cwd는 UNC 그대로다 (FR-15)
+      expect(core.runs.get(run.id).cwd).toBe(WSL_PATH)
+      close(core)
+    })
+  })
+
+  it('WSL claude 경로가 비었으면 로그인 셸의 command -v로 찾고, 앱 설정에 두면 그 경로를 test -x로 본다 (FR-12)', async () => {
+    const dataDir = makeDataDir()
+    const capture = join(dataDir, 'wsl.jsonl')
+    await withWsl({ ONE_DESK_WSL_CAPTURE: capture, ONE_DESK_FAKE_WSL_CLAUDE: FAKE_AGENT }, async () => {
+      const core = open(dataDir)
+      const ws = core.workspaces.create({ name: 'ws' }).id
+      // workspace 예외는 Windows 경로라 WSL에서는 무시된다
+      core.workspaces.updatePaths({ id: ws, claudePath: join(dataDir, '없는-claude'), opencodePath: null })
+      await core.repos.create({ workspaceId: ws, name: 'w', path: WSL_PATH, agentEnv: 'wsl' })
+
+      const found = await core.commands.list({ workspaceId: ws, cwd: WSL_PATH })
+      expect(found.error).toBeNull()
+      expect(readCapture(capture)[0]).toEqual(['-d', 'Ubuntu', '--', 'bash', '-lc', 'command -v claude'])
+
+      core.settings.setWslClaudePath('/home/me/bin/claude')
+      await core.commands.refresh({ workspaceId: ws, cwd: WSL_PATH })
+      const after = readCapture(capture)
+      expect(after.some((c) => c.join(' ') === '-d Ubuntu -- test -x /home/me/bin/claude')).toBe(true)
+      close(core)
+    })
+  })
+})
+
 describe('core.workspaces.checkAgents', () => {
   /**
    * 설정 화면이 보여주는 판정은 실행을 막는 판정과 **같아야 한다** (설계 §595).
