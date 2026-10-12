@@ -14,16 +14,13 @@ jobs:
       # 한 플랫폼이 깨져도 나머지 산출물은 보고 싶다.
       fail-fast: false
       matrix:
-        # **지금은 Windows만 만든다.** 받아서 쓰는 사람이 Windows뿐이고,
-        # 아래 release job이 `needs: build`라 mac/linux가 깨지면 Windows
-        # 산출물까지 릴리스에 못 올라간다. 셋은 병렬로 돌아 시간은 거의
-        # 같았지만(가장 느린 Windows가 전체를 결정한다), 실패 표면은 줄어든다.
+        # **Windows와 Linux를 만든다.** 아래 release job이 `needs: build`라
+        # 하나가 깨지면 다른 산출물까지 릴리스에 못 올라간다 — 플랫폼을 더할수록
+        # 실패 표면이 는다. macOS를 빼 둔 이유가 그것이다.
         #
-        # 다시 넣으려면 아래에 두 줄씩 더한다:
+        # macOS를 다시 넣으려면 아래에 두 줄을 더한다:
         #   - os: macos-latest
         #     flag: --mac
-        #   - os: ubuntu-latest
-        #     flag: --linux
         # macOS는 개발 장비에서 `pnpm run pack`으로 언제든 만들 수 있다.
         include:
           # windows-latest가 아니라 고정 이미지인 이유:
@@ -33,6 +30,10 @@ jobs:
           # node-gyp가 VS 18을 지원하면 windows-latest로 되돌린다.
           - os: windows-2022
             flag: --win
+          # AppImage 하나. 네이티브 모듈이 이 러너의 glibc에 링크되므로 이보다
+          # 오래된 glibc의 배포판에서는 돌지 않는다.
+          - os: ubuntu-latest
+            flag: --linux
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -79,7 +80,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    # 세 빌드가 모두 성공해야 돈다. 러너가 각자 올리면 셋이 같은 릴리스를
+    # 모든 빌드가 성공해야 돈다. 러너가 각자 올리면 서로 같은 릴리스를
     # 만들려 경쟁하고, 하나가 실패해도 나머지가 이미 올려버린다.
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
@@ -111,7 +112,7 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          # 세 산출물이 다 올라왔는지 사람이 보고 publish를 누른다.
+          # 산출물이 다 올라왔는지 사람이 보고 publish를 누른다.
           draft: true
           generate_release_notes: true
           files: artifacts/*

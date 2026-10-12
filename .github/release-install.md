@@ -3,6 +3,17 @@
 `one-desk-*-x64.exe`는 포터블 실행 파일입니다. 설치 없이 바로 실행됩니다.
 SmartScreen 경고가 뜨면 "추가 정보" → "실행"을 누르세요.
 
+## 설치 (Linux)
+
+`one-desk-*-x86_64.AppImage`도 설치 없이 실행 권한만 주면 됩니다
+(`chmod +x`). x64 전용입니다.
+
+- **FUSE가 없다는 오류**(Ubuntu 22.04 이상): `libfuse2`(24.04는
+  `libfuse2t64`)를 설치하거나 `--appimage-extract-and-run`을 붙여 실행하세요.
+- **샌드박스 오류로 바로 꺼지면**(Ubuntu 24.04 이상): AppArmor가 Chromium
+  샌드박스를 막는 것입니다. `--no-sandbox`를 붙여 실행하면 뜨지만 샌드박스
+  보호가 꺼집니다.
+
 ## 첫 실행 전에
 
 **agent CLI가 하나 이상 설치돼 있어야 합니다.** 어느 것으로 돌릴지는 실행
@@ -38,7 +49,7 @@ allow/deny로 바꾸면 됩니다 — one-desk가 만드는 설정으로는 그 
 대화를 이어갈 때는 agent가 잠깁니다. 세션은 그것을 만든 CLI의 것이라
 다른 CLI로 이어받을 수 없습니다.
 
-## macOS / Linux
+## macOS
 
-이 릴리스는 Windows 산출물만 담습니다. 다른 플랫폼이 필요하면
-저장소를 받아 `pnpm run pack`으로 직접 빌드하세요.
+이 릴리스는 macOS 산출물을 담지 않습니다. 필요하면 저장소를 받아
+`pnpm run pack`으로 직접 빌드하세요.
