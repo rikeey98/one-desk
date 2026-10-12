@@ -2,7 +2,7 @@
 
 - Intent: `docs/sdlc/wsl-support/intent.md` (승인 2026-10-12, 가정 그대로)
 - 작성자: 권용현 (초안: Claude)
-- 상태: 초안 (사용자 승인 전)
+- 상태: 승인 (2026-10-12, 사용자 — "승인, UNC 저장으로 가고 plan 써 줘". §0의 경로 표기는 UNC 저장으로 확정)
 - 작성일: 2026-10-12
 - 적용한 규칙: CLAUDE.md의 세 경계 · `agentCommand`를 거치지 않는 spawn을 만들지 않는다 · 렌더러가 경로·명령을 정하지
   못한다(`reveal`·파일 칸·터미널 FR-18) · Windows 트리 종료(앱 종료 경로는 동기) · `checkAgents`는 실행과 같은 판정 ·
