@@ -130,6 +130,15 @@ describe('SettingRepository — CLI 기본 경로 (agent-path-default FR-2)', ()
     expect(settings3.setAgentPaths({ claude: '   ', opencode: '' })).toEqual({ claude: null, opencode: null })
   })
 
+  it('WSL 글로벌 skill 경로 — 기본 ~/.claude/skills, Linux 경로 여러 줄, 비우면 기본값 (wsl-support FR-27)', () => {
+    expect(settings3.wslGlobalRoots()).toEqual(['~/.claude/skills'])
+    expect(settings3.setWslGlobalRoots([' /opt/skills ', '', '~/.claude/skills'])).toEqual(['/opt/skills', '~/.claude/skills'])
+    expect(createSettingRepository(db3, HOME).wslGlobalRoots()).toEqual(['/opt/skills', '~/.claude/skills'])
+    expect(settings3.setWslGlobalRoots([])).toEqual(['~/.claude/skills'])
+    // Windows 글로벌 경로는 건드리지 않는다
+    expect(settings3.globalRoots().claude).toEqual([`${HOME}/.claude/skills`, `${HOME}/.claude/agents`])
+  })
+
   it('WSL claude 경로는 따로다 — agents.path.claude.wsl, 비면 null (wsl-support FR-12)', () => {
     expect(settings3.wslClaudePath()).toBeNull()
     expect(settings3.setWslClaudePath('  /home/me/.local/bin/claude ')).toBe('/home/me/.local/bin/claude')

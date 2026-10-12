@@ -38,6 +38,8 @@ import { resolveAgentPath } from './runner/agentPath'
 import { envOfRepo, HOST_ENV, type ProcessEnvSpec } from './wsl/env'
 import { createWslPreflight } from './wsl/preflight'
 import { createWslPaths } from './wsl/paths'
+import { createWslHome, expandWslRoots } from './wsl/home'
+import { killGroup, killGroupSync } from './wsl/kill'
 import { LAUNCHER_FILE } from './wsl/launch'
 import type { AgentDefaults } from './runner/agentPath'
 import type { PreflightResult } from './runner/types'
@@ -220,13 +222,45 @@ export function createCore(opts: CoreOptions) {
     }
   })
 
+  /**
+   * WSL (`docs/sdlc/wsl-support/`). pidfile은 `<dataDir>/wsl/<id>.pid`(run은 runId, 터미널은 `term-<repoId>`) — 끝나면 지우고,
+   * 지난 실행이 남긴 것은 여기서 디렉토리째 치운다(FR-19, MCP 설정 파일과 같은 규칙). **asset 서비스보다 먼저 선언한다** —
+   * 부팅 스캔이 같은 틱에 `globalRoots`를 부를 수 있어 뒤에 두면 TDZ다(`settings`와 같은 함정).
+   */
+  const wslDir = join(opts.dataDir, 'wsl')
+  rmSync(wslDir, { recursive: true, force: true })
+  const wslPaths = createWslPaths({ userDataDir: opts.dataDir })
+  const launcherPath = opts.launcherPath ?? LAUNCHER_FILE
+  const wslHome = createWslHome({ run: (env, executable, args) => runCliIn(env)({ executable, args }) })
+  /** run·터미널이 같이 쓰는 런처 경로 (FR-10·11) — 런처 스크립트와 pidfile의 Linux 경로, pidfile의 Windows 경로 */
+  const wslLauncherFor = async (distro: string, id: string) => {
+    mkdirSync(wslDir, { recursive: true })
+    const pidfileHost = join(wslDir, `${id}.pid`)
+    const [path, pidfile] = await Promise.all([wslPaths.toLinux(distro, launcherPath), wslPaths.toLinux(distro, pidfileHost)])
+    return { path, pidfile, pidfileHost }
+  }
+
   const rawAssetService = createAssetService({
     assets: assetRows,
     repos,
-    // 설정에서 바뀌므로 매번 읽는다.
-    globalRoots: () => {
+    // 설정에서 바뀌므로 매번 읽는다. WSL repo가 있는 workspace는 그 distro마다 WSL 글로벌 경로를 더한다 (wsl-support FR-27) —
+    // 홈을 못 물은 distro는 그 distro만 빠지고 나머지는 훑는다.
+    globalRoots: async (workspaceId) => {
       const roots = settings.globalRoots()
-      return [...roots.claude, ...roots.opencode]
+      const out = [...roots.claude, ...roots.opencode]
+      const distros = new Set<string>()
+      for (const r of repos.list(workspaceId)) {
+        const env = envOfRepo(r)
+        if (env.kind === 'wsl') distros.add(env.distro)
+      }
+      for (const distro of distros) {
+        try {
+          out.push(...expandWslRoots(settings.wslGlobalRoots(), distro, await wslHome.of(distro)))
+        } catch (err) {
+          onError(`WSL(${distro})의 글로벌 skill 경로를 훑지 못했습니다`, err)
+        }
+      }
+      return out
     },
     // repo가 없는 workspace에도 글로벌은 보여야 하므로 workspace 저장소에서 받는다.
     workspaceIds: () => workspaces.list().map((w) => w.id)
@@ -259,15 +293,6 @@ export function createCore(opts: CoreOptions) {
   // 앱 시작 시 유령 run 정리 (설계 §11). 프로세스가 없는데 running/pending으로
   // 남아 있는 run은 이전 실행이 비정상 종료된 흔적이다.
   runs.reapStale()
-
-  /**
-   * WSL (`docs/sdlc/wsl-support/`). pidfile은 run마다 `<dataDir>/wsl/<runId>.pid` — run이 끝나면 manager가 지우고, 지난
-   * 실행이 남긴 것은 여기서 디렉토리째 치운다(FR-19, MCP 설정 파일과 같은 규칙).
-   */
-  const wslDir = join(opts.dataDir, 'wsl')
-  rmSync(wslDir, { recursive: true, force: true })
-  const wslPaths = createWslPaths({ userDataDir: opts.dataDir })
-  const launcherPath = opts.launcherPath ?? LAUNCHER_FILE
 
   const mcp = createMcpHost({
     deps: { repos, issues, memos, runs },
@@ -352,6 +377,11 @@ export function createCore(opts: CoreOptions) {
     env: () => shellEnv(process.env),
     killTree: taskkillTree,
     killTreeSync: taskkillTreeSync,
+    // WSL repo의 셸 (wsl-support FR-29·30) — 런처는 run과 같은 것, 그룹 종료는 안에서
+    killGroup,
+    killGroupSync,
+    wslLauncher: (distro, repoId) => wslLauncherFor(distro, `term-${repoId}`),
+    hostCwd: opts.dataDir,
     platform: process.platform,
     onData: (data) => {
       try { emitter.emit(TERMINAL_DATA, data) } catch (err) { onError('터미널 출력 알림 실패', err) }
@@ -372,14 +402,7 @@ export function createCore(opts: CoreOptions) {
     // 이 한 줄이 빠지면 멘션이 전부 중화될 뿐 아무것도 실리지 않는다 — 실패가 조용하다.
     files,
     // WSL run의 런처 — 이 한 줄이 빠지면 WSL repo의 run이 "런처가 배선되지 않았습니다"로 끝난다.
-    wsl: {
-      async launcherFor(distro, runId) {
-        mkdirSync(wslDir, { recursive: true })
-        const pidfileHost = join(wslDir, `${runId}.pid`)
-        const [path, pidfile] = await Promise.all([wslPaths.toLinux(distro, launcherPath), wslPaths.toLinux(distro, pidfileHost)])
-        return { path, pidfile, pidfileHost }
-      }
-    },
+    wsl: { launcherFor: wslLauncherFor },
     // 설정 화면·probe와 같은 판정이다 (wsl-support FR-7·13)
     resolveExecutable: (agentKind, workspaceId, cwd) => preflightFor(agentKind, workspaceId, cwd),
     verifyRunnable: async (agentKind, input) => {

@@ -1,6 +1,9 @@
 import type { Repo, TerminalData, TerminalExit, TerminalOpenInput, TerminalSession } from '@shared/models'
 import type { ErrorSink } from '../errors'
-import type { TreeKiller } from '../runner/terminate'
+import { readPgid, type TreeKiller } from '../runner/terminate'
+import { envOfRepo } from '../wsl/env'
+import { wrapForEnv } from '../wsl/launch'
+import type { GroupKiller } from '../wsl/kill'
 import { createOutputBuffer, type OutputBuffer } from './buffer'
 import type { ShellChoice } from './shell'
 
@@ -42,6 +45,13 @@ export interface TerminalServiceDeps {
   killTree: TreeKiller
   /** Windows 트리 종료의 동기판 — **앱 종료 경로 전용**(FR-9, `taskkillTreeSync`) */
   killTreeSync: TreeKiller
+  /** WSL 안의 그룹 종료 — 비동기(다시 시작·repo 종료)·동기(앱 종료) (wsl-support FR-30) */
+  killGroup: GroupKiller
+  killGroupSync: GroupKiller
+  /** WSL 셸의 런처(Linux 경로 둘 + pidfile의 Windows 경로). 없으면 WSL repo의 셸을 띄울 수 없다 */
+  wslLauncher: (distro: string, repoId: string) => Promise<{ path: string; pidfile: string; pidfileHost: string }>
+  /** WSL 셸의 Windows 쪽 cwd — wsl.exe 자신이 UNC에서 뜨려다 실패하지 않게 늘 있는 디렉토리(userData) */
+  hostCwd: string
   platform: NodeJS.Platform
   onData: (data: TerminalData) => void
   onExit: (exit: TerminalExit) => void
@@ -55,6 +65,8 @@ interface Shell {
   pty: PtyProcess
   buffer: OutputBuffer
   exited: { exitCode: number } | null
+  /** WSL 셸이면 안에서 끝낼 그룹의 pidfile (wsl-support FR-30) */
+  wsl: { distro: string; pidfileHost: string } | null
   /** 아직 내보내지 않은 출력 — 시작 위치와 글 */
   pending: { start: number; data: string } | null
   timer: ReturnType<typeof setTimeout> | null
@@ -82,18 +94,32 @@ export function createTerminalService(deps: TerminalServiceDeps) {
 
   async function launch(input: TerminalOpenInput): Promise<Shell> {
     const repo = deps.repoOf(input.workspaceId, input.repoId)
-    const choice = await deps.resolveShell()
+    const env = envOfRepo(repo)
+    let choice: ShellChoice
+    let cwd: string
+    let wsl: Shell['wsl'] = null
+    if (env.kind === 'wsl') {
+      // WSL repo는 그 distro의 로그인 셸이다 (wsl-support FR-29) — 설정의 셸은 쓰지 않는다. 런처가 그룹 id를 적어 안에서 끝낼 수 있게.
+      const launcher = await deps.wslLauncher(env.distro, repo.id)
+      const launch = wrapForEnv(env, 'sh', ['-c', 'exec "${SHELL:-/bin/bash}" -l'], { cwd: repo.path, launcher }, deps.env())
+      choice = { file: launch.cmd, args: launch.args, name: `wsl · ${env.distro}` }
+      cwd = deps.hostCwd
+      wsl = { distro: env.distro, pidfileHost: launcher.pidfileHost }
+    } else {
+      choice = await deps.resolveShell()
+      cwd = repo.path
+    }
     let pty: PtyProcess
     try {
       pty = deps.spawnPty(choice.file, choice.args, {
-        name: 'xterm-256color', cols: input.cols, rows: input.rows, cwd: repo.path, env: deps.env()
+        name: 'xterm-256color', cols: input.cols, rows: input.rows, cwd, env: deps.env()
       })
     } catch (err) {
       throw new Error(`셸을 띄우지 못했습니다: ${choice.file} (${err instanceof Error ? err.message : String(err)})`)
     }
     const shell: Shell = {
       repoId: repo.id, generation: nextGeneration++, shell: choice, pty, buffer: createOutputBuffer(),
-      exited: null, pending: null, timer: null
+      exited: null, wsl, pending: null, timer: null
     }
     pty.onData((data) => {
       if (!isCurrent(shell)) return
@@ -133,6 +159,18 @@ export function createTerminalService(deps: TerminalServiceDeps) {
     if (shell.exited) return
     const killPty = () => {
       try { shell.pty.kill() } catch (err) { deps.onError('셸을 끝내지 못했습니다', err) }
+    }
+    // WSL 셸은 그룹을 안에서 먼저 끝낸다 (wsl-support FR-30) — wsl.exe만 죽이면 dev 서버 같은 자식이 남는다. pidfile이 아직
+    // 없으면(런처가 쓰기 전) pty만. 플랫폼과 무관하다.
+    if (shell.wsl) {
+      const pgid = readPgid(shell.wsl.pidfileHost)
+      if (pgid !== null) {
+        (sync ? deps.killGroupSync : deps.killGroup)(shell.wsl.distro, pgid, 'KILL', (err) => {
+          deps.onError('WSL 셸의 그룹을 끝내지 못했습니다 — wsl.exe만 끝냅니다', err)
+        })
+      }
+      killPty()
+      return
     }
     if (deps.platform !== 'win32') { killPty(); return }
     const kill = sync ? deps.killTreeSync : deps.killTree

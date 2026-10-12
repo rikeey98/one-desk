@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { Repo, TerminalData, TerminalExit } from '@shared/models'
 import { createTerminalService, FLUSH_MS, type PtyProcess, type SpawnPty } from './service'
 import type { TreeKiller } from '../runner/terminate'
+import type { GroupKiller } from '../wsl/kill'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 interface FakePty extends PtyProcess {
   written: string[]
@@ -28,7 +32,8 @@ function fakePty(pid: number): FakePty {
 
 const repos: Record<string, Repo> = {
   api: { id: 'api', workspaceId: 'w1', name: 'api', path: 'C:\\work\\api', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 },
-  web: { id: 'web', workspaceId: 'w1', name: 'web', path: 'C:\\work\\web', description: null, sortOrder: 1, agentEnv: 'host', createdAt: 0 }
+  web: { id: 'web', workspaceId: 'w1', name: 'web', path: 'C:\\work\\web', description: null, sortOrder: 1, agentEnv: 'host', createdAt: 0 },
+  wsl: { id: 'wsl', workspaceId: 'w1', name: 'wsl', path: '\\\\wsl$\\Ubuntu\\home\\me\\api', description: null, sortOrder: 2, agentEnv: 'wsl', createdAt: 0 }
 }
 
 function setup(platform: NodeJS.Platform = 'win32') {
@@ -42,6 +47,8 @@ function setup(platform: NodeJS.Platform = 'win32') {
   const exits: TerminalExit[] = []
   const killTree = vi.fn<TreeKiller>()
   const killTreeSync = vi.fn<TreeKiller>()
+  const killGroup = vi.fn<GroupKiller>()
+  const killGroupSync = vi.fn<GroupKiller>()
   const repoOf = vi.fn((workspaceId: string, repoId: string) => {
     const repo = repos[repoId]
     if (!repo || repo.workspaceId !== workspaceId) throw new Error('그 workspace의 repo가 아닙니다')
@@ -54,18 +61,26 @@ function setup(platform: NodeJS.Platform = 'win32') {
     env: () => ({ PATH: 'C:\\bin', TERM: 'xterm-256color' }),
     killTree,
     killTreeSync,
+    killGroup,
+    killGroupSync,
     platform,
+    hostCwd: 'C:\\data',
+    wslLauncher: async (distro, repoId) => ({ path: '/mnt/c/app/launcher.sh', pidfile: `/mnt/c/data/wsl/term-${repoId}.pid`, pidfileHost: pidfileHost(repoId), distro }),
     onData: (d) => { data.push(d) },
     onExit: (e) => { exits.push(e) },
     onError: vi.fn()
   })
-  return { service, spawnPty, ptys, data, exits, killTree, killTreeSync, repoOf }
+  return { service, spawnPty, ptys, data, exits, killTree, killTreeSync, killGroup, killGroupSync, repoOf }
 }
+
+/** WSL 셸의 pidfile(Windows 쪽) — 테스트가 그룹 id를 미리 써 둔다 */
+let pidDir = ''
+const pidfileHost = (repoId: string) => join(pidDir, `term-${repoId}.pid`)
 
 const open = (repoId = 'api') => ({ workspaceId: 'w1', repoId, cols: 80, rows: 24 })
 
-beforeEach(() => { vi.useFakeTimers() })
-afterEach(() => { vi.useRealTimers() })
+beforeEach(() => { vi.useFakeTimers(); pidDir = mkdtempSync(join(tmpdir(), 'one-desk-term-')) })
+afterEach(() => { vi.useRealTimers(); rmSync(pidDir, { recursive: true, force: true }) })
 
 describe('셸 서비스 — 수명 (docs/sdlc/code-editor/terminal-spec.md FR-5·6)', () => {
   it('repo의 셸을 처음 열 때 띄운다 — 작업 디렉토리는 그 repo, 크기와 환경을 넘긴다', async () => {
@@ -232,5 +247,53 @@ describe('셸 서비스 — 다시 시작과 끝내기 (FR-8~10)', () => {
     expect(ptys.map((p) => p.killed)).toEqual([1, 1])
     expect(killTree).not.toHaveBeenCalled()
     expect(killTreeSync).not.toHaveBeenCalled()
+  })
+})
+
+describe('셸 서비스 — WSL repo (docs/sdlc/wsl-support/ FR-29~31)', () => {
+  it('그 distro 안의 로그인 셸을 wsl.exe --cd <linux 경로>로 띄운다 — 설정의 셸은 쓰지 않고 이름은 wsl · <distro>다', async () => {
+    const { service, spawnPty } = setup()
+    const session = await service.open(open('wsl'))
+    expect(session.shell).toBe('wsl · Ubuntu')
+    const [file, args, opts] = spawnPty.mock.calls[0]!
+    expect(file).toBe('wsl.exe')
+    expect(args).toEqual([
+      '-d', 'Ubuntu', '--cd', '/home/me/api', '--',
+      '/bin/sh', '/mnt/c/app/launcher.sh', '/mnt/c/data/wsl/term-wsl.pid',
+      'sh', '-c', 'exec "${SHELL:-/bin/bash}" -l'
+    ])
+    // Windows 쪽 cwd는 UNC가 아니다 — wsl.exe 자신이 UNC에서 뜨려다 실패할 수 있다
+    expect(opts.cwd).toBe('C:\\data')
+    expect(args).not.toContain('C:\\pwsh\\pwsh.exe')
+  })
+
+  it('끝낼 때는 pidfile의 그룹을 안에서 먼저 KILL한다 — 다시 시작·repo 종료는 비동기, 앱 종료는 동기 (FR-30)', async () => {
+    const { service, killGroup, killGroupSync, ptys } = setup()
+    await service.open(open('wsl'))
+    writeFileSync(pidfileHost('wsl'), '4242\n')
+    await service.restart(open('wsl'))
+    expect(killGroup).toHaveBeenCalledTimes(1)
+    expect(killGroup.mock.calls[0]!.slice(0, 3)).toEqual(['Ubuntu', 4242, 'KILL'])
+    expect(ptys[0]!.killed).toBe(1)
+
+    writeFileSync(pidfileHost('wsl'), '4343\n')
+    service.killAll()
+    expect(killGroupSync).toHaveBeenCalledTimes(1)
+    expect(killGroupSync.mock.calls[0]!.slice(0, 3)).toEqual(['Ubuntu', 4343, 'KILL'])
+    expect(ptys[1]!.killed).toBe(1)
+  })
+
+  it('pidfile이 없으면 pty만 끝낸다 — 런처가 쓰기 전', async () => {
+    const { service, killGroup, ptys } = setup()
+    await service.open(open('wsl'))
+    service.killRepo('wsl')
+    expect(killGroup).not.toHaveBeenCalled()
+    expect(ptys[0]!.killed).toBe(1)
+  })
+
+  it('host repo는 지금처럼 설정의 셸이다', async () => {
+    const { service, spawnPty } = setup()
+    await service.open(open('api'))
+    expect(spawnPty.mock.calls[0]![0]).toBe('C:\\pwsh\\pwsh.exe')
   })
 })

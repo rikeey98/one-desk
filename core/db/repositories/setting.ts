@@ -25,6 +25,9 @@ export const AGENT_PATH_CLAUDE_KEY = 'agents.path.claude'
 export const AGENT_PATH_OPENCODE_KEY = 'agents.path.opencode'
 /** WSL 안의 claude 경로(Linux 경로) — WSL repo의 실행 파일 해석이 본다 (docs/sdlc/wsl-support/ FR-12). 비면 WSL의 PATH */
 export const AGENT_PATH_CLAUDE_WSL_KEY = 'agents.path.claude.wsl'
+/** WSL 안의 글로벌 skill 경로 — Linux 경로 여러 줄, `~`는 그 distro의 홈 (docs/sdlc/wsl-support/ FR-27) */
+export const GLOBAL_ROOTS_CLAUDE_WSL_KEY = 'assets.globalRoots.claude.wsl'
+export const DEFAULT_WSL_GLOBAL_ROOTS = ['~/.claude/skills']
 
 /** 코드 칸 터미널의 셸 경로를 담는 키 (docs/sdlc/code-editor/terminal-spec.md FR-11) */
 export const TERMINAL_SHELL_KEY = 'terminal.shell'
@@ -132,6 +135,16 @@ export function createSettingRepository(db: Database, homeDir: string) {
         }
       })
       return this.agentPaths()
+    },
+
+    /** WSL 글로벌 skill 경로 (wsl-support FR-27) — Linux 경로. 비우면 기본값으로 돌아간다(Windows 글로벌과 같은 규칙) */
+    wslGlobalRoots(): string[] {
+      return readRoots(GLOBAL_ROOTS_CLAUDE_WSL_KEY, DEFAULT_WSL_GLOBAL_ROOTS)
+    },
+
+    setWslGlobalRoots(roots: string[]): string[] {
+      writeRoots(GLOBAL_ROOTS_CLAUDE_WSL_KEY, roots)
+      return this.wslGlobalRoots()
     },
 
     /** WSL 안의 claude 경로 (wsl-support FR-12). Windows 둘(`agentPaths`)과 따로다 — 절이 따로이고 저장도 따로다 */

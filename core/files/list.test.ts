@@ -1,10 +1,11 @@
-import { describe, it, expect, afterEach } from 'vitest'
-import { spawn as nodeSpawn, execFileSync, type ChildProcess } from 'node:child_process'
+import { describe, it, expect, afterEach, vi } from 'vitest'
+import { spawn as nodeSpawn, execFileSync, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { listRepoFiles, MAX_LISTED_FILES } from './list'
+import { HOST_ENV } from '../wsl/env'
 
 const dirs: string[] = []
 function makeDir(): string {
@@ -88,5 +89,42 @@ describe('listRepoFiles (FR-5)', () => {
 
     expect(result).toMatchObject({ ok: true, truncated: true })
     expect((result as { files: string[] }).files).toHaveLength(MAX_LISTED_FILES)
+  })
+})
+
+describe('listRepoFiles — WSL repo (docs/sdlc/wsl-support/ FR-25)', () => {
+  it('wsl.exe -d <distro> --cd <linux> -- git ls-files … 를 띄우고 Windows의 git은 찾지 않는다', async () => {
+    const calls: { cmd: string; args: string[]; cwd: string | undefined }[] = []
+    const findGit = vi.fn(async () => '/windows/git.exe')
+    const spawn = (cmd: string, args: string[], opts: SpawnOptions) => {
+      calls.push({ cmd, args, cwd: opts.cwd as string | undefined })
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new EventEmitter(), stderr: new EventEmitter(), kill: () => true
+      }) as unknown as ChildProcess
+      queueMicrotask(() => { child.stdout!.emit('data', Buffer.from('a.ts\0dir/b.ts\0')); child.emit('close', 0) })
+      return child
+    }
+    const result = await listRepoFiles('\\\\wsl$\\Ubuntu\\home\\me\\api', { env: { kind: 'wsl', distro: 'Ubuntu' }, findGit, spawn })
+    expect(result).toEqual({ ok: true, truncated: false, files: ['a.ts', 'dir/b.ts'] })
+    expect(findGit).not.toHaveBeenCalled()
+    expect(calls).toEqual([{
+      cmd: 'wsl.exe',
+      args: ['-d', 'Ubuntu', '--cd', '/home/me/api', '--', 'git', 'ls-files', '-co', '--exclude-standard', '-z'],
+      cwd: undefined
+    }])
+  })
+
+  it('host env면 지금처럼 Windows의 git을 찾아 cwd에서 띄운다', async () => {
+    const calls: { cmd: string; cwd: string | undefined }[] = []
+    const spawn = (cmd: string, _args: string[], opts: SpawnOptions) => {
+      calls.push({ cmd, cwd: opts.cwd as string | undefined })
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new EventEmitter(), stderr: new EventEmitter(), kill: () => true
+      }) as unknown as ChildProcess
+      queueMicrotask(() => { child.emit('close', 0) })
+      return child
+    }
+    await listRepoFiles('/work/api', { env: HOST_ENV, findGit: async () => '/usr/bin/git', spawn })
+    expect(calls).toEqual([{ cmd: '/usr/bin/git', cwd: '/work/api' }])
   })
 })

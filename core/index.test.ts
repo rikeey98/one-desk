@@ -734,6 +734,39 @@ describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)'
     })
   })
 
+  it('WSL repo가 있는 workspace의 글로벌 skill 경로는 그 distro의 홈을 묻고(한 번) UNC로 훑는다 (FR-27)', async () => {
+    const dataDir = makeDataDir()
+    const capture = join(dataDir, 'wsl.jsonl')
+    await withWsl({ ONE_DESK_WSL_CAPTURE: capture }, async () => {
+      const core = open(dataDir)
+      const ws = core.workspaces.create({ name: 'ws' }).id
+      await core.repos.create({ workspaceId: ws, name: 'w', path: WSL_PATH, agentEnv: 'wsl' })
+      await core.assets.rescan(ws)
+      await core.assets.rescan(ws)
+      const homes = readCapture(capture).filter((c) => c.join(' ').includes('echo $HOME'))
+      expect(homes).toEqual([['-d', 'Ubuntu', '--', 'sh', '-c', 'echo $HOME']])
+      // UNC 루트(`\\\\wsl$\\Ubuntu\\home\\me\\.claude\\skills`)는 이 장비에 없어 asset이 생기지 않는다 — 훑으려 한 흔적만 본다
+      expect(core.assets.list({ workspaceId: ws })).toEqual([])
+      close(core)
+    })
+  })
+
+  it('WSL repo의 터미널은 wsl.exe --cd <linux 경로>로 그 distro의 로그인 셸을 띄우고, 끝낼 때 pidfile을 본다 (FR-29·30)', async () => {
+    const dataDir = makeDataDir()
+    await withWsl({}, async () => {
+      const core = open(dataDir)
+      const ws = core.workspaces.create({ name: 'ws' }).id
+      const repoId = (await core.repos.create({ workspaceId: ws, name: 'w', path: WSL_PATH, agentEnv: 'wsl' })).id
+      const session = await core.terminal.open({ workspaceId: ws, repoId, cols: 80, rows: 24 })
+      expect(session.shell).toBe('wsl · Ubuntu')
+      const pty = ptys[ptys.length - 1]!
+      // pidfile은 userData/wsl/term-<repoId>.pid — 가짜 pty는 런처를 돌리지 않으므로 비어 있고, 끝낼 때는 pty만 끝낸다
+      expect(existsSync(join(dataDir, 'wsl'))).toBe(true)
+      close(core)
+      expect(pty.killed).toBe(1)
+    })
+  })
+
   it('부팅 때 지난 실행이 남긴 pidfile을 디렉토리째 치운다 (FR-19)', () => {
     const dataDir = makeDataDir()
     mkdirSync(join(dataDir, 'wsl'), { recursive: true })

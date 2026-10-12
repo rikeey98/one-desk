@@ -18,7 +18,7 @@ export interface AssetServiceDeps {
    * 훑을 글로벌 경로. 설정에서 바뀌므로 **값이 아니라 함수로 받는다** — 서비스를
    * 만든 뒤에 사용자가 경로를 바꿔도 다음 스캔에 반영돼야 한다.
    */
-  globalRoots: () => string[]
+  globalRoots: (workspaceId: string) => string[] | Promise<string[]>
   /**
    * 훑을 workspace 전부. `repos`에서 뽑지 않는 이유: 글로벌 asset은 repo가 하나도
    * 없는 workspace에도 보여야 한다.
@@ -57,7 +57,7 @@ export function createAssetService(deps: AssetServiceDeps) {
       await scanOne(workspaceId, r.id, r.path, seenAt)
     }
     // 글로벌은 repo와 무관하다. repo를 하나도 등록하지 않은 workspace에서도 보여야 한다.
-    for (const root of deps.globalRoots()) {
+    for (const root of await deps.globalRoots(workspaceId)) {
       const found = await scanDir(root)
       deps.assets.upsertDiscovered({ workspaceId, repoId: null, seenAt, found })
     }

@@ -1,4 +1,5 @@
 import { listRepoFiles, type RepoFileList } from './list'
+import { envOfRepo, type ProcessEnvSpec } from '../wsl/env'
 import { matchFiles } from './match'
 import { hashRepoFile, openRepoFile, readRepoFile, statRepoFile, type RepoFileRead } from './read'
 import { writeRepoFile } from './write'
@@ -32,7 +33,8 @@ export interface ResolvedMentions {
 export interface FileServiceDeps {
   /** repo 행. 없으면 던진다(저장소의 `get`) */
   getRepo: (id: string) => Repo
-  listFiles?: (root: string) => Promise<RepoFileList>
+  /** 목록 — repo의 실행 환경까지 받는다 (wsl-support FR-25). WSL repo의 git은 그 distro 안의 것이다 */
+  listFiles?: (root: string, env: ProcessEnvSpec) => Promise<RepoFileList>
   readFile?: (root: string, rel: string) => Promise<RepoFileRead>
   /** 코드 칸 (docs/sdlc/code-editor/) — 열기·쓰기·바뀜 확인. 테스트가 바꿔 끼운다 */
   openFile?: (root: string, rel: string) => Promise<FileOpenResult>
@@ -48,7 +50,7 @@ export interface FileServiceDeps {
  * 따로 두면 피커에 없는 `.env`가 손으로 치면 실린다(spec §7의 3).
  */
 export function createFileService(deps: FileServiceDeps) {
-  const listFiles = deps.listFiles ?? ((root: string) => listRepoFiles(root))
+  const listFiles = deps.listFiles ?? ((root: string, env: ProcessEnvSpec) => listRepoFiles(root, { env }))
   const readFile = deps.readFile ?? ((root: string, rel: string) => readRepoFile(root, rel))
   const openFile = deps.openFile ?? ((root: string, rel: string) => openRepoFile(root, rel))
   const writeFile = deps.writeFile
@@ -60,10 +62,11 @@ export function createFileService(deps: FileServiceDeps) {
   /** repo 경로 → 목록. **프로미스째** 담아 동시에 온 질의가 git을 한 번만 띄운다 */
   const cache = new Map<string, { at: number; list: Promise<RepoFileList> }>()
 
-  function cachedList(root: string): Promise<RepoFileList> {
+  function cachedList(repo: Repo): Promise<RepoFileList> {
+    const root = repo.path
     const hit = cache.get(root)
     if (hit && now() - hit.at < CACHE_MS) return hit.list
-    const list = listFiles(root).then((result) => {
+    const list = listFiles(root, envOfRepo(repo)).then((result) => {
       // 실패는 캐시하지 않는다 — `git init`한 뒤 곧바로 다시 찾을 수 있어야 한다.
       if (!result.ok && cache.get(root)?.list === list) cache.delete(root)
       return result
@@ -73,8 +76,9 @@ export function createFileService(deps: FileServiceDeps) {
   }
 
   /** 캐시를 건너뛰고 새로 받는다. 받은 것은 캐시에 둔다 — 바로 뒤의 검색·트리가 같은 목록을 본다 */
-  function freshList(root: string): Promise<RepoFileList> {
-    const list = listFiles(root)
+  function freshList(repo: Repo): Promise<RepoFileList> {
+    const root = repo.path
+    const list = listFiles(root, envOfRepo(repo))
     cache.set(root, { at: now(), list })
     return list.then((result) => {
       if (!result.ok && cache.get(root)?.list === list) cache.delete(root)
@@ -96,7 +100,7 @@ export function createFileService(deps: FileServiceDeps) {
     /** 피커의 검색 (§5-1). 못 찾는 이유는 `ok: false`, 잘못된 호출(다른 workspace의 repo)은 던진다. */
     async search(input: FileSearchInput): Promise<FileSearchResult> {
       const repo = ownedRepo(input.workspaceId, input.repoId)
-      const list = await cachedList(repo.path)
+      const list = await cachedList(repo)
       if (!list.ok) return list
       return {
         ok: true,
@@ -116,7 +120,7 @@ export function createFileService(deps: FileServiceDeps) {
       const mentions = scanMentions(prompt)
       if (mentions.length === 0 || !repo) return { files: [], resolvedStarts: [] }
 
-      const list = await listFiles(repo.path)
+      const list = await listFiles(repo.path, envOfRepo(repo))
       if (!list.ok) return { files: [], resolvedStarts: [] }
       cache.set(repo.path, { at: now(), list: Promise.resolve(list) })
       const known = new Set(list.files)
@@ -152,7 +156,7 @@ export function createFileService(deps: FileServiceDeps) {
      */
     async tree(input: FileTreeInput): Promise<FileTreeResult> {
       const repo = ownedRepo(input.workspaceId, input.repoId)
-      return input.fresh ? freshList(repo.path) : cachedList(repo.path)
+      return input.fresh ? freshList(repo) : cachedList(repo)
     },
 
     /**
@@ -162,8 +166,8 @@ export function createFileService(deps: FileServiceDeps) {
      */
     async open(ref: FileRef): Promise<FileOpenResult> {
       const repo = ownedRepo(ref.workspaceId, ref.repoId)
-      let list = await cachedList(repo.path)
-      if (list.ok && !list.files.includes(ref.path)) list = await freshList(repo.path)
+      let list = await cachedList(repo)
+      if (list.ok && !list.files.includes(ref.path)) list = await freshList(repo)
       if (!list.ok) return list
       if (!list.files.includes(ref.path)) {
         return { ok: false, reason: `git 목록에 없는 파일이라 열 수 없습니다(무시된 파일일 수 있습니다): ${ref.path}` }
@@ -178,7 +182,7 @@ export function createFileService(deps: FileServiceDeps) {
      */
     async save(input: FileSaveInput): Promise<FileSaveResult> {
       const repo = ownedRepo(input.workspaceId, input.repoId)
-      const list = await freshList(repo.path)
+      const list = await freshList(repo)
       if (!list.ok) return { ok: false, reason: list.reason }
       if (!list.files.includes(input.path)) throw new Error(`git 목록에 없는 파일은 저장할 수 없습니다: ${input.path}`)
       return writeFile(repo.path, input.path, input.content, input.expectedHash)

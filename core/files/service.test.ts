@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { createFileService, MAX_TURN_BYTES, MAX_TURN_FILES } from './service'
 import type { RepoFileList } from './list'
 import type { RepoFileRead } from './read'
@@ -305,5 +305,20 @@ describe('코드 칸 (docs/sdlc/code-editor/ spec §3-3·§3-4)', () => {
       const service = createFileService({ getRepo: () => REPO, statFile: async () => null, hashFile: async () => null })
       await expect(service.probe({ ...REF, workspaceId: 'w2' })).rejects.toThrow('이 workspace의 repo가 아닙니다')
     })
+  })
+})
+
+describe('WSL repo의 목록 (docs/sdlc/wsl-support/ FR-25)', () => {
+  it('목록은 그 repo의 실행 환경으로 묻는다 — 피커·멘션 해석·코드 칸이 같은 길이다', async () => {
+    const WSL: Repo = { ...REPO, id: 'r-wsl', path: '\\\\wsl$\\Ubuntu\\home\\me\\api', agentEnv: 'wsl' }
+    const asked: unknown[] = []
+    const list = vi.fn(async (_root: string, env: unknown) => { asked.push(env); return { ok: true as const, files: ['a.ts'], truncated: false } })
+    const service = createFileService({
+      getRepo: (id) => id === 'r-wsl' ? WSL : REPO, listFiles: list, readFile: fakeRead({ 'a.ts': 'A' })
+    })
+    await service.search({ workspaceId: 'w1', repoId: 'r-wsl', query: 'a' })
+    await service.resolveMentions(WSL, '@a.ts 봐')
+    await service.search({ workspaceId: 'w1', repoId: 'r1', query: 'a' })
+    expect(asked).toEqual([{ kind: 'wsl', distro: 'Ubuntu' }, { kind: 'wsl', distro: 'Ubuntu' }, { kind: 'host' }])
   })
 })

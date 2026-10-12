@@ -1,5 +1,7 @@
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { findExecutable } from '../runner/executable'
+import { HOST_ENV, type ProcessEnvSpec } from '../wsl/env'
+import { wrapForEnv } from '../wsl/launch'
 
 /** 목록 상한. 넘으면 앞의 이만큼에서만 찾는다 (docs/sdlc/input-triggers/ §5-1) */
 export const MAX_LISTED_FILES = 200_000
@@ -10,6 +12,8 @@ export type RepoFileList =
   | { ok: false; reason: string }
 
 export interface ListDeps {
+  /** 어디서 띄우나 (wsl-support FR-25) — WSL repo면 그 distro의 git이고 Windows의 git은 찾지 않는다. 기본 host */
+  env?: ProcessEnvSpec
   findGit?: () => Promise<string | null>
   spawn?: (cmd: string, args: string[], opts: SpawnOptions) => ChildProcess
   timeoutMs?: number
@@ -24,16 +28,24 @@ export interface ListDeps {
  * (CLAUDE.md의 동기 실행 함정, NFR-3). **던지지 않는다** — 이유를 `ok: false`로 돌려준다.
  */
 export async function listRepoFiles(root: string, deps: ListDeps = {}): Promise<RepoFileList> {
-  const git = await (deps.findGit ?? (() => findExecutable('git')))()
+  const env = deps.env ?? HOST_ENV
+  // WSL repo는 그 distro 안의 `git`이다 — Windows PATH를 뒤지지 않는다(wsl-support FR-25). 런처·pidfile 없이 — 5초 안에 끝나는 조회다.
+  const git = env.kind === 'wsl' ? 'git' : await (deps.findGit ?? (() => findExecutable('git')))()
   if (!git) return { ok: false, reason: 'git 실행 파일을 찾을 수 없습니다' }
   const spawn = deps.spawn ?? nodeSpawn
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  let launch
+  try {
+    launch = wrapForEnv(env, git, ['ls-files', '-co', '--exclude-standard', '-z'], { cwd: root })
+  } catch (err) {
+    return { ok: false, reason: `git을 띄우지 못했습니다: ${message(err)}` }
+  }
 
   return new Promise<RepoFileList>((resolve) => {
     let child: ChildProcess
     try {
-      child = spawn(git, ['ls-files', '-co', '--exclude-standard', '-z'], {
-        cwd: root,
+      child = spawn(launch.cmd, launch.args, {
+        cwd: launch.cwd,
         env: { ...process.env },
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
