@@ -31,3 +31,18 @@ repo 하나를 고르지 않고 workspace 전체를 두고 여는 대화. 기간
 - 안: 작업 디렉토리를 앱이 관리하는 폴더(`userData/workspaces/<id>/`)로, 실행 패널에 `workspace 전체` 선택지.
   필요하면 repo들을 claude의 `--add-dir`로 얹는다.
 - workspace끼리 가로지르는 것(회사 + 개인)은 반대 — workspace가 데이터를 가르는 유일한 경계다.
+
+## WSL2 안의 repo 지원 — 2026-10-12
+
+Windows에서 WSL2 안의 폴더(`\\wsl.localhost\Ubuntu\home\...`)를 repo로 등록해 쓴다.
+
+- 지금도 등록은 된다(경로 검사가 `statSync(...).isDirectory()`뿐이라 UNC 경로가 통과한다). 그러나 그 뒤는 전부
+  **Windows 프로세스가 UNC cwd로 도는 것**이다 — agent는 WSL 안의 claude가 아니라 `claude.exe`, git도 Windows git이라
+  9P 위에서 느리고 소유자가 달라 `dubious ownership`으로 `ls-files`가 거부될 수 있다(그러면 `@` 피커·파일 칸·코드 칸이 빈다).
+  터미널은 pwsh가 UNC cwd에서 뜨고, 셸을 `wsl.exe`로 바꾸면 그 경로에서 bash가 뜰 것이다(실측 안 함).
+- 제대로 하려면 "repo마다 WSL 안에서 띄운다"는 별도 설계다 — 실행 파일 탐색(`core/runner/executable.ts`)·spawn·
+  taskkill·`git ls-files`·파일 읽기/쓰기·node-pty가 전부 Windows 프로세스 전제라, repo에 `wsl: { distro }` 같은
+  속성을 두고 그 repo의 모든 프로세스를 `wsl.exe -d <distro> --cd <linux 경로>`로 감싸야 한다.
+- **열린 질문**: 어디까지 WSL 안에서 돌리나? agent·git·셸만 WSL이고 파일 읽기/쓰기는 UNC로 두면 realpath 판정
+  (`core/files/read.ts`)과 경로 표기(Linux `/home/...` vs UNC)가 갈린다. 취소(taskkill)는 `wsl.exe`만 죽이고 안의
+  프로세스가 남을 수 있다 — Windows 트리 종료 함정과 같은 모양이다.
