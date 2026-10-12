@@ -1,7 +1,7 @@
 import { access, constants, readFile } from 'node:fs/promises'
 import { dirname, join, posix, win32 } from 'node:path'
 import type { ProcessEnvSpec } from '../wsl/env'
-import { wrapForEnv, type Launch, type WrapOptions } from '../wsl/launch'
+import { LOGIN_SHELL, wrapForEnv, type Launch, type WrapOptions } from '../wsl/launch'
 
 /**
  * PATHEXT가 비어 있을 때 쓸 기본값.
@@ -150,7 +150,14 @@ export function agentCommand(
   processEnv: NodeJS.ProcessEnv = process.env
 ): Launch {
   // WSL 갈래 — Windows 쪽 런처는 뜻이 없다(안쪽이 Linux다). 변환은 wrapForEnv 한 자리다.
-  if (env.kind === 'wsl') return wrapForEnv(env, executable, args, opts, processEnv)
+  // **agent CLI는 늘 로그인 셸 안이다** (spec §4-C): run은 런처가 이미 `bash -lc`로 exec하고, 런처 없이 뜨는 인증·probe는 같은
+  // 상수(LOGIN_SHELL)로 감싼다 — 빠뜨리면 그 판정만 `~/.profile` 밖에서 돌아 설정 화면과 run이 갈린다. wslpath·kill·git·
+  // preflight·홈 조회는 agent CLI가 아니라 wrapForEnv를 직접 탄다(취소가 `~/.profile`에 기대면 안 된다).
+  if (env.kind === 'wsl') {
+    return opts.launcher
+      ? wrapForEnv(env, executable, args, opts, processEnv)
+      : wrapForEnv(env, LOGIN_SHELL[0], [...LOGIN_SHELL.slice(1), executable, ...args], opts, processEnv)
+  }
   const launcher = processEnv['ONE_DESK_AGENT_LAUNCHER']
   if (!launcher) return { cmd: executable, args: [...args], cwd: opts.cwd }
   return { cmd: launcher, args: [executable, ...args], cwd: opts.cwd }

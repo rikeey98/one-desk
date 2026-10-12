@@ -3,7 +3,7 @@ import type { Repo, TerminalData, TerminalExit } from '@shared/models'
 import { createTerminalService, FLUSH_MS, type PtyProcess, type SpawnPty } from './service'
 import type { TreeKiller } from '../runner/terminate'
 import type { GroupKiller } from '../wsl/kill'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -47,8 +47,8 @@ function setup(platform: NodeJS.Platform = 'win32') {
   const exits: TerminalExit[] = []
   const killTree = vi.fn<TreeKiller>()
   const killTreeSync = vi.fn<TreeKiller>()
-  const killGroup = vi.fn<GroupKiller>()
-  const killGroupSync = vi.fn<GroupKiller>()
+  const killSession = vi.fn<GroupKiller>()
+  const killSessionSync = vi.fn<GroupKiller>()
   const repoOf = vi.fn((workspaceId: string, repoId: string) => {
     const repo = repos[repoId]
     if (!repo || repo.workspaceId !== workspaceId) throw new Error('그 workspace의 repo가 아닙니다')
@@ -61,8 +61,8 @@ function setup(platform: NodeJS.Platform = 'win32') {
     env: () => ({ PATH: 'C:\\bin', TERM: 'xterm-256color' }),
     killTree,
     killTreeSync,
-    killGroup,
-    killGroupSync,
+    killSession,
+    killSessionSync,
     platform,
     hostCwd: 'C:\\data',
     wslLauncher: async (distro, repoId) => ({ path: '/mnt/c/app/launcher.sh', pidfile: `/mnt/c/data/wsl/term-${repoId}.pid`, pidfileHost: pidfileHost(repoId), distro }),
@@ -70,7 +70,7 @@ function setup(platform: NodeJS.Platform = 'win32') {
     onExit: (e) => { exits.push(e) },
     onError: vi.fn()
   })
-  return { service, spawnPty, ptys, data, exits, killTree, killTreeSync, killGroup, killGroupSync, repoOf }
+  return { service, spawnPty, ptys, data, exits, killTree, killTreeSync, killSession, killSessionSync, repoOf }
 }
 
 /** WSL 셸의 pidfile(Windows 쪽) — 테스트가 그룹 id를 미리 써 둔다 */
@@ -267,28 +267,50 @@ describe('셸 서비스 — WSL repo (docs/sdlc/wsl-support/ FR-29~31)', () => {
     expect(args).not.toContain('C:\\pwsh\\pwsh.exe')
   })
 
-  it('끝낼 때는 pidfile의 그룹을 안에서 먼저 KILL한다 — 다시 시작·repo 종료는 비동기, 앱 종료는 동기 (FR-30)', async () => {
-    const { service, killGroup, killGroupSync, ptys } = setup()
+  // 그룹이 아니라 세션이다 — 대화형 bash는 작업마다 그룹을 따로 만들어 그룹 KILL은 셸만 맞히고 `cmd &`가 남았다(§4-C 실측)
+  it('끝낼 때는 pidfile의 세션을 안에서 먼저 KILL한다 — 다시 시작·repo 종료는 비동기, 앱 종료는 동기 (FR-30)', async () => {
+    const { service, killSession, killSessionSync, ptys } = setup()
     await service.open(open('wsl'))
     writeFileSync(pidfileHost('wsl'), '4242\n')
     await service.restart(open('wsl'))
-    expect(killGroup).toHaveBeenCalledTimes(1)
-    expect(killGroup.mock.calls[0]!.slice(0, 3)).toEqual(['Ubuntu', 4242, 'KILL'])
+    expect(killSession).toHaveBeenCalledTimes(1)
+    expect(killSession.mock.calls[0]!.slice(0, 3)).toEqual(['Ubuntu', 4242, 'KILL'])
     expect(ptys[0]!.killed).toBe(1)
 
     writeFileSync(pidfileHost('wsl'), '4343\n')
     service.killAll()
-    expect(killGroupSync).toHaveBeenCalledTimes(1)
-    expect(killGroupSync.mock.calls[0]!.slice(0, 3)).toEqual(['Ubuntu', 4343, 'KILL'])
+    expect(killSessionSync).toHaveBeenCalledTimes(1)
+    expect(killSessionSync.mock.calls[0]!.slice(0, 3)).toEqual(['Ubuntu', 4343, 'KILL'])
     expect(ptys[1]!.killed).toBe(1)
   })
 
   it('pidfile이 없으면 pty만 끝낸다 — 런처가 쓰기 전', async () => {
-    const { service, killGroup, ptys } = setup()
+    const { service, killSession, ptys } = setup()
     await service.open(open('wsl'))
     service.killRepo('wsl')
-    expect(killGroup).not.toHaveBeenCalled()
+    expect(killSession).not.toHaveBeenCalled()
     expect(ptys[0]!.killed).toBe(1)
+  })
+
+  it('끝내면 pidfile을 지운다 — 다시 시작한 셸의 런처가 쓰기 전에 또 끝내도 옛 세션을 겨누지 않는다 (FR-19)', async () => {
+    const { service, killSession } = setup()
+    await service.open(open('wsl'))
+    writeFileSync(pidfileHost('wsl'), '4242\n')
+    await service.restart(open('wsl'))
+    // 가짜 pty는 런처를 돌리지 않으므로 새 셸의 pidfile은 아직 없다
+    await service.restart(open('wsl'))
+    expect(killSession).toHaveBeenCalledTimes(1)
+    expect(existsSync(pidfileHost('wsl'))).toBe(false)
+  })
+
+  it('셸이 스스로 끝났어도 pidfile을 지운다 — 신호는 보내지 않는다', async () => {
+    const { service, killSessionSync, ptys } = setup()
+    await service.open(open('wsl'))
+    writeFileSync(pidfileHost('wsl'), '4242\n')
+    ptys[0]!.exit(0)
+    service.killAll()
+    expect(killSessionSync).not.toHaveBeenCalled()
+    expect(existsSync(pidfileHost('wsl'))).toBe(false)
   })
 
   it('host repo는 지금처럼 설정의 셸이다', async () => {

@@ -6,6 +6,14 @@ import type { ProcessEnvSpec } from './env'
 export const WSL_EXE_ENV = 'ONE_DESK_WSL_PATH'
 const DEFAULT_WSL_EXE = 'wsl.exe'
 
+/**
+ * WSL 안의 agent CLI를 띄우는 로그인 셸 — `launcher.sh` 마지막 줄의 `bash -lc 'exec "$0" "$@"'`과 **같은 고정 상수**다(launcher.test가
+ * 둘을 묶는다). run은 런처가, 런처 없이 뜨는 인증·probe는 `agentCommand`가 이것으로 감싼다 — 그래야 `~/.profile`의 변수(Bedrock·
+ * 프록시, FR-17)가 설정 화면의 판정에도 보여 "설정 화면은 로그인 필요인데 run은 된다"가 생기지 않는다(spec §4-C). 문자열은 고정이고
+ * 사용자 값은 `"$@"`의 인자로만 들어간다(FR-33). `exec`가 bash를 갈아끼워 pid가 그대로라 probe의 init 직후 SIGKILL이 claude에 닿는다.
+ */
+export const LOGIN_SHELL = ['bash', '-lc', 'exec "$0" "$@"'] as const
+
 /** 런처 스크립트의 **Windows 쪽** 경로(이 파일 기준). WSL에 넘길 때는 `WslPaths.toLinux`로 바꾼다. 패키징 앱은 main이 넘긴다 */
 export const LAUNCHER_FILE = fileURLToPath(new URL('./launcher.sh', import.meta.url))
 

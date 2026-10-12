@@ -232,6 +232,16 @@ e2e는 아래 "남은 것"에, 실측을 건너뛴 결정은 그 바로 위에 �
   probe를 집던 것(`--mcp-config`로 고른다), 경로만 바꾼 저장의 재판정 테스트, `wsl-real.e2e.ts`의 남은 프로세스 감지(cwd · Windows의
   브리지 — 예전 필터는 터미널 셸을 못 봤다), 문서의 과장(MCP 쓰기, FR-23의 인용, FR-29·30의 터미널 명령). 남긴 것 셋은 spec §4-B의
   "남은 것"이다(로그인 셸 밖의 인증 판정 · 터미널 백그라운드 작업 · 배치 경로의 cmd 메타문자).
+- **그 셋도 같은 v0.25.1에서 고쳤다 — spec §4-C (사용자 결정 "셋 다 고친 뒤 릴리스").** 셋마다 실측·설계 에이전트와 반박 에이전트를
+  붙인 워크플로가 먼저 쟀다. (1) `LOGIN_SHELL`(`launch.ts`)로 런처 없는 agent CLI(인증·probe)를 감싼다(`agentCommand`), 짧은 조회는
+  `runQueryIn`, 인증 파서는 끝의 JSON, `parseInit`은 앞에 붙은 글자를 건너뛴다. (2) 터미널은 `killSession`·`killSessionSync`(`pkill -s`),
+  pidfile은 `end()`가 읽고 곧바로 지운다, id 가드는 `<= 1`. (3) 브리지는 `cmd.exe` 배치를 걷어내고 Electron을 interop으로 직접 띄우며
+  `WSLENV`로 `ELECTRON_RUN_AS_NODE`를 넘긴다, 브리지는 Electron 앱으로 뜨면 exit 1. 변이(되돌린 뒤 초록): `agentCommand`가 감싸지
+  않음 → 3 빨강, 짧은 조회도 감쌈 → 3, 출력 전체를 JSON.parse → 2, init 앞 글자 무시 삭제 → 1, 상수가 런처와 갈림 → 2, 세션
+  killer를 그룹 인자로(비동기·동기 각각) → 2·2, 가드 `<= 0` → 2, pidfile 지우기 삭제 → 2, `exited` 반환을 앞으로 → 1, `WSLENV`
+  삭제 → 3, 실행 파일 대신 브리지를 변환 → 2, 브리지 가드 삭제 → 1. 실측 e2e는 데이터 폴더를 `홍 a&b^c%PATH%!(x)`로 띄우고 MCP를
+  init 줄로 판정하며, 터미널 백그라운드 작업(다시 시작·앱 종료)을 본다 — 15단계 통과. 그 실측 중 테스트의 `fs.cpSync`가 한글 경로에서
+  vitest 워커를 죽였다(Node 22 결함 — CLAUDE.md 함정) — `copyDir`로 바꿨다.
 - 단위 테스트 전체에서 `core/index.test.ts`의 "rescan은 다시 훑고 갱신된 목록을 준다"가 한 번 빨갰다 — 단독으로 세 번 돌려 전부 초록.
   `globalRoots`가 비동기가 되며 부하에서 흔들리는 폭이 넓어졌을 수 있다(CLAUDE.md가 적어 둔 커맨드 캐시 테스트의 흔들림과 같은 성격).
   다시 나면 그 테스트의 등록 뒤 대기를 늘린다.

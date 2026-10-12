@@ -4,6 +4,8 @@
 - 작성자: 권용현 (초안: Claude)
 - 상태: 승인 (2026-10-12, 사용자 — "승인, UNC 저장으로 가고 plan 써 줘". §0의 경로 표기는 UNC 저장으로 확정)
 - 개정: 2026-10-12 첫 실측(§4-B) — `wsl.exe`의 구분자를 `--`에서 `--exec`로(FR-8·FR-33, 사용자 승인 "응 진행해줘")
+- 개정: 2026-10-12 둘째 실측(§4-C) — 인증·probe를 로그인 셸 안에서(FR-14·17), 터미널을 세션째 끝낸다(FR-18·19·30), 브리지에서 cmd.exe를
+  걷어낸다(FR-21·22·23·33) (사용자 결정 "셋 다 고친 뒤 릴리스")
 - 작성일: 2026-10-12
 - 적용한 규칙: CLAUDE.md의 세 경계 · `agentCommand`를 거치지 않는 spawn을 만들지 않는다 · 렌더러가 경로·명령을 정하지
   못한다(`reveal`·파일 칸·터미널 FR-18) · Windows 트리 종료(앱 종료 경로는 동기) · `checkAgents`는 실행과 같은 판정 ·
@@ -108,7 +110,11 @@ MCP는 지금 구조 그대로다 — 브리지는 Windows 프로세스이고, W
   workspace는 둘째를 보여주지 않는다 — §4의 5). 실행 탭의 CLI 상태가 그만큼 한 줄 더 선다: `claude (WSL · Ubuntu)`.
 - **FR-14** 인증(`auth status`)·모델 목록·슬래시 커맨드 probe·agent 정보(`init`)는 전부 FR-9의 이음매를 타므로 WSL
   claude의 답이다. **캐시 키에 환경이 들어간다** — 커맨드 캐시는 cwd가 키인데 cwd(UNC)는 환경을 바꿔도 같다. FR-3이
-  환경을 바꿀 때 비우는 것으로 지킨다.
+  환경을 바꿀 때 비우는 것으로 지킨다. **(개정 2026-10-12, §4-C) WSL의 agent CLI는 늘 로그인 셸 안이다** — run은 런처가, 런처
+  없이 뜨는 인증·probe는 `agentCommand`가 런처와 같은 고정 상수 `bash -lc 'exec "$0" "$@"'`(`LOGIN_SHELL`)로 감싼다. 그래야
+  `~/.profile`의 변수(FR-17)가 설정 화면의 판정에도 보인다. 그 대가로 프로필이 찍는 글자가 출력 앞에 올 수 있어 인증 파서는 출력
+  **끝의** JSON을, probe는 init 줄 앞에 붙은 글자를 건너뛰고 읽는다. preflight(`test -x`·`bash -lc 'command -v claude'`)와 distro
+  홈(`sh -c 'echo $HOME'`)은 agent CLI가 아니라 감싸지 않는다(`runQueryIn`) — wslpath·kill·git과 같은 자리다.
 
 ### (C) 실행
 
@@ -121,39 +127,47 @@ MCP는 지금 구조 그대로다 — 브리지는 Windows 프로세스이고, W
 - **FR-17** 환경변수: `wsl.exe`에 주는 env는 지금의 `built.env`(`withLoopbackBypass` 포함)이지만 **그것은 wsl.exe의
   환경이지 claude의 환경이 아니다.** claude의 환경은 WSL 쪽 로그인 셸(FR-10)이 만든다 — Bedrock 변수·프록시는 WSL의
   `~/.profile`·`/etc/environment`에 있어야 한다. `WSLENV`로 Windows 변수를 넘기지 않는다(어느 변수를 넘길지 앱이 정하면
-  사용자가 WSL 쪽에 둔 값과 겹쳐 어느 쪽이 이기는지 사람이 모른다). 릴리스 노트가 이것을 말한다.
+  사용자가 WSL 쪽에 둔 값과 겹쳐 어느 쪽이 이기는지 사람이 모른다). 릴리스 노트가 이것을 말한다. 반대 방향 하나는 예외다 —
+  WSL의 claude가 띄우는 **MCP 브리지(Windows 프로세스)에 `ELECTRON_RUN_AS_NODE` 하나**를 그 서버 env의 `WSLENV`로 넘긴다(FR-23).
 - **FR-18** 취소: WSL run의 `cancel`은 `wsl.exe -d <distro> --exec kill -TERM -- -<pgid>`(pidfile의 그룹 id, 음수 = 그룹)이고,
   유예(`KILL_GRACE_MS`) 뒤에도 wsl.exe가 살아 있으면 `-KILL`로 한 번 더, 그래도 남으면 `taskkill /T /F`로 `wsl.exe`를
   죽인다(연결이 끊기면 run은 끝난다 — 안의 프로세스가 남는 것은 §4의 1). pidfile이 아직 없으면(런처가 쓰기 전) wsl.exe만
   `taskkill`한다. **앱 종료(`cancelAll`)는 동기판**이다 — `execFileSync('wsl.exe', ['-d', distro, '--exec', 'kill', '-KILL', '--',
   `-${pgid}`])`, `SHUTDOWN_KILL_TIMEOUT_MS` 안에서. `terminate.ts`에 `TreeKiller`와 평행한 `GroupKiller`가 생기고
-  **플랫폼·distro·spawn을 인자로 받아** macOS에서 단위 테스트가 돈다(실제 WSL은 §5의 실측).
+  **플랫폼·distro·spawn을 인자로 받아** macOS에서 단위 테스트가 돈다(실제 WSL은 §5의 실측). pidfile의 수는 **2 이상**이어야
+  한다(개정 2026-10-12) — 1이면 `kill -- -1`이 그 사용자의 모든 프로세스다. run은 그룹 그대로다: claude가 TERM을 받고 Bash 도구의
+  자식을 거둔다(§4-B 실측 — 그 자식들은 다른 그룹·세션이라 넓혀도 닿지 않는다. 2.1.296 바이너리 문자열로 본 `detached:!0`, 실행
+  중 측정은 아니다).
 - **FR-19** pidfile은 run이 끝나면(어느 상태로든) 지우고, 부팅 때 `<userData>/wsl/`을 통째로 치운다(`clearMcpConfigs`와
-  같은 자리). 터미널의 pidfile은 셸이 끝나거나 앱이 끝날 때 지운다.
+  같은 자리). 터미널의 pidfile은 셸을 끝내는 자리(`end()` — 다시 시작·repo 삭제·경로/환경 변경·앱 종료)가 읽고 곧바로 지운다 —
+  셸이 그 전에 스스로 끝났어도 그때 지운다(개정 2026-10-12, §4-C).
 - **FR-20** 세션 이어가기(`--resume`)는 그대로다 — 세션은 WSL 쪽 claude의 `~/.claude/projects/`에 있고 cwd(Linux 경로)로
   묶인다. **환경을 바꾼 repo의 옛 대화를 이으면 세션이 없다** — claude가 "No conversation found"로 실패하고 그 실패
   이유가 그대로 보인다. 앱이 미리 막지 않는다(어느 환경에서 만든 세션인지 run 행에 없다 — §4의 6).
 
 ### (D) MCP — 브리지는 Windows에 남는다
 
-- **FR-21** WSL run의 MCP 설정 파일은 `command`가 **Windows 실행 파일의 Linux 경로**(`/mnt/c/…/one-desk.exe` — `execPath`를
-  FR-11로 변환)이고 `args`는 **브리지의 Linux 경로와 설정 파일 자신의 Linux 경로**(`[bridge.mjs, <이 파일>]`)다. WSL은
+- **FR-21** WSL run의 MCP 설정 파일은 `command`가 **Electron 실행 파일의 Linux 경로**(`/mnt/c/…/one-desk.exe` — `execPath`를
+  FR-11로 변환)이고 `args`는 **브리지와 인자 파일의 Windows 경로**(`[bridge.mjs, <runId>.bridge.json]`)다 — 그것을 읽는 쪽이 Windows
+  프로세스이고 interop은 argv를 바꾸지 않는다(개정 2026-10-12, §4-C — 원래 문장은 "둘 다 Linux 경로"였다). WSL은
   Linux 프로세스가 Windows 실행 파일을 띄우면 interop으로 Windows 프로세스를 만들고 stdin·stdout을 잇는다 — claude ↔
   브리지의 stdio가 그 경계를 넘고, 브리지 ↔ 앱의 HTTP는 **지금처럼 Windows 안의 `127.0.0.1`**이다. 네트워크가 WSL을
   건너지 않으므로 MCP 서버의 바인딩(`127.0.0.1`)·NAT·mirrored 네트워킹 어느 것도 손대지 않는다.
-- **FR-22** **브리지는 WSL run에서 env에 기대지 않는다.** interop 경계에서 Linux 환경이 Windows 프로세스로 넘어가는지는
-  문서가 분명하지 않다(`WSLENV`는 그 목록을 "포함할 변수"라고 말한다). 그래서 `ELECTRON_RUN_AS_NODE`·`ONE_DESK_MCP_URL`·
-  `ONE_DESK_MCP_TOKEN`을 env로 주는 대신 — (1) `ELECTRON_RUN_AS_NODE`는 **Windows 쪽 설정 파일 하나로 대체할 수 없으므로**
-  FR-23의 배치 파일이 세운다(실측을 못 해 env에 기대지 않는 쪽으로 갔다 — §4-A), (2) URL·토큰은 브리지가 둘째 인자의 파일에서 읽는다(파일은 Windows
-  쪽 0600, 토큰은 인자에 나가지 않는다 — 지금의 "토큰은 커맨드 인자에 넣지 않는다" 그대로). 브리지(`bridge.mjs`)는 env가
-  있으면 env, 없으면 둘째 인자의 파일 — 둘 중 하나다. Windows run은 바뀌지 않는다(env).
-- **FR-23** **(개정 2026-10-12 — 실측 없이 가기로 해 이것이 유일한 길이다)** `command`는 `cmd.exe`의 Linux 경로
-  (`/mnt/c/Windows/System32/cmd.exe`, `%SystemRoot%`를 `wslpath`로), `args`는 `['/c', '<Windows 경로>\<runId>.bridge.cmd']`뿐이고
-  `env`가 없다. 그 배치가 `set ELECTRON_RUN_AS_NODE=1` 뒤에 `"<exe>" "<bridge>" "<bridge.json>"`(전부 Windows 경로)을 띄운다 —
-  env가 interop 경계를 넘든 안 넘든 같다. 인용은 배치 안의 따옴표뿐이고(`%`만 `%%`), 배치는 `chcp 65001`을 먼저 둔다(§4-B — 없으면
-  ASCII가 아닌 사용자 경로가 깨진다). 원래의 "실측으로 FR-22(env)와 둘 중 하나를 고른다"는 사라졌다. ~~`cmd.exe /c "<경로>"`는 인자가
-  하나라 interop의 인용 규칙에 걸릴 것이 없다~~ — 틀렸다(§4-B 남은 것 3): cmd.exe는 `/c` 뒤를 자기 규칙으로 다시 읽어, 배치 경로
-  (`<userData>\mcp\…`)에 `&`·`^`·`%이름%`이 있으면 쪼개거나 바꾼다.
+- **FR-22** URL·토큰은 브리지가 둘째 인자의 파일(`<runId>.bridge.json`)에서 읽는다(파일은 Windows 쪽 0600, 토큰은 인자에 나가지
+  않는다 — 지금의 "토큰은 커맨드 인자에 넣지 않는다" 그대로). 브리지(`bridge.mjs`)는 env가 있으면 env, 없으면 둘째 인자의 파일 —
+  둘 중 하나다. Windows run은 바뀌지 않는다(env). (원래 이 FR은 "env에 기대지 않는다"였다 — interop 경계를 env가 넘는지 실측하지
+  못해서였고, §4-C의 실측이 그것을 풀었다.)
+- **FR-23** **(개정 2026-10-12 둘째 — §4-C 실측)** `command`는 Electron 실행 파일의 Linux 경로(FR-21)이고 서버 `env`가
+  `{ ELECTRON_RUN_AS_NODE: '1', WSLENV: 'ELECTRON_RUN_AS_NODE' }`다. **Linux 쪽 변수는 `WSLENV`에 이름이 있는 것만 interop을 넘어
+  Windows 프로세스에 간다**(실측 — 없으면 Electron이 node가 아니라 앱으로 뜬다). claude는 서버 env를 자기 환경 위에 얹으므로(2.1.296)
+  사용자가 둔 `WSLENV`는 이 서버 프로세스에서만 덮인다. `ELECTRON_RUN_AS_NODE`를 wsl.exe의 Windows 환경에 두지 않는다 — claude가
+  띄우는 **모든** Windows 프로세스(Bash 도구의 `code .`)에 퍼진다. 브리지는 Electron 앱(브라우저 프로세스)으로 뜨면 곧바로 실패로
+  끝난다(그대로 두면 claude가 30초를 기다리고 Chromium 자식이 남았다). 그래서 그 실행 파일이 있는 드라이브가 WSL에 마운트돼 있어야
+  한다(automount 기본값 — 패키징 앱은 `%TEMP%` 아래라 C:다).
+  - **버린 것: `cmd.exe /c <runId>.bridge.cmd` 배치**(v0.24.0~v0.25.0의 FR-23). cmd.exe는 `/c` 뒤를 자기 규칙으로 다시 읽어 배치
+    경로(`<userData>\mcp\…`)의 `&`·`^`·`%이름%`·괄호에서 쪼개거나 바꿨고(7개 이상한 폴더 중 6개 실패), 배치를 OEM 코드 페이지로 읽어
+    한글 경로를 깨뜨렸고(`chcp 65001`로 막았었다), `/d` 없이 사용자의 `AutoRun`까지 MCP 채널 앞에서 돌렸다. `/d`와 더 나은 인용으로
+    버티는 길도 버렸다 — `%이름%`은 `/c` 줄에서 막을 방법이 없다.
 - **FR-24** `--allowedTools`의 `mcp__one-desk` 접두사·`--strict-mcp-config`·`mcpToolPrefixes`는 그대로다. MCP 도구의
   시각·권한·workspace 경계(전체 설계 §8)는 환경을 모른다 — 토큰이 run을 정한다.
 
@@ -185,9 +199,16 @@ MCP는 지금 구조 그대로다 — 브리지는 Windows 프로세스이고, W
   앱 탭의 `터미널 셸` 설정은 WSL repo에 적용되지 않는다(칸 밑에 한 줄: `WSL repo는 그 배포판의 기본 셸입니다`). 칸 머리의 셸
   이름은 `wsl · <distro>`. (개정 2026-10-12 — 원래 문장 "명령 없이 — distro의 기본 셸"은 FR-30의 런처와 맞지 않았다. 코드는 처음부터
   이 모양이었다.)
-- **FR-30** `셸 다시 시작`·repo 삭제·경로/환경 변경·앱 종료의 트리 종료는 FR-18의 `GroupKiller`를 탄다 — pty를 런처로
-  띄워(FR-10, 명령은 FR-29의 `sh -c '… -l'`) pidfile에 그룹 id가 있다. 앱 종료는 동기다(터미널 FR-9). **셸의 백그라운드 작업은
-  그룹 밖이다**(§4-B 남은 것 2).
+- **FR-30** `셸 다시 시작`·repo 삭제·경로/환경 변경·앱 종료는 셸을 **세션째** 끝낸다 — `wsl.exe -d <distro> --exec pkill -KILL -s
+  <sid>`(procps). pty를 런처로 띄워(FR-10, 명령은 FR-29의 `sh -c '… -l'`) pidfile에 런처의 pid가 있고, wsl.exe의 `--exec`가 명령을
+  세션 리더로 띄우므로(pid = pgid = sid, 실측) 그 수가 곧 sid다. 앱 종료는 동기다(터미널 FR-9). pidfile은 읽고 곧바로 지운다 — 셸이
+  스스로 끝났어도(FR-19). **셸이 이미 끝났으면(`exit`·Ctrl+D·크래시) 신호를 보내지 않는다** — 그 셸의 백그라운드 작업은 남는다. 끝난
+  세션의 sid는 그 번호가 다른 프로세스에 다시 쓰였을 수 있어 겨누지 않는다. Windows 셸 칸도 끝난 셸에는 `taskkill`을 보내지 않는다(같은
+  자리의 조기 반환). **(개정 2026-10-12, §4-C)** 원래는 run과 같은 그룹 KILL이었는데, 대화형 bash는 작업 제어로 작업마다 그룹을
+  따로 만들어 그룹 KILL은 셸만 맞히고 `npm run dev &`·`nohup`·`disown`·`( … &)`가 앱을 끈 뒤에도 남았다. 세션 KILL은 그것들을 전부
+  끝낸다 — **리눅스 터미널 닫기(HUP)보다 넓다**: 터미널 닫기는 `nohup`·`disown`·`( … &)`를 남기지만 여기서는 끝난다. 터미널 스펙의
+  "트리째"(FR-8·9)와 Windows 셸의 `taskkill /T`에 맞춘 것이다. `setsid`·데몬처럼 스스로 세션을 떠난 것만 남는다. 세션 HUP(nohup은
+  존중)은 고르지 않았다 — 같은 비용이지만 "트리째"가 아니다.
 - **FR-31** 환경: `shellEnv`(앱 내부 변수를 뺀 Windows 환경)는 wsl.exe에 주고 안쪽 셸의 환경은 WSL이 만든다 — FR-17과 같다.
 
 ### (G) 경계와 보안
@@ -198,7 +219,11 @@ MCP는 지금 구조 그대로다 — 브리지는 Windows 프로세스이고, W
   "$@"`)이고 사용자 값(경로·프롬프트·distro)은 인자로만 들어간다. distro 이름은 `wsl --list`의 값이거나 UNC에서 판 것이고
   `-`로 시작하면 거부한다(`wsl.exe`의 옵션으로 읽힐 수 있다). **Node 쪽의 배열은 이 보장의 절반이다** — 나머지 절반은 wsl.exe가
   그 배열을 안쪽에 배열로 넘기는 것이고, 그것은 `--exec`일 때뿐이다(FR-8 개정). v0.24.0·v0.25.0은 `--`로 띄워 이 조항이 지켜지지
-  않았다(§4-B).
+  않았다(§4-B). 안쪽 명령은 전부 실행 파일이다 — `wslpath`·`test`·`git`·`kill`·`pkill`. **procps(`ps`·`kill`·`pkill`)가 있어야 한다** —
+  런처가 `ps`로 그룹 리더인지 보므로 procps가 없는 배포판에서는 런처가 setsid를 끝없이 되풀이해 run도 터미널도 뜨지 않는다(backlog
+  §3 — Ubuntu에는 있다). 셸이 필요한 자리는 고정 문자열의 `bash -lc`(`LOGIN_SHELL`·preflight)·`sh -c`
+  (홈·터미널)다. MCP 브리지의 경로들은 셸을 거치지 않고 interop의 argv로 간다(FR-23 개정 — 그 전의 `cmd.exe /c` 배치는 사용자 폴더
+  이름을 cmd 문법으로 읽었다).
 - **FR-34** `core/`는 `wsl.exe`를 **직접 찾지 않는다** — `%SystemRoot%\System32\wsl.exe`는 Windows 경로 규칙이라
   `executable.ts`의 PATH 탐색(`findExecutable('wsl')`)을 쓰고, 테스트는 `spawn`을 주입한다. `core/wsl/*`의 모든 함수가
   `platform`과 `spawn`을 인자로 받는다 — macOS 개발 장비에서 두 갈래가 다 돈다.
@@ -237,7 +262,8 @@ IPC 새 채널은 `wsl.listDistros` 하나다. 나머지는 기존 채널의 타
 
 1. **interop 경계를 env가 넘는가.** FR-21의 브리지는 Windows 프로세스인데 `ELECTRON_RUN_AS_NODE`가
    없으면 Electron이 **창을 띄운다.** 원래는 실측 1순위였으나 **2026-10-12에 사용자가 실측을 건너뛰기로 해**("내가 실측을
-   할수 없는 환경이라 실측은 건너뛰고 만들어줘") 어느 쪽이든 되는 FR-23(배치 파일)으로 갔다. 그것도 안 되면(interop 자체가 꺼진 distro — `wsl.conf`의 `interop.enabled=false`) WSL 쪽 node로 브리지를
+   할수 없는 환경이라 실측은 건너뛰고 만들어줘") 어느 쪽이든 되는 FR-23(배치 파일)으로 갔다. **→ §4-C가 답했다: Linux 변수는
+   `WSLENV`에 이름이 있으면 넘어간다. 배치는 걷어내고 서버 env의 `WSLENV`로 넘긴다(FR-23 개정).** 그것도 안 되면(interop 자체가 꺼진 distro — `wsl.conf`의 `interop.enabled=false`) WSL 쪽 node로 브리지를
    띄우고 호스트 IP로 HTTP를 건너는 intent의 원안으로 돌아가야 하고, 그것은 MCP 서버의 바인딩을 바꾸는 별도 spec이다.
    **interop이 꺼진 distro는 이번 범위에서 지원하지 않는다**(preflight가 `interop`을 한 번 확인해 거부한다 — plan).
 2. **`wsl.exe`의 파이프 통과.** 자식 명령의 stdout/stdin이 바이트 그대로 지나는지(UTF-16 변환·`\r\n` 삽입 없음), 큰 출력
@@ -336,9 +362,10 @@ FR-3대로 캐시를 비웠으니 화면만의 일이다. `SettingsPanel`의 `sa
   `launcher.test.ts`의 "CR이 없다"가 **Windows에서도** 바이트로 본다(그 describe는 다른 테스트와 달리 건너뛰지 않는다).
 - **ASCII가 아닌 사용자 경로에서 브리지가 뜨지 않았다.** 배치(FR-23)는 UTF-8로 쓰지만 cmd.exe는 OEM 코드 페이지(949)로 읽는다 —
   `C:\Users\홍길동` 같은 계정이면 경로가 깨져 브리지가 `Cannot find module`로 죽고, claude는 MCP를 failed로 두고 도구 없이 "성공"한다.
-  배치의 둘째 줄 `chcp 65001 >nul`이 고친다(실측 — WSL interop으로 `한글 폴더` 아래 배치를 띄워 없으면 exit 1, 있으면 통과).
+  배치의 둘째 줄 `chcp 65001 >nul`이 고쳤다(실측 — WSL interop으로 `한글 폴더` 아래 배치를 띄워 없으면 exit 1, 있으면 통과). → 배치째
+  걷어냈다(§4-C).
 
-**남은 것 (이 개정의 범위 밖 — 따로 정한다).**
+**남은 것 셋 — 사용자가 같은 v0.25.1에서 고치기로 했다("셋 다 고친 뒤 릴리스"). 고친 것은 §4-C다. 아래는 그때 적은 그대로다.**
 
 1. **CLI 상태의 인증·모델 판정이 로그인 셸 밖에서 돈다.** run은 런처의 `bash -lc`라 `~/.profile`을 읽지만, `auth status`(`runCliIn`)와
    probe(`probeCommands`)는 런처 없이 `--exec <claude>`로 떠 `~/.profile`의 변수(Bedrock·프록시 — FR-17이 거기 두라고 한 것)를 못
@@ -357,12 +384,68 @@ FR-3대로 캐시를 비웠으니 화면만의 일이다. `SettingsPanel`의 `sa
    이유를 말하거나, cmd.exe를 걷어내고 Electron 실행 파일을 interop으로 직접 띄우며 `ELECTRON_RUN_AS_NODE`를 `WSLENV`로 넘기는 것
    (리뷰가 실측에서 통과를 봤다 — FR-22로 돌아가는 설계 변경이다).
 
+## 4-C. 둘째 실측 — 남은 것 셋을 고친다 (2026-10-12 · 같은 장비 · Electron 43.3.0)
+
+사용자가 "셋 다 고친 뒤 릴리스"로 정했다. 셋마다 이 장비의 WSL에서 먼저 재고(설계 워크플로 — 에이전트 하나가 재고 설계, 하나가
+반박) 고쳤다. 모델 호출이 없는 측정이다(claude는 init에서 끊거나 자격 증명 없는 HOME에서 돌렸다).
+
+**1. 인증·probe를 로그인 셸 안에서 (FR-14 개정).**
+- 잰 것: 사용자의 `~/.profile`은 건드리지 않고 임시 HOME의 `.profile`로 흉내냈다. `--exec claude auth status --json`은 그 변수를 못 보고
+  `--exec bash -lc 'exec "$0" "$@"' claude …`는 본다 — 런처(`launcher.sh`)의 출력과 바이트가 같았다. 로그인 셸의 비용은 없다(중앙값
+  94 ms 대 102 ms). `exec`가 bash를 갈아끼워 probe의 claude pid가 bash의 `$$`와 같다 — init 직후의 SIGKILL이 그대로 닿는다.
+- 반박이 찾은 것: 프로필이 **개행 없이** 글자를 찍으면(`printf 'Welcome'`) init 줄 앞에 붙어 `parseInit`이 못 읽고, 그러면 init 직후의
+  SIGKILL이 걸리지 않아 **probe가 모델 호출까지 간다**. 그래서 `parseInit`은 init의 첫머리(`{"type"`)에서 한 번 더 읽고, 인증 파서는
+  출력의 모든 `{` 자리를 뒤에서부터 시험한다. distro 홈과 preflight는 감싸지 않는다(`runQueryIn`) — 홈은 프로필과 무관한데 그 글자에
+  깨지기만 하고, preflight는 스스로 `bash -lc`다.
+- 하지 않은 것: claude 2.1.296의 `auth status --json`은 로그인하지 않았으면 **exit 1**로 `loggedIn: false`를 낸다(Windows·WSL 둘 다 실측)
+  — 그래서 지금 로그아웃한 claude는 "로그인 필요"가 아니라 "인증 확인 불가 (종료 코드 1)"로 보인다. JSON을 종료 코드보다 먼저 보면
+  고쳐지지만 Windows 쪽 동작과 agent-setup spec의 우선순위가 바뀌는 별개 결정이라 이번에 하지 않았다(backlog).
+
+**2. 터미널을 세션째 끝낸다 (FR-30 개정).**
+- 잰 것: `--exec`로 뜬 명령은 파이프든 ConPTY든 세션 리더다(pid = pgid = sid — 런처의 setsid 갈래는 돌지 않는다). 대화형 bash는 작업마다
+  그룹을 따로 만들어, 그룹 KILL 뒤 `&`·`nohup`·`( … &)`·`sh -c` 안의 자식·`disown` 다섯이 전부 앱 종료 뒤에 남았다. `pkill -KILL -s <sid>`는
+  리더가 먼저 죽어도 남은 멤버를 맞혀 다섯을 다 끝냈고, `setsid`로 세션을 떠난 것만 남았다. 세션 HUP은 `nohup`·`disown`을 남긴다.
+- 고른 것: 세션 KILL. 리눅스 터미널 닫기보다 넓다는 것을 알고 골랐다 — 터미널 스펙의 "트리째"·Windows의 `taskkill /T`와 같게.
+  run은 그룹 그대로다(claude가 TERM으로 자식을 거둔다).
+- 반박이 더한 것: pid 1 거부(`kill -- -1`), 셸이 스스로 끝나도 pidfile 지우기, 비동기·동기 배선을 둘 다 고정, 가짜 wsl.exe의 `pkill`
+  가로채기(아니면 Linux CI에서 진짜 pkill이 돈다), Windows에서도 도는 killer 테스트.
+- 기록만 한 것: 런처가 pgid로 setsid를 판정해 `ps`가 없는 배포판에서는 setsid를 끝없이 되풀이한다(Ubuntu에는 procps가 있다 — 잠복).
+
+**3. 브리지에서 cmd.exe를 걷어낸다 (FR-21·22·23 개정).**
+- 잰 것: WSL의 Linux 프로세스(claude 자신 포함)가 Windows의 Electron을 `/mnt/…` 경로로 띄우면 interop이 argv를 **바이트 그대로**
+  넘긴다(한글·공백·`& ^ %PATH% ! ( ) ' $HOME ; [x] %USERNAME%`). stdio는 줄 프로토콜로 오가고 EOF가 넘어간다. Windows 자식이 받는 env는
+  wsl.exe의 Windows 환경 + **`WSLENV`에 이름이 있는 Linux 변수뿐**이다 — `WSLENV` 없이 `ELECTRON_RUN_AS_NODE`는 안 넘어가 Electron이
+  앱으로 떴다(claude가 약 32초 기다린 뒤 MCP failed, Chromium 자식이 남았다). claude 2.1.296은 서버 `env`를 자기 환경 위에 얹는다.
+  끝에서 끝까지(모델 호출 없이): WSL claude → interop → 이상한 폴더의 Electron → 진짜 `bridge.mjs` → 다른 이상한 폴더의 인자 파일 →
+  Windows `127.0.0.1` — init에서 `one-desk`가 945 ms에 connected였다. 같은 이상한 폴더 일곱에서 v0.25.0까지의 배치는 여섯이 실패했다.
+- 고른 것: 서버 `env: { ELECTRON_RUN_AS_NODE: '1', WSLENV: 'ELECTRON_RUN_AS_NODE' }`. 배치·`chcp`·`bridgeCmdOf`를 지웠다. 브리지는 Electron
+  앱으로 뜨면 곧바로 exit 1이다. 브리지의 cwd는 run 동안 repo의 UNC 경로다(브리지는 상대 경로를 쓰지 않는다).
+- 새로 생긴 조건: Electron 실행 파일이 있는 드라이브가 WSL에 마운트돼 있어야 한다(패키징 앱은 `%TEMP%`라 C:다 — 개발 장비의 `subst`·
+  네트워크 드라이브만 걸린다). claude는 stdio 서버의 `command`·`args`의 `${VAR}`를 펼친다 — 사용자 폴더 이름에 `${`가 있으면 바뀐다
+  (실재하기 어렵다, 옛 배치도 같은 노출이었다).
+
+**검증한 것 (`e2e/wsl-real.e2e.ts`, 데이터 폴더 `홍 a&b^c%PATH%!(x)` — 실제 모델 호출 세 번).** 아래 표.
+
+| 무엇 | 결과 |
+|---|---|
+| CLI 상태 | 저장 뒤 5.9초에 `Claude Code (WSL · Ubuntu-24.04)` 로그인됨(max) · 모델 `claude-opus-5-5` — 인증·probe가 로그인 셸 안에서 돌았다 |
+| MCP (3) | init의 `mcp_servers`에 `one-desk`가 **connected**, `mcp__one-desk__list_issues`가 오류 없이 돌아왔다 — 답 문구가 아니라 기록으로 판정했다. `@README.md` 멘션도 실렸다(`readme=hello`) |
+| 브리지 모양 (3) | Windows에 `electron.exe …\bridge.mjs "…\홍 a&b^c%PATH%!(x)-…\mcp\<run>.bridge.json"` 하나 — `cmd.exe`가 없다 |
+| 셸 다시 시작 (2) | 백그라운드 작업 다섯 모양(프로세스 여섯)이 비동기 세션 KILL로 전부 사라졌다 |
+| 앱 종료 (2) | 백그라운드 작업 여섯·터미널 셸·브리지가 WSL·Windows 어디에도 남지 않았다(동기 세션 KILL) |
+| 취소 | 1.3초 뒤 canceled, 1.8초 뒤 이 run의 WSL 프로세스 넷과 Windows의 브리지가 사라졌다 |
+| 그 밖 | 등록·실행 환경 저장·`@` 목록·코드 칸·WSL 터미널·340 KB 셸 출력 — §4-B와 같다 |
+
+참고: 이 실측에서 vitest 워커가 아무 말 없이 세 번 죽었다 — 앱이 아니라 테스트의 로그 복사(`fs.cpSync`)였다. Node 22.23.2의 `cpSync`는
+Windows에서 원본 경로에 한글이 있으면 접근 위반으로 프로세스째 죽는다(실측). 워커가 `app.close()`에 닿지 못해 앱과 WSL 터미널이 고아로
+남아 앱의 종료 결함처럼 보였다. 앱은 `cpSync`를 쓰지 않는다(DB 백업의 `copyFileSync`는 한글 경로 정상 — 실측).
+
 ## 5. 검증
 
 - 단위(core): `parseWslPath`(두 접두사, 한글·공백 경로, 모양 아님, `-`로 시작하는 distro 거부) · `wrapForEnv`(host는
   그대로·런처 유무·인자가 문자열에 안 끼는지) · `agentCommand`가 env를 필수로 받는다(타입) · `listDistros`의 UTF-16LE 디코딩
   (픽스처 바이트) · `GroupKiller` 비동기·동기(spawn 주입, 호출 인자 고정) · `manager`의 WSL 취소 순서(TERM → KILL → taskkill)와
-  pidfile 정리 · `cancelAll`이 동기판을 부른다 · `configFile`의 WSL 본문(interop 경로·인자 파일·env 없음) · `bridge.mjs`가 인자
+  pidfile 정리 · `cancelAll`이 동기판을 부른다 · `configFile`의 WSL 본문(interop 경로·인자 파일·env는 `ELECTRON_RUN_AS_NODE`와 그것을 넘기는 `WSLENV`뿐 — §4-C 개정) · `bridge.mjs`가 인자
   파일에서 URL·토큰을 읽는다 · `agentPath`의 WSL 갈래 순서 · preflight WSL 갈래 · `listRepoFiles`의 WSL spawn 인자 ·
   `repos.update`의 거부(모양·비Windows)와 셸 종료·캐시 비우기 · 글로벌 루트에 distro별 UNC가 더해진다 · opencode 거부(FR-7).
   **변이**: `agentCommand` 호출 자리 하나에서 `env`를 `{ kind: 'host' }`로 바꿔도 테스트가 잡는지 — 자리마다 하나씩.

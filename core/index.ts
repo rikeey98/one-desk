@@ -13,7 +13,7 @@ import { createCommandService } from './commands/service'
 import { createAgentProbeService } from './agent/service'
 import { createModelCatalog } from './agent/models'
 import { checkAuth } from './agent/auth'
-import { runCli, runCliIn } from './agent/exec'
+import { runCli, runCliIn, runQueryIn } from './agent/exec'
 import { probeCommands } from './commands/probe'
 import { describeCommands } from './commands/describe'
 import type { GlobalRoots } from './db/repositories/setting'
@@ -41,7 +41,7 @@ import { createWslPaths } from './wsl/paths'
 import { createWslHome, expandWslRoots } from './wsl/home'
 import { listDistros } from './wsl/distros'
 import { parseWslPath } from '@shared/wslPath'
-import { killGroup, killGroupSync } from './wsl/kill'
+import { killSession, killSessionSync } from './wsl/kill'
 import { LAUNCHER_FILE } from './wsl/launch'
 import type { AgentDefaults } from './runner/agentPath'
 import type { PreflightResult } from './runner/types'
@@ -196,9 +196,12 @@ export function createCore(opts: CoreOptions) {
     return null
   }
 
-  /** WSL 안의 claude 판정 (wsl-support FR-13) — 설정 화면과 실행이 같이 쓴다. 캐시는 `probeAgents(refresh)`가 비운다 */
+  /**
+   * WSL 안의 claude 판정 (wsl-support FR-13) — 설정 화면과 실행이 같이 쓴다. 캐시는 `probeAgents(refresh)`가 비운다. `test -x`·
+   * `bash -lc 'command -v claude'`는 agent CLI가 아니라 로그인 셸로 한 번 더 감싸지 않는다(`runQueryIn`, §4-C)
+   */
   const wslPreflight = createWslPreflight({
-    run: (env, executable, args) => runCliIn(env)({ executable, args })
+    run: (env, executable, args) => runQueryIn(env)({ executable, args })
   })
 
   /**
@@ -259,7 +262,8 @@ export function createCore(opts: CoreOptions) {
   rmSync(wslDir, { recursive: true, force: true })
   const wslPaths = createWslPaths({ userDataDir: opts.dataDir })
   const launcherPath = opts.launcherPath ?? LAUNCHER_FILE
-  const wslHome = createWslHome({ run: (env, executable, args) => runCliIn(env)({ executable, args }) })
+  // 홈은 passwd가 정한다 — `~/.profile`과 무관한데 프로필이 찍는 글자에 깨지기만 하므로 로그인 셸 밖이다(`runQueryIn`, §4-C)
+  const wslHome = createWslHome({ run: (env, executable, args) => runQueryIn(env)({ executable, args }) })
   /** run·터미널이 같이 쓰는 런처 경로 (FR-10·11) — 런처 스크립트와 pidfile의 Linux 경로, pidfile의 Windows 경로 */
   const wslLauncherFor = async (distro: string, id: string) => {
     mkdirSync(wslDir, { recursive: true })
@@ -408,9 +412,9 @@ export function createCore(opts: CoreOptions) {
     env: () => shellEnv(process.env),
     killTree: taskkillTree,
     killTreeSync: taskkillTreeSync,
-    // WSL repo의 셸 (wsl-support FR-29·30) — 런처는 run과 같은 것, 그룹 종료는 안에서
-    killGroup,
-    killGroupSync,
+    // WSL repo의 셸 (wsl-support FR-29·30) — 런처는 run과 같은 것, 종료는 안에서 **세션**째(작업 제어가 작업마다 그룹을 만든다)
+    killSession,
+    killSessionSync,
     wslLauncher: (distro, repoId) => wslLauncherFor(distro, `term-${repoId}`),
     hostCwd: opts.dataDir,
     platform: process.platform,

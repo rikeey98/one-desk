@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { LAUNCHER_FILE } from './launch'
+import { LAUNCHER_FILE, LOGIN_SHELL } from './launch'
 
 /**
  * `core/wsl/launcher.sh` (`docs/sdlc/wsl-support/` spec FR-10) — WSL 안에서 돌 스크립트지만 **POSIX sh라 macOS·Linux
@@ -30,10 +30,17 @@ function run(args: string[], detached: boolean) {
 // **Windows에서도 돈다** — 릴리스 CI의 Windows 러너가 이 파일을 체크아웃한 그대로 패키징한다. Git for Windows의 기본값
 // (core.autocrlf=true)이 CRLF로 바꾸면 WSL의 dash가 `shift: not found`·`Syntax error`로 거부해 pidfile도 안 쓰고 끝난다 —
 // 모든 WSL run과 WSL 터미널이 깨지는데 probe·인증·git은 런처를 안 써서 CLI 상태는 초록이다(spec §4-B). `.gitattributes`가 막는다.
-describe('launcher.sh의 줄바꿈', () => {
+describe('launcher.sh — 모든 플랫폼', () => {
   it('CR이 없다 — LF로만 끝나야 WSL의 /bin/sh가 읽는다', () => {
     const bytes = readFileSync(LAUNCHER_FILE)
     expect(bytes.includes(0x0d)).toBe(false)
+  })
+
+  // run은 런처가, 런처 없이 뜨는 인증·probe는 agentCommand가 LOGIN_SHELL로 감싼다 — 둘이 갈리면 설정 화면과 run이 다른 환경을 본다
+  // (wsl-support §4-C)
+  it('마지막 exec 줄이 LOGIN_SHELL 상수와 같다 — run과 인증·probe가 같은 로그인 셸을 쓴다', () => {
+    const text = readFileSync(LAUNCHER_FILE, 'utf8')
+    expect(text).toContain(`exec ${LOGIN_SHELL[0]} ${LOGIN_SHELL[1]} '${LOGIN_SHELL[2]}' "$@"`)
   })
 })
 

@@ -19,6 +19,15 @@ describe('parseInit', () => {
   it('깨진 JSON은 null이다 — 줄 하나 때문에 목록 전체를 포기하지 않는다', () => {
     expect(parseInit('{ 깨짐')).toBeNull()
     expect(parseInit('')).toBeNull()
+    expect(parseInit('Welcome to box{"type": 깨짐')).toBeNull()
+  })
+
+  // WSL probe는 로그인 셸 안에서 뜬다 — `~/.profile`이 개행 없이 찍은 글자가 init 줄 앞에 붙는다(wsl-support §4-C 실측). 못 알아보면
+  // init 직후의 SIGKILL이 걸리지 않아 probe가 모델 호출까지 간다
+  it('init 줄 앞에 로그인 셸이 붙인 글자가 있어도 읽는다', () => {
+    const result = parseInit('Welcome to box' + initLine({ model: 'claude-opus-5-5', slash_commands: ['review'] }))
+    expect(result?.model).toBe('claude-opus-5-5')
+    expect(result?.slashCommands).toEqual(['review'])
   })
 
   it('해석된 모델 이름과 버전을 함께 싣는다', () => {

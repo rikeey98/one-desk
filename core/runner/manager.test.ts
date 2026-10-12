@@ -414,8 +414,8 @@ describe('RunManager — WSL 실행 환경 (docs/sdlc/wsl-support/ FR-8·FR-9)',
         expect(argv.slice(0, 5)).toEqual(['-d', 'Ubuntu', '--cd', '/home/me/api', '--exec'])
         // Windows 쪽 cwd는 넘기지 않았다 — UNC를 cwd로 주면 wsl.exe 자신이 그 자리에서 뜨려다 실패할 수 있다
         expect((lines[0] as unknown as { cwd: string }).cwd).toBe(process.cwd())
-        // 안쪽 명령은 실행 파일 그대로이고, 그 뒤에 claude 인자가 온다
-        expect(argv[5]).toBe('/home/me/.local/bin/claude')
+        // 런처가 없는 run도 로그인 셸 안이다(agentCommand가 감싼다 — §4-C). 그 뒤가 실행 파일 그대로이고 claude 인자가 온다
+        expect(argv.slice(5, 9)).toEqual(['bash', '-lc', 'exec "$0" "$@"', '/home/me/.local/bin/claude'])
         expect(argv).toContain('--output-format')
         // 가짜 wsl이 없는 실행 파일을 띄우려다 실패한다 — 그 실패가 run의 실패로 돌아온다(연결이 끊기면 run은 끝난다)
         expect(outcome.status).toBe('failed')

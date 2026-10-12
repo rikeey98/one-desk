@@ -133,10 +133,15 @@ export interface LaunchOptions {
   agentPath?: string
   /** Electron 프로세스에 추가로 얹을 환경변수. ONE_DESK_FAKE_DELAY_MS 같은 기본값을 덮어쓸 수 있다. */
   env?: Record<string, string>
+  /**
+   * 데이터 폴더 이름의 앞부분 — 사용자 폴더 이름에 한글·`&`·`^`·`%`·괄호가 있는 장비를 흉내낸다(`wsl-real.e2e.ts`, wsl-support §4-C).
+   * 기본은 `one-desk-e2e-data-`다.
+   */
+  dataDirPrefix?: string
 }
 
 export async function launchApp(options: LaunchOptions = {}): Promise<AppSession> {
-  const dataDir = mkdtempSync(join(tmpdir(), 'one-desk-e2e-data-'))
+  const dataDir = mkdtempSync(join(tmpdir(), options.dataDirPrefix ?? 'one-desk-e2e-data-'))
   const repoDir = mkdtempSync(join(tmpdir(), 'one-desk-e2e-repo-'))
 
   const agentPath = options.agentPath ?? FAKE_AGENT

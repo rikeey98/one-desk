@@ -723,9 +723,13 @@ describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)'
       expect(i).toBeGreaterThan(0)
       expect(launch![i + 1]).toMatch(/^\/mnt\/.*launcher\.sh$/)
       expect(launch![i + 2]).toMatch(new RegExp(`^/mnt/.*/wsl/${run.id}\\.pid$`))
-      // wslpath는 userData 아래를 접두사로 만든다 — 묻는 것은 userData·런처·cmd.exe 셋뿐이고 pidfile·MCP 설정 파일은 userData
-      // 아래라 묻지 않는다 (FR-11). 브리지·Electron 실행 파일의 경로는 배치 파일에 Windows 경로로 남아 묻지 않는다(FR-23)
-      expect(calls.filter((c) => c.includes('wslpath'))).toHaveLength(3)
+      // wslpath는 userData 아래를 접두사로 만든다 — 묻는 것은 userData·런처·Electron 실행 파일 셋뿐이고 pidfile·MCP 설정 파일은
+      // userData 아래라 묻지 않는다 (FR-11). 브리지·인자 파일은 Windows 프로세스가 읽어 Windows 경로로 인자에 남는다. claude가
+      // interop으로 띄우는 것은 Electron 자신이다 — cmd.exe는 묻지도 띄우지도 않는다 (FR-23 개정, §4-C)
+      const asked = calls.filter((c) => c.includes('wslpath')).map((c) => c.at(-1))
+      expect(asked).toHaveLength(3)
+      expect(asked).toContain(process.execPath)
+      expect(asked.some((p) => /cmd\.exe$/i.test(p ?? ''))).toBe(false)
       // 끝나면 pidfile이 없다 (FR-19)
       expect(existsSync(join(dataDir, 'wsl', `${run.id}.pid`))).toBe(false)
       // MCP 설정 파일도 WSL 안의 경로로 넘어간다 (FR-21) — 브리지는 Windows에 남는다
@@ -765,6 +769,30 @@ describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)'
       expect(existsSync(join(dataDir, 'wsl'))).toBe(true)
       close(core)
       expect(pty.killed).toBe(1)
+    })
+  })
+
+  // 배선 — core가 터미널에 넘기는 것이 그룹이 아니라 세션 killer여야 한다. 둘 다 GroupKiller라 바꿔 넣어도 컴파일된다.
+  // pid는 있을 수 없는 번호다(CLAUDE.md — 실제 프로세스와 겹치면 안 된다). 가짜 wsl.exe는 신호를 보내지 않는다
+  it('WSL 터미널을 끝내면 그 세션째 KILL한다 — 다시 시작은 비동기, 앱 종료는 동기 (FR-30)', async () => {
+    const dataDir = makeDataDir()
+    const capture = join(dataDir, 'wsl.jsonl')
+    await withWsl({ ONE_DESK_WSL_CAPTURE: capture }, async () => {
+      const core = open(dataDir)
+      const ws = core.workspaces.create({ name: 'ws' }).id
+      const repoId = (await core.repos.create({ workspaceId: ws, name: 'w', path: WSL_PATH, agentEnv: 'wsl' })).id
+      const pidfile = join(dataDir, 'wsl', `term-${repoId}.pid`)
+      const sessionKill = ['-d', 'Ubuntu', '--exec', 'pkill', '-KILL', '-s', '2147483644']
+      const kills = () => existsSync(capture) ? readCapture(capture).filter((c) => c[3] === 'pkill' || c[3] === 'kill') : []
+
+      await core.terminal.open({ workspaceId: ws, repoId, cols: 80, rows: 24 })
+      writeFileSync(pidfile, '2147483644\n')
+      await core.terminal.restart({ workspaceId: ws, repoId, cols: 80, rows: 24 })
+      await vi.waitFor(() => expect(kills()).toEqual([sessionKill]))
+
+      writeFileSync(pidfile, '2147483644\n')
+      close(core)
+      expect(kills()).toEqual([sessionKill, sessionKill])
     })
   })
 
@@ -887,7 +915,16 @@ describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)'
 
       const found = await core.commands.list({ workspaceId: ws, cwd: WSL_PATH })
       expect(found.error).toBeNull()
+      // preflight(command -v)는 짧은 조회라 로그인 셸로 한 번 더 감싸지 않는다 — 스스로 bash -lc다
       expect(readCapture(capture)[0]).toEqual(['-d', 'Ubuntu', '--exec', 'bash', '-lc', 'command -v claude'])
+      // probe는 agent CLI라 로그인 셸 안이다 — run과 같은 ~/.profile을 읽는다 (§4-C)
+      const LOGIN = ['bash', '-lc', 'exec "$0" "$@"']
+      const probe = readCapture(capture).find((c) => c.includes('--cd'))
+      expect(probe?.slice(4, 9)).toEqual(['--exec', ...LOGIN, FAKE_AGENT])
+      // 인증 조회도 그렇다 — 설정 화면의 WSL 칸이 run과 같은 판정을 쓴다
+      await core.workspaces.probeAgents(ws, true)
+      const auth = readCapture(capture).find((c) => c.includes('auth') && c.includes('status'))
+      expect(auth).toEqual(['-d', 'Ubuntu', '--exec', ...LOGIN, FAKE_AGENT, 'auth', 'status', '--json'])
 
       core.settings.setWslClaudePath('/home/me/bin/claude')
       await core.commands.refresh({ workspaceId: ws, cwd: WSL_PATH })

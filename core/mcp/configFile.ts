@@ -33,20 +33,18 @@ export interface McpConfigTarget {
 }
 
 /**
- * WSL run의 자리 (`docs/sdlc/wsl-support/` spec FR-21·22·23). 브리지는 **Windows에 남는다** — WSL 안의 claude가 interop으로
- * Windows 실행 파일을 자식으로 띄우고 stdio가 그 경계를 넘는다. **env에는 아무것도 기대지 않는다**(실측을 못 한 채로 가기로
- * 했다 — spec §4-A): `command`는 `cmd.exe`의 Linux 경로이고 인자는 `/c <runId>.bridge.cmd`(Windows 경로)뿐이다. 그 `.cmd`가
- * `ELECTRON_RUN_AS_NODE=1`을 스스로 세우고 Electron 바이너리로 브리지를 띄우므로 env가 interop을 넘든 안 넘든 같다.
- * URL·토큰은 브리지가 인자로 받는 0600 파일(`<runId>.bridge.json`)에 있다 — 인자에는 경로만 나간다(토큰은 인자에 없다).
+ * WSL run의 자리 (`docs/sdlc/wsl-support/` spec FR-21·22·23, §4-C). 브리지는 **Windows에 남는다** — WSL 안의 claude가 interop으로
+ * Electron 실행 파일을 **직접** 자식으로 띄우고 stdio가 그 경계를 넘는다. `cmd.exe`를 거치지 않는다: v0.25.0까지의 `.bridge.cmd`
+ * 배치는 cmd가 `/c` 뒤를 자기 규칙으로 다시 읽어 사용자 폴더 이름의 `&`·`^`·`%이름%`·괄호에서 쪼갰고, 배치를 OEM 코드 페이지로
+ * 읽어 한글 경로를 깨뜨렸고, 사용자의 `AutoRun`까지 돌렸다(2026-10-12 실측). interop은 argv를 바이트 그대로 넘긴다(한글·공백·
+ * `&^%!()` 전부 — 실측).
  */
 export interface WslConfigTarget {
-  /** `cmd.exe`의 Linux 경로 (`/mnt/c/Windows/System32/cmd.exe`) */
-  cmdExe: string
-}
-
-/** WSL run의 브리지를 띄우는 배치 파일 — Windows 경로. `cmd.exe /c <이 경로>`로 돈다 */
-export function bridgeCmdOf(dir: string, runId: string): string {
-  return join(dir, `${runId}.bridge.cmd`)
+  /**
+   * Electron 실행 파일(`McpConfigTarget.execPath`)을 **WSL 안에서 본 경로**(`/mnt/c/…/one-desk.exe`, `wslpath`로 바꾼 것). 이름이
+   * `execPath`가 아닌 것은 Windows 경로인 그것과 바꿔 넣어도 컴파일되지 않게 — 둘 다 문자열이라 타입은 못 막는다.
+   */
+  command: string
 }
 
 /** WSL run에서 브리지가 인자로 받는 파일의 이름 — 설정 파일 옆에 둔다 */
@@ -54,32 +52,26 @@ export function bridgeFileOf(dir: string, runId: string): string {
   return join(dir, `${runId}.bridge.json`)
 }
 
-function claudeWslBody(dir: string, runId: string, wsl: WslConfigTarget): string {
+/**
+ * WSL run의 브리지 env. **Linux 쪽 변수는 `WSLENV`에 이름이 있는 것만 interop을 넘어 Windows 프로세스에 간다** — 없으면
+ * `ELECTRON_RUN_AS_NODE`가 오지 않아 Electron이 node가 아니라 앱으로 뜬다(§4-C 실측). claude는 서버 env를 자기 환경 위에 얹는다
+ * (2.1.296 — 사용자가 둔 `WSLENV`는 이 서버 프로세스에서만 덮인다). 브리지에는 다른 Linux 변수가 필요 없다 — URL·토큰은 인자
+ * 파일이다. `ELECTRON_RUN_AS_NODE`를 wsl.exe의 Windows 환경에 두면 claude가 띄우는 **모든** Windows 프로세스(Bash 도구의
+ * `code .` 같은 것)에 퍼지므로 이 서버 env에만 둔다.
+ */
+const WSL_BRIDGE_ENV = { ELECTRON_RUN_AS_NODE: '1', WSLENV: 'ELECTRON_RUN_AS_NODE' } as const
+
+function claudeWslBody(dir: string, runId: string, target: McpConfigTarget, wsl: WslConfigTarget): string {
   return JSON.stringify({
     mcpServers: {
       [MCP_SERVER_NAME]: {
-        command: wsl.cmdExe,
-        args: ['/c', bridgeCmdOf(dir, runId)]
+        command: wsl.command,
+        // 둘 다 **Windows 경로**다 — 읽는 쪽이 Windows 프로세스(Electron)이고 interop은 argv를 바꾸지 않는다
+        args: [target.bridgePath, bridgeFileOf(dir, runId)],
+        env: { ...WSL_BRIDGE_ENV }
       }
     }
   })
-}
-
-/**
- * 브리지를 띄우는 배치 파일의 본문. 경로는 전부 Windows 쪽 그대로다 — cmd.exe가 Windows 프로세스라 Linux 경로를 모른다.
- * `%`가 든 경로는 cmd가 변수로 펼치므로 `%%`로 둔다(그 밖의 글자는 따옴표 안에서 그대로다).
- *
- * **`chcp 65001`이 경로 줄보다 앞에 있어야 한다.** 파일은 UTF-8로 쓰지만 cmd.exe는 배치를 콘솔의 OEM 코드 페이지(한국어
- * Windows는 949)로 읽는다 — 사용자 폴더(`C:\Users\홍길동`)·userData에 ASCII가 아닌 글자가 하나라도 있으면 경로가 깨져 브리지가
- * `Cannot find module`로 죽고, claude는 MCP 서버를 failed로 두고 그대로 진행해 도구 없는 run이 성공으로 끝난다. cmd는 배치를
- * 줄마다 그때의 코드 페이지로 읽으므로 이 줄 뒤부터 UTF-8이다(2026-10-12 실측 — WSL interop으로 `한글 폴더` 아래 배치를 띄워
- * 없으면 exit 1, 있으면 통과. spec §4-B).
- */
-function bridgeCmdBody(target: McpConfigTarget, bridgeFile: string): string {
-  const q = (p: string) => `"${p.replace(/%/g, '%%')}"`
-  return [
-    '@echo off', 'chcp 65001 >nul', 'set ELECTRON_RUN_AS_NODE=1', `${q(target.execPath)} ${q(target.bridgePath)} ${q(bridgeFile)}`, ''
-  ].join('\r\n')
 }
 
 function claudeBody(target: McpConfigTarget): string {
@@ -141,9 +133,8 @@ export function writeMcpConfig(
     const bridgeFile = bridgeFileOf(dir, runId)
     writeFileSync(bridgeFile, JSON.stringify({ url: target.url, token: target.token }), { mode: 0o600 })
     chmodSync(bridgeFile, 0o600)
-    writeFileSync(bridgeCmdOf(dir, runId), bridgeCmdBody(target, bridgeFile), { mode: 0o600 })
   }
-  const body = wsl ? claudeWslBody(dir, runId, wsl) : agentKind === 'opencode' ? opencodeBody(target) : claudeBody(target)
+  const body = wsl ? claudeWslBody(dir, runId, target, wsl) : agentKind === 'opencode' ? opencodeBody(target) : claudeBody(target)
   // writeFileSync의 mode 옵션은 파일을 "새로" 만들 때만 적용된다 — 이미 존재하는
   // 파일(예: 이전 비정상 종료가 남긴 동명 파일)을 열 때는 기존 권한이 그대로
   // 남는다. chmodSync로 매번 명시적으로 0600을 강제해 그 경우까지 막는다.
@@ -156,7 +147,6 @@ export function writeMcpConfig(
 export function removeMcpConfig(dir: string, runId: string): void {
   rmSync(join(dir, `${runId}.json`), { force: true })
   rmSync(bridgeFileOf(dir, runId), { force: true })
-  rmSync(bridgeCmdOf(dir, runId), { force: true })
 }
 
 /** 부팅 시 지난 실행이 남긴 파일을 치운다. 토큰은 이미 죽었지만 파일까지 남길 이유가 없다. */

@@ -1,3 +1,4 @@
+import { rmSync } from 'node:fs'
 import type { Repo, TerminalData, TerminalExit, TerminalOpenInput, TerminalSession } from '@shared/models'
 import type { ErrorSink } from '../errors'
 import { readPgid, type TreeKiller } from '../runner/terminate'
@@ -45,9 +46,12 @@ export interface TerminalServiceDeps {
   killTree: TreeKiller
   /** Windows 트리 종료의 동기판 — **앱 종료 경로 전용**(FR-9, `taskkillTreeSync`) */
   killTreeSync: TreeKiller
-  /** WSL 안의 그룹 종료 — 비동기(다시 시작·repo 종료)·동기(앱 종료) (wsl-support FR-30) */
-  killGroup: GroupKiller
-  killGroupSync: GroupKiller
+  /**
+   * WSL 안의 **세션** 종료 — 비동기(다시 시작·repo 종료)·동기(앱 종료) (wsl-support FR-30). 그룹이 아니다: 대화형 bash는 작업마다
+   * 그룹을 따로 만들어 그룹 KILL은 셸만 맞힌다. `kill.ts`의 `killSession`·`killSessionSync`다
+   */
+  killSession: GroupKiller
+  killSessionSync: GroupKiller
   /** WSL 셸의 런처(Linux 경로 둘 + pidfile의 Windows 경로). 없으면 WSL repo의 셸을 띄울 수 없다 */
   wslLauncher: (distro: string, repoId: string) => Promise<{ path: string; pidfile: string; pidfileHost: string }>
   /** WSL 셸의 Windows 쪽 cwd — wsl.exe 자신이 UNC에서 뜨려다 실패하지 않게 늘 있는 디렉토리(userData) */
@@ -156,17 +160,23 @@ export function createTerminalService(deps: TerminalServiceDeps) {
   function end(shell: Shell, sync: boolean): void {
     if (shell.timer) { clearTimeout(shell.timer); shell.timer = null }
     shell.pending = null
+    // WSL 셸의 pidfile은 읽고 곧바로 지운다(FR-19) — 셸이 스스로 끝났어도. 남겨 두면 다시 시작한 셸의 런처가 쓰기 전에 또 끝낼 때
+    // 옛 세션을 겨눈다.
+    const sid = shell.wsl ? readPgid(shell.wsl.pidfileHost) : null
+    if (shell.wsl) {
+      try { rmSync(shell.wsl.pidfileHost, { force: true }) } catch (err) { deps.onError('WSL 셸의 pidfile을 지우지 못했습니다', err) }
+    }
     if (shell.exited) return
     const killPty = () => {
       try { shell.pty.kill() } catch (err) { deps.onError('셸을 끝내지 못했습니다', err) }
     }
-    // WSL 셸은 그룹을 안에서 먼저 끝낸다 (wsl-support FR-30) — wsl.exe만 죽이면 dev 서버 같은 자식이 남는다. pidfile이 아직
-    // 없으면(런처가 쓰기 전) pty만. 플랫폼과 무관하다.
+    // WSL 셸은 **세션**을 안에서 먼저 끝낸다 (wsl-support FR-30) — 대화형 bash는 작업마다 그룹을 따로 만들어 그룹 KILL은 셸만
+    // 맞히고 `npm run dev &`가 남았다(실측). wsl.exe의 `--exec`가 명령을 세션 리더로 띄우므로 pidfile의 수가 곧 sid다. pidfile이
+    // 아직 없으면(런처가 쓰기 전) pty만. 플랫폼과 무관하다.
     if (shell.wsl) {
-      const pgid = readPgid(shell.wsl.pidfileHost)
-      if (pgid !== null) {
-        (sync ? deps.killGroupSync : deps.killGroup)(shell.wsl.distro, pgid, 'KILL', (err) => {
-          deps.onError('WSL 셸의 그룹을 끝내지 못했습니다 — wsl.exe만 끝냅니다', err)
+      if (sid !== null) {
+        (sync ? deps.killSessionSync : deps.killSession)(shell.wsl.distro, sid, 'KILL', (err) => {
+          deps.onError('WSL 셸의 세션을 끝내지 못했습니다 — wsl.exe만 끝냅니다', err)
         })
       }
       killPty()

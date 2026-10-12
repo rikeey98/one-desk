@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Page } from 'playwright-core'
@@ -8,9 +8,10 @@ import { launchApp } from './driver'
 import { waitConvStatus } from './dock'
 
 /**
- * WSL repo 실측 (docs/sdlc/wsl-support/ spec §4-B). `wsl.e2e.ts`가 가짜 wsl.exe로 본 것을 **진짜 WSL과 진짜 claude**로 본다 —
+ * WSL repo 실측 (docs/sdlc/wsl-support/ spec §4-B·§4-C). `wsl.e2e.ts`가 가짜 wsl.exe로 본 것을 **진짜 WSL과 진짜 claude**로 본다 —
  * 등록 · 실행 환경 저장 · CLI 상태 · `@` 목록(WSL 안의 git) · 코드 칸(UNC 읽기) · 터미널(WSL 셸) · MCP 도구와 `@` 멘션 ·
- * 큰 출력 · 취소 뒤 남는 프로세스 · 앱 종료 뒤 남는 프로세스(WSL은 cwd로, Windows는 데이터 폴더를 품은 명령줄로 찾는다).
+ * 큰 출력 · 취소 뒤 남는 프로세스 · 터미널 백그라운드 작업(다시 시작·앱 종료 뒤) · 앱 종료 뒤 남는 프로세스(WSL은 cwd로, Windows는
+ * 데이터 폴더를 품은 명령줄로 찾는다). 데이터 폴더 이름은 적대적이다(한글·공백·`&^%!()` — §4-C).
  *
  * 가짜로는 못 잡는 것을 잡으려고 있다 — v0.24.0·v0.25.0은 wsl.exe를 `--`로 띄워 모든 WSL run이 시작조차 못 했는데, 가짜
  * wsl.exe가 인자를 배열 그대로 띄워 단위·e2e가 전부 초록이었다. 이 테스트의 첫 실행이 그것을 찾았다(2026-10-12).
@@ -56,18 +57,47 @@ function wslOurs(): string {
 const pidsOf = (scan: string) => new Set(scan.split('\n').filter(Boolean).map((l) => l.split(' ')[0]!))
 
 /**
- * 이 앱이 Windows에 띄운 MCP 브리지 — 명령줄에 데이터 폴더와 `.bridge.`를 같이 품은 것(`cmd.exe /c <dataDir>\mcp\<run>.bridge.cmd`와
- * 그것이 띄운 Electron 브리지의 `<run>.bridge.json`). 데이터 폴더만 보면 앱 자신의 Chromium 자식(`--user-data-dir=…`)이 걸린다.
- * 찾는 문자열은 쪼개 둔다(위와 같은 이유).
+ * 터미널에서 띄우는 백그라운드 작업 다섯 모양 — `&` · `nohup` · `( … &)` · `sh -c` 안의 자식 · `disown`. 전부 셸과 **같은 세션**이고
+ * 각자 다른 그룹이라 그룹 KILL은 하나도 못 맞혔다(§4-C 실측). `setsid`는 넣지 않는다 — 세션을 떠난 것은 남는 것이 설계다(FR-30).
+ * 수가 작아(1201초 남짓) 실패한 실행이 남긴 것도 저절로 끝난다.
+ */
+const bgLine = (n: number) => `sleep ${n}1 & nohup sleep ${n}2 >/dev/null 2>&1 & (sleep ${n}3 &); sh -c 'sleep ${n}4; true' & sleep ${n}5 & disown`
+const bgMarks = (n: number) => [1, 2, 3, 4, 5].map((k) => `sleep ${n}${k}`)
+const jobPids = (scan: string, n: number) =>
+  scan.split('\n').filter((l) => bgMarks(n).some((m) => l.includes(m))).map((l) => l.split(' ')[0]!)
+
+/** 사용자 폴더 이름에 올 수 있는 글자를 섞은 데이터 폴더 — cmd.exe를 거치던 v0.25.0까지의 브리지가 여기서 쪼개졌다(§4-C) */
+const HOSTILE_DATA_DIR = 'one-desk-e2e-data-홍 a&b^c%PATH%!(x)-'
+
+/**
+ * 이 앱이 Windows에 띄운 MCP 브리지 — 명령줄에 데이터 폴더와 `.bridge.`를 같이 품은 것(claude가 interop으로 띄운
+ * `"<electron>" "<bridge.mjs>" "<dataDir>\mcp\<run>.bridge.json"` — v0.25.0까지는 그 앞에 `cmd.exe /c …bridge.cmd`가 있었다). 데이터
+ * 폴더만 보면 앱 자신의 Chromium 자식(`--user-data-dir=…`)이 걸린다. 찾는 문자열은 쪼개 둔다(위와 같은 이유). 출력은 UTF-8로 받는다 —
+ * PowerShell 5.1은 파이프에 OEM 코드 페이지로 써 데이터 폴더의 한글이 깨진다.
  */
 function winOurs(dataDir: string): string {
   const name = basename(dataDir)
   const half = Math.floor(name.length / 2)
   const r = spawnSync('powershell.exe', ['-NoProfile', '-Command',
-    `$n = '${name.slice(0, half)}' + '${name.slice(half)}'; $b = '.bri' + 'dge.'; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($n) -and $_.CommandLine.Contains($b) } | ForEach-Object { "$($_.ProcessId) $($_.Name) $($_.CommandLine)" }`
+    `[Console]::OutputEncoding = [Text.Encoding]::UTF8; $n = '${name.slice(0, half)}' + '${name.slice(half)}'; $b = '.bri' + 'dge.'; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($n) -and $_.CommandLine.Contains($b) } | ForEach-Object { "$($_.ProcessId) $($_.Name) $($_.CommandLine)" }`
   ], { encoding: 'utf8', timeout: 30_000 })
   if (r.error || r.status !== 0) throw new Error(`관찰용 powershell 실패 (${r.status}): ${r.error?.message ?? r.stderr}`)
   return (r.stdout ?? '').trim()
+}
+
+/**
+ * 디렉토리를 통째로 복사한다. **`fs.cpSync`를 쓰지 않는다** — Node 22(22.23.2 실측)의 `cpSync`는 Windows에서 원본 경로에 한글이
+ * 있으면 접근 위반(0xC0000005)으로 프로세스째 죽는다. 이 테스트의 데이터 폴더가 일부러 한글 이름이라 vitest 워커가 아무 말 없이
+ * 죽고 앱·터미널이 고아로 남았다. `copyFileSync`(libuv)는 괜찮다.
+ */
+function copyDir(from: string, to: string): void {
+  mkdirSync(to, { recursive: true })
+  for (const entry of readdirSync(from, { withFileTypes: true })) {
+    const src = join(from, entry.name)
+    const dst = join(to, entry.name)
+    if (entry.isDirectory()) copyDir(src, dst)
+    else copyFileSync(src, dst)
+  }
 }
 
 type Step = { ok: boolean; note?: string; error?: string; [k: string]: unknown }
@@ -76,8 +106,11 @@ describe.skipIf(process.env['ONE_DESK_REAL_WSL'] !== '1')('WSL 실측 (진짜 ws
   it('등록부터 앱 종료까지', async () => {
     mkdirSync(OUT, { recursive: true })
     const steps: Record<string, Step> = {}
+    // 진행 기록은 파일에 곧바로 쓴다 — 테스트 워커가 죽으면 콘솔 출력은 함께 사라진다
+    const progress = (line: string) => { try { appendFileSync(join(OUT, 'progress.log'), `${new Date().toISOString()} ${line}\n`) } catch { /* 기록일 뿐 */ } }
     const step = async (name: string, body: () => Promise<Record<string, unknown> | void>) => {
       const started = Date.now()
+      progress(`start ${name}`)
       try {
         const extra = (await body()) ?? {}
         steps[name] = { ok: true, ms: Date.now() - started, ...extra }
@@ -87,6 +120,7 @@ describe.skipIf(process.env['ONE_DESK_REAL_WSL'] !== '1')('WSL 실측 (진짜 ws
         steps[name] = { ok: false, ms: Date.now() - started, error: err instanceof Error ? err.message : String(err), ...extra }
       }
       console.log(`[wsl-real] ${name}: ${steps[name]!.ok ? 'ok' : 'FAIL'}`)
+      progress(`end ${name} ${steps[name]!.ok ? 'ok' : `FAIL ${steps[name]!.error ?? ''}`}`)
     }
 
     // 0. WSL 안에 임시 git repo
@@ -99,8 +133,12 @@ describe.skipIf(process.env['ONE_DESK_REAL_WSL'] !== '1')('WSL 실측 (진짜 ws
       ].join('; '))
     }
 
-    // 진짜 CLI: ONE_DESK_AGENT_PATH를 비워야 가짜 CLI가 이기지 않는다 (CLAUDE.md)
-    const app = await launchApp({ agentPath: '' })
+    // 진짜 CLI: ONE_DESK_AGENT_PATH를 비워야 가짜 CLI가 이기지 않는다 (CLAUDE.md). 데이터 폴더는 적대적인 이름이다 — MCP 설정·인자
+    // 파일·pidfile·wslpath의 userData 접두사가 전부 그 아래다
+    const app = await launchApp({ agentPath: '', dataDirPrefix: HOSTILE_DATA_DIR })
+    steps['data-dir'] = { ok: true, dataDir: app.dataDir }
+    /** 앱을 끌 때 셸과 함께 끝나야 하는 백그라운드 작업 (5c) — finally가 본다 */
+    let bgAtClose: string[] = []
     // 중간에 무엇이 던져도 기록·로그·임시 repo 정리는 남는다
     try {
       const page: Page = app.page
@@ -173,11 +211,9 @@ describe.skipIf(process.env['ONE_DESK_REAL_WSL'] !== '1')('WSL 실측 (진짜 ws
       })
 
       const terminal = page.getByRole('region', { name: '터미널 칸' })
-      await step('5-terminal', async () => {
-        await page.getByRole('button', { name: '터미널', exact: true }).click()
-        const rows = terminal.locator('.xterm-rows')
-        await rows.waitFor({ timeout: 30_000 })
-        // 셸이 조용해질 때까지 (terminal.e2e의 waitShellIdle과 같은 판정)
+      const rows = terminal.locator('.xterm-rows')
+      /** 셸이 조용해질 때까지 (terminal.e2e의 waitShellIdle과 같은 판정) */
+      const waitShellIdle = async () => {
         let last = ''
         let since = Date.now()
         await expect.poll(async () => {
@@ -185,9 +221,18 @@ describe.skipIf(process.env['ONE_DESK_REAL_WSL'] !== '1')('WSL 실측 (진짜 ws
           if (now !== last) { last = now; since = Date.now() }
           return now.trim() !== '' && Date.now() - since >= 1500
         }, { timeout: 30_000, interval: 250 }).toBe(true)
+      }
+      const typeLine = async (line: string) => {
         await terminal.locator('.xterm').click()
-        await page.keyboard.type('echo "wsl-$((40+2))"; uname -r; pwd')
+        await page.keyboard.type(line)
         await page.keyboard.press('Enter')
+      }
+
+      await step('5-terminal', async () => {
+        await page.getByRole('button', { name: '터미널', exact: true }).click()
+        await rows.waitFor({ timeout: 30_000 })
+        await waitShellIdle()
+        await typeLine('echo "wsl-$((40+2))"; uname -r; pwd')
         await expect.poll(async () => (await rows.innerText()).includes('wsl-42'), { timeout: 20_000 }).toBe(true)
         await page.waitForTimeout(1_000)
         await shot('5-terminal')
@@ -196,9 +241,37 @@ describe.skipIf(process.env['ONE_DESK_REAL_WSL'] !== '1')('WSL 실측 (진짜 ws
         if (!text.includes(LINUX_REPO)) throw new Error('셸의 작업 디렉토리가 repo가 아니다')
         // 셸이 보여야 이 통로가 터미널을 본다는 증거다 — 9단계의 "앱을 끄면 셸도 없다"가 빈 스캔으로 거저 통과하지 않게
         const scan = wslOurs()
-        baseline = pidsOf(scan)
-        if (baseline.size === 0) throw new Error('터미널 셸이 WSL 스캔에 보이지 않는다')
+        if (pidsOf(scan).size === 0) throw new Error('터미널 셸이 WSL 스캔에 보이지 않는다')
         return { text, scan }
+      })
+
+      // 셸 다시 시작(비동기 세션 KILL)이 셸의 백그라운드 작업까지 끝낸다 (FR-30, §4-C — 그룹 KILL이던 v0.25.0까지는 남았다)
+      await step('5b-terminal-restart-bg', async () => {
+        await waitShellIdle()
+        await typeLine(bgLine(121))
+        let before = ''
+        await expect.poll(() => { before = wslOurs(); return bgMarks(121).every((m) => before.includes(m)) }, { timeout: 20_000, interval: 1_000 }).toBe(true)
+        const jobs = jobPids(before, 121)
+        await terminal.getByRole('button', { name: '셸 다시 시작', exact: true }).click()
+        await terminal.getByRole('button', { name: '정말 다시 시작' }).click()
+        let left = jobs
+        try {
+          await expect.poll(() => { const now = pidsOf(wslOurs()); left = jobs.filter((p) => now.has(p)); return left.length === 0 }, { timeout: 15_000, interval: 1_000 }).toBe(true)
+        } catch { /* 남은 것을 기록한다 */ }
+        if (left.length > 0) throw Object.assign(new Error('셸을 다시 시작해도 백그라운드 작업이 남았다'), { before, jobs, left })
+        return { jobs }
+      })
+
+      // 앱 종료(동기 세션 KILL)가 끝내야 할 백그라운드 작업 — 9단계가 본다. 그 뒤의 기준선(취소 단계가 빼고 볼 것)도 여기서 잡는다
+      await step('5c-terminal-bg-for-close', async () => {
+        await waitShellIdle()
+        await typeLine(bgLine(120))
+        let scan = ''
+        await expect.poll(() => { scan = wslOurs(); return bgMarks(120).every((m) => scan.includes(m)) }, { timeout: 20_000, interval: 1_000 }).toBe(true)
+        bgAtClose = jobPids(scan, 120)
+        baseline = pidsOf(scan)
+        await shot('5c-terminal-bg')
+        return { bgAtClose }
       })
       // 코드 칸을 닫아 대화창을 넓힌다 (셸은 core에서 계속 돈다)
       await page.getByRole('button', { name: '터미널', exact: true }).click().catch(() => {})
@@ -218,7 +291,21 @@ describe.skipIf(process.env['ONE_DESK_REAL_WSL'] !== '1')('WSL 실측 (진짜 ws
         if (!answer.includes('readme=hello')) throw new Error(`멘션한 파일이 실리지 않았다: ${answer}`)
         const chip = await page.locator('.applied-chip', { hasText: '파일 · README.md' }).count()
         if (!chip) throw new Error('대화 헤더의 담긴 것에 README.md가 없다')
-        return { answer }
+        // 답 문구가 아니라 기록으로 본다 — MCP가 안 붙어도 모델이 "MCP_OK count=0"을 지어낼 수 있다. init의 mcp_servers가 connected이고
+        // list_issues 호출이 오류 없이 돌아왔어야 한다 (§4-C — 적대적인 데이터 폴더에서도)
+        const runDirs = readdirSync(join(app.dataDir, 'logs'))
+        if (runDirs.length !== 1) throw new Error(`run 로그가 하나가 아니다: ${runDirs.join(', ')}`)
+        const lines = (file: string) => readFileSync(join(app.dataDir, 'logs', runDirs[0]!, file), 'utf8').split('\n').filter(Boolean)
+          .map((l) => { try { return JSON.parse(l) as Record<string, unknown> } catch { return {} } })
+        const init = lines('raw.jsonl').find((l) => l['type'] === 'system' && l['subtype'] === 'init')
+        const servers = (init?.['mcp_servers'] ?? []) as { name: string; status: string }[]
+        const events = lines('stream.jsonl')
+        const use = events.find((e) => e['type'] === 'tool_use' && e['name'] === 'mcp__one-desk__list_issues')
+        const result = use && events.find((e) => e['type'] === 'tool_result' && e['toolUseId'] === use['toolUseId'])
+        const mcp = { servers, used: Boolean(use), resultOk: result?.['ok'] ?? null }
+        if (!servers.some((s) => s.name === 'one-desk' && s.status === 'connected')) throw Object.assign(new Error('MCP 서버가 connected가 아니다'), mcp)
+        if (!use || result?.['ok'] !== true) throw Object.assign(new Error('list_issues 호출이 오류 없이 돌아오지 않았다'), mcp)
+        return { answer, mcp }
       })
 
       await step('7-turn-big-output', async () => {
@@ -266,15 +353,21 @@ describe.skipIf(process.env['ONE_DESK_REAL_WSL'] !== '1')('WSL 실측 (진짜 ws
         const result = { before, spawned, winBefore, left, winAfter, canceledMs, clearedMs, pidfilesBefore, pidfilesAfter }
         if (spawned.length === 0) throw Object.assign(new Error('이 run의 프로세스가 WSL 스캔에 보이지 않는다'), result)
         if (winBefore === '') throw Object.assign(new Error('MCP 브리지가 Windows 쪽에 보이지 않는다 — 감지 통로를 믿을 수 없다'), result)
+        // 브리지는 claude가 interop으로 띄운 Electron 자신이다 — cmd.exe를 거치지 않는다 (FR-23 개정, §4-C)
+        const bridgeLines = winBefore.split('\n')
+        if (bridgeLines.some((l) => /^\d+ cmd\.exe /i.test(l))) throw Object.assign(new Error('브리지가 cmd.exe를 거쳐 떴다'), result)
+        if (!bridgeLines.some((l) => /^\d+ (electron|one-desk)\.exe /i.test(l) && l.includes('.bridge.json'))) {
+          throw Object.assign(new Error('Electron 브리지가 인자 파일을 받아 뜨지 않았다'), result)
+        }
         if (left.length > 0 || winAfter !== '') throw Object.assign(new Error('취소 뒤 프로세스가 남았다'), result)
         return result
       })
     } finally {
       // 로그를 남긴다 — close가 dataDir을 지운다
-      try { cpSync(join(app.dataDir, 'logs'), join(OUT, 'logs'), { recursive: true }) } catch { /* 없으면 없다 */ }
+      try { copyDir(join(app.dataDir, 'logs'), join(OUT, 'logs')) } catch { /* 없으면 없다 */ }
       const pidfilesAtClose = existsSync(join(app.dataDir, 'wsl')) ? readdirSync(join(app.dataDir, 'wsl')) : []
       await app.close()
-      // 앱 종료(cancelAll·터미널의 동기 그룹 KILL) 뒤 — 터미널 셸까지 WSL에, 브리지가 Windows에 남지 않는다
+      // 앱 종료(cancelAll·터미널의 동기 세션 KILL) 뒤 — 터미널 셸과 그 백그라운드 작업(5c)까지 WSL에, 브리지가 Windows에 남지 않는다
       let wslLeft = ''
       let winLeft = ''
       try {
@@ -284,7 +377,11 @@ describe.skipIf(process.env['ONE_DESK_REAL_WSL'] !== '1')('WSL 실측 (진짜 ws
           return wslLeft === '' && winLeft === ''
         }, { timeout: 15_000, interval: 1_000 }).toBe(true)
       } catch { /* 남은 것을 기록한다 */ }
-      steps['9-after-app-close'] = { ok: wslLeft === '' && winLeft === '', pidfilesAtClose, wslLeft, winLeft }
+      const bgLeft = bgAtClose.filter((p) => pidsOf(wslLeft).has(p))
+      steps['9-after-app-close'] = { ok: wslLeft === '' && winLeft === '', pidfilesAtClose, wslLeft, winLeft, bgAtClose, bgLeft }
+      // 남은 것은 치운다 — 전부 cwd가 이 테스트의 repo 아래인 것이라 우리 것이다(repo를 지우기 전에)
+      const ours = [...pidsOf(wslLeft)]
+      if (ours.length > 0) { try { wsl(`kill -KILL ${ours.join(' ')} 2>/dev/null; true`) } catch { /* 기록은 위에 있다 */ } }
       let cleanup = ''
       try { cleanup = wsl(`rm -rf ${LINUX_REPO} && echo removed`) } catch (err) { cleanup = String(err) }
       steps['cleanup'] = { ok: cleanup === 'removed', output: cleanup }

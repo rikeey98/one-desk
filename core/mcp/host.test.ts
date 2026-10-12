@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
@@ -12,7 +12,7 @@ import { createWorkspaceRepository } from '../db/repositories/workspace'
 import { claudeCodeAdapter } from '../runner/adapters/claudeCode'
 import { HOST_ENV } from '../wsl/env'
 import { createMcpHost, MCP_SERVER_NAME, type McpHost } from './host'
-import { bridgeFileOf, bridgeCmdOf } from './configFile'
+import { bridgeFileOf } from './configFile'
 import { rpc } from './testing'
 
 let host: McpHost
@@ -136,25 +136,28 @@ describe('McpHost', () => {
   })
 })
 
-describe('prepare — WSL run (docs/sdlc/wsl-support/ FR-21)', () => {
-  it('cmd.exe와 설정 파일의 경로만 Linux로 바꾸고, 브리지 경로는 배치 파일에 Windows 경로로 남는다', async () => {
+describe('prepare — WSL run (docs/sdlc/wsl-support/ FR-21·23)', () => {
+  it('Electron 실행 파일과 설정 파일의 경로만 Linux로 바꾸고, 브리지·인자 파일은 Windows 경로로 인자에 남는다', async () => {
     const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-host-wsl-'))
     const db = makeTestDb()
     const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
     const asked: string[] = []
     const host = createMcpHost({
       deps: { repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db), runs: createRunRepository(db) },
-      configDir: resolve(dir, 'mcp'), execPath: '/host/electron', bridgePath: '/host/bridge.mjs', cmdExePath: 'C:\\Windows\\System32\\cmd.exe',
+      configDir: resolve(dir, 'mcp'), execPath: 'C:\\app\\one-desk.exe', bridgePath: 'C:\\app\\resources\\mcp-bridge.mjs',
       toLinux: async (distro, p) => { asked.push(`${distro}:${p}`); return `/mnt/host${p.replace(/\\/g, '/')}` }
     })
     try {
       const p = await host.prepare({ runId: 'r-wsl', workspaceId, permission: 'edit', agentKind: 'claude-code', env: { kind: 'wsl', distro: 'Ubuntu' } })
       expect(p.configFile).toBe(`/mnt/host${resolve(dir, 'mcp', 'r-wsl.json').replace(/\\/g, '/')}`)
-      const body = JSON.parse(readFileSync(resolve(dir, 'mcp', 'r-wsl.json'), 'utf8'))
-      expect(body.mcpServers[MCP_SERVER_NAME].command).toBe('/mnt/hostC:/Windows/System32/cmd.exe')
-      expect(body.mcpServers[MCP_SERVER_NAME].args).toEqual(['/c', bridgeCmdOf(resolve(dir, 'mcp'), 'r-wsl')])
-      expect(readFileSync(bridgeCmdOf(resolve(dir, 'mcp'), 'r-wsl'), 'utf8')).toContain('"/host/electron" "/host/bridge.mjs"')
-      expect(asked).toEqual([`Ubuntu:C:\\Windows\\System32\\cmd.exe`, `Ubuntu:${resolve(dir, 'mcp', 'r-wsl.json')}`])
+      const server = JSON.parse(readFileSync(resolve(dir, 'mcp', 'r-wsl.json'), 'utf8')).mcpServers[MCP_SERVER_NAME]
+      // claude가 interop으로 띄우는 것은 Electron 자신이다 — cmd.exe를 거치지 않는다 (§4-C)
+      expect(server.command).toBe('/mnt/hostC:/app/one-desk.exe')
+      // 브리지·인자 파일은 Windows 프로세스가 읽으므로 Windows 경로 그대로다 — /mnt/…를 주면 Electron이 C:\mnt\…로 읽는다
+      expect(server.args).toEqual(['C:\\app\\resources\\mcp-bridge.mjs', bridgeFileOf(resolve(dir, 'mcp'), 'r-wsl')])
+      expect(server.env).toEqual({ ELECTRON_RUN_AS_NODE: '1', WSLENV: 'ELECTRON_RUN_AS_NODE' })
+      expect(asked).toEqual(['Ubuntu:C:\\app\\one-desk.exe', `Ubuntu:${resolve(dir, 'mcp', 'r-wsl.json')}`])
+      expect(readdirSync(resolve(dir, 'mcp')).sort()).toEqual(['r-wsl.bridge.json', 'r-wsl.json'])
       // 토큰은 유효하다 — 인자 파일로 붙는 브리지가 쓴다
       expect(JSON.parse(readFileSync(bridgeFileOf(resolve(dir, 'mcp'), 'r-wsl'), 'utf8')).token).toBe(p.token)
     } finally {

@@ -115,6 +115,20 @@ describe('stdio 브리지', () => {
     expect(res.result.tools.length).toBeGreaterThan(0)
   })
 
+  // WSL run에서 WSLENV가 ELECTRON_RUN_AS_NODE를 넘기지 못하면 Electron이 앱(브라우저 프로세스)으로 뜬다 — 그대로 두면 claude가
+  // 30초를 기다린 뒤 MCP를 failed로 두고 Chromium 자식들이 남았다(§4-C 실측). node에는 process.type이 없어 --import로 흉내낸다
+  it('Electron 앱(브라우저 프로세스)으로 뜨면 곧바로 실패로 끝난다 — ELECTRON_RUN_AS_NODE가 오지 않은 것이다', async () => {
+    const proc = spawn(process.execPath, ['--import', 'data:text/javascript,process.type="browser"', BRIDGE], {
+      env: { ...process.env, ONE_DESK_MCP_URL: 'http://127.0.0.1:9/mcp', ONE_DESK_MCP_TOKEN: 'x' }
+    })
+    let stderr = ''
+    proc.stderr.on('data', (c: Buffer) => { stderr += c.toString('utf8') })
+    proc.stdin.end()
+    const code = await new Promise<number | null>((done) => proc.on('close', done))
+    expect(code).toBe(1)
+    expect(stderr).toContain('ELECTRON_RUN_AS_NODE')
+  })
+
   it('토큰이 틀리면 매달리지 않고 JSON-RPC 오류를 돌려준다', async () => {
     const p = await host.prepare({ runId: 'r3', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
     const [line] = await runBridge(

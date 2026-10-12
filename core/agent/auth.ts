@@ -34,6 +34,21 @@ function str(value: unknown): string | null {
 }
 
 /**
+ * 출력 **끝의** JSON 객체. WSL의 인증 조회는 로그인 셸(`bash -lc`) 안에서 뜨므로(wsl-support §4-C) `~/.profile`이 찍은 글자가 JSON
+ * 앞에 올 수 있다 — 줄로(`echo`) 오기도, 개행 없이 붙어(`printf 'Welcome'`) 오기도 한다(실측). 그래서 줄머리가 아니라 모든 `{`
+ * 자리를 뒤에서부터 시험해 처음 읽히는 객체를 쓴다(앞쪽 `{`에서 자르면 값이 둘이 되어 읽히지 않는다). 없으면 null.
+ */
+function trailingJsonObject(stdout: string): Record<string, unknown> | null {
+  for (let i = stdout.lastIndexOf('{'); i >= 0; i = i === 0 ? -1 : stdout.lastIndexOf('{', i - 1)) {
+    try {
+      const parsed: unknown = JSON.parse(stdout.slice(i))
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed as Record<string, unknown>
+    } catch { /* 앞의 `{`를 시험한다 */ }
+  }
+  return null
+}
+
+/**
  * `claude auth status --json`을 읽는다.
  *
  * **`--json`을 명시한다.** 지금은 그것이 기본 출력이지만, 기본값이 바뀌면 파싱이
@@ -50,17 +65,8 @@ async function claudeAuth(executable: string, run: RunCli): Promise<AgentAuth> {
   const problem = launchProblem(out)
   if (problem) return unknown(`인증 상태를 조회하지 못했습니다 (${problem})`)
 
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(out.stdout)
-  } catch {
-    return unknown('인증 상태의 출력을 읽지 못했습니다 (JSON이 아닙니다)')
-  }
-  if (typeof parsed !== 'object' || parsed === null) {
-    return unknown('인증 상태의 출력을 읽지 못했습니다')
-  }
-
-  const record = parsed as Record<string, unknown>
+  const record = trailingJsonObject(out.stdout)
+  if (!record) return unknown('인증 상태의 출력을 읽지 못했습니다 (JSON이 아닙니다)')
   const loggedIn = record['loggedIn']
   if (typeof loggedIn !== 'boolean') {
     return unknown('인증 상태의 출력에 loggedIn이 없습니다')

@@ -119,7 +119,16 @@ export function parseInit(line: string): Omit<ProbeResult, 'error'> | null {
   try {
     obj = JSON.parse(line)
   } catch {
-    return null
+    // WSL probe는 로그인 셸 안에서 뜬다(wsl-support §4-C) — `~/.profile`이 개행 없이 찍은 글자(`printf 'Welcome'`)가 init 줄 앞에
+    // 붙는다(실측). 그대로 버리면 init을 못 알아봐 **init 직후의 SIGKILL이 걸리지 않고 모델 호출까지 간다**(FR-10의 무료 약속이
+    // 깨진다). 그래서 init의 첫머리에서 한 번 더 읽는다.
+    const at = line.indexOf('{"type"')
+    if (at <= 0) return null
+    try {
+      obj = JSON.parse(line.slice(at))
+    } catch {
+      return null
+    }
   }
   if (typeof obj !== 'object' || obj === null) return null
   const record = obj as Record<string, unknown>

@@ -96,6 +96,19 @@ describe('checkAuth — claude', () => {
     expect((await checkAuth('claude-code', '/bin/claude', run)).state).toBe('unknown')
   })
 
+  // WSL의 인증 조회는 로그인 셸 안이다 — `~/.profile`이 찍은 글자가 JSON 앞에 온다(wsl-support §4-C 실측: 줄로도, 개행 없이도)
+  it('로그인 셸이 앞에 찍은 줄이 있어도 끝의 JSON을 읽는다', async () => {
+    const pretty = JSON.stringify({ loggedIn: true, authMethod: 'third_party' }, null, 2)
+    const { run } = stub(ok(`profile-says: hi\n{ conda says hi\n${pretty}\n`))
+    expect(await checkAuth('claude-code', '/bin/claude', run)).toEqual({ state: 'ok', method: 'third_party', plan: null })
+  })
+
+  it('개행 없이 붙은 글자 뒤의 JSON도 읽는다', async () => {
+    const pretty = JSON.stringify({ loggedIn: false, authMethod: 'none' }, null, 2)
+    const { run } = stub(ok(`Welcome to box${pretty}\n`))
+    expect((await checkAuth('claude-code', '/bin/claude', run)).state).toBe('none')
+  })
+
   it('loggedIn 필드가 없으면 unknown이다', async () => {
     const { run } = stub(ok(JSON.stringify({ authMethod: 'claude.ai' })))
     expect((await checkAuth('claude-code', '/bin/claude', run)).state).toBe('unknown')

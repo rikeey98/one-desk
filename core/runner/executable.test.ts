@@ -147,14 +147,21 @@ describe('agentCommand', () => {
     expect(out.cmd).toBe('/usr/local/bin/claude')
   })
 
-  it('wsl 환경이면 wsl.exe로 감싸고 Windows 런처는 쓰지 않는다 (wsl-support FR-9)', () => {
-    const out = agentCommand({ kind: 'wsl', distro: 'Ubuntu' }, '/home/me/.local/bin/claude', ['-p'],
+  // agent CLI는 WSL에서 늘 로그인 셸 안이다 — run과 같은 `~/.profile`을 읽어야 설정 화면의 인증·모델이 run과 같다(wsl-support §4-C)
+  it('wsl 환경이면 wsl.exe로 감싸고 로그인 셸 안에서 띄운다 — Windows 런처는 쓰지 않는다 (wsl-support FR-9)', () => {
+    const out = agentCommand({ kind: 'wsl', distro: 'Ubuntu' }, '/home/me/.local/bin/claude', ['-p', 'a "b" $HOME'],
       { cwd: '\\\\wsl$\\Ubuntu\\home\\me\\api' }, { ONE_DESK_AGENT_LAUNCHER: '/usr/bin/node' })
     expect(out).toEqual({
       cmd: 'wsl.exe',
-      args: ['-d', 'Ubuntu', '--cd', '/home/me/api', '--exec', '/home/me/.local/bin/claude', '-p'],
+      args: ['-d', 'Ubuntu', '--cd', '/home/me/api', '--exec', 'bash', '-lc', 'exec "$0" "$@"', '/home/me/.local/bin/claude', '-p', 'a "b" $HOME'],
       cwd: undefined
     })
+  })
+
+  it('런처가 있으면(run) 로그인 셸을 한 번 더 감싸지 않는다 — 런처가 이미 같은 상수로 exec한다', () => {
+    const out = agentCommand({ kind: 'wsl', distro: 'Ubuntu' }, '/home/me/.local/bin/claude', ['-p'],
+      { launcher: { path: '/mnt/c/app/launcher.sh', pidfile: '/mnt/c/data/wsl/r.pid' } }, {})
+    expect(out.args).toEqual(['-d', 'Ubuntu', '--exec', '/bin/sh', '/mnt/c/app/launcher.sh', '/mnt/c/data/wsl/r.pid', '/home/me/.local/bin/claude', '-p'])
   })
 
   it('원본 인자 배열을 건드리지 않는다', () => {

@@ -7,7 +7,11 @@
 //   wsl.exe -d <D> --exec sh -c 'echo $HOME'     → /home/me
 //   wsl.exe -d <D> --exec test -x <P>            → exit 0 (ONE_DESK_FAKE_WSL_MISSING에 <P>가 있으면 1)
 //   wsl.exe -d <D> --exec bash -lc 'command -v claude' → ONE_DESK_FAKE_WSL_CLAUDE 또는 /home/me/.local/bin/claude
-//   wsl.exe -d <D> --exec kill …                 → exit 0
+//   wsl.exe -d <D> --exec kill …                 → exit 0 (신호는 보내지 않는다)
+//   wsl.exe -d <D> --exec pkill …                → exit 0 (터미널의 세션 종료 — 같다)
+//   wsl.exe -d <D> [--cd <dir>] --exec bash -lc 'exec "$0" "$@"' <cmd> <args…>
+//                                                → 로그인 셸 접두사(인증·probe)를 벗기고 <cmd>를 그대로 띄운다. 그 밖의 `bash -c`·`sh -c`
+//                                                  문자열은 exit 2 — 흉내낼 수 없다
 //   wsl.exe -d <D> [--cd <dir>] --exec [/bin/sh <launcher> <pidfile>] <cmd> <args…>
 //                                                → 런처는 건너뛰고 <cmd>를 그대로 띄운다(.mjs면 node로). pidfile에는 그 자식의
 //                                                  **진짜 pid**를 쓴다 — 테스트의 가짜 killGroup이 그 pid를 죽여 "안에서 끝냈다"를
@@ -67,13 +71,24 @@ if (cmd[0] === 'bash' && cmd[1] === '-lc' && /command -v claude/.test(cmd[2] ?? 
   process.stdout.write(`${found}\n`)
   process.exit(0)
 }
-if (cmd[0] === 'kill') process.exit(0)
+// 신호는 보내지 않는다 — 진짜 kill·pkill이 테스트 장비(Linux CI)에서 돌면 안 된다
+if (cmd[0] === 'kill' || cmd[0] === 'pkill') process.exit(0)
 
 let inner = cmd
 let pidfile = null
 if (inner[0] === '/bin/sh' && inner[1] && inner[1].endsWith('launcher.sh')) {
   pidfile = inner[2] ?? null
   inner = inner.slice(3)
+}
+// 런처 없이 뜨는 agent CLI(인증·probe)는 로그인 셸로 감싸여 온다(core/wsl/launch.ts의 LOGIN_SHELL) — 런처처럼 벗긴다. Windows에는
+// bash가 없다
+const LOGIN_SHELL = ['bash', '-lc', 'exec "$0" "$@"']
+if (LOGIN_SHELL.every((v, k) => inner[k] === v)) inner = inner.slice(LOGIN_SHELL.length)
+// 그 밖의 셸 문자열은 흉내낼 수 없다 — 그대로 띄우면 Windows PATH의 Git Bash나 System32의 bash.exe(진짜 WSL)가 돈다. LOGIN_SHELL이
+// 바뀌었는데 위의 상수가 따라오지 않은 경우도 여기서 드러난다
+if ((inner[0] === 'bash' || inner[0] === 'sh') && /^-l?c$/.test(inner[1] ?? '')) {
+  process.stderr.write(`fake-wsl: 흉내낼 수 없는 셸 문자열입니다: ${JSON.stringify(inner.slice(0, 3))}\n`)
+  process.exit(2)
 }
 const [exe, ...rest] = inner
 const launcher = exe && exe.endsWith('.mjs') ? process.execPath : null

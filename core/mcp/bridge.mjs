@@ -18,9 +18,19 @@ import { createInterface } from 'node:readline'
 import { readFileSync } from 'node:fs'
 
 /**
- * 접속 정보는 env가 먼저이고, 없으면 첫 인자의 파일이다 (`docs/sdlc/wsl-support/` spec FR-22). WSL run에서는 `<runId>.bridge.cmd`가
- * 이 브리지를 띄우는데 그 배치는 `ELECTRON_RUN_AS_NODE`만 세우고 URL·토큰은 주지 않는다 — Windows 쪽 0600 파일의 경로만 인자로
- * 온다. 토큰은 어느 경우에도 인자에 실리지 않는다.
+ * Electron 앱(브라우저 프로세스)으로 떴으면 곧바로 실패로 끝낸다 — `ELECTRON_RUN_AS_NODE`가 오지 않은 것이다(WSL run이면 서버
+ * env의 `WSLENV`가 그것을 넘긴다 — spec §4-C). 그대로 두면 claude가 30초를 기다린 뒤 MCP를 failed로 두고 Chromium 자식들이
+ * 남았다(실측). 패키징 앱은 이 파일을 싣기 전에 앱 main이 돌므로 여기 닿지 않는다.
+ */
+if (process.type === 'browser') {
+  process.stderr.write('[one-desk] 브리지가 Electron 앱으로 떴습니다 — ELECTRON_RUN_AS_NODE가 오지 않았습니다(WSL run이면 WSLENV).\n')
+  process.exit(1)
+}
+
+/**
+ * 접속 정보는 env가 먼저이고, 없으면 첫 인자의 파일이다 (`docs/sdlc/wsl-support/` spec FR-22). WSL run에서는 claude가 interop으로
+ * 이 브리지를 띄운다 — `ELECTRON_RUN_AS_NODE`만 `WSLENV`로 넘어오고 URL·토큰은 Windows 쪽 0600 파일의 경로가 인자로 온다.
+ * 토큰은 어느 경우에도 인자에 실리지 않는다.
  */
 function readTarget() {
   const fromEnv = { url: process.env.ONE_DESK_MCP_URL, token: process.env.ONE_DESK_MCP_TOKEN }
