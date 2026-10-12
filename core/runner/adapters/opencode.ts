@@ -6,6 +6,7 @@ import type {
 } from '../types'
 import { opencodePermissionConfig } from '../permission'
 import { agentCommand, findExecutable, isBatchShim, unwrapNpmShim, type LookupOptions } from '../executable'
+import { HOST_ENV } from '../../wsl/env'
 import {
   emptyUsage, reasoningText, stripNeedsAnswer, summarize, toolResultText, withLoopbackBypass
 } from './common'
@@ -108,7 +109,8 @@ export type ConfigProbe = (input: {
 }) => Promise<string>
 
 const defaultProbe: ConfigProbe = async ({ executable, cwd, env }) => {
-  const launch = agentCommand(executable, ['debug', 'config'])
+  // opencode는 host에서만 돈다 — WSL repo에서는 preflight가 먼저 막는다(wsl-support FR-7).
+  const launch = agentCommand(HOST_ENV, executable, ['debug', 'config'])
   const { stdout } = await execFileAsync(launch.cmd, launch.args, { cwd, env })
   return stdout
 }
@@ -194,7 +196,7 @@ function judgeVersion(executable: string, output: string | null): string | null 
  * 가짜 CLI(`.mjs`)는 런처 없이는 Windows에서 뜨지 않는다.
  */
 const readVersion: VersionReader = (executable) => new Promise((resolve) => {
-  const launch = agentCommand(executable, ['--version'])
+  const launch = agentCommand(HOST_ENV, executable, ['--version'])
   let child: ChildProcess
   try {
     child = execFile(

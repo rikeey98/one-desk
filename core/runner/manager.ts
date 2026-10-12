@@ -8,6 +8,7 @@ import { createLogWriter, createRawLogWriter, RAW_LOG_MAX_BYTES } from './logWri
 import { taskkillTreeSync, terminate, type TreeKiller } from './terminate'
 import { agentCommand } from './executable'
 import type { ErrorSink } from '../errors'
+import type { ProcessEnvSpec } from '../wsl/env'
 
 export interface RunManagerOptions {
   adapters: Record<AgentKind, AgentAdapter>
@@ -50,6 +51,13 @@ export interface StartSpec {
   prompt: string
   resumeSessionId: string | null
   executable: string
+  /**
+   * 프로세스를 어디서 띄우나 (`docs/sdlc/wsl-support/` spec FR-8). **필수다** — 선택이면 실행 서비스가
+   * 빠뜨려도 조용히 컴파일되고 WSL repo의 run이 Windows에서 돈다. 실행 서비스가 cwd의 repo에서 만든다.
+   */
+  env: ProcessEnvSpec
+  /** WSL 런처(FR-10) — 둘 다 Linux 경로. wsl이 아니면 없다 */
+  launcher?: { path: string; pidfile: string }
   /** MCP 접속 정보. 없으면 어댑터가 MCP 인자를 통째로 건너뛴다 */
   mcp?: McpRunConfig | null
   timeoutMs?: number | null
@@ -287,9 +295,9 @@ export function createRunManager(opts: RunManagerOptions) {
     for (const raw of spec.preEvents ?? []) emit(raw)
 
     // Windows는 셔뱅을 모른다 — 가짜 CLI(.mjs)는 런처를 거쳐야 뜬다.
-    const launch = agentCommand(built.cmd, args)
+    const launch = agentCommand(spec.env, built.cmd, args, { cwd: built.cwd, launcher: spec.launcher })
     const child = spawn(launch.cmd, launch.args, {
-      cwd: built.cwd,
+      cwd: launch.cwd,
       env: built.env,
       stdio: ['pipe', 'pipe', 'pipe']
     })

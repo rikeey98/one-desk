@@ -35,6 +35,7 @@ import { createExecutionService } from './execution'
 import { claudeCodeAdapter } from './runner/adapters/claudeCode'
 import { opencodeAdapter } from './runner/adapters/opencode'
 import { resolveAgentPath } from './runner/agentPath'
+import { envOfRepo, HOST_ENV, type ProcessEnvSpec } from './wsl/env'
 import { findVscodeExecutable, newWindowArgs } from './editor/vscodeLaunch'
 import { vscodeFolderUrl } from './editor/vscodeUrl'
 import type { AgentProbes, AgentStatuses } from '@shared/models'
@@ -153,12 +154,21 @@ export function createCore(opts: CoreOptions) {
   const agentPathOf = (kind: AgentKind, workspace: Workspace | null) =>
     resolveAgentPath(kind, workspace, settings.agentPaths())
 
+  /**
+   * 그 작업 디렉토리의 프로세스를 어디서 띄우나 (`docs/sdlc/wsl-support/` spec FR-8) — cwd와 경로가 같은 그 workspace의
+   * repo의 `agentEnv`. 실행 서비스의 `envOfCwd`와 같은 판정이다(둘 다 `envOfRepo`). 등록된 repo가 아니면 host.
+   */
+  const envOfCwd = (workspaceId: string, cwd: string): ProcessEnvSpec => {
+    const found = repos.list(workspaceId).find((r) => r.path === cwd)
+    return found ? envOfRepo(found) : HOST_ENV
+  }
+
   const commands = createCommandService({
     probe: async ({ workspaceId, cwd }) => {
       const workspace = workspaces.list().find((w) => w.id === workspaceId) ?? null
       const resolved = await claudeCodeAdapter.preflight(agentPathOf('claude-code', workspace))
       const result = resolved.ok && resolved.executable
-        ? await probeCommands({ executable: resolved.executable, cwd })
+        ? await probeCommands({ executable: resolved.executable, cwd, env: envOfCwd(workspaceId, cwd) })
         : {
             slashCommands: [], terminalSlashCommands: [], plugins: [],
             model: null, version: null,

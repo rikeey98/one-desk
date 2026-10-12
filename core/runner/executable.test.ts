@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { agentCommand, executableCandidates, isBatchShim, unwrapNpmShim } from './executable'
+import { HOST_ENV } from '../wsl/env'
 
 const WIN = { platform: 'win32' as const }
 const POSIX = { platform: 'linux' as const }
@@ -126,28 +127,39 @@ describe('isBatchShim', () => {
 
 describe('agentCommand', () => {
   it('런처가 없으면 실행 파일을 그대로 띄운다', () => {
-    const out = agentCommand('C:\bin\claude.exe', ['--print'], {})
-    expect(out).toEqual({ cmd: 'C:\bin\claude.exe', args: ['--print'] })
+    const out = agentCommand(HOST_ENV, 'C:\bin\claude.exe', ['--print'], {}, {})
+    expect(out).toEqual({ cmd: 'C:\bin\claude.exe', args: ['--print'], cwd: undefined })
   })
 
   it('런처가 있으면 그것을 앞에 세우고 실행 파일을 첫 인자로 넘긴다', () => {
-    const out = agentCommand('/tmp/fake-claude.mjs', ['--print', '--verbose'], {
+    const out = agentCommand(HOST_ENV, '/tmp/fake-claude.mjs', ['--print', '--verbose'], { cwd: '/work' }, {
       ONE_DESK_AGENT_LAUNCHER: '/usr/bin/node'
     })
     expect(out).toEqual({
       cmd: '/usr/bin/node',
-      args: ['/tmp/fake-claude.mjs', '--print', '--verbose']
+      args: ['/tmp/fake-claude.mjs', '--print', '--verbose'],
+      cwd: '/work'
     })
   })
 
   it('빈 문자열은 런처로 치지 않는다', () => {
-    const out = agentCommand('/usr/local/bin/claude', [], { ONE_DESK_AGENT_LAUNCHER: '' })
+    const out = agentCommand(HOST_ENV, '/usr/local/bin/claude', [], {}, { ONE_DESK_AGENT_LAUNCHER: '' })
     expect(out.cmd).toBe('/usr/local/bin/claude')
+  })
+
+  it('wsl 환경이면 wsl.exe로 감싸고 Windows 런처는 쓰지 않는다 (wsl-support FR-9)', () => {
+    const out = agentCommand({ kind: 'wsl', distro: 'Ubuntu' }, '/home/me/.local/bin/claude', ['-p'],
+      { cwd: '\\\\wsl$\\Ubuntu\\home\\me\\api' }, { ONE_DESK_AGENT_LAUNCHER: '/usr/bin/node' })
+    expect(out).toEqual({
+      cmd: 'wsl.exe',
+      args: ['-d', 'Ubuntu', '--cd', '/home/me/api', '--', '/home/me/.local/bin/claude', '-p'],
+      cwd: undefined
+    })
   })
 
   it('원본 인자 배열을 건드리지 않는다', () => {
     const args = ['debug', 'config']
-    agentCommand('/tmp/fake.mjs', args, { ONE_DESK_AGENT_LAUNCHER: '/usr/bin/node' })
+    agentCommand(HOST_ENV, '/tmp/fake.mjs', args, {}, { ONE_DESK_AGENT_LAUNCHER: '/usr/bin/node' })
     expect(args).toEqual(['debug', 'config'])
   })
 })

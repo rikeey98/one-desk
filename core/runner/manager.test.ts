@@ -7,6 +7,7 @@ import { createRunManager, judgeStatus, mergeUsage, type RunManagerOptions } fro
 import { claudeCodeAdapter } from './adapters/claudeCode'
 import { opencodeAdapter } from './adapters/opencode'
 import { consoleErrorSink } from '../errors'
+import { HOST_ENV } from '../wsl/env'
 import type { RunEvent, RunEventInit, RunUsage } from '@shared/events'
 import { emptyUsage } from './adapters/common'
 import type { PlanUsage } from '@shared/models'
@@ -65,6 +66,7 @@ function spec(scenario: string) {
     permission: 'edit' as const,
     prompt: '테스트',
     resumeSessionId: null,
+    env: HOST_ENV,
     // 가짜 CLI를 실행 파일로 주입한다
     executable: process.execPath,
     extraArgs: [FAKE, '--scenario', scenario]
@@ -376,6 +378,62 @@ describe('RunManager — 실행 런처', () => {
     } finally {
       if (previous === undefined) delete process.env['ONE_DESK_AGENT_LAUNCHER']
       else process.env['ONE_DESK_AGENT_LAUNCHER'] = previous
+      cleanup()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('RunManager — WSL 실행 환경 (docs/sdlc/wsl-support/ FR-8·FR-9)', () => {
+  const FAKE_WSL = resolve(HERE, 'fixtures/fake-wsl.mjs')
+  const WSL_CWD = '\\\\wsl$\\Ubuntu\\home\\me\\api'
+
+  function withEnv(vars: Record<string, string>, fn: () => Promise<void>) {
+    const previous = new Map(Object.keys(vars).map((k) => [k, process.env[k]]))
+    for (const [k, v] of Object.entries(vars)) process.env[k] = v
+    return fn().finally(() => {
+      for (const [k, v] of previous) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
+    })
+  }
+
+  it('env가 wsl이면 wsl.exe -d <distro> --cd <linux cwd> -- 로 감싸 띄우고 run은 그 안의 결과로 끝난다', async () => {
+    const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-wsl-'))
+    const capture = resolve(dir, 'wsl.jsonl')
+    const { manager, cleanup } = makeManager()
+    try {
+      await withEnv({ ONE_DESK_WSL_PATH: FAKE_WSL, ONE_DESK_AGENT_LAUNCHER: process.execPath, ONE_DESK_WSL_CAPTURE: capture }, async () => {
+        const outcome = await manager.start({
+          ...spec('wsl'), cwd: WSL_CWD, env: { kind: 'wsl', distro: 'Ubuntu' }, executable: '/home/me/.local/bin/claude',
+          // 가짜 wsl이 안쪽 명령을 그대로 띄우므로 실행 파일 자리에 가짜 claude를 둔다
+          extraArgs: []
+        }).catch((err: unknown) => ({ status: 'failed' as const, errorMessage: String(err) }))
+        const lines = readFileSync(capture, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { argv: string[] })
+        expect(lines).toHaveLength(1)
+        const argv = lines[0]!.argv
+        expect(argv.slice(0, 5)).toEqual(['-d', 'Ubuntu', '--cd', '/home/me/api', '--'])
+        // Windows 쪽 cwd는 넘기지 않았다 — UNC를 cwd로 주면 wsl.exe 자신이 그 자리에서 뜨려다 실패할 수 있다
+        expect((lines[0] as unknown as { cwd: string }).cwd).toBe(process.cwd())
+        // 안쪽 명령은 실행 파일 그대로이고, 그 뒤에 claude 인자가 온다
+        expect(argv[5]).toBe('/home/me/.local/bin/claude')
+        expect(argv).toContain('--output-format')
+        // 가짜 wsl이 없는 실행 파일을 띄우려다 실패한다 — 그 실패가 run의 실패로 돌아온다(연결이 끊기면 run은 끝난다)
+        expect(outcome.status).toBe('failed')
+      })
+    } finally {
+      cleanup()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('가짜 CLI를 안쪽 명령으로 두면 WSL 갈래로도 run이 성공한다 — 스트림이 wsl.exe를 지나 그대로 온다', async () => {
+    const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-wsl-'))
+    const { manager, cleanup } = makeManager()
+    try {
+      await withEnv({ ONE_DESK_WSL_PATH: FAKE_WSL, ONE_DESK_AGENT_LAUNCHER: process.execPath }, async () => {
+        const outcome = await manager.start({ ...spec('success'), cwd: WSL_CWD, env: { kind: 'wsl', distro: 'Ubuntu' }, executable: FAKE })
+        expect(outcome.status).toBe('succeeded')
+      })
+    } finally {
       cleanup()
       rmSync(dir, { recursive: true, force: true })
     }

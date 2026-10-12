@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createLineSplitter } from '../runner/stream'
 import { agentCommand } from '../runner/executable'
+import type { ProcessEnvSpec } from '../wsl/env'
 import type { CommandPlugin, ProbeResult } from './types'
 
 /** 정상 환경에서 init은 2~6초에 온다(NFR-1). 훅이 느린 날을 감안해 그 두 배 남짓을 준다. */
@@ -27,6 +28,8 @@ const PROBE_ARGS = ['-p', '--output-format', 'stream-json', '--verbose', '--tool
 export function probeCommands(input: {
   executable: string
   cwd: string
+  /** 어디서 띄우나 — cwd의 repo가 정한다(wsl-support FR-9). 필수다 */
+  env: ProcessEnvSpec
   timeoutMs?: number
 }): Promise<ProbeResult> {
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS
@@ -34,9 +37,9 @@ export function probeCommands(input: {
   return new Promise((resolve) => {
     let child: ChildProcess
     try {
-      const launch = agentCommand(input.executable, PROBE_ARGS)
+      const launch = agentCommand(input.env, input.executable, PROBE_ARGS, { cwd: input.cwd })
       child = spawn(launch.cmd, launch.args, {
-        cwd: input.cwd,
+        cwd: launch.cwd,
         env: { ...process.env },
         stdio: ['pipe', 'pipe', 'pipe']
       })

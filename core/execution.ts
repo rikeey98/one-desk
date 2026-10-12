@@ -14,6 +14,7 @@ import { consoleErrorSink, NotFoundError, type ErrorSink } from './errors'
 import type { AgentKind, Asset, ContextItemRef, Permission, ResumeRunInput, Run, StartRunInput } from '@shared/models'
 import type { RunEventInit } from '@shared/events'
 import { issueToCarry, soleIssueOf } from '@shared/conversationIssue'
+import { envOfRepo, HOST_ENV, type ProcessEnvSpec } from './wsl/env'
 
 /** 맥락에 그 이슈를 더한다 — 이미 있으면 그대로다(같은 항목이 run_context_item에 두 줄 생기면 안 된다, FR-11). */
 function withIssue(context: ContextItemRef[], issueId: string | null): ContextItemRef[] {
@@ -186,6 +187,8 @@ export function createExecutionService(opts: ExecutionOptions) {
     permission: Permission
     prompt: string
     executable: string
+    /** 어디서 띄우나 — cwd의 repo가 정한다 (wsl-support FR-8) */
+    env: ProcessEnvSpec
     mcp: McpRunConfig | null
     /** 이어받을 대화. null이면 새 세션이다 */
     resumeFromRootRunId: string | null
@@ -271,6 +274,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       prompt: spec.prompt,
       resumeSessionId,
       executable: spec.executable,
+      env: spec.env,
       // 이 한 줄이 빠지면 MCP가 통째로 꺼진다.
       mcp: spec.mcp,
       timeoutMs: spec.timeoutMs,
@@ -325,15 +329,28 @@ export function createExecutionService(opts: ExecutionOptions) {
     issueId: string | null
   }
 
+  /** 작업 디렉토리와 경로가 같은 그 workspace의 repo. 등록된 경로가 아니면 null */
+  function cwdRepoOf(spec: Pick<LaunchSpec, 'workspaceId' | 'cwd'>) {
+    return opts.db.select().from(repo)
+      .where(and(eq(repo.workspaceId, spec.workspaceId), eq(repo.path, spec.cwd))).get() ?? null
+  }
+
+  /**
+   * 프로세스를 어디서 띄우나 (`docs/sdlc/wsl-support/` spec FR-8·FR-15) — 작업 디렉토리 repo의 `agentEnv`. 등록된
+   * repo가 아니면 host다. run 행의 `cwd`는 그대로 repo 경로(UNC)이고 Linux 경로로 바꾸는 것은 spawn 직전의 몫이다.
+   */
+  function envOfCwd(spec: Pick<LaunchSpec, 'workspaceId' | 'cwd'>): ProcessEnvSpec {
+    const found = cwdRepoOf(spec)
+    return found ? envOfRepo(found) : HOST_ENV
+  }
+
   /**
    * 작업 디렉토리의 repo에서 멘션을 해석한다. 작업 디렉토리가 등록된 repo가 아니면 해석하지
    * 않는다 — 멘션은 전부 중화된다(spec §5-3의 3).
    */
   async function resolveFileMentions(spec: LaunchSpec): Promise<ResolvedMentions> {
     if (!opts.files) return { files: [], resolvedStarts: [] }
-    const cwdRepo = opts.db.select().from(repo)
-      .where(and(eq(repo.workspaceId, spec.workspaceId), eq(repo.path, spec.cwd))).get() ?? null
-    return opts.files.resolveMentions(cwdRepo, spec.userPrompt)
+    return opts.files.resolveMentions(cwdRepoOf(spec), spec.userPrompt)
   }
 
   async function launch(spec: LaunchSpec): Promise<Run> {
@@ -486,6 +503,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       permission: spec.permission,
       prompt: assembled,
       executable,
+      env: envOfCwd(spec),
       mcp,
       resumeFromRootRunId: spec.resumeFromRootRunId,
       timeoutMs: spec.timeoutMs,

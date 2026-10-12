@@ -1,5 +1,7 @@
 import { access, constants, readFile } from 'node:fs/promises'
 import { dirname, join, posix, win32 } from 'node:path'
+import type { ProcessEnvSpec } from '../wsl/env'
+import { wrapForEnv, type Launch, type WrapOptions } from '../wsl/launch'
 
 /**
  * PATHEXT가 비어 있을 때 쓸 기본값.
@@ -132,15 +134,24 @@ export async function unwrapNpmShim(file: string): Promise<string | null> {
  * 있다는 점에서 그쪽이 이미 주는 것 이상의 능력을 더하지 않는다. 권한 플래그는 그대로다.
  *
  * agent 실행 파일을 spawn하는 자리는 전부 이 함수를 거쳐야 한다 — run(`manager.ts`),
- * 슬래시 커맨드 조회(`commands/probe.ts`), opencode 설정 확인(`adapters/opencode.ts`).
- * 하나라도 빠지면 그 경로만 조용히 셔뱅에 걸린다.
+ * 슬래시 커맨드 조회(`commands/probe.ts`), CLI 한 번 띄우기(`agent/exec.ts`), opencode 설정 확인
+ * (`adapters/opencode.ts`). 하나라도 빠지면 그 경로만 조용히 셔뱅에 걸린다.
+ *
+ * **실행 환경(`ProcessEnvSpec`)은 필수 인자다** (`docs/sdlc/wsl-support/` spec FR-9). WSL repo의 프로세스는
+ * `wsl.exe -d <distro>` 안에서 떠야 하는데, 선택 인자로 두면 호출 자리 하나만 빠뜨려도 조용히 컴파일되고 그
+ * 경로만 Windows에서 돈다 — `resolveAgentPath`가 앱 기본 경로를 필수로 받는 것과 같은 이유다. `cwd`도 여기로
+ * 받는다 — WSL은 spawn의 cwd가 아니라 `--cd`로 넘기므로 돌려주는 `cwd`를 spawn 옵션에 그대로 쓴다.
  */
 export function agentCommand(
+  env: ProcessEnvSpec,
   executable: string,
-  args: string[],
-  env: NodeJS.ProcessEnv = process.env
-): { cmd: string; args: string[] } {
-  const launcher = env['ONE_DESK_AGENT_LAUNCHER']
-  if (!launcher) return { cmd: executable, args }
-  return { cmd: launcher, args: [executable, ...args] }
+  args: readonly string[],
+  opts: WrapOptions = {},
+  processEnv: NodeJS.ProcessEnv = process.env
+): Launch {
+  // WSL 갈래 — Windows 쪽 런처는 뜻이 없다(안쪽이 Linux다). 변환은 wrapForEnv 한 자리다.
+  if (env.kind === 'wsl') return wrapForEnv(env, executable, args, opts, processEnv)
+  const launcher = processEnv['ONE_DESK_AGENT_LAUNCHER']
+  if (!launcher) return { cmd: executable, args: [...args], cwd: opts.cwd }
+  return { cmd: launcher, args: [executable, ...args], cwd: opts.cwd }
 }

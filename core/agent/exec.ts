@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { agentCommand } from '../runner/executable'
+import { HOST_ENV, type ProcessEnvSpec } from '../wsl/env'
 import type { CliOutput, RunCli } from './types'
 
 const DEFAULT_TIMEOUT_MS = 10_000
@@ -15,14 +16,17 @@ const DEFAULT_TIMEOUT_MS = 10_000
  *
  * Windows에서 `.mjs` 같은 것을 직접 실행하지 못하는 문제는 `agentCommand`가
  * 이미 푼다 — 여기서 따로 흉내내면 판정이 두 벌이 된다.
+ *
+ * **환경을 묶어 만든다**(`runCliIn(env)`, wsl-support FR-9) — `checkAuth`·모델 목록은 실행 파일만 알고 환경을
+ * 모르므로, 환경이 다른 CLI에는 환경을 미리 묶은 RunCli를 넘긴다. `runCli`는 host에 묶인 것이다.
  */
-export const runCli: RunCli = (input) => {
+export const runCliIn = (env: ProcessEnvSpec): RunCli => (input) => {
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS
 
   return new Promise<CliOutput>((resolve) => {
     let child
     try {
-      const launch = agentCommand(input.executable, input.args)
+      const launch = agentCommand(env, input.executable, input.args)
       child = spawn(launch.cmd, launch.args, {
         env: { ...process.env },
         stdio: ['ignore', 'pipe', 'pipe']
@@ -61,3 +65,6 @@ export const runCli: RunCli = (input) => {
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
+
+/** 앱이 도는 OS에서 띄우는 RunCli — Windows의 claude·opencode */
+export const runCli: RunCli = runCliIn(HOST_ENV)

@@ -9,7 +9,7 @@ import { createRepoRepository } from './db/repositories/repo'
 import { createIssueRepository } from './db/repositories/issue'
 import { createRunRepository, type RunRepository } from './db/repositories/run'
 import { createAssetRepository } from './db/repositories/asset'
-import { createRunManager, type RunManager, type RunOutcome } from './runner/manager'
+import { createRunManager, type RunManager, type RunOutcome, type StartSpec } from './runner/manager'
 import { createRunQueue } from './runner/queue'
 import { claudeCodeAdapter } from './runner/adapters/claudeCode'
 import { createExecutionService } from './execution'
@@ -1746,6 +1746,8 @@ function createPerRunManager() {
   // 실행 시점에 고른 값이 이 자리로 온다 — 그냥 "떴는지"만으로는 지연 해석이
   // 앞 턴의 세션을 실제로 집었는지 증명하지 못한다.
   const resumeSessionIds = new Map<string, string | null>()
+  // manager.start()에 넘어온 실행 환경 (wsl-support FR-8) — 배선이 빠지면 WSL repo의 run이 Windows에서 돈다
+  const envs = new Map<string, StartSpec['env']>()
   // manager.cancel()이 불린 run. 실제 manager처럼 프로세스를 죽이지는 않는다 —
   // 끝나는 순간은 테스트가 finish()로 정한다.
   const cancelRequests: string[] = []
@@ -1756,6 +1758,7 @@ function createPerRunManager() {
     start: (spec) => {
       seen.add(spec.runId)
       resumeSessionIds.set(spec.runId, spec.resumeSessionId)
+      envs.set(spec.runId, spec.env)
       return new Promise<RunOutcome>((r) => settlers.set(spec.runId, r))
     },
     cancel: (runId) => { cancelRequests.push(runId) },
@@ -1767,6 +1770,7 @@ function createPerRunManager() {
     manager,
     started: (runId: string) => seen.has(runId),
     sessionIdFor: (runId: string) => resumeSessionIds.get(runId) ?? null,
+    envFor: (runId: string) => envs.get(runId),
     cancelRequests,
     finish(runId: string, sessionId: string | null = null, status: RunOutcome['status'] = 'succeeded') {
       const settle = settlers.get(runId)
@@ -1842,6 +1846,45 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
     })
   ])
 }
+
+describe('실행 환경 배선 (docs/sdlc/wsl-support/ FR-8·FR-15)', () => {
+  const WSL_PATH = '\\\\wsl$\\Ubuntu\\home\\me\\api'
+
+  it('WSL repo를 작업 디렉토리로 한 run은 manager.start에 그 distro의 wsl 환경을 넘긴다 — cwd는 UNC 그대로다', async () => {
+    const fake = createPerRunManager()
+    const ctx2 = setup({ manager: fake.manager })
+    createRepoRepository(ctx2.db).create({ workspaceId: ctx2.workspaceId, name: 'wsl', path: WSL_PATH, agentEnv: 'wsl' })
+    const run = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: WSL_PATH,
+      permission: 'edit', userPrompt: 'x', context: []
+    })
+    await vi.waitFor(() => expect(fake.started(run.id)).toBe(true))
+    expect(fake.envFor(run.id)).toEqual({ kind: 'wsl', distro: 'Ubuntu' })
+    expect(ctx2.runs.get(run.id).cwd).toBe(WSL_PATH)
+    fake.finish(run.id)
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+
+  it('host repo·등록되지 않은 경로는 host다 — WSL 폴더여도 agentEnv가 host면 host다 (FR-2)', async () => {
+    const fake = createPerRunManager()
+    const ctx2 = setup({ manager: fake.manager })
+    createRepoRepository(ctx2.db).create({ workspaceId: ctx2.workspaceId, name: 'wsl-host', path: WSL_PATH })
+    const a = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: WSL_PATH,
+      permission: 'edit', userPrompt: 'x', context: []
+    })
+    const b = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: resolve(tmpdir(), 'one-desk-not-registered'),
+      permission: 'edit', userPrompt: 'y', context: []
+    })
+    await vi.waitFor(() => expect(fake.started(a.id) && fake.started(b.id)).toBe(true))
+    expect(fake.envFor(a.id)).toEqual({ kind: 'host' })
+    expect(fake.envFor(b.id)).toEqual({ kind: 'host' })
+    fake.finish(a.id)
+    fake.finish(b.id)
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+})
 
 describe('사용량 배선 (docs/sdlc/run-info/)', () => {
   it('RunManager가 낸 usage가 run에 저장된다', async () => {

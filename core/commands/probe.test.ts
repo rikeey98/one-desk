@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
 import { probeCommands } from './probe'
+import { HOST_ENV } from '../wsl/env'
 
 const HERE = fileURLToPath(new URL('.', import.meta.url))
 const FAKE = resolve(HERE, '../runner/fixtures/fake-claude.mjs')
@@ -55,7 +56,7 @@ describe.skipIf(POSIX_ONLY)('probeCommands — init 수신 후 즉시 종료 (FR
     process.env['ONE_DESK_FAKE_DELAY_MS'] = '1000'
     process.env['ONE_DESK_PROBE_MARKER'] = marker
 
-    const result = await probeCommands({ executable: FAKE, cwd: dir })
+    const result = await probeCommands({ env: HOST_ENV, executable: FAKE, cwd: dir })
 
     expect(result).toEqual({
       slashCommands: ['code-review', 'compact', 'doctor', 'color', 'reload-plugins', 'pinetest'],
@@ -77,7 +78,7 @@ describe.skipIf(POSIX_ONLY)('probeCommands — init 수신 후 즉시 종료 (FR
       setTimeout(() => writeFileSync(${JSON.stringify(marker)}, ''), 100)
       setTimeout(() => {}, 1000)
     `)
-    const result = await probeCommands({ executable: cli, cwd: dir })
+    const result = await probeCommands({ env: HOST_ENV, executable: cli, cwd: dir })
     expect(result.error).toBeNull()
     await new Promise((resolve) => setTimeout(resolve, 300))
     expect(existsSync(marker)).toBe(false)
@@ -94,7 +95,7 @@ describe.skipIf(POSIX_ONLY)('probeCommands — init 수신 후 즉시 종료 (FR
       setTimeout(() => {}, 5000)
     `)
 
-    const result = await probeCommands({ executable: cli, cwd: dir })
+    const result = await probeCommands({ env: HOST_ENV, executable: cli, cwd: dir })
 
     expect(result.slashCommands).toEqual(
       ['-p', '--output-format', 'stream-json', '--verbose', '--tools', '', '--strict-mcp-config']
@@ -116,7 +117,7 @@ describe.skipIf(POSIX_ONLY)('probeCommands — init 수신 후 즉시 종료 (FR
       setTimeout(() => {}, 5000)
     `)
 
-    const result = await probeCommands({ executable: cli, cwd: work })
+    const result = await probeCommands({ env: HOST_ENV, executable: cli, cwd: work })
 
     expect(result.slashCommands).toEqual([realpathSync(work), process.env['ONE_DESK_PROBE_ENV_MARK']])
   })
@@ -134,7 +135,7 @@ describe.skipIf(POSIX_ONLY)('probeCommands — init 수신 후 즉시 종료 (FR
       })
     `)
 
-    const result = await probeCommands({ executable: cli, cwd: dir, timeoutMs: 2000 })
+    const result = await probeCommands({ env: HOST_ENV, executable: cli, cwd: dir, timeoutMs: 2000 })
 
     expect(result.slashCommands).toEqual(['hi'])
   })
@@ -153,7 +154,7 @@ describe.skipIf(POSIX_ONLY)('probeCommands — init의 모델과 버전 (docs/sd
       setTimeout(() => {}, 5000)
     `)
 
-    const result = await probeCommands({ executable: cli, cwd: dir })
+    const result = await probeCommands({ env: HOST_ENV, executable: cli, cwd: dir })
 
     expect(result.model).toBe('claude-sonnet-5')
     expect(result.version).toBe('2.1.278')
@@ -167,7 +168,7 @@ describe.skipIf(POSIX_ONLY)('probeCommands — init의 모델과 버전 (docs/sd
       setTimeout(() => {}, 5000)
     `)
 
-    const result = await probeCommands({ executable: cli, cwd: dir })
+    const result = await probeCommands({ env: HOST_ENV, executable: cli, cwd: dir })
 
     expect(result.model).toBeNull()
     expect(result.version).toBeNull()
@@ -179,7 +180,7 @@ describe.skipIf(POSIX_ONLY)('probeCommands — init의 모델과 버전 (docs/sd
       setTimeout(() => {}, 5000)
     `)
 
-    expect((await probeCommands({ executable: cli, cwd: dir })).model).toBeNull()
+    expect((await probeCommands({ env: HOST_ENV, executable: cli, cwd: dir })).model).toBeNull()
   })
 })
 
@@ -191,7 +192,7 @@ describe.skipIf(POSIX_ONLY)('probeCommands — 실패 내성 (NFR-2)', () => {
       process.exitCode = 3
     `)
 
-    const result = await probeCommands({ executable: cli, cwd: dir })
+    const result = await probeCommands({ env: HOST_ENV, executable: cli, cwd: dir })
 
     expect(result).toMatchObject(EMPTY)
     expect(result.error).toContain('init')
@@ -203,7 +204,7 @@ describe.skipIf(POSIX_ONLY)('probeCommands — 실패 내성 (NFR-2)', () => {
     const init = JSON.stringify({ type: 'system', subtype: 'init', slash_commands: ['살아남음'] })
     const cli = writeCli(`process.stdout.write('이건 JSON이 아니다\\n{깨짐\\n' + ${JSON.stringify(init)} + '\\n')`)
 
-    const result = await probeCommands({ executable: cli, cwd: dir })
+    const result = await probeCommands({ env: HOST_ENV, executable: cli, cwd: dir })
 
     expect(result.slashCommands).toEqual(['살아남음'])
     expect(result.error).toBeNull()
@@ -215,7 +216,7 @@ describe.skipIf(POSIX_ONLY)('probeCommands — 실패 내성 (NFR-2)', () => {
       setTimeout(() => {}, 5000)
     `)
 
-    const result = await probeCommands({ executable: cli, cwd: dir })
+    const result = await probeCommands({ env: HOST_ENV, executable: cli, cwd: dir })
 
     expect(result).toEqual({ ...EMPTY, error: null })
   })
@@ -232,7 +233,7 @@ describe.skipIf(POSIX_ONLY)('probeCommands — 실패 내성 (NFR-2)', () => {
       setTimeout(() => {}, 5000)
     `)
 
-    const result = await probeCommands({ executable: cli, cwd: dir })
+    const result = await probeCommands({ env: HOST_ENV, executable: cli, cwd: dir })
 
     expect(result).toEqual({
       slashCommands: ['좋음'],
@@ -249,7 +250,7 @@ describe.skipIf(POSIX_ONLY)('probeCommands — 실패 내성 (NFR-2)', () => {
     // 프로세스가 60초를 살아 vitest의 5초 제한에 걸린다.
     const cli = writeCli('setTimeout(() => {}, 60000)')
 
-    const result = await probeCommands({ executable: cli, cwd: dir, timeoutMs: 300 })
+    const result = await probeCommands({ env: HOST_ENV, executable: cli, cwd: dir, timeoutMs: 300 })
 
     expect(result).toMatchObject(EMPTY)
     expect(result.error).toContain('시간이 초과')
@@ -265,7 +266,7 @@ describe.skipIf(POSIX_ONLY)('probeCommands — 실패 내성 (NFR-2)', () => {
       setTimeout(() => writeFileSync(${JSON.stringify(marker)}, ''), 300)
     `)
 
-    const result = await probeCommands({ executable: cli, cwd: dir, timeoutMs: 100 })
+    const result = await probeCommands({ env: HOST_ENV, executable: cli, cwd: dir, timeoutMs: 100 })
 
     expect(result.error).toContain('시간이 초과')
     // 마커 타이머(300ms)가 node 부팅을 더해도 충분히 지난 뒤에 본다.
@@ -276,7 +277,7 @@ describe.skipIf(POSIX_ONLY)('probeCommands — 실패 내성 (NFR-2)', () => {
 
 describe('probeCommands — 실행 파일 없음 (모든 플랫폼)', () => {
   it('실행 파일이 없으면 던지지 않고 빈 목록과 사유를 준다', async () => {
-    const result = await probeCommands({ executable: join(dir, '없는-실행-파일'), cwd: dir })
+    const result = await probeCommands({ env: HOST_ENV, executable: join(dir, '없는-실행-파일'), cwd: dir })
 
     expect(result).toMatchObject(EMPTY)
     expect(result.error).toBeTypeOf('string')
@@ -285,7 +286,7 @@ describe('probeCommands — 실행 파일 없음 (모든 플랫폼)', () => {
   it('spawn이 동기로 던져도 던지지 않는다', async () => {
     // 빈 경로는 spawn이 'error' 이벤트가 아니라 그 자리에서 던진다. Windows의 .cmd(EINVAL)가
     // 같은 길을 탄다 — 개발 장비에서 .cmd를 만들 수 없어 이 경로로 그 분기를 고정한다.
-    const result = await probeCommands({ executable: '', cwd: dir })
+    const result = await probeCommands({ env: HOST_ENV, executable: '', cwd: dir })
 
     expect(result).toMatchObject(EMPTY)
     expect(result.error).toBeTypeOf('string')
@@ -309,7 +310,7 @@ describe('probeCommands — 실행 런처', () => {
     try {
       // cwd를 dir로 주면 자식이 그 디렉토리를 잡아 Windows에서 afterEach의 rmSync가
       // EBUSY로 죽는다. 이 테스트는 cwd를 보지 않으므로 지우지 않는 곳을 준다.
-      const result = await probeCommands({ executable: file, cwd: tmpdir() })
+      const result = await probeCommands({ env: HOST_ENV, executable: file, cwd: tmpdir() })
       expect(result.error).toBe(null)
       expect(result.slashCommands).toEqual(['런처'])
     } finally {
