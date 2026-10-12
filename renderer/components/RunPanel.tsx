@@ -7,6 +7,7 @@ import { useDraftStore } from '../store/DraftContext'
 import { draftKeyOf, isBlankDraft } from '../store/drafts'
 import { PERMISSION_LABELS } from '../permission'
 import { AGENT_KINDS, AGENT_LABELS } from '../agents'
+import { agentBlockedReason, agentEnvOfCwd } from '../agentEnv'
 import { runShortcutLabel } from '../shortcut'
 import type { AgentKind, AssignedIssue, CommandInfo, FileHit, Permission, Repo, Run, Workspace } from '@shared/models'
 import type { Conversation } from '../conversation'
@@ -342,6 +343,13 @@ export function RunPanel({
     setCwd(selectedPath ?? (repos.length > 0 ? repos[0]!.path : ''))
   }, [repos, cwd, draftCwd, selectedPath])
 
+  // 작업 디렉토리의 실행 환경 (docs/sdlc/wsl-support/ FR-7). WSL repo에서는 OpenCode를 고를 수 없다 — 고른 채 옮겨 왔으면
+  // Claude Code로 떨어뜨린다(저장하지 않는다 — 이 run만). 이어 가는 대화는 agent가 잠겨 있어 해당 없다.
+  const cwdEnv = agentEnvOfCwd(repos, conversation?.last.cwd ?? cwd)
+  useEffect(() => {
+    if (!conversation && agentBlockedReason(cwdEnv, agentKind)) setAgentKind('claude-code')
+  }, [cwdEnv, agentKind, conversation])
+
   // 지금 고른 작업 디렉토리를 도크에 알린다 (code-editor FR-6). 위 effect의 어느 갈래가 cwd를 바꿨든 여기 한 자리를
   // 지난다 — 갈래마다 부르면 하나를 빠뜨린다. 콜백은 늘 최신을 부른다(Dock이 렌더마다 새로 만든다).
   const reportCwd = useRef(onCwdChange)
@@ -600,9 +608,14 @@ export function RunPanel({
             onChange={(e) => setAgentKind(e.target.value as AgentKind)}
           >
             {/* 이름은 한 표에서 온다 (docs/sdlc/conversation-timeline/ spec FR-46). */}
-            {AGENT_KINDS.map((kind) => (
-              <option key={kind} value={kind}>{AGENT_LABELS[kind]}</option>
-            ))}
+            {AGENT_KINDS.map((kind) => {
+              const blocked = agentBlockedReason(cwdEnv, kind)
+              return (
+                <option key={kind} value={kind} disabled={blocked !== null} title={blocked ?? undefined}>
+                  {AGENT_LABELS[kind]}
+                </option>
+              )
+            })}
           </select>
           {/* 빈 칸이면 -m을 붙이지 않아 CLI 자신의 기본값으로 돈다. workspace
               기본값은 설정 화면에서 agent별로 정한다 (설계 §403).

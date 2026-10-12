@@ -298,7 +298,14 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
       agentPaths: vi.fn(async () => ({ claude: null, opencode: null })),
       setAgentPaths: vi.fn(async (p: unknown) => p),
       terminalShell: vi.fn(async () => ({ path: null, resolved: '/bin/bash' })),
-      setTerminalShell: vi.fn(async (p: string | null) => ({ path: p, resolved: p ?? '/bin/bash' }))
+      setTerminalShell: vi.fn(async (p: string | null) => ({ path: p, resolved: p ?? '/bin/bash' })),
+      wslClaudePath: vi.fn(async () => null),
+      setWslClaudePath: vi.fn(async (p: string | null) => p),
+      wslGlobalRoots: vi.fn(async () => ['~/.claude/skills']),
+      setWslGlobalRoots: vi.fn(async (r: string[]) => r)
+    },
+    wsl: {
+      listDistros: vi.fn(async () => ({ supported: false, distros: [], reason: 'WSL은 Windows에서만 쓸 수 있습니다' }))
     },
     assets: {
       list: vi.fn(async (q: { repoId?: string | null }) => {
@@ -1605,7 +1612,7 @@ describe('App — 설정 화면', () => {
     await userEvent.type(path, '/srv/api')
     await userEvent.click(screen.getByRole('button', { name: 'api 저장' }))
     await waitFor(() => expect(client.repos.update).toHaveBeenCalledWith(
-      { id: 'r1', name: 'api', path: '/srv/api', description: null }))
+      { id: 'r1', name: 'api', path: '/srv/api', agentEnv: 'host', description: null }))
 
     // 설정을 나가 실행 패널로 돌아오면 작업 디렉토리 목록이 새 경로다. 알약의 옵션 글자는
     // repo 이름뿐이고 경로는 값·title에 있다 (docs/sdlc/conversation-timeline/ spec FR-27).

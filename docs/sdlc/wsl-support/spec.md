@@ -255,6 +255,21 @@ IPC 새 채널은 `wsl.listDistros` 하나다. 나머지는 기존 채널의 타
 10. **릴리스 CI에 WSL이 없다.** 단위 테스트는 주입으로 두 갈래를 다 보지만 실제 `wsl.exe`는 사용자의 Windows 장비에서
     `ONE_DESK_REAL_CLI=1` 류의 수동 검증뿐이다. plan의 완료 증명에 그 실측 기록(명령·출력)을 남긴다.
 
+## 4-A. 구현하며 바뀐 것 (plan "달라진 것"과 같다 — 2026-10-12)
+
+- **브리지 인자 파일은 설정 파일 자신이 아니라 `<runId>.bridge.json`이다**(FR-22 다듬음). 설정 파일에 모르는 키(`oneDesk`)를 두면
+  claude가 거부할 수 있어 실측 항목이 하나 늘 뿐이라, 0600 파일을 하나 더 쓰고 `removeMcpConfig`가 둘을 지운다.
+- **`parseWslPath`는 `shared/wslPath.ts`다**(FR-2의 `core/wsl/path.ts` 대신) — repo 탭의 파싱 결과와 `pathKey`의 접두사 접기(§4의 9)가
+  렌더러에도 필요하고 렌더러는 core를 import할 수 없다. `core/wsl/env.ts`의 `envOfRepo`가 core 쪽 판정이다.
+- **`launcherPath`는 `bridgePath`와 같이 선택 인자다**(§3의 "필수" 대신) — 기본값이 이 파일 기준 경로이고 패키징 앱만 main이 넘긴다.
+  반면 `agentCommand`의 실행 환경, `StartSpec.env`, `RunContext.env`, `AgentDefaults.claudeWsl`은 **필수**다.
+- **같은 경로를 다시 보내는 `repos.update`는 존재를 검사하지 않는다**(FR-2 다듬음) — 실행 환경만 바꾸는 저장이 드라이브를 뺀 날 막히면
+  안 되고, e2e가 `\\wsl$\…`가 없는 장비에서도 라디오를 바꿔 볼 수 있다. 경로를 **바꿀 때**는 지금처럼 검사한다.
+- `AgentStatuses`·`AgentProbes`의 `wsl` 칸은 `distro`를 품는다(FR-13). `WslDistros`에 `supported`가 있어 렌더러가 Windows가 아닌
+  장비에서 라디오·앱 탭의 두 절을 그리지 않는다(FR-4).
+- **실측은 하나도 하지 못했다** — 구현 환경이 Linux 컨테이너다. §4의 1·2·3, `realpath`의 UNC 형태, `wslpath`, 실제 run·MCP·취소·
+  터미널·앱 종료는 전부 사용자 Windows 장비에서 봐야 하고, plan의 "완료 증명"에 그 명령이 있다.
+
 ## 5. 검증
 
 - 단위(core): `parseWslPath`(두 접두사, 한글·공백 경로, 모양 아님, `-`로 시작하는 distro 거부) · `wrapForEnv`(host는

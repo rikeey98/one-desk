@@ -190,3 +190,20 @@ describe('AgentStatusList — 세 상태가 서로 다른 말이다 (FR-3)', () 
     expect(container.textContent).not.toContain('@')
   })
 })
+
+describe('AgentStatusList — WSL 줄 (docs/sdlc/wsl-support/ FR-13)', () => {
+  it('statuses에 wsl 칸이 있으면 "Claude Code (WSL · <distro>)" 줄이 더 선다', () => {
+    renderList({
+      statuses: statuses({ wsl: { ok: true, executable: '/home/me/.local/bin/claude', distro: 'Ubuntu' } }),
+      probes: { ...probes(), wsl: { ...probe(), distro: 'Ubuntu' } }
+    })
+    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+    expect(rowText('WSL · Ubuntu')).toContain('/home/me/.local/bin/claude')
+  })
+
+  it('wsl 칸이 없으면 줄도 없다', () => {
+    renderList()
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.queryByText(/WSL ·/)).toBeNull()
+  })
+})

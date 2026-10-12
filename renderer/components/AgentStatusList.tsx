@@ -48,6 +48,16 @@ export function AgentStatusList({
             busy={busy}
           />
         ))}
+        {/* WSL 칸 (docs/sdlc/wsl-support/ FR-13) — workspace에 WSL repo가 있을 때만, 첫 WSL repo의 배포판으로.
+            빠른 칸(statuses)이 먼저 오고 느린 칸(probes)이 뒤따르는 것은 위 두 줄과 같다. */}
+        {(statuses?.wsl || probes?.wsl) && (
+          <AgentRow
+            label={`${AGENT_LABELS['claude-code']} (WSL · ${statuses?.wsl?.distro ?? probes?.wsl?.distro ?? ''})`}
+            status={statuses?.wsl ?? null}
+            probe={probes?.wsl ?? null}
+            busy={busy}
+          />
+        )}
       </ul>
     </>
   )

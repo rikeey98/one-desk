@@ -347,6 +347,19 @@ core에 산다**(`core/terminal/service.ts`) — 칸을 닫거나 다른 repo로
 `repos.list`를 읽어 `InboxPanel`의 필수 prop `reposByWorkspace`로 내린다(인박스가 열려 있을 때만). 경로로 repo를 찾는 것은
 `conversation.ts`의 `repoOfCwd` 한 함수이고 도크 구획·코드 칸이 같이 쓴다.
 
+**WSL2 안의 repo를 WSL 안의 claude로 돌린다** (`docs/sdlc/wsl-support/`). **첫 실행에 마이그레이션 `0011`이 돈다** —
+`repo.agent_env` 하나(기본 `host`, 백필 없음). repo 탭의 라디오 `claude 실행 환경`(`Windows` | `WSL`, Windows에서만 보인다)이
+그 repo의 **모든 프로세스**(claude 실행 · 슬래시 커맨드 probe · CLI 상태 · `git ls-files` · 터미널 셸)를 `wsl.exe -d <distro>`로
+그 distro 안에서 띄운다. **경로는 UNC(`\\wsl$\<distro>\…`)를 저장하고** distro·Linux 경로는 `shared/wslPath.ts`가 판다 —
+`repo.path`를 읽는 자리(존재 검사·asset `file_path` 접두사·`run.cwd`·`repoOfCwd`·폴더 선택)가 전부 Windows 경로를 전제라 한 줄도
+안 바뀐다(spec §0). 파일 읽기/쓰기·asset 스캔은 지금처럼 Windows가 UNC로 한다. **MCP 브리지는 Windows에 남는다** — WSL 안의
+claude가 interop으로 Windows 실행 파일을 자식으로 띄우고 stdio가 경계를 넘는다(설정 파일의 경로는 Linux, URL·토큰은 env가 아니라
+`<runId>.bridge.json`을 인자로 — interop 경계에서 env가 넘어가는지에 기대지 않는다). spawn 직전의 변환은 `core/wsl/launch.ts`의
+`wrapForEnv` 하나이고 `agentCommand`가 **실행 환경을 필수 인자**로 받는다(아래 함정 절). WSL claude 경로·WSL 글로벌 skill 경로는
+앱 탭의 두 절(각자 저장)이고, WSL repo에서 OpenCode는 막는다. **이 환경(Linux 컨테이너)에서는 진짜 WSL 실측을 못 했다** —
+plan 1·9·15단계의 실측(interop을 env가 넘는가, 파이프, kill, `realpath`의 UNC 형태)은 사용자 Windows 장비의 몫으로 남아 있고
+spec §4·plan "달라진 것"에 적혀 있다.
+
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
 한동안 "5단계 착수 전에 정할 것"으로 잡아두고 **평문 SQLite에 자격 증명을 넣을지**를 막힌 결정으로 남겼던 항목이다. 대상 환경을 실측해 보니 **배관 자체가 불필요했다.**
@@ -648,6 +661,26 @@ junction/심링크가 밖을 가리키는 것을 못 막는다. `..` 검사 테�
 
 **OpenCode 2.x CLI는 preflight가 막는다 — 권한 정책이 조용히 무시될 수 있다** (`docs/sdlc/conversation-fixes/` FR-17). 데스크톱 번들의 `opencode-cli.exe` 2.0.18을 경로로 주면 `--variant`가 없고 바이너리에 `OPENCODE_PERMISSION` 문자열조차 없다 — **읽기 전용 run이 파일을 고칠 수 있다.** 그래서 preflight가 `--version` 첫 줄의 major를 보고 2 이상이면 거부한다(명시 경로와 PATH 탐색이 합류한 뒤, `.cmd` 거부 다음 — 한쪽 갈래에만 두면 다른 쪽으로 샌다). 버전을 못 읽으면 막지 않는다(게이트 전의 동작). 판정은 (경로, 크기, mtime)으로 **프로미스째** 캐시해 동시에 들어온 조회도 프로세스를 한 번만 띄운다. **못 읽은 판정(실패·시간 초과)은 캐시에서 뺀다** — 통과(fail-open)가 굳으면 Windows 백신이 새 바이너리의 첫 실행을 붙잡은 한 번의 시간 초과가 앱이 사는 동안 2.x 차단을 꺼 둔다. 되살리면 `opencode.version.test.ts`의 "못 읽은 판정은 캐시하지 않는다"가 빨개진다. **`--version`을 띄울 때도 stdin을 닫고 `agentCommand`를 거친다** — 닫지 않으면 stdin을 기다리는 CLI가 5초 타임아웃까지 매달리고, 런처 없이는 가짜 CLI(`.mjs`)가 Windows에서 뜨지 않는다. e2e에서는 두 agent가 모두 가짜 CLI에 물려 있어 설정 화면이 열리면 `node fake-claude.mjs --version`이 한 번 돈다 — 기본 시나리오를 찍으므로(버전이 아니다) 통과하고, `ONE_DESK_FAKE_DELAY_MS`만큼 첫 `checkAgents`가 늦어지며, `ONE_DESK_*_CAPTURE`를 세운 테스트라면 그 파일을 덮는다. **가짜 CLI가 `--version`에 버전 문자열을 찍게 "고치지" 말 것** — 2.x 모양이면 게이트가 e2e의 opencode 실행을 전부 막는다. 2.0.18의 `--version` 출력 형식은 실측하지 않았다 — 파서가 받는 것은 첫 줄의 `[opencode ]v?X.Y.Z`뿐이라 형식이 다르면 "못 읽음 → 통과"로 게이트가 무력해진다.
 
+**`agentCommand`는 실행 환경(`ProcessEnvSpec`)을 필수로 받는다 — 선택으로 되돌리지 말 것** (`docs/sdlc/wsl-support/` FR-9).
+WSL repo의 프로세스는 `wsl.exe -d <distro>` 안에서 떠야 하는데, 선택이면 호출 자리 하나만 빠뜨려도 조용히 컴파일되고 그
+경로만 Windows에서 돈다(`resolveAgentPath`의 앱 기본값과 같은 이유). 호출 자리는 넷(`manager.ts`·`commands/probe.ts`·
+`agent/exec.ts`의 `runCliIn(env)`·`adapters/opencode.ts`)이고 `git ls-files`(`files/list.ts`)·터미널 pty는 `wrapForEnv`를
+직접 탄다. **WSL 갈래는 spawn의 `cwd`를 넘기지 않는다** — 디렉토리는 `--cd <linux 경로>`로 wsl.exe에 준다(UNC를 cwd로 주면
+wsl.exe 자신이 거기서 뜨려다 실패할 수 있다). 인자는 **배열 원소 그대로** 간다 — 런처(`core/wsl/launcher.sh`)의 `bash -lc`도
+고정 상수 `exec "$0" "$@"`이고 사용자 값은 인자로만 들어간다. 런처는 새 프로세스 그룹을 만들어 pidfile(`<userData>/wsl/<id>.pid`)에
+적고, 취소는 그 그룹에 `kill -TERM -- -<pgid>` → 유예 → `-KILL` → 그래도 남으면 `taskkill`로 wsl.exe다(`terminate.ts`의 `wsl`
+옵션, 앱 종료는 `killGroupSync`로 동기). **`wsl.exe --list --quiet`의 출력은 UTF-16LE다** — utf8로 읽으면 글자 사이에 NUL이 끼어
+어떤 이름도 맞지 않는다(`core/wsl/distros.ts`의 `decodeWslList`). Windows 경로 → Linux 경로는 드라이브 문자로 결정적으로 바꾸지
+않고 `wslpath -a -u`에 묻는다(automount 루트는 설정값) — distro마다 `userData` 하나를 캐시하고 그 아래는 접두사다
+(`core/wsl/paths.ts`). WSL 판정(`test -x`·`command -v claude`)·distro 홈·`wslpath`는 **못 읽은 판정을 캐시하지 않는다**(opencode
+버전 게이트와 같은 규칙). `core/index.ts`의 WSL 블록(`wslPaths`·`wslHome`·`wslLauncherFor`)은 **asset 서비스보다 먼저**
+선언한다 — 부팅 스캔이 같은 틱에 `globalRoots`를 부를 수 있어 뒤에 두면 TDZ다(`settings`와 같은 함정). 가짜 `wsl.exe`
+(`core/runner/fixtures/fake-wsl.mjs`, `ONE_DESK_WSL_PATH`로 물린다)는 인자를 캡처하고 안의 명령을 그대로 띄우되 pidfile에 그
+자식의 **진짜 pid**를 쓴다 — 자식과 파이프를 나눠 쓰는 픽스처라 자신만 죽으면 run이 안 끝나고, 테스트의 가짜 killGroup이 그
+pid를 죽여 "안에서 끝냈다"를 흉내낸다. core 테스트의 `open()`은 `platform: 'win32'`를 넘겨 개발 장비에서 WSL repo를 둔다(그
+값은 WSL 가용성 판정만 가른다). **e2e의 WSL 시나리오(`e2e/wsl.e2e.ts`)는 Windows에서만 돌고 Linux 컨테이너에서는 실행해 보지
+못했다** — CI의 Windows 잡이 처음 돌리는 자리다.
+
 **OpenCode 전체 허용의 플래그는 `--auto`가 아니라 `--dangerously-skip-permissions`다** (2026-10-02). `--auto`는
 1.18.0에서 생긴 별칭이라 1.4.0~1.17.x는 모르는 옵션으로 보고 **이유 한 줄 없이 도움말만** 찍고 exit 1로 끝난다 —
 편집 허용으로 잘 되던 대화가 전체 허용으로 바꾸는 순간 "opencode run [message..]"로 실패했다. 옛 이름은 1.4.0에서
@@ -923,6 +956,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/dock-repo-sections/` | 도크 대화 목록의 repo 구획과 사이드바 거름 — spec·plan. 대화의 repo를 뿌리 cwd로 정하는 이유(FR-1), 구획이 하나면 머리가 없는 이유(FR-5), 거름이 보기만 바꾸는 이유(FR-9), 머리를 대문자로 쓰지 않는 이유(NFR-2) |
 | `docs/sdlc/code-editor/` | 코드 칸(터미널 · 변경사항 · 파일) — intent 하나, spec·plan은 첫 사이클(틀 + 파일 칸), `terminal-spec.md`·`terminal-plan.md`는 둘째(터미널 — repo당 셸 하나, 앱 종료의 동기 트리 종료, 렌더러는 repo id만, 출력 이어 붙이기 규칙, node-pty 사전 빌드와 패키징). git diff로 가는 결정(intent), 배치 시안(안 A로 구현했다가 안 B — 창 오른쪽 전체 높이로 바꿈, spec §0), 버튼을 앱 제목 줄의 OS 창 단추 왼쪽으로 옮긴 것과 사이클 순서 변경(spec §0·FR-1), 목록 안의 파일만 읽고 쓰는 이유(spec §3-4), 명시적 저장과 해시 충돌(FR-17·19), 줄바꿈·BOM 되살리기(FR-18), 닫기 확인(FR-21), 우려와 승인(§4). plan에 변이 결과와 번들 크기 |
 | `docs/sdlc/inbox-views/` | 인박스의 보기(시간순 · workspace별 · 상태별)와 정렬 — spec·plan. 시간 기준과 정확한 역순(spec FR-2), 묶음 순서가 정렬을 따르는 이유(FR-7)와 상태별 고정 순서(FR-10), 그 workspace의 repo만 보는 이유(FR-6), repo를 App이 읽어 필수 prop으로 내리는 이유(FR-16). plan에 변이 결과 |
+| `docs/sdlc/wsl-support/` | WSL2 안의 repo를 WSL 안의 claude로 — intent·spec·plan. UNC를 저장하는 이유(spec §0), spawn 변환 한 자리와 필수 인자(FR-8·9), 런처와 그룹 종료(FR-10·18), 브리지가 Windows에 남는 이유와 인자 파일(FR-21·22), WSL 판정 캐시 규칙(FR-13), 실측이 설계를 가르는 자리(§4의 1~3). plan의 "달라진 것"에 Linux 컨테이너에서 못 한 실측 목록 |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |

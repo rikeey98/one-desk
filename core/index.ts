@@ -611,13 +611,14 @@ export function createCore(opts: CoreOptions) {
        * 값이라 없는 경로를 받아 두면 다음 실행이 조용히 실패한다.
        */
       async update(input: UpdateRepoInput) {
-        if (input.path !== undefined) {
+        const before = repos.get(input.id)
+        // 존재 검사는 경로를 **바꿀 때**다 — 같은 경로를 다시 보내는 저장(실행 환경만 바꾸는 것)이 드라이브를 뺀 날 막히면 안 된다.
+        if (input.path !== undefined && input.path.trim() !== before.path) {
           const trimmed = input.path.trim()
           let isDir = false
           try { isDir = statSync(trimmed).isDirectory() } catch { isDir = false }
           if (!isDir) throw new Error(`존재하지 않는 경로입니다: ${trimmed}`)
         }
-        const before = repos.get(input.id)
         assertWslRepo(input.agentEnv ?? before.agentEnv, (input.path ?? before.path).trim())
         const { id, ...patch } = input
         const updated = repos.update(id, patch)

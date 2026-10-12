@@ -1,10 +1,14 @@
-import type { Repo } from '@shared/models'
+import type { AgentEnv, Repo, WslDistros } from '@shared/models'
+import { isWslUnc } from '@shared/wslPath'
+import { describeWslPath } from '../../agentEnv'
 
 /** repo 한 줄의 편집 중인 값. 초안 state는 SettingsPanel이 쥔다 (spec FR-11) */
 export interface RepoDraft {
   name: string
   path: string
   description: string
+  /** claude 실행 환경 (docs/sdlc/wsl-support/ FR-5) */
+  agentEnv: AgentEnv
 }
 
 /**
@@ -13,11 +17,13 @@ export interface RepoDraft {
  * **state를 갖지 않는다.** 초안·오류·저장 중 여부는 전부 prop이다 — 탭을 옮기면 이
  * 컴포넌트는 언마운트되고, 그때 입력이 사라지지 않으려면 값이 부모에 있어야 한다.
  */
-export function RepoTab({ repos, drafts, errors, busyId, onChange, onSave }: {
+export function RepoTab({ repos, drafts, errors, busyId, wsl, onChange, onSave }: {
   repos: Repo[]
   drafts: Record<string, RepoDraft>
   errors: Record<string, string>
   busyId: string | null
+  /** 설치된 WSL 배포판 (wsl-support FR-4). 아직 못 받았으면 null, `supported`가 false면 라디오를 그리지 않는다 */
+  wsl: WslDistros | null
   onChange: (id: string, patch: Partial<RepoDraft>) => void
   onSave: (id: string) => void
 }) {
@@ -71,6 +77,10 @@ export function RepoTab({ repos, drafts, errors, busyId, onChange, onSave }: {
                 됩니다. 옛 경로에서 만든 세션은 새 경로에서 이어지지 않을 수 있습니다.
               </p>
             )}
+            {/* claude 실행 환경 (docs/sdlc/wsl-support/ FR-6). Windows에서만 — 다른 OS에서는 저장도 거부된다(FR-4). */}
+            {wsl?.supported && (
+              <AgentEnvField repo={r} draft={draft} distros={wsl.distros} onChange={(agentEnv) => onChange(r.id, { agentEnv })} />
+            )}
             <button
               type="button"
               disabled={busyId === r.id}
@@ -82,6 +92,51 @@ export function RepoTab({ repos, drafts, errors, busyId, onChange, onSave }: {
           </div>
         )
       })}
+    </>
+  )
+}
+
+/**
+ * `claude 실행 환경` 라디오와 그 아래 안내 (FR-6). WSL이면 경로의 파싱 결과(배포판 · Linux 경로)나 거부 문구, 목록에 없는
+ * 배포판이면 경고(저장은 막지 않는다 — 잠시 꺼져 있을 수 있다). host인데 WSL 폴더면 Windows의 claude가 돈다고 안내한다.
+ */
+function AgentEnvField({ repo, draft, distros, onChange }: {
+  repo: Repo
+  draft: RepoDraft
+  distros: string[]
+  onChange: (agentEnv: AgentEnv) => void
+}) {
+  const parsed = draft.agentEnv === 'wsl' ? describeWslPath(draft.path) : null
+  const unknownDistro = parsed?.ok === true
+    && !distros.some((d) => d.toLowerCase() === parsed.distro.toLowerCase())
+  return (
+    <>
+      <fieldset className="settings-radios" role="radiogroup" aria-label={`${repo.name} claude 실행 환경`}>
+        <legend>claude 실행 환경</legend>
+        {(['host', 'wsl'] as const).map((value) => (
+          <label key={value} className="settings-radio">
+            <input
+              type="radio"
+              name={`agent-env-${repo.id}`}
+              value={value}
+              checked={draft.agentEnv === value}
+              onChange={() => onChange(value)}
+            />
+            {value === 'host' ? 'Windows' : 'WSL'}
+          </label>
+        ))}
+      </fieldset>
+      {parsed && (parsed.ok
+        ? <p className="settings-hint path-text">배포판 {parsed.distro} · {parsed.linuxPath}</p>
+        : <p className="settings-warning">{parsed.reason}</p>)}
+      {unknownDistro && (
+        <p className="settings-warning">이 배포판이 wsl --list에 없습니다 — 꺼져 있거나 이름이 다를 수 있습니다.</p>
+      )}
+      {draft.agentEnv === 'host' && isWslUnc(draft.path) && (
+        <p className="settings-hint">
+          WSL 폴더입니다 — Windows의 claude가 이 경로에서 돕니다. WSL 안의 claude를 쓰려면 실행 환경을 바꾸세요.
+        </p>
+      )}
     </>
   )
 }

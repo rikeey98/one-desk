@@ -788,6 +788,16 @@ describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)'
     close(mac)
   })
 
+  it('같은 경로를 다시 보내는 저장은 경로가 없어도 통과한다 — 실행 환경만 바꾸는 저장이 그렇다', async () => {
+    const core = open(makeDataDir())
+    const ws = core.workspaces.create({ name: 'ws' }).id
+    const made = await core.repos.create({ workspaceId: ws, name: 'w', path: WSL_PATH })
+    await expect(core.repos.update({ id: made.id, name: 'w', path: WSL_PATH, description: null, agentEnv: 'wsl' }))
+      .resolves.toMatchObject({ agentEnv: 'wsl' })
+    await expect(core.repos.update({ id: made.id, path: '\\\\wsl$\\Ubuntu\\other' })).rejects.toThrow('존재하지 않는 경로')
+    close(core)
+  })
+
   it('실행 환경을 바꾸면 그 repo의 셸을 끝내고 그 cwd의 커맨드 캐시를 비운다 (FR-3)', async () => {
     const dataDir = makeDataDir()
     const capture = join(dataDir, 'wsl.jsonl')

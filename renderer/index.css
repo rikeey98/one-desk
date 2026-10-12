@@ -1014,6 +1014,12 @@ button.tl-tool:hover, button.tl-file:hover { background: var(--bg-hover); }
 /* repo 탭의 repo 한 줄. 이름·경로·설명 세 칸과 저장 버튼이 한 덩어리다. */
 .settings-repo { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-faint); }
 .settings-repo h3 { margin: 0 0 10px; font-size: .875rem; }
+/* claude 실행 환경 라디오 (docs/sdlc/wsl-support/ FR-6) — 칸 라벨과 같은 결, 선택지는 한 줄에 */
+.settings-radios { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 0 0 12px; padding: 0; border: 0; font-size: .75rem; font-weight: 600; color: var(--text-secondary); }
+.settings-radios legend { padding: 0; margin-bottom: 5px; float: left; width: 100%; }
+.settings-radio { display: inline-flex; align-items: center; gap: 5px; font-weight: 400; color: var(--text); cursor: pointer; }
+.settings-radio input { margin: 0; accent-color: var(--accent); }
+.settings-hint.path-text { font-family: var(--font-mono); }
 /* 정보 탭. 상태 목록은 CLI 상태 줄(.settings-status)과 같은 모양이되 흐리지 않다 —
    읽으라고 보여주는 값이다. */
 .settings-info { color: var(--text); font-family: var(--font-mono); font-size: .75rem; }

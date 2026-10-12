@@ -1580,3 +1580,31 @@ describe('작업 디렉토리 알리기 (docs/sdlc/code-editor/ FR-6)', () => {
     await waitFor(() => expect(onCwdChange).toHaveBeenLastCalledWith(''))
   })
 })
+
+describe('RunPanel — WSL repo에서는 OpenCode를 고를 수 없다 (docs/sdlc/wsl-support/ FR-7)', () => {
+  const WSL_PATH = '\\\\wsl$\\Ubuntu\\home\\me\\api'
+  const mixed: Repo[] = [
+    ...repos,
+    { id: 'r-wsl', workspaceId: 'w1', name: 'wsl', path: WSL_PATH, description: null, sortOrder: 1, agentEnv: 'wsl', createdAt: 0 }
+  ]
+
+  it('작업 디렉토리가 WSL repo면 OpenCode 옵션이 비활성이고 이유가 title이다', async () => {
+    renderPanel(makeClient(), mixed)
+    await waitFor(() => expect(screen.getByLabelText('작업 디렉토리')).toHaveValue('/tmp/api'))
+    const option = () => screen.getByRole('option', { name: 'OpenCode' })
+    expect(option()).not.toBeDisabled()
+    await userEvent.selectOptions(screen.getByLabelText('작업 디렉토리'), WSL_PATH)
+    expect(option()).toBeDisabled()
+    expect(option()).toHaveAttribute('title', expect.stringContaining('WSL repo'))
+  })
+
+  it('OpenCode를 고른 채 WSL repo로 옮기면 Claude Code로 떨어진다 — 저장하지 않는다', async () => {
+    renderPanel(makeClient(), mixed, [], vi.fn(), {}, [makeWorkspace('edit', 'opencode')])
+    await waitFor(() => expect(screen.getByLabelText('agent')).toHaveValue('opencode'))
+    await userEvent.selectOptions(screen.getByLabelText('작업 디렉토리'), WSL_PATH)
+    await waitFor(() => expect(screen.getByLabelText('agent')).toHaveValue('claude-code'))
+    await userEvent.selectOptions(screen.getByLabelText('작업 디렉토리'), '/tmp/api')
+    // 돌아와도 되살리지 않는다 — 사용자가 고른 값이 아니라 떨어진 값이다
+    expect(screen.getByLabelText('agent')).toHaveValue('claude-code')
+  })
+})

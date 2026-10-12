@@ -10,7 +10,7 @@ import { EFFORT_OPTIONS, effortFieldOf } from '../effort'
 import { InfoTab } from './settings/InfoTab'
 import type {
   AgentKind, AgentPaths, AgentProbes, AgentStatuses, AppInfo, GlobalRoots, McpStatus, Permission,
-  QueueSnapshot, Repo, RevealTarget, TerminalShellSetting, Workspace
+  QueueSnapshot, Repo, RevealTarget, TerminalShellSetting, Workspace, WslDistros
 } from '@shared/models'
 
 /**
@@ -47,7 +47,7 @@ function toList(text: string): string[] {
  * 여기다. workspace를 고르지 않았으면 실행 탭은 안내만 남긴다.
  */
 function draftOf(r: Repo): RepoDraft {
-  return { name: r.name, path: r.path, description: r.description ?? '' }
+  return { name: r.name, path: r.path, description: r.description ?? '', agentEnv: r.agentEnv }
 }
 
 export function SettingsPanel({
@@ -112,6 +112,54 @@ export function SettingsPanel({
   const [terminalShellBusy, setTerminalShellBusy] = useState(false)
   // 처음 읽기는 기본 셸을 찾느라 PATH를 훑어 느리다 — 그 사이 사람이 칸을 고쳤거나 저장했으면 늦게 온 응답이 덮지 않는다
   const terminalShellTouched = useRef(false)
+  // WSL (docs/sdlc/wsl-support/). 배포판 목록은 마운트 때 한 번 — `supported`가 false면 repo 탭의 라디오와 앱 탭의 두 절을 그리지
+  // 않는다(FR-4). 두 절의 초안은 다른 절과 같이 여기 있다(FR-11).
+  const [wsl, setWsl] = useState<WslDistros | null>(null)
+  const [wslClaudePathDraft, setWslClaudePathDraft] = useState('')
+  const [wslClaudePathError, setWslClaudePathError] = useState<string | null>(null)
+  const [wslClaudePathBusy, setWslClaudePathBusy] = useState(false)
+  const [wslRootsDraft, setWslRootsDraft] = useState('')
+  const [wslRootsError, setWslRootsError] = useState<string | null>(null)
+  const [wslRootsBusy, setWslRootsBusy] = useState(false)
+  useEffect(() => {
+    let alive = true
+    client.wsl.listDistros()
+      .then((next) => { if (alive) setWsl(next) })
+      .catch(() => { if (alive) setWsl({ supported: false, distros: [], reason: '목록을 얻지 못했습니다' }) })
+    client.settings.wslClaudePath()
+      .then((path) => { if (alive) setWslClaudePathDraft(path ?? '') })
+      .catch((err: unknown) => { if (alive) setWslClaudePathError(err instanceof Error ? err.message : String(err)) })
+    client.settings.wslGlobalRoots()
+      .then((roots) => { if (alive) setWslRootsDraft(roots.join('\n')) })
+      .catch((err: unknown) => { if (alive) setWslRootsError(err instanceof Error ? err.message : String(err)) })
+    return () => { alive = false }
+  }, [client])
+
+  async function saveWslClaudePath(): Promise<void> {
+    setWslClaudePathBusy(true)
+    setWslClaudePathError(null)
+    try {
+      setWslClaudePathDraft((await client.settings.setWslClaudePath(wslClaudePathDraft)) ?? '')
+      if (workspace) await refreshProbes(workspace.id)
+    } catch (err) {
+      setWslClaudePathError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setWslClaudePathBusy(false)
+    }
+  }
+
+  async function saveWslRoots(): Promise<void> {
+    setWslRootsBusy(true)
+    setWslRootsError(null)
+    try {
+      setWslRootsDraft((await client.settings.setWslGlobalRoots(toList(wslRootsDraft))).join('\n'))
+    } catch (err) {
+      setWslRootsError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setWslRootsBusy(false)
+    }
+  }
+
   const [agents, setAgents] = useState<AgentStatuses | null>(null)
   // 느린 칸은 따로 담는다 — 빠른 칸이 그것을 기다리면 workspace를 고를 때마다
   // 실행 파일 줄까지 1초씩 비어 있게 된다 (docs/sdlc/agent-setup/ FR-7).
@@ -131,6 +179,7 @@ export function SettingsPanel({
       for (const r of repos) {
         const seen = seededRef.current[r.id]
         const changed = !seen || seen.name !== r.name || seen.path !== r.path || seen.description !== r.description
+          || seen.agentEnv !== r.agentEnv
         next[r.id] = changed || !prev[r.id] ? draftOf(r) : prev[r.id]!
         seededRef.current[r.id] = r
       }
@@ -151,9 +200,9 @@ export function SettingsPanel({
     setRepoBusyId(id)
     setRepoErrors((prev) => { const next = { ...prev }; delete next[id]; return next })
     try {
-      // 셋을 전부 보낸다 — 바뀐 것만 고르면 "무엇이 덮이는지"가 흐려진다(updateDefaults와 같은 규칙).
+      // 넷을 전부 보낸다 — 바뀐 것만 고르면 "무엇이 덮이는지"가 흐려진다(updateDefaults와 같은 규칙).
       await client.repos.update({
-        id, name: draft.name, path: draft.path, description: draft.description.trim() || null
+        id, name: draft.name, path: draft.path, description: draft.description.trim() || null, agentEnv: draft.agentEnv
       })
       await refreshRepos()
     } catch (err) {
@@ -613,6 +662,7 @@ export function SettingsPanel({
                 <p className="settings-hint">
                   비워두면 앱 탭의 CLI 기본 경로를 따르고, 그것도 비었으면 PATH에서 찾습니다.
                   이 workspace만 다른 실행 파일을 쓸 때 절대 경로를 넣으세요.
+                  {wsl?.supported && ' WSL repo에는 적용되지 않습니다 — 그쪽은 앱 탭의 WSL claude 경로입니다.'}
                 </p>
 
                 <div className="settings-grid">
@@ -744,6 +794,51 @@ export function SettingsPanel({
 
             <button type="button" disabled={busy} onClick={() => void save()}>저장</button>
 
+            {/* WSL (docs/sdlc/wsl-support/ FR-12·27) — Windows에서만. 절마다 저장이 따로다. */}
+            {wsl?.supported && (
+              <>
+                <h3>WSL claude 경로</h3>
+                {wslClaudePathError && <div role="alert" className="form-error">{wslClaudePathError}</div>}
+                <p className="settings-hint">
+                  실행 환경을 WSL로 둔 repo가 쓰는 claude의 <strong>WSL 안</strong> 경로. 비워두면 그 배포판의 로그인 셸 PATH에서
+                  찾습니다. 로그인·환경변수는 WSL 쪽 claude의 것입니다 — Bedrock 변수는 WSL의 ~/.profile에 둡니다.
+                </p>
+                <label className="settings-field">
+                  WSL claude 경로
+                  <input
+                    aria-label="WSL claude 경로"
+                    className="path-input"
+                    value={wslClaudePathDraft}
+                    placeholder="비우면 WSL의 PATH에서 찾습니다"
+                    onChange={(e) => setWslClaudePathDraft(e.target.value)}
+                  />
+                </label>
+                <button type="button" disabled={wslClaudePathBusy} onClick={() => void saveWslClaudePath()}>
+                  WSL claude 경로 저장
+                </button>
+
+                <h3>WSL 글로벌 skill 경로</h3>
+                {wslRootsError && <div role="alert" className="form-error">{wslRootsError}</div>}
+                <p className="settings-hint">
+                  한 줄에 Linux 경로 하나. ~는 그 배포판의 홈입니다. WSL repo가 있는 workspace에서 그 배포판마다 훑습니다.
+                  비워두면 기본값으로 돌아갑니다.
+                </p>
+                <label className="settings-field">
+                  WSL 글로벌 skill 경로
+                  <textarea
+                    aria-label="WSL 글로벌 skill 경로"
+                    className="path-input"
+                    value={wslRootsDraft}
+                    rows={3}
+                    onChange={(e) => setWslRootsDraft(e.target.value)}
+                  />
+                </label>
+                <button type="button" disabled={wslRootsBusy} onClick={() => void saveWslRoots()}>
+                  WSL 글로벌 skill 경로 저장
+                </button>
+              </>
+            )}
+
             {/* 스냅샷이 아직 없으면 칸을 열지 않는다 — 빈 칸에 저장을 누르게 두면
                 무엇을 덮는지 모른 채 쓰게 된다. 도크의 슬롯 표시기도 같은 조건으로 숨는다. */}
             {queue && (
@@ -785,6 +880,7 @@ export function SettingsPanel({
                 drafts={repoDrafts}
                 errors={repoErrors}
                 busyId={repoBusyId}
+                wsl={wsl}
                 onChange={changeRepoDraft}
                 onSave={(id) => void saveRepo(id)}
               />

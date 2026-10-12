@@ -239,7 +239,9 @@ workspace 아래에 그 workspace의 repo가 트리처럼 들여쓰기로 붙는
   `--bg-muted`. 문장은 문제와 다음 행동을 함께 말한다.
 - **설정 화면**: 가운데 한 열(최대 760px). 탭은 분절 컨트롤(`.settings-tabs`), 탭 내용은 흰 카드,
   라벨은 칸 위에 작게, 관련 칸 둘은 `.settings-grid`로 한 줄. 절마다의 저장 버튼이 주 동작(파란 면)이고
-  정보 탭의 폴더 열기만 보조 버튼이다.
+  정보 탭의 폴더 열기만 보조 버튼이다. 라디오(`.settings-radios`, repo 탭의 claude 실행 환경)는 칸 라벨과
+  같은 결의 `legend` 아래 선택지를 한 줄에 두고 `accent-color`만 토큰이다. 파싱 결과 같은 경로 글자는
+  `.settings-hint.path-text`(모노)다.
 - **오버레이**: 최상위 레이어(`popover`)와 anchor positioning으로 띄운다. 스크롤
   컨테이너 안에 `position: absolute`로 두지 않는다 — 잘린다. 열렸을 때만 `display`를 준다
   (`:popover-open`) — 작성자 규칙이 닫힌 popover의 UA `display: none`을 덮으면 닫힌 채 인라인에
