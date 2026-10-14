@@ -3,7 +3,7 @@
 - 출처: 대화 (2026-10-14) — RHEL에서 받은 보고(`docs/sdlc/linux-launch-env/`)의 장비가 RHEL 7이라는 답을 듣고, RHEL 7은 Electron
   자신이 막는다(그 spec §4)고 알린 뒤 "그럼 8이라고 가정하고 수정해줘". intent는 생략했다 — 고치는 방식은 위임받았다.
 - 작성자: 권용현 (초안: Claude)
-- 상태: 구현됨 — 첫 릴리스 CI(v0.26.1)가 electron-rebuild의 사본을 잡아 고쳤다 (§3)
+- 상태: 구현됨, v0.26.2로 릴리스 — 첫 릴리스 CI(v0.26.1)가 electron-rebuild의 사본을 잡아 고쳤다 (§3)
 - 작성일: 2026-10-14
 
 ## 0. 무엇이 RHEL 8을 막나 (실측)
@@ -98,4 +98,7 @@ Error: /lib64/libm.so.6: version `GLIBC_2.29' not found (required by …/better-
   `2.34`를 요구한다. postinstall의 electron-rebuild가 러너에서 node-pty를 다시 빌드하고 남긴 사본이다(FR-4). 위의 CI 재현은
   `pnpm install --ignore-scripts`로 돌아 그 사본이 생기지 않았다 — **재현할 때는 설치 스크립트를 켠다.** build-native.sh가 그 사본을
   지우고 자체 검사를 두 패키지 폴더 전체로 넓혔다(FR-5). 흉내낸 트리(그 자리에 Ubuntu 24.04의 실행 파일)로 넓힌 검사가 잡고, 지우면
-  통과하는 것을 봤다.
+  통과하는 것을 봤다. v0.26.1의 태그는 옮기지 않고 그 빌드에 남겼다 — 릴리스는 v0.26.2다.
+- **v0.26.2 릴리스 CI (run 38642516044):** docker 단계 1분 56초(넓힌 자체 검사 포함) 통과, `pnpm test` 통과, check-appimage 1~4단계
+  통과 — 대조는 `undefined symbol: XML_SetHashSalt`로 죽고, 껍데기는 뜨고, x86-64 ELF 17개의 최고 요구가 `GLIBC_2.28`·
+  `GLIBCXX_3.4.22`·`CXXABI_1.3.9`이고, 패키지의 Electron이 better-sqlite3(SQLite 3.53.4)와 node-pty를 불러 쓴다.
