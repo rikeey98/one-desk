@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import {
   opencodeAdapter, createVersionGate, parseOpencodeVersion, type VersionReader
 } from './opencode'
+import { ORIGINAL_LD_LIBRARY_PATH } from '../userEnv'
+import { asLinuxPackage, USER_LD_LIBRARY_PATH } from '../fixtures/linuxPackageEnv'
 
 /**
  * OpenCode 버전 게이트 (`docs/sdlc/conversation-fixes/` spec FR-17).
@@ -288,6 +290,32 @@ describe('opencodeAdapter.preflight — 기본 버전 읽기', () => {
       expect(result.reason).toContain('2.0.18')
       // 타임아웃으로 끝난 것이 아니다 — stdin을 닫아 곧바로 답을 받았다.
       expect(Date.now() - started).toBeLessThan(4_000)
+    } finally {
+      if (previous === undefined) delete process.env['ONE_DESK_AGENT_LAUNCHER']
+      else process.env['ONE_DESK_AGENT_LAUNCHER'] = previous
+    }
+  })
+
+  // 같은 실행 파일을 run과 같은 환경으로 판정한다 (docs/sdlc/linux-launch-env/) — 가짜는 사용자의 값을 받았을 때만 2.x라고 답한다.
+  // 앱의 값을 그대로 물려주면 1.x라 통과해 버려 이 테스트가 빨개진다.
+  it('리눅스 패키지에서는 --version도 사용자의 LD_LIBRARY_PATH로 띄운다', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'od-version-env-'))
+    dirs.push(dir)
+    const file = join(dir, 'opencode-env.mjs')
+    writeFileSync(file, [
+      'process.stdin.resume()',
+      "process.stdin.on('end', () => {",
+      `  const restored = process.env.LD_LIBRARY_PATH === '${USER_LD_LIBRARY_PATH}' && process.env.${ORIGINAL_LD_LIBRARY_PATH} === undefined`,
+      "  if (process.argv.includes('--version')) process.stdout.write(restored ? '2.0.18\\n' : '1.18.30\\n')",
+      '})'
+    ].join('\n'), { mode: 0o755 })
+
+    const previous = process.env['ONE_DESK_AGENT_LAUNCHER']
+    process.env['ONE_DESK_AGENT_LAUNCHER'] = process.execPath
+    try {
+      const result = await asLinuxPackage(() => opencodeAdapter.preflight(file))
+      expect(result.ok).toBe(false)
+      expect(result.reason).toContain('2.0.18')
     } finally {
       if (previous === undefined) delete process.env['ONE_DESK_AGENT_LAUNCHER']
       else process.env['ONE_DESK_AGENT_LAUNCHER'] = previous

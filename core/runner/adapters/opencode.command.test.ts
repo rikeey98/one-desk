@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { opencodeAdapter } from './opencode'
 import type { ResolvedRunSpec } from '../types'
+import { ORIGINAL_LD_LIBRARY_PATH } from '../userEnv'
+import { asLinuxPackage, USER_LD_LIBRARY_PATH } from '../fixtures/linuxPackageEnv'
 
 function spec(over: Partial<ResolvedRunSpec> = {}): ResolvedRunSpec {
   return {
@@ -19,6 +21,15 @@ function spec(over: Partial<ResolvedRunSpec> = {}): ResolvedRunSpec {
     ...over
   }
 }
+
+describe('opencodeAdapter.buildCommand — 띄우는 환경 (docs/sdlc/linux-launch-env/)', () => {
+  it('리눅스 패키지에서는 opencode를 사용자의 LD_LIBRARY_PATH로 띄우고 표식은 넘기지 않는다', async () => {
+    const env = await asLinuxPackage(() => opencodeAdapter.buildCommand(spec()).env)
+    expect(env['LD_LIBRARY_PATH']).toBe(USER_LD_LIBRARY_PATH)
+    expect(env[ORIGINAL_LD_LIBRARY_PATH]).toBeUndefined()
+    expect(env['OPENCODE_PERMISSION']).toBeTruthy()
+  })
+})
 
 describe('opencodeAdapter.buildCommand', () => {
   it('run과 --format json으로 시작한다', () => {

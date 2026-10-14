@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
 import { probeCommands } from './probe'
 import { HOST_ENV } from '../wsl/env'
+import { asLinuxPackage, USER_LD_LIBRARY_PATH } from '../runner/fixtures/linuxPackageEnv'
 
 const HERE = fileURLToPath(new URL('.', import.meta.url))
 const FAKE = resolve(HERE, '../runner/fixtures/fake-claude.mjs')
@@ -122,6 +123,20 @@ describe.skipIf(POSIX_ONLY)('probeCommands — init 수신 후 즉시 종료 (FR
     const result = await probeCommands({ env: HOST_ENV, executable: cli, cwd: work })
 
     expect(result.slashCommands).toEqual([realpathSync(work), process.env['ONE_DESK_PROBE_ENV_MARK']])
+  })
+
+  it('리눅스 패키지에서는 사용자의 LD_LIBRARY_PATH로 띄운다 — run과 같은 환경이다 (linux-launch-env)', async () => {
+    const cli = writeCli(`
+      process.stdout.write(JSON.stringify({
+        type: 'system', subtype: 'init',
+        slash_commands: [process.env.LD_LIBRARY_PATH ?? '(없음)', process.env.ONE_DESK_ORIG_LD_LIBRARY_PATH ?? '(없음)']
+      }) + '\\n')
+      setTimeout(() => {}, 5000)
+    `)
+
+    const result = await asLinuxPackage(() => probeCommands({ env: HOST_ENV, executable: cli, cwd: dir }))
+
+    expect(result.slashCommands).toEqual([USER_LD_LIBRARY_PATH, '(없음)'])
   })
 
   it('stdin을 닫는다 — 안 닫으면 CLI가 3초를 기다린다', async () => {

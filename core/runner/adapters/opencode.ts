@@ -6,6 +6,7 @@ import type {
 } from '../types'
 import { opencodePermissionConfig } from '../permission'
 import { agentCommand, findExecutable, isBatchShim, unwrapNpmShim, type LookupOptions } from '../executable'
+import { userProcessEnv } from '../userEnv'
 import { HOST_ENV } from '../../wsl/env'
 import {
   emptyUsage, reasoningText, stripNeedsAnswer, summarize, toolResultText, withLoopbackBypass
@@ -201,7 +202,8 @@ const readVersion: VersionReader = (executable) => new Promise((resolve) => {
   try {
     child = execFile(
       launch.cmd, launch.args,
-      { timeout: VERSION_TIMEOUT_MS, windowsHide: true, encoding: 'utf8' },
+      // run과 같은 환경 — 같은 실행 파일을 판정한다(linux-launch-env)
+      { timeout: VERSION_TIMEOUT_MS, windowsHide: true, encoding: 'utf8', env: userProcessEnv(process.env) },
       (err, stdout, stderr) => resolve(err ? null : (stdout || stderr || null))
     )
   } catch {
@@ -349,7 +351,8 @@ export const opencodeAdapter = {
     if (spec.effort) args.push('--variant', spec.effort)
     if (spec.resumeSessionId) args.push('--session', spec.resumeSessionId)
 
-    const env = withLoopbackBypass(process.env)
+    // 사용자의 셸에서 띄운 것처럼 — 리눅스 패키지에서는 사용자의 LD_LIBRARY_PATH가 돌아온다(linux-launch-env)
+    const env = withLoopbackBypass(userProcessEnv(process.env))
 
     // **권한은 환경변수로 간다.** OPENCODE_CONFIG가 가리키는 파일은 run의 cwd에
     // 있는 opencode.json에게 지지만, 이 환경변수는 그것도 이긴다 (설계 §2-4).
@@ -381,7 +384,7 @@ export const opencodeAdapter = {
     input: VerifyRunnableInput,
     probe: ConfigProbe = defaultProbe
   ): Promise<PreflightResult> {
-    const env = withLoopbackBypass(process.env)
+    const env = withLoopbackBypass(userProcessEnv(process.env))
     // 실제로 실행에 쓸 환경변수를 그대로 실어야 검사가 의미를 갖는다.
     env['OPENCODE_PERMISSION'] = JSON.stringify(opencodePermissionConfig(input.permission))
 

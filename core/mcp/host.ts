@@ -42,6 +42,12 @@ export interface McpHostOptions {
    */
   execPath: string
   /**
+   * `execPath`를 띄울 때 브리지 env에 얹을 것 (`docs/sdlc/linux-launch-env/`) — index.ts가 `appLoaderEnv(process.env)`를 넘긴다.
+   * **선택 인자로 두지 않는다** — 한 줄을 빠뜨려도 조용히 컴파일되면 설계 도구의 라이브러리가 `LD_LIBRARY_PATH`에 있는 리눅스에서만
+   * 브리지가 뜨지 못하고, agent는 MCP를 failed로 둔 채 도구 없이 "성공"한다.
+   */
+  execEnv: Record<string, string>
+  /**
    * Windows 경로 → 그 distro 안의 경로 (wsl-support FR-11). WSL run이 있을 때만 쓰며, 없으면 WSL run의 준비가 실패한다. WSL run의
    * 브리지는 claude가 `execPath`를 interop으로 직접 띄우므로(FR-23 개정) 그 실행 파일이 있는 드라이브가 WSL에 마운트돼 있어야 한다.
    */
@@ -152,7 +158,7 @@ export function createMcpHost(opts: McpHostOptions) {
       const token = randomBytes(32).toString('base64url')
       tokens.set(token, ctx)
       const url = `http://127.0.0.1:${port}/mcp`
-      const target = { execPath: opts.execPath, bridgePath: opts.bridgePath, url, token }
+      const target = { execPath: opts.execPath, execEnv: opts.execEnv, bridgePath: opts.bridgePath, url, token }
       if (ctx.env.kind === 'wsl') {
         // 브리지는 Windows에 남고 claude만 WSL 안이다 — claude가 읽는 두 경로(Electron 실행 파일·설정 파일)만 WSL 안에서 보는
         // 것으로 바꾼다(FR-21·23). 브리지와 인자 파일은 Windows 프로세스가 읽으므로 Windows 경로로 인자에 남는다. 실패하면 토큰을

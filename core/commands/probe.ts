@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createLineSplitter } from '../runner/stream'
 import { agentCommand } from '../runner/executable'
+import { userProcessEnv } from '../runner/userEnv'
 import type { ProcessEnvSpec } from '../wsl/env'
 import type { CommandPlugin, ProbeResult } from './types'
 
@@ -40,7 +41,8 @@ export function probeCommands(input: {
       const launch = agentCommand(input.env, input.executable, PROBE_ARGS, { cwd: input.cwd })
       child = spawn(launch.cmd, launch.args, {
         cwd: launch.cwd,
-        env: { ...process.env },
+        // run과 같은 환경 — 리눅스 패키지에서는 사용자의 LD_LIBRARY_PATH가 돌아온다(linux-launch-env)
+        env: userProcessEnv(process.env),
         stdio: ['pipe', 'pipe', 'pipe']
       })
     } catch (err) {

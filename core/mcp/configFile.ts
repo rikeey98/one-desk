@@ -26,6 +26,12 @@ export const MCP_SERVER_NAME = 'one-desk'
 export interface McpConfigTarget {
   /** 브리지를 띄울 실행 파일. 패키징된 앱에는 독립 node가 없어 Electron 바이너리를 쓴다. */
   execPath: string
+  /**
+   * `execPath`를 띄울 때 브리지 env에 얹을 것 (`docs/sdlc/linux-launch-env/`, `core/runner/userEnv.ts`의 `appLoaderEnv`). 리눅스
+   * 패키지에서는 앱이 뜬 `LD_LIBRARY_PATH`다 — agent는 서버 env를 자기 환경 위에 얹어 브리지를 띄우는데 그 환경은 사용자의
+   * 값이라, 그대로면 앱이 시작하지 못한 것과 같은 이유로 브리지도 못 뜬다. 그 밖에서는 비었다.
+   */
+  execEnv: Record<string, string>
   /** bridge.mjs의 절대 경로. */
   bridgePath: string
   url: string
@@ -68,6 +74,7 @@ function claudeWslBody(dir: string, runId: string, target: McpConfigTarget, wsl:
         command: wsl.command,
         // 둘 다 **Windows 경로**다 — 읽는 쪽이 Windows 프로세스(Electron)이고 interop은 argv를 바꾸지 않는다
         args: [target.bridgePath, bridgeFileOf(dir, runId)],
+        // execEnv는 싣지 않는다 — 브리지가 Windows 프로세스라 리눅스 로더의 변수가 뜻이 없다
         env: { ...WSL_BRIDGE_ENV }
       }
     }
@@ -84,6 +91,7 @@ function claudeBody(target: McpConfigTarget): string {
         command: target.execPath,
         args: [target.bridgePath],
         env: {
+          ...target.execEnv,
           // Electron 바이너리를 순수 Node로 돌린다.
           ELECTRON_RUN_AS_NODE: '1',
           ONE_DESK_MCP_URL: target.url,
@@ -105,6 +113,7 @@ function opencodeBody(target: McpConfigTarget): string {
         type: 'local',
         command: [target.execPath, target.bridgePath],
         environment: {
+          ...target.execEnv,
           ELECTRON_RUN_AS_NODE: '1',
           ONE_DESK_MCP_URL: target.url,
           ONE_DESK_MCP_TOKEN: target.token

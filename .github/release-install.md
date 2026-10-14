@@ -8,6 +8,11 @@ SmartScreen 경고가 뜨면 "추가 정보" → "실행"을 누르세요.
 `one-desk-*-x86_64.AppImage`도 설치 없이 실행 권한만 주면 됩니다
 (`chmod +x`). x64 전용입니다.
 
+- **glibc 2.28 이상이 필요합니다** — RHEL 8·Debian 10·Ubuntu 20.04 이상.
+  RHEL 7(glibc 2.17)은 앱 엔진(Electron)부터 `GLIBC_2.25`를 요구해 시작하지 못합니다.
+- **한글이 네모(□)로 보이면** 한글 글꼴이 없는 것입니다. RHEL은
+  `google-noto-sans-cjk-ttc-fonts`를 설치하세요.
+
 - **FUSE가 없다는 오류**(Ubuntu 22.04 이상): `libfuse2`(24.04는
   `libfuse2t64`)를 설치하거나 `--appimage-extract-and-run`을 붙여 실행하세요.
 - **샌드박스 오류로 바로 꺼지면**(Ubuntu 24.04 이상): AppArmor가 Chromium

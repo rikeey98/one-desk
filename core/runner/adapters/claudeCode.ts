@@ -2,6 +2,7 @@ import { access, constants } from 'node:fs/promises'
 import type { AgentAdapter, PreflightResult, ResolvedRunSpec, SpawnSpec } from '../types'
 import { claudeCodePermissionArgs } from '../permission'
 import { findExecutable, isBatchShim, type LookupOptions } from '../executable'
+import { userProcessEnv } from '../userEnv'
 import type { RunEventInit, RunUsage, ToolEffect } from '@shared/events'
 import type { PlanUsage, PlanWindow } from '@shared/models'
 import {
@@ -234,7 +235,8 @@ export const claudeCodeAdapter = {
     return {
       cmd: spec.executable,
       args,
-      env: withLoopbackBypass(process.env),
+      // 사용자의 셸에서 띄운 것처럼 — 리눅스 패키지에서는 사용자의 LD_LIBRARY_PATH가 돌아온다(linux-launch-env)
+      env: withLoopbackBypass(userProcessEnv(process.env)),
       cwd: spec.cwd
     }
   },

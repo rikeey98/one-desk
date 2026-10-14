@@ -9,6 +9,8 @@ import { DEFAULT_CONCURRENCY_LIMIT } from './db/repositories/setting'
 import type { InboxCounts, McpStatus, Run, TerminalData } from '@shared/models'
 import type { PtyProcess, SpawnPty } from './terminal/service'
 import { INBOX_RULES, inboxCategory } from '@shared/inbox'
+import { ORIGINAL_LD_LIBRARY_PATH } from './runner/userEnv'
+import { APP_LD_LIBRARY_PATH, USER_LD_LIBRARY_PATH, asLinuxPackage } from './runner/fixtures/linuxPackageEnv'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const MIGRATIONS_DIR = resolve(HERE, '../drizzle')
@@ -33,12 +35,12 @@ function makeDataDir(): string {
  * **pid는 있을 수 없는 번호다** — 앱 종료·repo 삭제가 Windows에서 진짜 `taskkill /T /F`를 부르므로, 실제 프로세스와 겹치는 번호면
  * 그 프로세스를 죽인다. 없는 번호라 taskkill이 실패하고 서비스가 pty의 kill로 되돌아간다 — `killed`가 그것을 센다.
  */
-interface FakePty extends PtyProcess { killed: number; emit(data: string): void }
+interface FakePty extends PtyProcess { killed: number; opts: Parameters<SpawnPty>[2]; emit(data: string): void }
 const ptys: FakePty[] = []
-const fakeSpawnPty: SpawnPty = () => {
+const fakeSpawnPty: SpawnPty = (_file, _args, opts) => {
   const dataCbs: Array<(d: string) => void> = []
   const pty: FakePty = {
-    pid: 2_147_483_644, killed: 0,
+    pid: 2_147_483_644, killed: 0, opts,
     onData(cb) { dataCbs.push(cb); return { dispose() {} } },
     onExit() { return { dispose() {} } },
     write() {}, resize() {},
@@ -244,6 +246,55 @@ describe('createCore', () => {
 
       // 저장하지 않는다 — 다시 켜면 다음 실행까지 없다.
       expect(open(dataDir).planUsage()).toBeNull()
+    } finally {
+      keys.forEach((k, i) => {
+        const v = previous[i]
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      })
+    }
+  })
+
+  // 리눅스 패키지 (docs/sdlc/linux-launch-env/) — agent는 사용자의 셸에서 띄운 것처럼, 그 agent가 띄울 MCP 브리지(앱 자신의
+  // 실행 파일)는 앱이 뜬 값으로. createCore가 브리지 env를 한 번 정하므로 core를 여는 것부터 그 환경 안이다.
+  it('리눅스 패키지에서는 agent를 사용자의 LD_LIBRARY_PATH로 띄우고, 그 agent가 띄울 MCP 브리지에는 앱이 뜬 값을 준다', async () => {
+    const dataDir = makeDataDir()
+    const capture = join(dataDir, 'env.json')
+    const cli = join(dataDir, 'fake-env-claude.mjs')
+    writeFileSync(cli, [
+      "import { readFileSync, writeFileSync } from 'node:fs'",
+      "const i = process.argv.indexOf('--mcp-config')",
+      "const server = i === -1 ? null : Object.values(JSON.parse(readFileSync(process.argv[i + 1], 'utf8')).mcpServers)[0]",
+      'writeFileSync(process.env.ONE_DESK_ENV_CAPTURE, JSON.stringify({',
+      '  ld: process.env.LD_LIBRARY_PATH ?? null,',
+      `  marker: process.env.${ORIGINAL_LD_LIBRARY_PATH} ?? null,`,
+      '  bridgeLd: server?.env?.LD_LIBRARY_PATH ?? null',
+      '}))',
+      'process.stdin.resume()',
+      "process.stdin.on('end', () => {",
+      "  process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init', session_id: 's' }) + '\\n')",
+      "  process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'ok', session_id: 's' }) + '\\n')",
+      '})'
+    ].join('\n'), { mode: 0o755 })
+    const keys = ['ONE_DESK_AGENT_PATH', 'ONE_DESK_AGENT_LAUNCHER', 'ONE_DESK_ENV_CAPTURE'] as const
+    const previous = keys.map((k) => process.env[k])
+    process.env['ONE_DESK_AGENT_PATH'] = cli
+    process.env['ONE_DESK_AGENT_LAUNCHER'] = process.execPath
+    process.env['ONE_DESK_ENV_CAPTURE'] = capture
+    try {
+      await asLinuxPackage(async () => {
+        const core = open(dataDir)
+        const ws = core.workspaces.create({ name: 'ws' }).id
+        const run = await core.execution.start({
+          workspaceId: ws, agentKind: 'claude-code', cwd: dataDir, permission: 'edit', userPrompt: 'x', context: []
+        })
+        await vi.waitFor(() => expect(core.runs.get(run.id).endedAt).toBeTypeOf('number'))
+        expect(core.runs.get(run.id).status).toBe('succeeded')
+        close(core)
+      })
+      expect(JSON.parse(readFileSync(capture, 'utf8'))).toEqual({
+        ld: USER_LD_LIBRARY_PATH, marker: null, bridgeLd: APP_LD_LIBRARY_PATH
+      })
     } finally {
       keys.forEach((k, i) => {
         const v = previous[i]
@@ -1492,6 +1543,12 @@ describe('core.terminal (docs/sdlc/code-editor/terminal-spec.md)', () => {
     const { core, workspaceId, pty } = await withShell()
     core.workspaces.remove(workspaceId)
     await vi.waitFor(() => expect(pty.killed).toBe(1), { timeout: 10_000 })
+  })
+
+  it('리눅스 패키지에서는 셸에 사용자의 LD_LIBRARY_PATH를 되돌려 주고 표식은 넘기지 않는다 (linux-launch-env)', async () => {
+    const { pty } = await asLinuxPackage(() => withShell())
+    expect(pty.opts.env['LD_LIBRARY_PATH']).toBe(USER_LD_LIBRARY_PATH)
+    expect(pty.opts.env[ORIGINAL_LD_LIBRARY_PATH]).toBeUndefined()
   })
 
   it('남의 workspace repo로는 셸을 열 수 없다 (FR-18)', async () => {

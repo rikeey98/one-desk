@@ -44,6 +44,7 @@ beforeEach(() => {
     },
     configDir: resolve(dir, 'mcp'),
     execPath: process.execPath,
+    execEnv: {},
     bridgePath: fileURLToPath(new URL('./bridge.mjs', import.meta.url))
   })
 })

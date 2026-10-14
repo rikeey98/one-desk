@@ -30,8 +30,8 @@ jobs:
           # node-gyp가 VS 18을 지원하면 windows-latest로 되돌린다.
           - os: windows-2022
             flag: --win
-          # AppImage 하나. 네이티브 모듈이 이 러너의 glibc에 링크되므로 이보다
-          # 오래된 glibc의 배포판에서는 돌지 않는다.
+          # AppImage 하나. 이 러너에서 컴파일한 네이티브 모듈은 러너의 glibc에 링크되므로
+          # 아래 "Rebuild native modules on glibc 2.28"이 RHEL 8 위에서 다시 빌드한다.
           - os: ubuntu-latest
             flag: --linux
     runs-on: ${{ matrix.os }}
@@ -61,6 +61,18 @@ jobs:
       # Electron ABI에 맞춰 컴파일한다. 크로스 컴파일이 불가능한 이유다.
       - run: pnpm install --frozen-lockfile
 
+      # 네이티브 모듈 둘(better-sqlite3·node-pty)을 glibc 2.28(RHEL 8) 위에서 다시 빌드한다 (docs/sdlc/linux-glibc-floor/).
+      # 러너에서 컴파일한 node-pty와 better-sqlite3가 품은 사전 빌드는 `GLIBC_2.34`를 요구해 RHEL 8에서 시작조차 못 한다.
+      # 아래 pnpm test는 다시 빌드한 것으로 돈다. 이미지는 2주 넘은 태그를 다이제스트로 고정한다 — 올릴 때는 둘을 같이 바꾼다.
+      - name: Rebuild native modules on glibc 2.28
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          node_dir="$(dirname "$(dirname "$(command -v node)")")"
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e NODE_DIR="$node_dir" \
+            -v "$PWD:$PWD" -w "$PWD" -v "$node_dir:$node_dir:ro" \
+            quay.io/pypa/manylinux_2_28_x86_64:2026.09.29-1@sha256:407f771c51a2c3e83ebe5a7970b4289ead3a6db21d9b9c089168775cad11d328 \
+            bash build/linux/build-native.sh
+
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
@@ -69,6 +81,13 @@ jobs:
       # --publish never가 없으면 electron-builder가 GH_TOKEN을 발견했을 때
       # 스스로 릴리스에 올려 아래 release job과 이중으로 올린다.
       - run: pnpm exec electron-builder ${{ matrix.flag }} --publish never
+
+      # 사용자의 LD_LIBRARY_PATH에 오래된 libexpat이 있어도 AppImage가 뜨는지(docs/sdlc/linux-launch-env/), 패키지가 RHEL 8의
+      # glibc 안에서 돌고 네이티브 모듈이 패키지의 Electron에서 뜨는지(docs/sdlc/linux-glibc-floor/) 산출물로 본다.
+      # afterPack 훅이나 위의 다시 빌드가 돌지 않아도 빌드는 초록이다 — RHEL에서 v0.26.0까지는 시작조차 못 했다.
+      - name: Check the Linux launcher in the AppImage
+        if: matrix.os == 'ubuntu-latest'
+        run: bash build/linux/check-appimage.sh dist/*.AppImage
 
       - uses: actions/upload-artifact@v4
         with:

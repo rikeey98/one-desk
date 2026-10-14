@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { claudeCodeAdapter } from './claudeCode'
 import { MCP_SERVER_NAME } from '../../mcp/host'
 import type { ResolvedRunSpec } from '../types'
+import { ORIGINAL_LD_LIBRARY_PATH } from '../userEnv'
+import { asLinuxPackage, USER_LD_LIBRARY_PATH } from '../fixtures/linuxPackageEnv'
 
 function spec(over: Partial<ResolvedRunSpec> = {}): ResolvedRunSpec {
   return {
@@ -125,6 +127,16 @@ describe('claudeCodeAdapter.buildCommand — MCP', () => {
       expect(i, `${permission}에 --allowedTools가 없다`).toBeGreaterThanOrEqual(0)
       expect(args[i + 1]!.split(',')).toContain(`mcp__${MCP_SERVER_NAME}`)
     }
+  })
+})
+
+describe('띄우는 환경 (docs/sdlc/linux-launch-env/)', () => {
+  it('리눅스 패키지에서는 claude를 사용자의 LD_LIBRARY_PATH로 띄우고 표식은 넘기지 않는다', async () => {
+    const env = await asLinuxPackage(() => claudeCodeAdapter.buildCommand(spec()).env)
+    expect(env['LD_LIBRARY_PATH']).toBe(USER_LD_LIBRARY_PATH)
+    expect(env[ORIGINAL_LD_LIBRARY_PATH]).toBeUndefined()
+    // 프록시 예외는 그대로 얹힌다
+    expect(env['NO_PROXY']).toContain('127.0.0.1')
   })
 })
 

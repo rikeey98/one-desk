@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { listRepoFiles, MAX_LISTED_FILES } from './list'
 import { HOST_ENV } from '../wsl/env'
+import { ORIGINAL_LD_LIBRARY_PATH } from '../runner/userEnv'
+import { asLinuxPackage, USER_LD_LIBRARY_PATH } from '../runner/fixtures/linuxPackageEnv'
 
 const dirs: string[] = []
 function makeDir(): string {
@@ -112,6 +114,22 @@ describe('listRepoFiles — WSL repo (docs/sdlc/wsl-support/ FR-25)', () => {
       args: ['-d', 'Ubuntu', '--cd', '/home/me/api', '--exec', 'git', 'ls-files', '-co', '--exclude-standard', '-z'],
       cwd: undefined
     }])
+  })
+
+  it('리눅스 패키지에서는 git을 사용자의 LD_LIBRARY_PATH로 띄운다 — 표식은 넘기지 않는다 (linux-launch-env)', async () => {
+    const envs: NodeJS.ProcessEnv[] = []
+    const spawn = (_cmd: string, _args: string[], opts: SpawnOptions) => {
+      envs.push(opts.env ?? {})
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new EventEmitter(), stderr: new EventEmitter(), kill: () => true
+      }) as unknown as ChildProcess
+      queueMicrotask(() => { child.emit('close', 0) })
+      return child
+    }
+    await asLinuxPackage(() => listRepoFiles('/work/api', { env: HOST_ENV, findGit: async () => '/usr/bin/git', spawn }))
+    expect(envs).toHaveLength(1)
+    expect(envs[0]!['LD_LIBRARY_PATH']).toBe(USER_LD_LIBRARY_PATH)
+    expect(envs[0]![ORIGINAL_LD_LIBRARY_PATH]).toBeUndefined()
   })
 
   it('host env면 지금처럼 Windows의 git을 찾아 cwd에서 띄운다', async () => {

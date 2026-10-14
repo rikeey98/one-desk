@@ -1,5 +1,6 @@
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { findExecutable } from '../runner/executable'
+import { userProcessEnv } from '../runner/userEnv'
 import { HOST_ENV, type ProcessEnvSpec } from '../wsl/env'
 import { wrapForEnv } from '../wsl/launch'
 
@@ -46,7 +47,8 @@ export async function listRepoFiles(root: string, deps: ListDeps = {}): Promise<
     try {
       child = spawn(launch.cmd, launch.args, {
         cwd: launch.cwd,
-        env: { ...process.env },
+        // 사용자가 띄운 git과 같은 환경 — 리눅스 패키지에서는 사용자의 LD_LIBRARY_PATH가 돌아온다(linux-launch-env)
+        env: userProcessEnv(process.env),
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
       })

@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { opencodeAdapter, type ConfigProbe } from './opencode'
+import { ORIGINAL_LD_LIBRARY_PATH } from '../userEnv'
+import { asLinuxPackage, USER_LD_LIBRARY_PATH } from '../fixtures/linuxPackageEnv'
 
 const input = { executable: '/bin/opencode', cwd: '/tmp/work', permission: 'edit' as const }
 
@@ -48,6 +50,14 @@ describe('opencodeAdapter.verifyRunnable', () => {
     expect(passed.cwd).toBe('/tmp/work')
     expect(passed.executable).toBe('/bin/opencode')
     expect(JSON.parse(passed.env['OPENCODE_PERMISSION']!)['edit']).toBe('allow')
+  })
+
+  it('리눅스 패키지에서는 run과 같은 환경(사용자의 LD_LIBRARY_PATH)으로 확인한다 (linux-launch-env)', async () => {
+    const probe = probeReturning({})
+    await asLinuxPackage(() => opencodeAdapter.verifyRunnable(input, probe))
+    const passed = probe.mock.calls[0]![0]
+    expect(passed.env['LD_LIBRARY_PATH']).toBe(USER_LD_LIBRARY_PATH)
+    expect(passed.env[ORIGINAL_LD_LIBRARY_PATH]).toBeUndefined()
   })
 
   it('설정을 읽지 못하면 거부한다', async () => {

@@ -25,6 +25,7 @@ import { createFileService } from './files/service'
 import { createTerminalService, type SpawnPty } from './terminal/service'
 import { resolveShell, shellEnv, type ShellLookup } from './terminal/shell'
 import { findExecutable } from './runner/executable'
+import { appLoaderEnv, userProcessEnv } from './runner/userEnv'
 import { taskkillTree, taskkillTreeSync } from './runner/terminate'
 import { buildReport } from './reports/build'
 import { createIssueRepository } from './db/repositories/issue'
@@ -331,6 +332,8 @@ export function createCore(opts: CoreOptions) {
     deps: { repos, issues, memos, runs },
     configDir: join(opts.dataDir, 'mcp'),
     execPath: opts.execPath ?? process.execPath,
+    // 리눅스 패키지에서는 앱이 뜬 LD_LIBRARY_PATH — agent가 물려준 사용자의 값으로는 브리지(Electron)가 못 뜰 수 있다(linux-launch-env)
+    execEnv: appLoaderEnv(process.env),
     // 번들되지 않는 원본 .mjs다 — import.meta.url 기준으로 찾는다.
     bridgePath: opts.bridgePath ?? fileURLToPath(new URL('./mcp/bridge.mjs', import.meta.url)),
     // WSL run의 설정 파일 경로 변환 (wsl-support FR-21) — 런처와 같은 캐시다
@@ -410,7 +413,9 @@ export function createCore(opts: CoreOptions) {
       if (repo.workspaceId !== workspaceId) throw new Error(`이 workspace의 repo가 아닙니다: ${repoId}`)
       return repo
     },
-    env: () => shellEnv(process.env),
+    // 사용자의 LD_LIBRARY_PATH를 되돌린 **뒤에** 앱의 변수를 걷는다 — shellEnv가 ONE_DESK_*를 지우므로 순서가 바뀌면 표식이 먼저
+    // 사라져 셸이 앱의 값을 물려받는다(linux-launch-env)
+    env: () => shellEnv(userProcessEnv(process.env)),
     killTree: taskkillTree,
     killTreeSync: taskkillTreeSync,
     // WSL repo의 셸 (wsl-support FR-29·30) — 런처는 run과 같은 것, 종료는 안에서 **세션**째(작업 제어가 작업마다 그룹을 만든다)

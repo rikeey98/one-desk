@@ -16,9 +16,10 @@ let dir: string
 const POSIX_ONLY = process.platform === 'win32'
 
 /** stdio 설정의 고정 부분. 테스트마다 url/token만 바꾼다. */
-function target(over: { url?: string; token?: string } = {}) {
+function target(over: { url?: string; token?: string; execEnv?: Record<string, string> } = {}) {
   return {
     execPath: '/fake/electron',
+    execEnv: over.execEnv ?? {},
     bridgePath: '/fake/bridge.mjs',
     url: over.url ?? 'http://127.0.0.1:1/mcp',
     token: over.token ?? 'tok'
@@ -94,7 +95,9 @@ describe('writeMcpConfig — WSL run (docs/sdlc/wsl-support/ FR-21·22·23, §4-
 
   it('command는 Electron 실행 파일의 Linux 경로, 인자는 브리지·인자 파일의 Windows 경로, env는 ELECTRON_RUN_AS_NODE와 그것을 넘기는 WSLENV뿐 — 토큰은 인자 파일에만 있다', () => {
     const mcpDir = join(dir, 'mcp')
-    const file = writeMcpConfig(mcpDir, 'run-1', target({ url: 'http://127.0.0.1:9/mcp', token: 'tok-abc' }), 'claude-code', wsl)
+    // 리눅스 로더의 변수(execEnv)는 WSL 브리지(Windows 프로세스)에 싣지 않는다 (linux-launch-env)
+    const execEnv = { LD_LIBRARY_PATH: '/tmp/.mount_one-dAbC/usr/lib' }
+    const file = writeMcpConfig(mcpDir, 'run-1', target({ url: 'http://127.0.0.1:9/mcp', token: 'tok-abc', execEnv }), 'claude-code', wsl)
     const body = JSON.parse(readFileSync(file, 'utf8'))
     expect(body.mcpServers[MCP_SERVER_NAME]).toEqual({
       command: wsl.command,
@@ -109,7 +112,7 @@ describe('writeMcpConfig — WSL run (docs/sdlc/wsl-support/ FR-21·22·23, §4-
 
   // Linux 쪽 변수는 WSLENV에 이름이 있는 것만 interop을 넘는다 — 빠진 것은 Windows의 Electron에 닿지 않는다(§4-C 실측)
   it('WSL 서버 env의 변수는 전부 WSLENV에 이름이 있다', () => {
-    const file = writeMcpConfig(join(dir, 'mcp'), 'run-1', target({}), 'claude-code', wsl)
+    const file = writeMcpConfig(join(dir, 'mcp'), 'run-1', target({ execEnv: { LD_LIBRARY_PATH: '/app/usr/lib' } }), 'claude-code', wsl)
     const { WSLENV, ...rest } = JSON.parse(readFileSync(file, 'utf8')).mcpServers[MCP_SERVER_NAME].env as Record<string, string>
     expect(WSLENV!.split(':').map((e) => e.split('/')[0]).sort()).toEqual(Object.keys(rest).sort())
   })
@@ -169,6 +172,18 @@ describe('writeMcpConfig — agent 종류별 형식', () => {
     const body = JSON.parse(readFileSync(file, 'utf8'))
     expect(body.mcp).toBeUndefined()
     expect(body.mcpServers[MCP_SERVER_NAME].args).toEqual(['/fake/bridge.mjs'])
+  })
+
+  // 리눅스 패키지에서 agent는 사용자의 LD_LIBRARY_PATH로 돈다 — 브리지(Electron)만 앱이 뜬 값으로 띄워야 한다
+  // (docs/sdlc/linux-launch-env/)
+  it.each(['claude-code', 'opencode'] as const)('%s: execEnv를 브리지 env에 싣되, 고정 값(node 모드·URL·토큰)은 덮지 못한다', (kind) => {
+    const execEnv = { LD_LIBRARY_PATH: '/tmp/.mount_one-dAbC/usr/lib', ELECTRON_RUN_AS_NODE: '0', ONE_DESK_MCP_TOKEN: 'x' }
+    const file = writeMcpConfig(join(dir, 'mcp'), `run-${kind}`, target({ token: 'tok', execEnv }), kind)
+    const body = JSON.parse(readFileSync(file, 'utf8'))
+    const env = kind === 'opencode' ? body.mcp[MCP_SERVER_NAME].environment : body.mcpServers[MCP_SERVER_NAME].env
+    expect(env['LD_LIBRARY_PATH']).toBe('/tmp/.mount_one-dAbC/usr/lib')
+    expect(env['ELECTRON_RUN_AS_NODE']).toBe('1')
+    expect(env['ONE_DESK_MCP_TOKEN']).toBe('tok')
   })
 
   it.skipIf(POSIX_ONLY)('두 형식 모두 0600으로 쓴다', () => {

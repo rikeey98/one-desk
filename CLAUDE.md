@@ -4,7 +4,7 @@ workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 
 
 **현재 상태:** 4단계 완료(MCP 서버 — 호스트/도구 아홉 개(지금은 열한 개)/권한별 등록/커맨드 배선), `main`에 병합됨(`a19b4fd`). 이슈·메모 본문 편집(설계 `2026-08-14-issue-memo-body-design.md`)도 `main`에 병합됨(`c91438e`) — 저장소의 `updateIfUnchanged`로 낙관적 잠금, 선택한 패널이 커지는 동적 3컬럼, 맥락 담기와 열기 분리, `IssueDetail`·`MemoDetail` 본문 편집기, 그리고 `e2e/body.e2e.ts`가 IPC 왕복(`client.issues.updateIfUnchanged` → preload → `ipcMain.handle` → 저장소)을 실제로 검증한다. **상태 편집은 상세에만 있다** — 목록의 상태 칩은 읽기 전용 배지다(§5·§9). 3b 리뷰가 4단계로 이월한 것 둘 다 해소됐다: `core/`의 `console.error`가 주입식 `onError`로 바뀌었고, `resume`의 catch는 DB 장애를 더 이상 뭉개지 않는다.
 
-**릴리스 파이프라인**(설계 `2026-08-14-release-pipeline-design.md`)이 붙었다. `v*` 태그를 밀면 GitHub Actions가 빌드해 draft 릴리스에 산출물을 올린다. **지금 빌드하는 것은 Windows portable `.exe`(x64)와 Linux `AppImage`(x86_64) 둘이다** (2026-10-12, Linux를 더했다). release job이 `needs: build`라 한쪽이 깨지면 다른 쪽 산출물까지 못 올라간다 — macOS를 빼 둔 이유다(워크플로 matrix 주석에 되살리는 법이 적혀 있다). AppImage는 `ubuntu-latest`의 glibc에 링크되므로 그보다 오래된 배포판에서는 돌지 않는다. macOS는 개발 장비에서 `pnpm run pack`으로 언제든 만든다. **네이티브 모듈 때문에 크로스 컴파일은 불가능하므로** — `better-sqlite3`를 각 러너에서 그 플랫폼의 Electron ABI에 맞춰 컴파일한다. Windows 러너는 `windows-2022`로 고정돼 있다(최신 이미지의 Visual Studio 18을 node-gyp가 못 읽는다). **태그를 밀기 전에 `docs/releases/<태그>.md`(예: `v0.17.0.md`)에 그 버전의 변경 내용을 커밋해야 한다** — release job이 그 파일 + `.github/release-install.md`(설치 안내)로 본문을 조립하고, 파일이 없으면 실패한다(v0.16.0까지는 본문이 설치 안내와 compare 링크뿐이었다). 이 장비에는 `gh`가 없어 draft 본문을 나중에 고칠 수 없으니, 노트는 태그 전에 쓴다.
+**릴리스 파이프라인**(설계 `2026-08-14-release-pipeline-design.md`)이 붙었다. `v*` 태그를 밀면 GitHub Actions가 빌드해 draft 릴리스에 산출물을 올린다. **지금 빌드하는 것은 Windows portable `.exe`(x64)와 Linux `AppImage`(x86_64) 둘이다** (2026-10-12, Linux를 더했다). release job이 `needs: build`라 한쪽이 깨지면 다른 쪽 산출물까지 못 올라간다 — macOS를 빼 둔 이유다(워크플로 matrix 주석에 되살리는 법이 적혀 있다). **AppImage의 배포판 하한은 RHEL 8(glibc 2.28)이다** (2026-10-14, `docs/sdlc/linux-glibc-floor/`) — 러너에서 컴파일한 node-pty와 better-sqlite3가 품은 사전 빌드는 `GLIBC_2.34`를 요구하므로, 리눅스 빌드가 `pnpm install` 직후 둘을 manylinux_2_28 컨테이너에서 다시 빌드하고(`build/linux/build-native.sh`) electron-builder 다음에 `build/linux/check-appimage.sh`로 산출물의 실행 껍데기·glibc 하한·네이티브 모듈을 확인한다(아래 함정 절). RHEL 7은 Electron 자신이 `GLIBC_2.25`를 요구해 안 된다(`docs/sdlc/linux-launch-env/` §4). macOS는 개발 장비에서 `pnpm run pack`으로 언제든 만든다. **네이티브 모듈 때문에 크로스 컴파일은 불가능하므로** 각 러너에서 빌드한다 — 리눅스의 node-pty는 사전 빌드가 없어 러너에서 컴파일한다(릴리스는 그것을 위 컨테이너에서 다시 빌드한다). better-sqlite3 13은 패키지에 든 N-API 사전 빌드(`prebuilds/<플랫폼>-<arch>.node`)를 `build/Release`보다 먼저 집으므로 postinstall의 electron-rebuild가 컴파일한 것은 쓰이지 않는다 — 리눅스 릴리스는 그 사전 빌드 자리를 컨테이너에서 빌드한 것으로 갈아 끼운다. Windows 러너는 `windows-2022`로 고정돼 있다(최신 이미지의 Visual Studio 18을 node-gyp가 못 읽는다). **태그를 밀기 전에 `docs/releases/<태그>.md`(예: `v0.17.0.md`)에 그 버전의 변경 내용을 커밋해야 한다** — release job이 그 파일 + `.github/release-install.md`(설치 안내)로 본문을 조립하고, 파일이 없으면 실패한다(v0.16.0까지는 본문이 설치 안내와 compare 링크뿐이었다). 이 장비에는 `gh`가 없어 draft 본문을 나중에 고칠 수 없으니, 노트는 태그 전에 쓴다.
 
 **agent는 MCP에 stdio로 붙는다**(설계 `2026-08-14-mcp-stdio-design.md`) — claude가 `core/mcp/bridge.mjs`를 자식 프로세스로 띄우고, 브리지가 앱 안의 HTTP 서버로 중계한다. 사내 프록시가 루프백 HTTP를 403으로 막던 환경 때문이다. `ONE_DESK_REAL_CLI=1 pnpm test realCli`가 진짜 CLI로 이 계약을 검증한다.
 
@@ -772,6 +772,36 @@ Electron이 node가 아니라 앱으로 뜬다. `configFile.test`의 "WSL 서버
 선다 — 짧은 이름을 새로 붙일 때 이 둘과의 부분 일치를 본다. 그 버튼 이름에 `폴더 선택`을, WSL 탭 바로가기 이름에 `<이름> repo`를 넣지
 않은 이유다(`repo-pick.e2e`의 `{ name: '폴더 선택' }`, 사이드바 카드의 `<이름> repo`). 바로가기 이름은 `<이름>: repo 탭에서 열기`다.
 
+**리눅스 패키지는 실행 껍데기로 뜬다 — 앱이 사용자 대신 띄우는 프로세스는 `userProcessEnv(process.env)`를 거친다**
+(`docs/sdlc/linux-launch-env/`, 2026-10-14). Electron 실행 파일은 시스템의 `libexpat.so.1`을 직접 쓰고 electron-builder의 AppRun은
+사용자의 `LD_LIBRARY_PATH`를 이어 붙여 그것을 띄운다 — 거기 설계 도구가 들고 온 오래된 expat이 있으면 시작조차 못 했다(RHEL,
+`undefined symbol: XML_SetHashSalt`, v0.26.0까지). 그래서 afterPack 훅(`build/linux/afterPack.mjs`)이 Electron을 `<이름>.bin`으로 옮기고
+그 자리에 `build/linux/launcher.sh`를 둔다 — 껍데기가 사용자의 값을 `ONE_DESK_ORIG_LD_LIBRARY_PATH`에 남기고 Electron은
+`<AppDir>/usr/lib`만 보고 뜬다. 셋이 조용히 깨진다. (1) **새로 프로세스를 띄우는 자리는 `{ ...process.env }`가 아니라
+`userProcessEnv(process.env)`다** — 빠뜨리면 그 자리만 사용자의 라이브러리 폴더 없이 돌아 agent의 Bash 도구·터미널에서 사용자의 도구가
+깨진다. 표식이 없는 Windows·macOS에서는 그냥 복사본이라 단위 테스트는 `core/runner/fixtures/linuxPackageEnv.ts`의 `asLinuxPackage`로
+흉내낸다. 터미널은 `shellEnv(userProcessEnv(…))` 순서다(`shellEnv`가 `ONE_DESK_*`를 지운다). (2) **`process.env`를 고치지 말 것** — 그 뒤에
+뜨는 Chromium의 GPU 프로세스가 사용자의 값을 물려받아 같은 오류로 죽는다. (3) **MCP 브리지는 앱 자신의 실행 파일이라 앱이 뜬
+값(`appLoaderEnv`)을 서버 env에 얹는다**(`McpHostOptions.execEnv`, 필수) — agent는 서버 env를 자기 환경 위에 얹으므로 그대로면 브리지가
+못 뜨고 agent는 도구 없이 "성공"한다. `process.execPath`는 `<이름>.bin`이다. 훅이 돌지 않아도 빌드는 초록이라 릴리스 CI가
+`build/linux/check-appimage.sh`로 산출물을 본다(오래된 expat을 흉내낸 폴더로 `.bin`은 죽고 껍데기는 뜨는지). 실측할 때 Chromium
+프로세스의 `/proc/<pid>/environ`은 프로세스 제목에 덮여 비어 보인다 — 앱의 환경은 앱 안에서 묻는다.
+
+**리눅스 네이티브 모듈은 manylinux_2_28 컨테이너에서 다시 빌드한다 — 러너에서 만든 것을 그대로 싣지 말 것**
+(`docs/sdlc/linux-glibc-floor/`, 2026-10-14). 러너(ubuntu-latest)에서 컴파일한 node-pty와 better-sqlite3가 품은 linux-x64 사전 빌드는
+`GLIBC_2.34`를 요구해 RHEL 8에서는 앱이 DB를 여는 순간 죽는다(창도 뜨지 않는다). 그래서 릴리스의 리눅스 빌드가 `pnpm install` 직후
+`build/linux/build-native.sh`를 그 이미지(AlmaLinux 8 + gcc-toolset-14) 안에서 부른다. 조용히 깨지는 넷. (1) **두 모듈의 진입점 순서가
+반대다** — better-sqlite3는 `prebuilds/`를 `build/Release`보다 먼저 집으므로 결과를 `prebuilds/linux-x64.node`에 갈아 끼운다(빌드만
+하면 원래 사전 빌드가 그대로 쓰인다). 사전 빌드가 있으면 `binding.gyp`가 빌드를 건너뛰므로 `--force_build=1`이 필요하다. node-pty는
+`build/Release`를 먼저 본다. (2) **갈아 끼우기 전에 지운다** — pnpm은 node_modules의 파일을 저장소에서 하드 링크하므로 제자리에서
+덮으면 CI가 캐시하는 pnpm 저장소의 원본까지 바뀐다. (3) **이미지는 태그와 다이제스트를 같이 고정한다**(올릴 때 둘을 같이 바꾼다).
+시스템 GCC 8은 better-sqlite3의 `-std=c++20`을 모르므로 툴셋이 있는 이미지여야 하고, 툴셋은 시스템 libstdc++에 없는 것만 정적으로
+넣어 결과가 RHEL 8의 libstdc++로 돈다. (4) **하한은 `build/linux/check-glibc.sh` 한 자리다** — `GLIBC_2.28`·`GLIBCXX_3.4.25`·
+`CXXABI_1.3.11`, 강한 참조만, x86-64 ELF만(better-sqlite3가 품은 linux-arm64 사전 빌드는 `GLIBCXX_3.4.29`라 아키텍처를 거르지 않으면
+늘 실패한다). 두 모듈은 `fcntl64@GLIBC_2.28` 때문에 정확히 2.28이다 — 빌드 환경의 glibc가 곧 하한이다. Electron을 올려 실행 파일이
+더 새 glibc를 요구하게 돼도(지금은 `GLIBC_2.25`) check-appimage 3단계가 릴리스를 막는다. 로컬에 docker가 없으면 이미지를 받아
+사용자 네임스페이스 + chroot로 돌린다(spec §3).
+
 **OpenCode 전체 허용의 플래그는 `--auto`가 아니라 `--dangerously-skip-permissions`다** (2026-10-02). `--auto`는
 1.18.0에서 생긴 별칭이라 1.4.0~1.17.x는 모르는 옵션으로 보고 **이유 한 줄 없이 도움말만** 찍고 exit 1로 끝난다 —
 편집 허용으로 잘 되던 대화가 전체 허용으로 바꾸는 순간 "opencode run [message..]"로 실패했다. 옛 이름은 1.4.0에서
@@ -1049,6 +1079,8 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/inbox-views/` | 인박스의 보기(시간순 · workspace별 · 상태별)와 정렬 — spec·plan. 시간 기준과 정확한 역순(spec FR-2), 묶음 순서가 정렬을 따르는 이유(FR-7)와 상태별 고정 순서(FR-10), 그 workspace의 repo만 보는 이유(FR-6), repo를 App이 읽어 필수 prop으로 내리는 이유(FR-16). plan에 변이 결과 |
 | `docs/sdlc/wsl-support/` | WSL2 안의 repo를 WSL 안의 claude로 — intent·spec·plan. UNC를 저장하는 이유(spec §0), spawn 변환 한 자리와 필수 인자(FR-8·9), 런처와 그룹 종료(FR-10·18), 브리지가 Windows에 남는 이유와 인자 파일(FR-21·22), WSL 판정 캐시 규칙(FR-13), 실측을 건너뛴 결정과 그래서 어느 쪽이든 되게 만든 두 자리(§4-A), 첫 실측이 찾은 `--`의 셸 해석과 고친 뒤의 결과(§4-B), 둘째 실측 — 로그인 셸 판정·터미널 세션 종료·cmd.exe 없는 브리지(§4-C). plan의 "달라진 것" |
 | `docs/sdlc/wsl-repo-setup/` | WSL repo를 등록 폼에서 한 번에, WSL 설정을 WSL 탭에 — spec. 대화상자가 `\\wsl$`를 시작 폴더로 받지 않는 실측(§0), wsl-support FR-5를 뒤집은 등록 동선(FR-1~6), 탭 규칙의 예외인 WSL 탭과 절의 순서(FR-7·8), 렌더러가 뜻만 넘기는 시작 폴더(FR-11~13), WSL VM을 깨우지 않는 이유(§5의 1), 캡처로 고친 것과 변이 결과(§6) |
+| `docs/sdlc/linux-launch-env/` | 리눅스 패키지가 사용자의 `LD_LIBRARY_PATH`에 깨지지 않게 (RHEL, `XML_SetHashSalt`) — spec. 원인 실측(§0 — Electron이 시스템 libexpat을 직접 쓰고 AppRun이 사용자의 값을 이어 붙인다), 막아야 할 자리 셋(§1), 실행 껍데기·되돌리기·브리지 env·릴리스 확인(FR-1~7)과 버린 안, 대가(§3), 배포판 하한과 RHEL 7을 Electron 자신이 막는 실측(§4), 변이와 WSL 실측(§5) |
+| `docs/sdlc/linux-glibc-floor/` | 리눅스 패키지의 배포판 하한을 RHEL 8(glibc 2.28)로 — spec. 무엇이 RHEL 8을 막나(§0 — 네이티브 모듈 둘), manylinux_2_28 컨테이너에서 다시 빌드·사전 빌드 갈아 끼우기·하한 검사 한 자리·스모크(FR-1~7)와 버린 안, 대가(§2), AlmaLinux 8.10 userland 실측·대조·변이(§3) |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |

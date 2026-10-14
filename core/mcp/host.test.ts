@@ -32,6 +32,7 @@ beforeEach(() => {
     },
     configDir: resolve(dir, 'mcp'),
     execPath: process.execPath,
+    execEnv: {},
     bridgePath: fileURLToPath(new URL('./bridge.mjs', import.meta.url))
   })
 })
@@ -136,6 +137,29 @@ describe('McpHost', () => {
   })
 })
 
+describe('prepare — 브리지를 띄울 환경 (docs/sdlc/linux-launch-env/)', () => {
+  it.each(['claude-code', 'opencode'] as const)('%s: 받은 execEnv(앱이 뜬 LD_LIBRARY_PATH)를 브리지 env에 싣는다', async (agentKind) => {
+    const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-host-env-'))
+    const db = makeTestDb()
+    const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
+    const host = createMcpHost({
+      deps: { repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db), runs: createRunRepository(db) },
+      configDir: resolve(dir, 'mcp'), execPath: '/app/one-desk.bin', bridgePath: '/app/resources/mcp-bridge.mjs',
+      execEnv: { LD_LIBRARY_PATH: '/tmp/.mount_one-dAbC/usr/lib' }
+    })
+    try {
+      await host.prepare({ runId: 'r1', workspaceId, permission: 'edit', agentKind, env: HOST_ENV })
+      const body = JSON.parse(readFileSync(resolve(dir, 'mcp', 'r1.json'), 'utf8'))
+      const env = agentKind === 'opencode' ? body.mcp[MCP_SERVER_NAME].environment : body.mcpServers[MCP_SERVER_NAME].env
+      expect(env['LD_LIBRARY_PATH']).toBe('/tmp/.mount_one-dAbC/usr/lib')
+      expect(env['ELECTRON_RUN_AS_NODE']).toBe('1')
+    } finally {
+      host.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('prepare — WSL run (docs/sdlc/wsl-support/ FR-21·23)', () => {
   it('Electron 실행 파일과 설정 파일의 경로만 Linux로 바꾸고, 브리지·인자 파일은 Windows 경로로 인자에 남는다', async () => {
     const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-host-wsl-'))
@@ -145,6 +169,8 @@ describe('prepare — WSL run (docs/sdlc/wsl-support/ FR-21·23)', () => {
     const host = createMcpHost({
       deps: { repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db), runs: createRunRepository(db) },
       configDir: resolve(dir, 'mcp'), execPath: 'C:\\app\\one-desk.exe', bridgePath: 'C:\\app\\resources\\mcp-bridge.mjs',
+      // 리눅스 로더의 변수는 WSL 브리지(Windows 프로세스)에 싣지 않는다 — 아래 env 단언이 본다
+      execEnv: { LD_LIBRARY_PATH: '/tmp/.mount_one-dAbC/usr/lib' },
       toLinux: async (distro, p) => { asked.push(`${distro}:${p}`); return `/mnt/host${p.replace(/\\/g, '/')}` }
     })
     try {
@@ -172,7 +198,7 @@ describe('prepare — WSL run (docs/sdlc/wsl-support/ FR-21·23)', () => {
     const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
     const host = createMcpHost({
       deps: { repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db), runs: createRunRepository(db) },
-      configDir: resolve(dir, 'mcp'), execPath: '/host/electron', bridgePath: '/host/bridge.mjs',
+      configDir: resolve(dir, 'mcp'), execPath: '/host/electron', execEnv: {}, bridgePath: '/host/bridge.mjs',
       toLinux: async () => { throw new Error('WSL 경로를 변환하지 못했습니다 (Ubuntu): x') }
     })
     try {

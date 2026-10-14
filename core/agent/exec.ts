@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { agentCommand } from '../runner/executable'
+import { userProcessEnv } from '../runner/userEnv'
 import { HOST_ENV, type ProcessEnvSpec } from '../wsl/env'
 import { wrapForEnv, type Launch } from '../wsl/launch'
 import type { CliOutput, RunCli } from './types'
@@ -18,7 +19,8 @@ const runVia = (launchOf: (executable: string, args: readonly string[]) => Launc
     try {
       const launch = launchOf(input.executable, input.args)
       child = spawn(launch.cmd, launch.args, {
-        env: { ...process.env },
+        // run과 같은 환경 — 리눅스 패키지에서는 사용자의 LD_LIBRARY_PATH가 돌아온다(linux-launch-env)
+        env: userProcessEnv(process.env),
         stdio: ['ignore', 'pipe', 'pipe']
       })
     } catch (err) {

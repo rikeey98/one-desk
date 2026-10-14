@@ -46,3 +46,8 @@ linux:
   target: AppImage
   category: Development
   artifactName: ${name}-${version}-${arch}.${ext}
+
+# 리눅스 패키지의 Electron 실행 파일 앞에 실행 껍데기(build/linux/launcher.sh)를 세운다 (docs/sdlc/linux-launch-env/) —
+# 사용자의 LD_LIBRARY_PATH에 오래된 libexpat이 있으면 Electron이 시작조차 못 한다(RHEL, XML_SetHashSalt). 다른 플랫폼에서는
+# 아무것도 하지 않는다. 돌았는지는 릴리스 CI가 만들어진 AppImage로 본다(build/linux/check-appimage.sh).
+afterPack: ./build/linux/afterPack.mjs

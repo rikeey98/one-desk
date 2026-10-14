@@ -35,6 +35,7 @@ beforeEach(() => {
     },
     configDir: resolve(dir, 'mcp'),
     execPath: process.execPath,
+    execEnv: {},
     bridgePath: BRIDGE
   })
 })
