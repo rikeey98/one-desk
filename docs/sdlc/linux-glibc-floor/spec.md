@@ -3,7 +3,7 @@
 - 출처: 대화 (2026-10-14) — RHEL에서 받은 보고(`docs/sdlc/linux-launch-env/`)의 장비가 RHEL 7이라는 답을 듣고, RHEL 7은 Electron
   자신이 막는다(그 spec §4)고 알린 뒤 "그럼 8이라고 가정하고 수정해줘". intent는 생략했다 — 고치는 방식은 위임받았다.
 - 작성자: 권용현 (초안: Claude)
-- 상태: 구현됨 — 컨테이너 단계는 다음 릴리스 CI에서 처음 돈다 (§5)
+- 상태: 구현됨 — 첫 릴리스 CI(v0.26.1)가 electron-rebuild의 사본을 잡아 고쳤다 (§3)
 - 작성일: 2026-10-14
 
 ## 0. 무엇이 RHEL 8을 막나 (실측)
@@ -41,11 +41,14 @@ Error: /lib64/libm.so.6: version `GLIBC_2.29' not found (required by …/better-
   지운다. **덮어쓰기 전에 지운다** — pnpm은 node_modules의 파일을 저장소에서 하드 링크하므로 제자리에서 덮으면 pnpm 저장소(CI가
   캐시한다)의 원본까지 바뀐다.
 - **FR-4 node-pty는 `build/Release/pty.node` 하나만 남긴다.** 진입점(`lib/utils.js`)이 `build/Release`를 먼저 본다. 중간 산출물은
-  패키지에 실을 이유가 없어 지운다(리눅스에는 `spawn-helper`가 없다 — macOS 것이다).
+  패키지에 실을 이유가 없어 지운다(리눅스에는 `spawn-helper`가 없다 — macOS 것이다). **postinstall의 electron-rebuild가 남긴
+  `bin/<플랫폼>-<arch>-<ABI>/` 사본도 지운다** — `-w better-sqlite3`는 고르는 것이 아니라 더하는 것이라(고르는 것은 `-o`) 리눅스에서는
+  node-pty도 다시 빌드하고, 결과를 그 자리에 복사해 둔다(`replaceExistingNativeModule`). node-pty는 그 자리를 읽지 않지만 러너의
+  glibc로 빌드된 것이라 패키지에 실리면 하한 검사에 걸린다(§3의 첫 릴리스 CI).
 - **FR-5 하한 검사 한 자리.** `build/linux/check-glibc.sh`가 x86-64 ELF의 **강한** 요구만 보고 `GLIBC_2.28`·`GLIBCXX_3.4.25`·
   `CXXABI_1.3.11`을 넘으면 실패한다. 약한 참조는 없어도 로더가 멈추지 않는다. 다른 아키텍처의 ELF(better-sqlite3가 품은
-  linux-arm64 사전 빌드 — `GLIBCXX_3.4.29`)는 이 패키지에서 로드되지 않아 건너뛴다. build-native.sh가 자기 결과에,
-  check-appimage.sh가 패키지 전체에 부른다 — 하한을 두 자리에 적지 않는다.
+  linux-arm64 사전 빌드 — `GLIBCXX_3.4.29`)는 이 패키지에서 로드되지 않아 건너뛴다. build-native.sh가 두 패키지 폴더 전체에
+  (다시 빌드한 파일만이 아니라 — 실리는 것은 폴더째다), check-appimage.sh가 패키지 전체에 부른다 — 하한을 두 자리에 적지 않는다.
 - **FR-6 정말 뜨고 도는지.** `build/linux/smoke-native.mjs`가 두 모듈을 불러 SQLite에 질의하고 pty로 셸을 띄워 셸이 계산한 글자를
   기다린다. build-native.sh는 컨테이너(곧 RHEL 8의 glibc·libstdc++, 이미지가 얹은 `LD_LIBRARY_PATH`는 뺀다) 안의 Node로,
   check-appimage.sh는 패키지의 Electron으로(껍데기를 거쳐 `ELECTRON_RUN_AS_NODE`) 부른다 — Node 헤더로 빌드한 것이 Electron에서
@@ -90,3 +93,9 @@ Error: /lib64/libm.so.6: version `GLIBC_2.29' not found (required by …/better-
   두 모듈(2.28)을 잡는다, 원래 사전 빌드를 주면 실패한다. build-native.sh — 갈아 끼우기를 빼면 자기 검사(원래 사전 빌드)가,
   `--force_build=1`을 빼면 복사할 파일이 없어 실패한다.
 - **돌리지 못한 것:** docker로 부르는 CI 단계 자체 — 같은 이미지·환경 변수를 chroot로 썼다. 다음 릴리스의 CI가 처음 돈다.
+- **첫 릴리스 CI (v0.26.1, run 38590659432, 2026-10-14):** docker 단계 1분 37초 통과(자체 검사·스모크 포함), 다시 빌드한 것으로
+  `pnpm test` 통과, check-appimage 1·2단계 통과. **3단계가 실패했다** — `node-pty/bin/linux-x64-148/node-pty.node`가 `GLIBC_2.32`·
+  `2.34`를 요구한다. postinstall의 electron-rebuild가 러너에서 node-pty를 다시 빌드하고 남긴 사본이다(FR-4). 위의 CI 재현은
+  `pnpm install --ignore-scripts`로 돌아 그 사본이 생기지 않았다 — **재현할 때는 설치 스크립트를 켠다.** build-native.sh가 그 사본을
+  지우고 자체 검사를 두 패키지 폴더 전체로 넓혔다(FR-5). 흉내낸 트리(그 자리에 Ubuntu 24.04의 실행 파일)로 넓힌 검사가 잡고, 지우면
+  통과하는 것을 봤다.

@@ -48,8 +48,13 @@ pty=$(cd node_modules/node-pty && pwd -P)
 rebuild "$pty"
 find "$pty/build" -mindepth 1 -maxdepth 1 ! -name Release -exec rm -rf {} +
 find "$pty/build/Release" -mindepth 1 -maxdepth 1 ! -name pty.node -exec rm -rf {} +
+# postinstall의 electron-rebuild는 리눅스에서 node-pty도 다시 빌드하고(`-w`는 고르는 것이 아니라 더하는 것이다 — 고르는 것은 `-o`)
+# 그 결과를 bin/<플랫폼>-<arch>-<ABI>/에 복사해 둔다. node-pty는 그 자리를 읽지 않지만(lib/utils.js는 build/Release·build/Debug·
+# prebuilds만 본다) 패키지에 실려 러너의 glibc(`GLIBC_2.34`)로 하한 검사에 걸린다 — v0.26.1의 첫 릴리스 CI가 잡았다.
+rm -rf "$pty/bin"
 
-bash "$here/check-glibc.sh" "$bs3/prebuilds/linux-x64.node" "$pty/build/Release/pty.node"
+# 다시 빌드한 두 파일만이 아니라 두 패키지 폴더 전체를 본다 — 패키지에 실리는 x86-64 ELF가 하나라도 하한을 넘으면 여기서 멈춘다.
+bash "$here/check-glibc.sh" "$bs3" "$pty"
 # 이 컨테이너가 곧 RHEL 8의 glibc·libstdc++다 — 여기서 뜨고 돌면 RHEL 8에서도 뜬다. 이미지가 LD_LIBRARY_PATH에 얹은
 # gcc-toolset 폴더는 빼고 돌린다(RHEL 8 사용자에게는 없다).
 env -u LD_LIBRARY_PATH node "$here/smoke-native.mjs" "$PWD/node_modules"

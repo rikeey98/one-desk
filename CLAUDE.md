@@ -790,7 +790,7 @@ Electron이 node가 아니라 앱으로 뜬다. `configFile.test`의 "WSL 서버
 **리눅스 네이티브 모듈은 manylinux_2_28 컨테이너에서 다시 빌드한다 — 러너에서 만든 것을 그대로 싣지 말 것**
 (`docs/sdlc/linux-glibc-floor/`, 2026-10-14). 러너(ubuntu-latest)에서 컴파일한 node-pty와 better-sqlite3가 품은 linux-x64 사전 빌드는
 `GLIBC_2.34`를 요구해 RHEL 8에서는 앱이 DB를 여는 순간 죽는다(창도 뜨지 않는다). 그래서 릴리스의 리눅스 빌드가 `pnpm install` 직후
-`build/linux/build-native.sh`를 그 이미지(AlmaLinux 8 + gcc-toolset-14) 안에서 부른다. 조용히 깨지는 넷. (1) **두 모듈의 진입점 순서가
+`build/linux/build-native.sh`를 그 이미지(AlmaLinux 8 + gcc-toolset-14) 안에서 부른다. 조용히 깨지는 다섯. (1) **두 모듈의 진입점 순서가
 반대다** — better-sqlite3는 `prebuilds/`를 `build/Release`보다 먼저 집으므로 결과를 `prebuilds/linux-x64.node`에 갈아 끼운다(빌드만
 하면 원래 사전 빌드가 그대로 쓰인다). 사전 빌드가 있으면 `binding.gyp`가 빌드를 건너뛰므로 `--force_build=1`이 필요하다. node-pty는
 `build/Release`를 먼저 본다. (2) **갈아 끼우기 전에 지운다** — pnpm은 node_modules의 파일을 저장소에서 하드 링크하므로 제자리에서
@@ -799,8 +799,12 @@ Electron이 node가 아니라 앱으로 뜬다. `configFile.test`의 "WSL 서버
 넣어 결과가 RHEL 8의 libstdc++로 돈다. (4) **하한은 `build/linux/check-glibc.sh` 한 자리다** — `GLIBC_2.28`·`GLIBCXX_3.4.25`·
 `CXXABI_1.3.11`, 강한 참조만, x86-64 ELF만(better-sqlite3가 품은 linux-arm64 사전 빌드는 `GLIBCXX_3.4.29`라 아키텍처를 거르지 않으면
 늘 실패한다). 두 모듈은 `fcntl64@GLIBC_2.28` 때문에 정확히 2.28이다 — 빌드 환경의 glibc가 곧 하한이다. Electron을 올려 실행 파일이
-더 새 glibc를 요구하게 돼도(지금은 `GLIBC_2.25`) check-appimage 3단계가 릴리스를 막는다. 로컬에 docker가 없으면 이미지를 받아
-사용자 네임스페이스 + chroot로 돌린다(spec §3).
+더 새 glibc를 요구하게 돼도(지금은 `GLIBC_2.25`) check-appimage 3단계가 릴리스를 막는다. (5) **postinstall의 electron-rebuild가
+리눅스에서는 node-pty도 다시 빌드하고 그 사본을 `node-pty/bin/linux-x64-<ABI>/`에 남긴다** — `-w`는 고르는 것이 아니라 더하는 것이다
+(고르는 것은 `-o`). node-pty는 `bin/`을 읽지 않지만(`lib/utils.js`) 그 사본은 러너의 glibc(`GLIBC_2.34`)라
+패키지에 실리면 하한 검사에 걸린다. 그래서 build-native.sh가 지우고, 자체 검사는 두 패키지 폴더 전체를 본다. v0.26.1의 첫 릴리스 CI가
+3단계에서 이것을 잡았다 — 로컬 재현은 `pnpm install --ignore-scripts`로 돌아 사본이 생기지 않았다. **CI를 재현할 때는 설치 스크립트를
+켠다.** 로컬에 docker가 없으면 이미지를 받아 사용자 네임스페이스 + chroot로 돌린다(spec §3).
 
 **OpenCode 전체 허용의 플래그는 `--auto`가 아니라 `--dangerously-skip-permissions`다** (2026-10-02). `--auto`는
 1.18.0에서 생긴 별칭이라 1.4.0~1.17.x는 모르는 옵션으로 보고 **이유 한 줄 없이 도움말만** 찍고 exit 1로 끝난다 —
@@ -936,7 +940,9 @@ CI의 `electron-builder --win`이 같이 깨진다. Electron용 빌드는 postin
 (패키징에 실린다), (2) `pnpm.onlyBuiltDependencies` — pnpm 10은 목록에 없는 패키지의 설치 스크립트를 건너뛰는데 node-pty의 설치
 스크립트(`prebuild.js || node-gyp rebuild`)가 사전 빌드를 고르는 자리다, (3) `electron-builder.yml`의 `asarUnpack` — `.node`뿐 아니라
 `conpty.dll`·`OpenConsole.exe`를 자기 폴더에서 찾아 띄우므로 폴더째 asar 밖이다. 1.1.0은 N-API 사전 빌드(Windows x64·arm64, macOS)를
-품어 **컴파일하지 않고**, Electron을 올려도 다시 빌드하지 않는다(postinstall의 `electron-rebuild -w better-sqlite3`는 손대지 않는다).
+품어 그 플랫폼에서는 **컴파일하지 않고**, Electron을 올려도 다시 빌드하지 않는다(Windows 개발 장비의 node-pty에는 electron-rebuild의
+사본 폴더 `bin/`이 없다). 리눅스는 사전 빌드가 없어 설치 스크립트가 컴파일하고 postinstall의 `electron-rebuild -w better-sqlite3`도 다시
+빌드한다 — 릴리스는 위 리눅스 항목대로 컨테이너에서 다시 빌드한다.
 core는 그것을 import하지 않는다 — `CoreOptions.spawnPty`(**필수**)로 main이 넘긴다. **core 테스트의 가짜 pty pid는 있을 수 없는
 번호(2147483644)여야 한다** — repo 삭제·앱 종료가 Windows에서 진짜 `taskkill /T /F`를 부르므로, 실제 프로세스와 겹치면 그것을 죽인다.
 
