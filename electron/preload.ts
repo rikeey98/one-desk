@@ -126,7 +126,7 @@ const client: OneDeskClient = {
   app: {
     info: () => call<AppInfo>(CHANNELS.appInfo),
     reveal: (target) => call<void>(CHANNELS.appReveal, target),
-    pickDirectory: () => call<string | null>(CHANNELS.appPickDirectory),
+    pickDirectory: (options) => call<string | null>(CHANNELS.appPickDirectory, options),
     openPanelWindow: (scope) => call<void>(CHANNELS.appOpenPanelWindow, scope)
   },
   events: {

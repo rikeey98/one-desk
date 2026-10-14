@@ -4,6 +4,7 @@ import { AddRepoForm } from './AddRepoForm'
 import { RenameField } from './RenameField'
 import { ConfirmButton } from './ConfirmButton'
 import { chipKey, type ContextChip } from '../context'
+import { repoTitleOf } from '../agentEnv'
 import { IconExternalLink, IconFolder, IconPencil, IconPlus, IconTrash } from './icons'
 import type { Repo } from '@shared/models'
 
@@ -86,8 +87,8 @@ export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, 
                   type="button"
                   className={r.id === selectedRepoId ? 'repo-card repo-card-selected' : 'repo-card'}
                   /* 사이드바에는 경로를 둘 자리가 없다 — 이름만 보이고 경로는 hover(title)로 닿는다.
-                     고치는 것은 설정의 repo 탭이다. */
-                  title={r.path}
+                     고치는 것은 설정의 repo 탭이다. WSL repo는 UNC 대신 배포판 · Linux 경로다(wsl-repo-setup FR-6). */
+                  title={repoTitleOf(r)}
                   /* 이름만으로는 상세의 repo 태그 칩("api")과 접근성 이름이 같아진다 —
                      스크린리더도 테스트도 둘을 못 가른다. */
                   aria-label={`${r.name} repo`}
@@ -95,6 +96,8 @@ export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, 
                 >
                   <IconFolder className="repo-icon" />
                   <span className="repo-name">{r.name}</span>
+                  {/* 등록 결과가 눈에 보이게 — 설정에 가 보지 않아도 WSL로 도는 repo를 안다 */}
+                  {r.agentEnv === 'wsl' && <span className="repo-env">WSL</span>}
                 </button>
                 {/* 평소엔 CSS로 감춰 두고 호버·포커스에서 드러낸다. DOM에는 항상
                     있어야 키보드로도 닿는다. */}

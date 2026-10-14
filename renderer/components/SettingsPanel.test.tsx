@@ -39,8 +39,8 @@ const INFO: AppInfo = {
   version: '0.9.1', dataDir: 'C:\data', dbFile: 'C:\data\one-desk.db', logDir: 'C:\data\logs'
 }
 
-const WSL_OK: WslDistros = { supported: true, distros: ['Ubuntu', 'Debian'], reason: null }
-const WSL_NONE: WslDistros = { supported: false, distros: [], reason: 'WSL은 Windows에서만 쓸 수 있습니다' }
+const WSL_OK: WslDistros = { supported: true, distros: ['Ubuntu', 'Debian'], defaultDistro: 'Ubuntu', reason: null }
+const WSL_NONE: WslDistros = { supported: false, distros: [], defaultDistro: null, reason: 'WSL은 Windows에서만 쓸 수 있습니다' }
 
 function makeClient(
   over: Record<string, unknown> = {},
@@ -1009,15 +1009,104 @@ describe('SettingsPanel — repo 탭의 claude 실행 환경 (docs/sdlc/wsl-supp
   })
 })
 
-describe('SettingsPanel — 앱 탭의 WSL 절 (docs/sdlc/wsl-support/ FR-12·27)', () => {
-  async function openAppTab() {
-    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+describe('SettingsPanel — WSL 탭 (docs/sdlc/wsl-repo-setup/ FR-7~10)', () => {
+  const WSL_PATH = '\\\\wsl$\\Ubuntu\\home\\me\\api'
+  const WSL_STATUS: AgentStatuses = {
+    ...AGENTS_OK, wsl: { ok: true, executable: '/home/me/.local/bin/claude', distro: 'Ubuntu' }
   }
+  const WSL_PROBES: AgentProbes = {
+    ...PROBES_OK,
+    wsl: {
+      auth: { state: 'ok', method: 'claude.ai', plan: 'max' },
+      model: { state: 'resolved', model: 'claude-opus-5-5' },
+      version: '2.1.299',
+      models: [],
+      distro: 'Ubuntu'
+    }
+  }
+  async function openWslTab() {
+    await userEvent.click(await screen.findByRole('tab', { name: 'WSL' }))
+  }
+
+  it('탭은 실행 · 앱 · repo · WSL · 정보 순서다 (FR-7)', async () => {
+    renderPanel(makeClient())
+    await screen.findByRole('tab', { name: 'WSL' })
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['실행', '앱', 'repo', 'WSL', '정보'])
+  })
+
+  it('Windows가 아니면 WSL 탭이 없고, 앱 탭에도 WSL 칸이 없다 (FR-7·10)', async () => {
+    const listDistros = vi.fn(async () => WSL_NONE)
+    renderPanel(makeClient({}, {}, {}, {}, { listDistros }))
+    await waitFor(() => expect(listDistros).toHaveBeenCalled())
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    await screen.findByLabelText('터미널 셸 실행 파일')
+    expect(screen.queryByRole('tab', { name: 'WSL' })).toBeNull()
+    expect(screen.queryByLabelText('WSL claude 경로')).toBeNull()
+    expect(screen.queryByText(/WSL 탭/)).toBeNull()
+  })
+
+  it('WSL 두 칸은 앱 탭에서 WSL 탭으로 옮겼다 — 앱 탭의 안내가 WSL 탭을 가리킨다 (FR-10)', async () => {
+    renderPanel(makeClient())
+    await screen.findByRole('tab', { name: 'WSL' })
+    await userEvent.click(screen.getByRole('tab', { name: '앱' }))
+    await screen.findByLabelText('터미널 셸 실행 파일')
+    expect(screen.queryByLabelText('WSL claude 경로')).toBeNull()
+    expect(screen.queryByLabelText('WSL 글로벌 skill 경로')).toBeNull()
+    expect(screen.getByText(/WSL repo의 claude는 WSL 탭에서 정합니다/)).toBeInTheDocument()
+    expect(screen.getByText(/WSL 안의 skill 경로는 WSL 탭에 있습니다/)).toBeInTheDocument()
+  })
+
+  it('배포판을 알약으로 보이고 기본 배포판에 표식을 단다 (FR-8의 1)', async () => {
+    renderPanel(makeClient())
+    await openWslTab()
+    const list = await screen.findByRole('list', { name: 'WSL 배포판' })
+    expect(within(list).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Ubuntu기본', 'Debian'])
+  })
+
+  it('배포판이 없으면 설치 명령을 가르치는 빈 상태다 (FR-8의 1)', async () => {
+    renderPanel(makeClient({}, {}, {}, {}, {
+      listDistros: vi.fn(async () => ({ supported: true, distros: [], defaultDistro: null, reason: null }))
+    }))
+    await openWslTab()
+    expect(await screen.findByText('이 PC에 WSL 배포판이 없습니다')).toBeInTheDocument()
+    expect(screen.getByText('wsl --install')).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'WSL 배포판' })).toBeNull()
+  })
+
+  it('목록을 못 얻었으면 그 이유를 말한다', async () => {
+    renderPanel(makeClient({}, {}, {}, {}, {
+      listDistros: vi.fn(async () => ({ supported: true, distros: [], defaultDistro: null, reason: 'wsl.exe가 5000ms 안에 목록을 주지 않았습니다' }))
+    }))
+    await openWslTab()
+    expect(await screen.findByText('배포판 목록을 얻지 못했습니다')).toBeInTheDocument()
+    expect(screen.getByText(/5000ms 안에/)).toBeInTheDocument()
+  })
+
+  it('WSL repo가 있으면 실행 탭과 같은 데이터로 WSL claude 줄을 그린다 (FR-8의 2)', async () => {
+    renderPanel(
+      makeClient({}, { checkAgents: vi.fn(async () => WSL_STATUS), probeAgents: vi.fn(async () => WSL_PROBES) }),
+      { repos: [makeRepo({ path: WSL_PATH, agentEnv: 'wsl' })] }
+    )
+    await openWslTab()
+    const list = await screen.findByRole('list', { name: 'WSL claude 상태' })
+    await waitFor(() => expect(list).toHaveTextContent('claude-opus-5-5'))
+    expect(list).toHaveTextContent('Claude Code (WSL · Ubuntu)')
+    expect(list).toHaveTextContent('/home/me/.local/bin/claude · v2.1.299')
+    expect(list).toHaveTextContent('로그인됨 (claude.ai · max)')
+    expect(within(list).getByRole('listitem')).toHaveClass('settings-status-ok')
+  })
+
+  it('WSL repo가 없으면 상태 줄 대신 다음 행동을 말한다 — WSL VM을 깨우지 않는다 (FR-8의 2, §5의 1)', async () => {
+    renderPanel(makeClient())
+    await openWslTab()
+    expect(await screen.findByText(/ws1에 WSL repo가 없어 아직 확인하지 않았습니다/)).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'WSL claude 상태' })).toBeNull()
+  })
 
   it('WSL claude 경로는 자기 저장 버튼으로 저장하고 돌려받은 값으로 채운다', async () => {
     const setWslClaudePath = vi.fn(async (p: string | null) => (p ?? '').trim() || null)
     renderPanel(makeClient({ setWslClaudePath }))
-    await openAppTab()
+    await openWslTab()
     const field = await screen.findByLabelText('WSL claude 경로')
     await userEvent.type(field, '  /home/me/.local/bin/claude ')
     await userEvent.click(screen.getByRole('button', { name: 'WSL claude 경로 저장' }))
@@ -1028,7 +1117,7 @@ describe('SettingsPanel — 앱 탭의 WSL 절 (docs/sdlc/wsl-support/ FR-12·27
   it('WSL 글로벌 skill 경로는 여러 줄이고 자기 저장 버튼으로 저장한다', async () => {
     const setWslGlobalRoots = vi.fn(async (roots: string[]) => roots)
     renderPanel(makeClient({ setWslGlobalRoots }))
-    await openAppTab()
+    await openWslTab()
     const field = await screen.findByLabelText('WSL 글로벌 skill 경로')
     expect(field).toHaveValue('~/.claude/skills')
     await userEvent.clear(field)
@@ -1037,22 +1126,83 @@ describe('SettingsPanel — 앱 탭의 WSL 절 (docs/sdlc/wsl-support/ FR-12·27
     expect(setWslGlobalRoots).toHaveBeenCalledWith(['/opt/skills', '~/.claude/skills'])
   })
 
-  it('탭을 옮겼다 돌아와도 고치던 WSL 경로가 그대로다 (FR-11)', async () => {
+  it('탭을 옮겼다 돌아와도 고치던 WSL 경로가 그대로다 (settings-screen FR-11)', async () => {
     renderPanel(makeClient())
-    await openAppTab()
+    await openWslTab()
     const field = await screen.findByLabelText('WSL claude 경로')
     await userEvent.type(field, '/x')
     await userEvent.click(screen.getByRole('tab', { name: '실행' }))
-    await openAppTab()
+    await openWslTab()
     expect(await screen.findByLabelText('WSL claude 경로')).toHaveValue('/x')
   })
 
-  it('Windows가 아니면 두 절을 그리지 않는다', async () => {
-    renderPanel(makeClient({}, {}, {}, {}, { listDistros: vi.fn(async () => WSL_NONE) }))
-    await openAppTab()
-    await screen.findByLabelText('터미널 셸 실행 파일')
-    expect(screen.queryByLabelText('WSL claude 경로')).toBeNull()
-    expect(screen.queryByLabelText('WSL 글로벌 skill 경로')).toBeNull()
+  it('WSL repo 목록 — WSL claude 줄과, WSL 폴더인데 Windows claude인 줄을 가른다 (FR-8의 3)', async () => {
+    renderPanel(makeClient(), {
+      repos: [
+        makeRepo({ id: 'r1', name: 'api', path: WSL_PATH, agentEnv: 'wsl' }),
+        makeRepo({ id: 'r2', name: 'web', path: '/tmp/web' }),
+        makeRepo({ id: 'r3', name: 'legacy', path: '\\\\wsl$\\Debian\\srv\\old' })
+      ]
+    })
+    await openWslTab()
+    const list = await screen.findByRole('list', { name: 'WSL repo' })
+    const rows = within(list).getAllByRole('listitem')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toHaveTextContent('api')
+    expect(rows[0]).toHaveTextContent('WSL claude')
+    expect(rows[0]).toHaveTextContent('Ubuntu · /home/me/api')
+    expect(rows[1]).toHaveTextContent('Windows claude')
+    expect(rows[1]).toHaveTextContent('Debian · /srv/old')
+    expect(rows[1]).toHaveTextContent(/Windows의 claude가 돕니다/)
+    expect(screen.getByRole('heading', { name: 'WSL repo — ws1' })).toBeInTheDocument()
+  })
+
+  it('WSL repo가 없으면 등록 폼의 WSL 버튼을 가르친다 (FR-8의 3)', async () => {
+    renderPanel(makeClient())
+    await openWslTab()
+    expect(await screen.findByText('이 workspace에는 WSL repo가 없습니다')).toBeInTheDocument()
+  })
+
+  it('workspace를 고르지 않았어도 장비 범위의 두 칸은 고칠 수 있다', async () => {
+    renderPanel(makeClient(), { workspaceId: null })
+    await openWslTab()
+    expect(await screen.findByLabelText('WSL claude 경로')).toBeInTheDocument()
+    expect(screen.getByLabelText('WSL 글로벌 skill 경로')).toBeInTheDocument()
+    expect(screen.getByText(/workspace를 고르면 그 workspace의 WSL repo가 보입니다/)).toBeInTheDocument()
+  })
+
+  it('`repo 탭에서 열기`는 repo 탭으로 옮겨 그 repo의 실행 환경에 포커스를 준다 (FR-9)', async () => {
+    renderPanel(makeClient(), {
+      repos: [makeRepo({ id: 'r1', name: 'web', path: '/tmp/web' }), makeRepo({ id: 'r2', name: 'api', path: WSL_PATH, agentEnv: 'wsl' })]
+    })
+    await openWslTab()
+    await userEvent.click(await screen.findByRole('button', { name: 'api: repo 탭에서 열기' }))
+    expect(screen.getByRole('tab', { name: 'repo' })).toHaveAttribute('aria-selected', 'true')
+    const group = screen.getByRole('radiogroup', { name: 'api claude 실행 환경' })
+    await waitFor(() => expect(within(group).getByRole('radio', { name: 'WSL' })).toHaveFocus())
+  })
+
+  it('`다시 확인`은 배포판 목록과 CLI 상태를 다시 묻는다 — 캐시를 버리고 (FR-8)', async () => {
+    const listDistros = vi.fn(async () => WSL_OK)
+    const probeAgents = vi.fn(async () => PROBES_OK)
+    renderPanel(makeClient({}, { probeAgents }, {}, {}, { listDistros }))
+    await openWslTab()
+    await waitFor(() => expect(probeAgents).toHaveBeenCalledTimes(1))
+    await userEvent.click(screen.getByRole('button', { name: '다시 확인' }))
+    await waitFor(() => expect(listDistros).toHaveBeenCalledTimes(2))
+    expect(probeAgents).toHaveBeenLastCalledWith('w1', true)
+  })
+
+  it('다시 확인에서 목록을 못 얻어도 탭은 남고 이유만 바뀐다', async () => {
+    const listDistros = vi.fn()
+      .mockResolvedValueOnce(WSL_OK)
+      .mockRejectedValueOnce(new Error('IPC 끊김'))
+    renderPanel(makeClient({}, {}, {}, {}, { listDistros }))
+    await openWslTab()
+    await userEvent.click(screen.getByRole('button', { name: '다시 확인' }))
+    await waitFor(() => expect(listDistros).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('tab', { name: 'WSL' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('list', { name: 'WSL 배포판' })).toBeInTheDocument()
   })
 })
 

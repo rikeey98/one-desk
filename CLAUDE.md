@@ -67,7 +67,8 @@ e2e에서 진짜 경로를 넣어 검증하려면 `launchApp({ agentPath: '' })`
 
 **설정 화면은 네 탭이다**(intent·spec·plan은 `docs/sdlc/settings-screen/`). 실행 · 앱 · repo ·
 정보 — **탭은 값의 범위로 가른다.** 실행과 repo는 지금 고른 workspace 하나에, 앱은 장비
-전체에 걸리고, 정보는 읽기 전용이다. 위에서 "세 절"이라 부른 것이 탭으로 갈라졌다 —
+전체에 걸리고, 정보는 읽기 전용이다. **Windows에서는 repo와 정보 사이에 `WSL` 탭이 하나 더 선다** — 그 규칙의 사용자가 승인한
+예외다(아래 WSL 절의 `wsl-repo-setup`). 위에서 "세 절"이라 부른 것이 탭으로 갈라졌다 —
 실행 기본값(권한 포함)과 CLI 경로는 **실행 탭**에, 글로벌 asset 경로와 CLI 기본 경로는 **앱 탭**에 있고
 동시 실행 상한이 앱 탭에 더해졌다. **절마다 저장이 따로인 것은 그대로다.** 정보 탭은
 MCP 상태와 포트 · DB 파일 · 로그 디렉토리 · 앱 버전을 보여주고 데이터/로그 폴더를 연다 —
@@ -364,7 +365,7 @@ claude가 interop으로 **Electron 실행 파일을 직접** 자식으로 띄우
 인자는 브리지·`<runId>.bridge.json`의 **Windows 경로**, URL·토큰은 그 인자 파일, `ELECTRON_RUN_AS_NODE`는 서버 env의
 `WSLENV: 'ELECTRON_RUN_AS_NODE'`가 넘긴다 — 아래 함정 절). spawn 직전의 변환은 `core/wsl/launch.ts`의
 `wrapForEnv` 하나이고 `agentCommand`가 **실행 환경을 필수 인자**로 받는다(아래 함정 절). WSL claude 경로·WSL 글로벌 skill 경로는
-앱 탭의 두 절(각자 저장)이고, WSL repo에서 OpenCode는 막는다. 구현은 실측 없이 나갔고(v0.24.0, spec §4-A) **v0.24.0·v0.25.0의
+설정의 **WSL 탭**에 있고(각자 저장 — 2026-10-14까지는 앱 탭이었다), WSL repo에서 OpenCode는 막는다. 구현은 실측 없이 나갔고(v0.24.0, spec §4-A) **v0.24.0·v0.25.0의
 WSL run은 전부 시작조차 못 했다** — `wsl.exe -- …`가 인자를 `bash -c` 문자열로 넘겨 `wslpath`가 깨졌다(아래 함정 절). **첫 실측
 (2026-10-12, Ubuntu-24.04 · claude 2.1.296 — spec §4-B)**이 그것을 `--exec`로 고치고(v0.25.1) 나머지를 확인했다: MCP 도구 호출,
 `@` 멘션의 UNC 읽기, 코드 칸, WSL 터미널, 340 KB 셸 출력, 취소 2초 안에 손자와 Windows 쪽 브리지까지, 앱 종료 뒤 터미널 셸·브리지가 남지 않음(도는 run이 없을 때 — 도는 run은 backlog §3).
@@ -378,6 +379,18 @@ interop으로 직접 띄운다(`WSLENV` — 사용자 폴더 이름의 한글·`
 (`홍 a&b^c%PATH%!(x)` — 드라이버의 `dataDirPrefix`), MCP 연결은 답 문구가 아니라 init 줄의 `mcp_servers`로 판정한다). 같은 작업에서 **repo 탭의 저장이 실행
 환경·경로가 바뀌면 CLI 상태를 다시 판정한다**(`SettingsPanel`의 `saveRepo`) — 예전에는 workspace를 고를 때만 물어 WSL 줄이 1분 넘게
 "확인 중"이었다.
+
+**WSL repo는 등록 폼에서 한 번에 만든다 — WSL 설정은 WSL 탭에 모았다** (`docs/sdlc/wsl-repo-setup/`). 마이그레이션 없음. 다른 장비에서
+써 본 사용자가 "등록한 뒤에야 설정에서 바꿀 수 있어 동선이 어색하다"고 wsl-support FR-5(등록 폼은 그대로)를 뒤집었다. 사이드바 등록 폼의
+폴더 아이콘 옆 **`WSL` 글자 버튼**(이름 `WSL 폴더 고르기`)이 `app.pickDirectory({ start: 'wsl' })`로 **기본 배포판의 홈**에서 대화상자를
+연다 — 렌더러는 뜻만 넘기고 시작 폴더는 core가 정한다(`core.wsl.folderStart` — `folderStartOf`, IPC 인자 판정은 `core/app/pickStart.ts`).
+경로가 WSL 경로면(쳤든 골랐든) 체크 `WSL 안의 claude로 실행`이 **켜진 채** 서고 `agentEnv: 'wsl'`로 등록한다 — 판정은
+`renderer/agentEnv.ts`의 `registerEnvOf`다. 사람이 끈 체크는 경로가 WSL인 동안 남고, WSL이 아니게 되거나 대화상자가 새 경로를 넣으면
+잊는다. 사이드바의 WSL repo 카드는 `WSL` 표식을 단다. 설정의 **WSL 탭**(Windows에서만)은 배포판(`기본` 표식) · WSL 안의 claude(실행 탭
+CLI 상태와 **같은 `AgentStatusRow`·같은 데이터** — 따로 묻지 않는다) · WSL claude 경로 · `WSL repo — <workspace>`(`repo 탭에서 열기`가 repo
+탭의 그 실행 환경 라디오에 포커스) · WSL 글로벌 skill 경로이고, 맨 위의 `다시 확인`이 배포판 목록과 CLI 상태를 캐시째 다시 묻는다. **WSL
+repo가 없으면 WSL claude를 미리 판정하지 않는다** — WSL VM을 깨운다(spec §5의 1). `WslDistros`에 `defaultDistro`가 늘었다(배포판이
+여럿일 때만 `wsl --list --verbose`의 `*` 줄 — 머리 줄은 로캘을 타므로 읽지 않고, 그 이름이 `--quiet` 목록에 있을 때만 믿는다).
 
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
@@ -747,6 +760,18 @@ Electron이 node가 아니라 앱으로 뜬다. `configFile.test`의 "WSL 서버
 마운트돼 있어야 한다(패키징 앱은 `%TEMP%`라 C:다). `WslConfigTarget`의 필드가 `execPath`가 아니라 `command`인 것은 Windows 경로인
 `McpConfigTarget.execPath`와 바꿔 넣어도 컴파일되지 않게 하려는 것이다.
 
+**폴더 선택 대화상자는 `\\wsl$`(배포판 목록)를 시작 폴더로 받지 않는다 — 늘 배포판 하나의 폴더를 준다** (`docs/sdlc/wsl-repo-setup/`
+§0, 2026-10-14 실측). `defaultPath`가 `\\wsl$`·`\\wsl.localhost`면 그 글자가 파일 이름 칸에 들어가고 대화상자는 마지막 폴더에서 열린다.
+배포판의 홈(`\\wsl$\Ubuntu-24.04\home\me`)은 탐색 창에 `Linux`가 보이지 않는 장비에서도 그대로 열린다 — 그래서 `folderStartOf`는 기본
+배포판(없으면 첫 배포판)의 홈, 홈을 못 물으면 그 배포판의 루트다. 네이티브 대화상자는 Playwright가 누르지 못하므로 e2e는 main의
+`dialog.showOpenDialog`를 바꿔 세우고 받은 `defaultPath`를 적어 둔다(`wsl.e2e`). 진짜 대화상자를 보려면 창을 `PrintWindow`로 찍는다 —
+`CopyFromScreen`은 앞에 있는 창(터미널)을 찍는다.
+
+**e2e 드라이버는 `ONE_DESK_WSL_PATH`를 세우지 않는다 — WSL이 깔린 장비에서는 모든 e2e가 진짜 `wsl.exe --list`를 부른다.** 등록 폼과
+설정 화면이 열릴 때마다다(빠르고 VM을 깨우지 않는다). 그래서 그 장비의 모든 e2e에서 등록 폼에 `WSL 폴더 고르기`가, 설정에 `WSL` 탭이
+선다 — 짧은 이름을 새로 붙일 때 이 둘과의 부분 일치를 본다. 그 버튼 이름에 `폴더 선택`을, WSL 탭 바로가기 이름에 `<이름> repo`를 넣지
+않은 이유다(`repo-pick.e2e`의 `{ name: '폴더 선택' }`, 사이드바 카드의 `<이름> repo`). 바로가기 이름은 `<이름>: repo 탭에서 열기`다.
+
 **OpenCode 전체 허용의 플래그는 `--auto`가 아니라 `--dangerously-skip-permissions`다** (2026-10-02). `--auto`는
 1.18.0에서 생긴 별칭이라 1.4.0~1.17.x는 모르는 옵션으로 보고 **이유 한 줄 없이 도움말만** 찍고 exit 1로 끝난다 —
 편집 허용으로 잘 되던 대화가 전체 허용으로 바꾸는 순간 "opencode run [message..]"로 실패했다. 옛 이름은 1.4.0에서
@@ -1023,6 +1048,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/code-editor/` | 코드 칸(터미널 · 변경사항 · 파일) — intent 하나, spec·plan은 첫 사이클(틀 + 파일 칸), `terminal-spec.md`·`terminal-plan.md`는 둘째(터미널 — repo당 셸 하나, 앱 종료의 동기 트리 종료, 렌더러는 repo id만, 출력 이어 붙이기 규칙, node-pty 사전 빌드와 패키징). git diff로 가는 결정(intent), 배치 시안(안 A로 구현했다가 안 B — 창 오른쪽 전체 높이로 바꿈, spec §0), 버튼을 앱 제목 줄의 OS 창 단추 왼쪽으로 옮긴 것과 사이클 순서 변경(spec §0·FR-1), 목록 안의 파일만 읽고 쓰는 이유(spec §3-4), 명시적 저장과 해시 충돌(FR-17·19), 줄바꿈·BOM 되살리기(FR-18), 닫기 확인(FR-21), 우려와 승인(§4). plan에 변이 결과와 번들 크기 |
 | `docs/sdlc/inbox-views/` | 인박스의 보기(시간순 · workspace별 · 상태별)와 정렬 — spec·plan. 시간 기준과 정확한 역순(spec FR-2), 묶음 순서가 정렬을 따르는 이유(FR-7)와 상태별 고정 순서(FR-10), 그 workspace의 repo만 보는 이유(FR-6), repo를 App이 읽어 필수 prop으로 내리는 이유(FR-16). plan에 변이 결과 |
 | `docs/sdlc/wsl-support/` | WSL2 안의 repo를 WSL 안의 claude로 — intent·spec·plan. UNC를 저장하는 이유(spec §0), spawn 변환 한 자리와 필수 인자(FR-8·9), 런처와 그룹 종료(FR-10·18), 브리지가 Windows에 남는 이유와 인자 파일(FR-21·22), WSL 판정 캐시 규칙(FR-13), 실측을 건너뛴 결정과 그래서 어느 쪽이든 되게 만든 두 자리(§4-A), 첫 실측이 찾은 `--`의 셸 해석과 고친 뒤의 결과(§4-B), 둘째 실측 — 로그인 셸 판정·터미널 세션 종료·cmd.exe 없는 브리지(§4-C). plan의 "달라진 것" |
+| `docs/sdlc/wsl-repo-setup/` | WSL repo를 등록 폼에서 한 번에, WSL 설정을 WSL 탭에 — spec. 대화상자가 `\\wsl$`를 시작 폴더로 받지 않는 실측(§0), wsl-support FR-5를 뒤집은 등록 동선(FR-1~6), 탭 규칙의 예외인 WSL 탭과 절의 순서(FR-7·8), 렌더러가 뜻만 넘기는 시작 폴더(FR-11~13), WSL VM을 깨우지 않는 이유(§5의 1), 캡처로 고친 것과 변이 결과(§6) |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |

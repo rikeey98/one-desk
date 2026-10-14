@@ -56,6 +56,35 @@ describe('RepoStrip', () => {
     await userEvent.click(await screen.findByText('api-server'))
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith(null))
   })
+
+  // 등록 결과가 눈에 보여야 한다 — WSL로 등록됐는지 설정에 가 보지 않아도 안다 (docs/sdlc/wsl-repo-setup/ FR-6)
+  it('WSL repo 카드는 이름 뒤에 WSL 표식과 배포판·Linux 경로 풍선을 단다 — 접근성 이름은 그대로다', async () => {
+    const mixed: Repo[] = [
+      { ...repos[0]!, id: 'w', name: 'wsl-api', path: '\\\\wsl$\\Ubuntu-24.04\\home\\me\\api', agentEnv: 'wsl' },
+      repos[1]!
+    ]
+    render(
+      <ClientProvider client={client}>
+        <RepoStrip
+          workspaceId="w1"
+          repos={mixed}
+          error={null}
+          refresh={vi.fn()}
+          selectedRepoId={null}
+          onSelect={vi.fn()}
+          chipKeys={new Set()}
+          onToggleContext={vi.fn()}
+          onDeleted={vi.fn()}
+        />
+      </ClientProvider>
+    )
+    const card = await screen.findByRole('button', { name: 'wsl-api repo' })
+    expect(card).toHaveTextContent('wsl-apiWSL')
+    expect(card).toHaveAttribute('title', 'WSL · Ubuntu-24.04 · /home/me/api')
+    const host = screen.getByRole('button', { name: 'web-client repo' })
+    expect(host).not.toHaveTextContent('WSL')
+    expect(host).toHaveAttribute('title', '/tmp/web')
+  })
 })
 
 describe('RepoStrip 맥락 담기 토글', () => {

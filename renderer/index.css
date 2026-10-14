@@ -197,6 +197,9 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .repo-card-selected .repo-name { font-weight: 600; }
 .repo-card-selected, .repo-card-selected:hover { background: var(--accent-bg); color: var(--accent-text); }
 .repo-name { flex: 1; min-width: 0; font-weight: 500; font-size: .8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* WSL repo 표식 (docs/sdlc/wsl-repo-setup/ FR-6) — 이름이 줄어들지 표식이 줄어들지 않는다. 표시 전용이라 테두리 알약이다. */
+.repo-env { flex: none; font-size: .625rem; font-weight: 600; letter-spacing: .03em; line-height: 14px; padding: 0 5px; border: 1px solid var(--border-strong); border-radius: 99px; color: var(--text-secondary); }
+.repo-card-selected .repo-env { border-color: var(--accent-border); color: var(--accent-text); }
 /* 경로는 같은 줄 오른쪽 끝으로 민다 — 이름이 왼쪽에 세로로 줄을 맞춰야 목록으로
    읽힌다. 길면 잘리고 전체는 title에 있다. */
 /* 경로는 사이드바에 없다 — repo-card의 title로 닿는다. */
@@ -317,6 +320,20 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .add-repo-form button:disabled { opacity: .5; cursor: not-allowed; }
 /* 오류는 줄 아래로 온전히 떨어뜨린다. 입력칸 사이에 끼면 칸 폭이 밀린다. */
 .add-repo-form .form-error { margin-top: 0; }
+/* WSL 버튼 (docs/sdlc/wsl-repo-setup/ FR-1) — 폴더 아이콘 옆의 글자 버튼. 펭귄 글리프 대신 글자라 어느 글꼴에서나 같다. */
+.add-repo-form .add-repo-wsl { padding: 0 7px; font-size: .625rem; font-weight: 700; letter-spacing: .04em; }
+/* 실행 환경 줄 (FR-3). 상자 없이 경로 칸 아래에 붙는다 — 폼이 이미 상자다(카드 안에 카드를 두지 않는다). */
+.add-repo-env { display: flex; flex-direction: column; gap: 2px; padding: 1px 2px 0; }
+.add-repo-env-check { display: flex; align-items: center; gap: 6px; font-size: .75rem; font-weight: 500; color: var(--text); cursor: pointer; }
+.add-repo-form .add-repo-env-check input { flex: none; width: 13px; height: 13px; margin: 0; padding: 0; border: 0; accent-color: var(--accent); cursor: pointer; }
+/* 폼의 입력 규칙(`input:focus { outline: none }`)이 체크의 포커스 링까지 지우지 않게 되살린다 */
+.add-repo-form .add-repo-env-check input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* 19px = 체크 13px + 간격 6px — 안내가 라벨 글자 아래에 줄을 맞춘다. 한국어는 낱말째 넘긴다(keep-all). 배포판과 Linux 경로는
+   두 줄이다 — 배포판은 끊지 않고, 경로가 칸보다 길 때만 아무 데서나 끊는다. */
+.add-repo-env-hint { margin: 0 0 0 19px; font-size: .6875rem; line-height: 1.45; color: var(--text-secondary); word-break: keep-all; overflow-wrap: anywhere; }
+.add-repo-env-distro { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-muted); }
+.add-repo-env-path { display: block; }
+.add-repo-env-warn { margin: 2px 0 0 19px; font-size: .6875rem; line-height: 1.45; color: var(--warn-text); word-break: keep-all; }
 
 .dock { flex: 0 0 auto; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); box-shadow: var(--shadow-panel); overflow: hidden; }
 /* 높이는 인라인 style이 정한다 (renderer/dockHeight.ts). flex-basis를 남겨두면
@@ -996,8 +1013,9 @@ button.tl-tool:hover, button.tl-file:hover { background: var(--bg-hover); }
 .command-option .file-option-name { flex: none; color: var(--text); }
 /* 설정 화면의 탭. 도크에는 이제 탭이 없으므로(세로 목록이 됐다) 앱 안에서 "탭"은
    여기 하나뿐이다. */
-/* 설정 화면. 가운데 한 열(최대 760px)에 탭은 분절 컨트롤, 탭 내용은 흰 카드다. */
-.settings { width: 100%; max-width: 760px; margin: 0 auto; padding: 4px 12px 28px; overflow-y: auto; }
+/* 설정 화면. 가운데 한 열(최대 760px)에 탭은 분절 컨트롤, 탭 내용은 흰 카드다. 안내문이 많은 화면이라 한국어를 낱말째
+   넘긴다(keep-all) — 기본값은 음절 사이 어디서나 끊어 `로그` / `인`처럼 낱말이 갈린다. 경로가 든 상태 줄은 자기 규칙(break-all)이 이긴다. */
+.settings { width: 100%; max-width: 760px; margin: 0 auto; padding: 4px 12px 28px; overflow-y: auto; word-break: keep-all; }
 .settings h2 { margin: 6px 0 14px; font-size: 1.375rem; font-weight: 600; }
 .settings h3 { margin: 24px 0 4px; font-size: .9375rem; font-weight: 600; }
 .settings-scope + h3, .settings-tabpanel > .form-error + h3 { margin-top: 0; }
@@ -1014,9 +1032,12 @@ button.tl-tool:hover, button.tl-file:hover { background: var(--bg-hover); }
 .settings-field input[type="number"] { max-width: 120px; }
 .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; max-width: 640px; }
 .settings-grid .settings-field { max-width: none; }
-/* 절마다 있는 저장 버튼은 주 동작이다. 정보 탭의 폴더 열기는 그렇지 않아 따로 되돌린다. */
-.settings-tabpanel button:not(.settings-actions button) { border: 1px solid var(--accent-strong); border-radius: 6px; background: var(--accent); color: var(--on-accent); cursor: pointer; font: inherit; font-size: .75rem; font-weight: 600; padding: 6px 14px; transition: background .12s; }
-.settings-tabpanel button:not(.settings-actions button):hover:not(:disabled) { background: var(--accent-strong); }
+/* 절마다 있는 저장 버튼은 주 동작이다. 정보 탭의 폴더 열기와 보조 버튼(.settings-secondary)은 그렇지 않아 따로 되돌린다. */
+.settings-tabpanel button:not(.settings-actions button):not(.settings-secondary) { border: 1px solid var(--accent-strong); border-radius: 6px; background: var(--accent); color: var(--on-accent); cursor: pointer; font: inherit; font-size: .75rem; font-weight: 600; padding: 6px 14px; transition: background .12s; }
+.settings-tabpanel button:not(.settings-actions button):not(.settings-secondary):hover:not(:disabled) { background: var(--accent-strong); }
+/* 보조 버튼 — 저장이 아닌 동작(다시 확인·바로가기). 흰 바탕 + 테두리, 정보 탭의 폴더 열기와 같은 결이다. */
+.settings-tabpanel .settings-secondary { flex: none; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); cursor: pointer; font: inherit; font-size: .75rem; padding: 5px 11px; white-space: nowrap; transition: background .12s, border-color .12s; }
+.settings-tabpanel .settings-secondary:hover:not(:disabled) { background: var(--bg-muted); border-color: var(--border-strong); }
 .settings-tabpanel button:disabled { opacity: .5; cursor: default; }
 .settings-tabpanel .confirm-button.confirm-armed { border-color: var(--danger); background: var(--danger); color: var(--on-accent); }
 /* 탭마다 맨 위에 오는 한 문장 — 이 값이 어디까지 걸리는지(spec FR-2). 힌트보다 진하다. */
@@ -1030,6 +1051,41 @@ button.tl-tool:hover, button.tl-file:hover { background: var(--bg-hover); }
 .settings-radio { display: inline-flex; align-items: center; gap: 5px; font-weight: 400; color: var(--text); cursor: pointer; }
 .settings-radio input { margin: 0; accent-color: var(--accent); }
 .settings-hint.path-text { font-family: var(--font-mono); }
+/* WSL 탭 (docs/sdlc/wsl-repo-setup/ FR-7·8). 범위 문장 오른쪽 끝에 탭 전체의 `다시 확인`이 선다. */
+.settings-scope-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.settings-scope-row p { margin: 0; }
+.settings-h3-scope { font-weight: 400; color: var(--text-secondary); }
+/* 경로 칸은 두 칸 줄(.settings-grid)과 같은 폭까지 — 리눅스 경로는 길다 */
+.settings-field-wide { max-width: 640px; }
+.settings-field + .settings-hint-under { margin-top: -6px; }
+/* 배포판 — 표시 전용 알약. 기본 배포판은 테두리가 한 단 진하고 `기본` 표식을 단다(파랑은 선택 상태의 색이라 쓰지 않는다). */
+.wsl-distros { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 10px; padding: 0; list-style: none; }
+.wsl-distro { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border: 1px solid var(--border); border-radius: 99px; background: var(--bg-panel); color: var(--text); font-size: .75rem; cursor: default; }
+.wsl-distro-default { border-color: var(--border-strong); background: var(--bg); }
+.wsl-distro-tag { font-size: .625rem; font-weight: 600; line-height: 16px; padding: 0 6px; border-radius: 99px; background: var(--bg-hover); color: var(--text-secondary); }
+/* 빈 상태 — "없다"가 아니라 다음 행동을 가르친다. 패널의 빈 상태와 같은 점선 상자다. */
+.settings-empty { margin: 8px 0 14px; padding: 14px 16px; border: 1px dashed var(--border-strong); border-radius: 8px; max-width: 64ch; }
+.settings-empty-title { margin: 0 0 4px; font-size: .8125rem; font-weight: 600; color: var(--text); }
+.settings-empty-hint { margin: 0; font-size: .75rem; line-height: 1.55; color: var(--text-muted); }
+.settings-code { font-family: var(--font-mono); font-size: .92em; padding: 1px 5px; border-radius: 4px; background: var(--bg-muted); color: var(--text); }
+/* 아직 확인하지 않은 상태 — 상태 목록과 같은 자리·같은 상자, 점 없이 */
+.settings-note { margin: 8px 0 14px; padding: 10px 12px; border: 1px solid var(--border-faint); border-radius: 8px; background: var(--bg-panel); font-size: .75rem; line-height: 1.5; color: var(--text-secondary); max-width: 64ch; }
+.settings-tabpanel .wsl-status { margin: 8px 0 14px; max-width: 640px; }
+/* 경로 칸이지만 안내(placeholder)는 한국어 문장이다 — 모노로 그리면 한글이 고정폭 대체 글꼴로 벌어진다. Linux 경로라 `\`가
+   `₩`로 보일 일은 없다(터미널 셸 칸의 `C:\…` 안내는 그래서 모노로 둔다). */
+.settings-field input.wsl-path-input::placeholder { font-family: system-ui, sans-serif; }
+/* WSL repo 목록 — 줄마다 이름 · 어느 claude인지 · 바로가기, 그 아래 배포판 · Linux 경로 */
+.wsl-repos { margin: 8px 0 12px; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: 8px; max-width: 640px; }
+.wsl-repo { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 9px 12px; }
+.wsl-repo + .wsl-repo { border-top: 1px solid var(--border-faint); }
+.wsl-repo-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wsl-repo-name { min-width: 0; font-size: .8125rem; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wsl-repo-env { flex: none; font-size: .625rem; font-weight: 600; line-height: 16px; padding: 0 7px; border-radius: 99px; background: var(--bg-muted); color: var(--text-secondary); }
+/* WSL 폴더인데 Windows claude — 막지는 않지만 대개 실수다. 경고 톤의 틴트 + 진한 글자 */
+.wsl-repo-env-host { background: var(--warn-bg); color: var(--warn-text); }
+.settings-tabpanel .wsl-repo-open { margin-left: auto; padding: 3px 9px; font-size: .6875rem; }
+.wsl-repo-path { min-width: 0; font-size: .6875rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wsl-repo-note { font-size: .6875rem; line-height: 1.45; color: var(--warn-text); }
 /* 정보 탭. 상태 목록은 CLI 상태 줄(.settings-status)과 같은 모양이되 흐리지 않다 —
    읽으라고 보여주는 값이다. */
 .settings-info { color: var(--text); font-family: var(--font-mono); font-size: .75rem; }

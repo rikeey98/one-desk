@@ -63,6 +63,9 @@ MCP는 지금 구조 그대로다 — 브리지는 Windows 프로세스이고, W
   거부한다**(`WSL은 Windows에서만 쓸 수 있습니다`).
 - **FR-5** `CreateRepoInput.agentEnv?`(기본 `host`). repo 등록 폼은 그대로다 — 환경은 등록 뒤 repo 탭에서 바꾼다(폼에
   선택지를 더하지 않는다. 등록 폼은 사이드바의 좁은 칸이다).
+  **개정 (2026-10-14, 사용자 — `docs/sdlc/wsl-repo-setup/`)**: "등록한 뒤에야 바꿀 수 있어 동선이 어색하다"로 뒤집혔다. 등록 폼에
+  `WSL` 버튼(기본 배포판의 홈에서 대화상자를 연다)이 서고, WSL 경로면 `WSL 안의 claude로 실행`이 켜진 채 나타나 `agentEnv: 'wsl'`로
+  등록한다. repo 탭의 라디오는 그대로 있다.
 - **FR-6** 화면(repo 탭): repo마다 `claude 실행 환경` 라디오(`Windows` · `WSL`)가 이름·경로·설명 아래에 선다. WSL을 고르면
   경로 칸 밑에 `배포판 <distro> · <linux 경로>`가 서고(파싱 결과 — 모양이 아니면 그 자리에 거부 문구), 목록의 distro에 없는
   이름이면 경고 한 줄(`이 배포판이 wsl --list에 없습니다`)이되 저장은 막지 않는다(distro가 잠시 꺼져 있을 수 있다). `host`인
@@ -98,7 +101,8 @@ MCP는 지금 구조 그대로다 — 브리지는 Windows 프로세스이고, W
   (`/mnt/c/Users/…`). Windows 경로 → Linux 경로 변환은 `wsl.exe -d <distro> --exec wslpath -a -u <path>`로 하되
   **distro마다 `userData` 하나를 한 번만 묻고** 그 아래는 접두사로 만든다(`core/wsl/paths.ts`, 캐시 — automount 루트가
   `/mnt`가 아닌 설정을 따른다). 못 묻으면(wslpath 실패) 그 run은 시작 전에 실패다(`WSL 경로를 변환하지 못했습니다`).
-- **FR-12** WSL 쪽 claude의 실행 파일은 **Linux 경로**다. 해석 순서는 지금과 평행하되 자리가 다르다: `ONE_DESK_AGENT_PATH`
+- **FR-12** (그 칸은 2026-10-14에 설정의 **WSL 탭**으로 옮겼다 — `docs/sdlc/wsl-repo-setup/` FR-10. 아래의 "앱 탭"은 그때까지의
+  자리다.) WSL 쪽 claude의 실행 파일은 **Linux 경로**다. 해석 순서는 지금과 평행하되 자리가 다르다: `ONE_DESK_AGENT_PATH`
   (테스트 이음매 — WSL에서도 그 값을 그대로 쓴다) → **앱 탭의 `WSL claude 경로`**(`app_setting`의 `agents.path.claude.wsl`,
   비면 다음) → `bash -lc 'command -v claude'`의 결과. workspace 예외(`claude_path`)는 Windows 경로라 WSL에는 쓰지 않는다
   (실행 탭의 그 칸은 WSL repo에 적용되지 않는다고 placeholder가 말한다). 탐색 결과는 (distro, 설정값)으로 캐시하고 `다시
@@ -182,7 +186,8 @@ MCP는 지금 구조 그대로다 — 브리지는 Windows 프로세스이고, W
   그대로 Windows에서 읽고 쓴다. 줄바꿈·BOM 되살리기도 그대로다(파일은 그 바이트 그대로 9P를 지난다). `resolveRepoPath`의
   realpath가 UNC를 어느 형태로 돌려주는지는 실측하지 못했으므로(`\\?\UNC\…` 접두사·`wsl.localhost`) 비교 전에 양쪽을
   `foldUncPrefix`로 같은 형태(`\\wsl$\…`)로 맞춘다 — 순수 함수이고 단위 테스트가 그 모양을 고정한다(개정 2026-10-12).
-- **FR-27** 글로벌 asset 경로: 앱 탭의 `글로벌 skill 경로 (claude)` 옆에 **`WSL 글로벌 skill 경로 (claude)`** 칸이 선다
+- **FR-27** (그 칸도 2026-10-14에 **WSL 탭**으로 옮겼다 — wsl-repo-setup FR-10.) 글로벌 asset 경로: 앱 탭의 `글로벌 skill 경로
+  (claude)` 옆에 **`WSL 글로벌 skill 경로 (claude)`** 칸이 선다
   (`app_setting`의 `assets.globalRoots.claude.wsl`, 여러 줄, **Linux 경로**, 기본 `~/.claude/skills`). 스캔은 WSL repo가
   있는 workspace에서 그 repo들의 distro마다 `~`를 그 distro의 홈(`wsl.exe -d <distro> --exec sh -c 'echo $HOME'`, distro마다
   한 번 캐시)으로 풀고 UNC(`\\wsl$\<distro>\home\me\.claude\skills`)로 바꿔 지금의 `scanDir`로 훑는다. asset 행의

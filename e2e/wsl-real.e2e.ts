@@ -156,7 +156,13 @@ describe.skipIf(process.env['ONE_DESK_REAL_WSL'] !== '1')('WSL 실측 (진짜 ws
         await ws.click()
         await page.getByRole('button', { name: 'repo 등록' }).click()
         await page.getByPlaceholder('repo 이름').fill(REPO_NAME)
+        // 진짜 배포판 목록을 받은 폼만 WSL 버튼을 세운다 — 대화상자는 누를 수 없어 경로는 친다(wsl-repo-setup FR-1·3)
+        await page.getByRole('button', { name: 'WSL 폴더 고르기' }).waitFor({ timeout: 15_000 })
         await page.getByPlaceholder('/절대/경로').fill(UNC_REPO)
+        // WSL 폴더면 체크가 켜진 채 온다 — 설정에 가서 바꾸지 않아도 WSL repo로 등록된다
+        const check = page.getByRole('checkbox', { name: 'WSL 안의 claude로 실행' })
+        if (!(await check.isChecked())) throw new Error('WSL 폴더인데 체크가 꺼져 있다')
+        await shot('1-register-form')
         await page.getByRole('button', { name: '추가', exact: true }).click()
         await page.getByRole('button', { name: `${REPO_NAME} repo`, exact: true }).waitFor({ timeout: 15_000 })
         return { path: UNC_REPO }
@@ -167,20 +173,30 @@ describe.skipIf(process.env['ONE_DESK_REAL_WSL'] !== '1')('WSL 실측 (진짜 ws
         await page.getByRole('tab', { name: 'repo' }).click()
         const group = page.getByRole('radiogroup', { name: `${REPO_NAME} claude 실행 환경` })
         await group.waitFor({ timeout: 10_000 })
-        await group.getByRole('radio', { name: 'WSL' }).check()
+        if (!(await group.getByRole('radio', { name: 'WSL' }).isChecked())) throw new Error('등록했는데 repo 탭의 실행 환경이 WSL이 아니다')
         const parsed = page.getByText(`배포판 ${DISTRO} · ${LINUX_REPO}`)
         await parsed.waitFor({ timeout: 10_000 })
-        await page.getByRole('button', { name: `${REPO_NAME} 저장`, exact: true }).click()
         await shot('2-repo-tab')
         return { parsed: await parsed.innerText() }
+      })
+
+      // WSL 탭 — 진짜 배포판 목록과 진짜 WSL claude 상태가 한곳에 (wsl-repo-setup FR-8)
+      await step('2b-wsl-tab', async () => {
+        await page.getByRole('tab', { name: 'WSL', exact: true }).click()
+        await page.getByRole('list', { name: 'WSL 배포판' }).getByText(DISTRO, { exact: true }).waitFor({ timeout: 15_000 })
+        const row = page.getByRole('list', { name: 'WSL claude 상태' }).locator('li')
+        await expect.poll(async () => (await row.getAttribute('class')) !== 'settings-status-wait', { timeout: 30_000 }).toBe(true)
+        await page.getByRole('list', { name: 'WSL repo' }).getByText(REPO_NAME, { exact: true }).waitFor({ timeout: 10_000 })
+        await shot('2b-wsl-tab')
+        return { rowClass: await row.getAttribute('class') }
       })
 
       await step('3-cli-status', async () => {
         await page.getByRole('tab', { name: '실행' }).click()
         const row = page.getByRole('list', { name: 'CLI 상태' }).locator('li').filter({ hasText: `(WSL · ${DISTRO})` })
         await row.waitFor({ timeout: 30_000 })
-        // 실행 파일 → 인증 → 모델 칸이 다 찰 때까지. 저장이 판정을 다시 돌리므로(SettingsPanel의 saveRepo) 몇 초면 된다 —
-        // 그 배선이 없던 v0.25.0은 27초·62초·90초 넘게 "확인 중"이었다
+        // 실행 파일 → 인증 → 모델 칸이 다 찰 때까지. 등록이 WSL repo를 곧바로 만들므로 설정을 여는 순간 판정이 돈다 — 2b가 이미
+        // 기다렸다. (repo 탭에서 바꾸던 v0.25.0은 저장이 판정을 다시 돌리는 배선이 없어 27초·62초·90초 넘게 "확인 중"이었다)
         await expect.poll(async () => (await row.getAttribute('class')) !== 'settings-status-wait', { timeout: 30_000 }).toBe(true)
         await page.waitForTimeout(3_000)
         await shot('3-cli-status')

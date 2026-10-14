@@ -1,6 +1,7 @@
+import { useEffect } from 'react'
 import type { AgentEnv, Repo, WslDistros } from '@shared/models'
 import { isWslUnc } from '@shared/wslPath'
-import { describeWslPath } from '../../agentEnv'
+import { describeWslPath, isKnownDistro } from '../../agentEnv'
 
 /** repo 한 줄의 편집 중인 값. 초안 state는 SettingsPanel이 쥔다 (spec FR-11) */
 export interface RepoDraft {
@@ -17,7 +18,7 @@ export interface RepoDraft {
  * **state를 갖지 않는다.** 초안·오류·저장 중 여부는 전부 prop이다 — 탭을 옮기면 이
  * 컴포넌트는 언마운트되고, 그때 입력이 사라지지 않으려면 값이 부모에 있어야 한다.
  */
-export function RepoTab({ repos, drafts, errors, busyId, wsl, onChange, onSave }: {
+export function RepoTab({ repos, drafts, errors, busyId, wsl, onChange, onSave, focusRepoId, onFocused }: {
   repos: Repo[]
   drafts: Record<string, RepoDraft>
   errors: Record<string, string>
@@ -26,9 +27,26 @@ export function RepoTab({ repos, drafts, errors, busyId, wsl, onChange, onSave }
   wsl: WslDistros | null
   onChange: (id: string, patch: Partial<RepoDraft>) => void
   onSave: (id: string) => void
+  /** WSL 탭의 `repo 탭에서 열기`가 고른 repo (docs/sdlc/wsl-repo-setup/ FR-9) — 그 덩어리를 들여와 포커스를 준다 */
+  focusRepoId: string | null
+  /** 포커스를 준 뒤 부른다 — 부모가 치워야 탭을 다시 열 때마다 같은 자리로 끌려가지 않는다 */
+  onFocused: () => void
 }) {
+  // 상태가 아니라 한 번의 동작이다 — 포커스를 주고 곧바로 치운다. 실행 환경(라디오)이 그 repo에서 바꾸러 온 값이고,
+  // 라디오가 없으면(WSL을 쓸 수 없다) 이름 칸이다.
+  useEffect(() => {
+    if (!focusRepoId) return
+    const block = document.getElementById(repoBlockId(focusRepoId))
+    if (block) {
+      block.scrollIntoView?.({ block: 'start' })
+      const target = block.querySelector<HTMLInputElement>('input[type="radio"]:checked') ?? block.querySelector<HTMLInputElement>('input')
+      target?.focus()
+    }
+    onFocused()
+  }, [focusRepoId, onFocused])
+
   if (repos.length === 0) {
-    return <p className="settings-hint">등록된 repo가 없습니다. 본문의 repo 줄에서 등록합니다.</p>
+    return <p className="settings-hint">등록된 repo가 없습니다. 사이드바의 repo 등록에서 등록합니다.</p>
   }
   return (
     <>
@@ -44,7 +62,7 @@ export function RepoTab({ repos, drafts, errors, busyId, wsl, onChange, onSave }
         // 것이라(전체 설계 §362) 옛 대화를 이어가면 다른 곳을 가리키게 된다.
         const pathChanging = draft.path.trim() !== r.path
         return (
-          <div key={r.id} className="settings-repo">
+          <div key={r.id} id={repoBlockId(r.id)} className="settings-repo">
             <h3>{r.name}</h3>
             {error && <div role="alert" className="form-error">{error}</div>}
             <label className="settings-field">
@@ -96,6 +114,11 @@ export function RepoTab({ repos, drafts, errors, busyId, wsl, onChange, onSave }
   )
 }
 
+/** repo 덩어리의 DOM id — WSL 탭의 바로가기가 찾는다 */
+function repoBlockId(repoId: string): string {
+  return `settings-repo-${repoId}`
+}
+
 /**
  * `claude 실행 환경` 라디오와 그 아래 안내 (FR-6). WSL이면 경로의 파싱 결과(배포판 · Linux 경로)나 거부 문구, 목록에 없는
  * 배포판이면 경고(저장은 막지 않는다 — 잠시 꺼져 있을 수 있다). host인데 WSL 폴더면 Windows의 claude가 돈다고 안내한다.
@@ -107,8 +130,7 @@ function AgentEnvField({ repo, draft, distros, onChange }: {
   onChange: (agentEnv: AgentEnv) => void
 }) {
   const parsed = draft.agentEnv === 'wsl' ? describeWslPath(draft.path) : null
-  const unknownDistro = parsed?.ok === true
-    && !distros.some((d) => d.toLowerCase() === parsed.distro.toLowerCase())
+  const unknownDistro = parsed?.ok === true && !isKnownDistro(distros, parsed.distro)
   return (
     <>
       <fieldset className="settings-radios" role="radiogroup" aria-label={`${repo.name} claude 실행 환경`}>

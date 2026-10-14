@@ -40,7 +40,7 @@ export function AgentStatusList({
         {/* 순서와 이름은 실행 패널의 agent 드롭다운과 같은 표다
             (docs/sdlc/conversation-timeline/ spec FR-46). */}
         {AGENT_KINDS.map((kind) => (
-          <AgentRow
+          <AgentStatusRow
             key={kind}
             label={AGENT_LABELS[kind]}
             status={statuses?.[kind] ?? null}
@@ -49,10 +49,10 @@ export function AgentStatusList({
           />
         ))}
         {/* WSL 칸 (docs/sdlc/wsl-support/ FR-13) — workspace에 WSL repo가 있을 때만, 첫 WSL repo의 배포판으로.
-            빠른 칸(statuses)이 먼저 오고 느린 칸(probes)이 뒤따르는 것은 위 두 줄과 같다. */}
+            빠른 칸(statuses)이 먼저 오고 느린 칸(probes)이 뒤따르는 것은 위 두 줄과 같다. WSL 탭도 같은 줄을 그린다. */}
         {(statuses?.wsl || probes?.wsl) && (
-          <AgentRow
-            label={`${AGENT_LABELS['claude-code']} (WSL · ${statuses?.wsl?.distro ?? probes?.wsl?.distro ?? ''})`}
+          <AgentStatusRow
+            label={wslAgentLabel(statuses?.wsl?.distro ?? probes?.wsl?.distro ?? '')}
             status={statuses?.wsl ?? null}
             probe={probes?.wsl ?? null}
             busy={busy}
@@ -63,7 +63,16 @@ export function AgentStatusList({
   )
 }
 
-function AgentRow({
+/** WSL 줄의 이름 — 실행 탭의 CLI 상태와 WSL 탭이 같은 이름으로 부른다 */
+export function wslAgentLabel(distro: string): string {
+  return `${AGENT_LABELS['claude-code']} (WSL · ${distro})`
+}
+
+/**
+ * CLI 한 줄 — 실행 파일 → 인증 → 모델이 쌓인 판정. 실행 탭의 CLI 상태와 WSL 탭(`docs/sdlc/wsl-repo-setup/` FR-8의 2)이
+ * **같은 컴포넌트·같은 데이터**로 그린다 — 따로 그리면 두 탭이 같은 claude를 다른 말로 부른다.
+ */
+export function AgentStatusRow({
   label, status, probe, busy
 }: {
   label: string

@@ -8,6 +8,7 @@ import { AgentStatusList } from './AgentStatusList'
 import { ModelField } from './ModelField'
 import { EFFORT_OPTIONS, effortFieldOf } from '../effort'
 import { InfoTab } from './settings/InfoTab'
+import { WslTab } from './settings/WslTab'
 import type {
   AgentKind, AgentPaths, AgentProbes, AgentStatuses, AppInfo, GlobalRoots, McpStatus, Permission,
   QueueSnapshot, Repo, RevealTarget, TerminalShellSetting, Workspace, WslDistros
@@ -17,12 +18,16 @@ import type {
  * 탭은 **값의 범위**로 가른다 (spec FR-2). 실행·repo는 지금 고른 workspace 하나에,
  * 앱은 장비 전체에 걸린다. 정보는 읽기 전용이다. intent가 꼽은 "어디서 바꾸는지
  * 모르겠다"에 대한 답이 탭 이름이 아니라 이 구분이다.
+ *
+ * **WSL 탭은 그 규칙의 예외다** (docs/sdlc/wsl-repo-setup/ FR-7) — WSL은 이 장비 안의 또 하나의 장비라 값이 거의 전부 장비
+ * 범위이고, 흩어져 있던 WSL 설정을 한곳에 모은다. workspace에 걸린 절은 제목이 그 workspace를 말한다. WSL을 쓸 수 있을 때만 선다.
  */
-type SettingsTab = 'run' | 'app' | 'repo' | 'info'
+type SettingsTab = 'run' | 'app' | 'repo' | 'wsl' | 'info'
 const TABS: ReadonlyArray<readonly [SettingsTab, string]> = [
   ['run', '실행'],
   ['app', '앱'],
   ['repo', 'repo'],
+  ['wsl', 'WSL'],
   ['info', '정보']
 ]
 
@@ -112,20 +117,23 @@ export function SettingsPanel({
   const [terminalShellBusy, setTerminalShellBusy] = useState(false)
   // 처음 읽기는 기본 셸을 찾느라 PATH를 훑어 느리다 — 그 사이 사람이 칸을 고쳤거나 저장했으면 늦게 온 응답이 덮지 않는다
   const terminalShellTouched = useRef(false)
-  // WSL (docs/sdlc/wsl-support/). 배포판 목록은 마운트 때 한 번 — `supported`가 false면 repo 탭의 라디오와 앱 탭의 두 절을 그리지
-  // 않는다(FR-4). 두 절의 초안은 다른 절과 같이 여기 있다(FR-11).
+  // WSL (docs/sdlc/wsl-support/). 배포판 목록은 마운트 때 한 번 — `supported`가 false면 repo 탭의 라디오와 WSL 탭을 그리지
+  // 않는다(FR-4). WSL 탭의 두 칸(wsl-repo-setup FR-8)의 초안도 다른 절과 같이 여기 있다(FR-11).
   const [wsl, setWsl] = useState<WslDistros | null>(null)
+  const [wslListing, setWslListing] = useState(false)
   const [wslClaudePathDraft, setWslClaudePathDraft] = useState('')
   const [wslClaudePathError, setWslClaudePathError] = useState<string | null>(null)
   const [wslClaudePathBusy, setWslClaudePathBusy] = useState(false)
   const [wslRootsDraft, setWslRootsDraft] = useState('')
   const [wslRootsError, setWslRootsError] = useState<string | null>(null)
   const [wslRootsBusy, setWslRootsBusy] = useState(false)
+  // WSL 탭의 `repo 탭에서 열기`가 고른 repo (wsl-repo-setup FR-9) — repo 탭이 그 덩어리에 포커스를 준 뒤 치운다
+  const [focusRepoId, setFocusRepoId] = useState<string | null>(null)
   useEffect(() => {
     let alive = true
     client.wsl.listDistros()
       .then((next) => { if (alive) setWsl(next) })
-      .catch(() => { if (alive) setWsl({ supported: false, distros: [], reason: '목록을 얻지 못했습니다' }) })
+      .catch(() => { if (alive) setWsl({ supported: false, distros: [], defaultDistro: null, reason: '목록을 얻지 못했습니다' }) })
     client.settings.wslClaudePath()
       .then((path) => { if (alive) setWslClaudePathDraft(path ?? '') })
       .catch((err: unknown) => { if (alive) setWslClaudePathError(err instanceof Error ? err.message : String(err)) })
@@ -158,6 +166,28 @@ export function SettingsPanel({
     } finally {
       setWslRootsBusy(false)
     }
+  }
+
+  /**
+   * WSL 탭의 `다시 확인` (wsl-repo-setup FR-8) — 배포판 목록과 CLI 상태를 다시 묻는다. 배포판을 깐 뒤 앱을 다시 켜지 않아도 되게.
+   * 목록을 못 얻으면 지금 목록을 지우지 않고 이유만 바꾼다 — `supported`가 false로 떨어지면 보고 있던 탭이 사라진다.
+   */
+  async function refreshWsl(): Promise<void> {
+    setWslListing(true)
+    try {
+      const listed = client.wsl.listDistros()
+        .then((next) => setWsl(next))
+        .catch((err: unknown) => setWsl((prev) => prev && { ...prev, reason: err instanceof Error ? err.message : String(err) }))
+      await Promise.all([listed, workspace ? refreshProbes(workspace.id) : Promise.resolve()])
+    } finally {
+      setWslListing(false)
+    }
+  }
+
+  /** WSL 탭의 `repo 탭에서 열기` (FR-9) */
+  function openRepoInTab(repoId: string): void {
+    setFocusRepoId(repoId)
+    setTab('repo')
   }
 
   const [agents, setAgents] = useState<AgentStatuses | null>(null)
@@ -514,7 +544,7 @@ export function SettingsPanel({
       <h2>설정</h2>
 
       <div className="settings-tabs" role="tablist" aria-label="설정 탭">
-        {TABS.map(([id, label]) => (
+        {TABS.filter(([id]) => id !== 'wsl' || wsl?.supported).map(([id, label]) => (
           <button
             key={id}
             type="button"
@@ -670,7 +700,7 @@ export function SettingsPanel({
                 <p className="settings-hint">
                   비워두면 앱 탭의 CLI 기본 경로를 따르고, 그것도 비었으면 PATH에서 찾습니다.
                   이 workspace만 다른 실행 파일을 쓸 때 절대 경로를 넣으세요.
-                  {wsl?.supported && ' WSL repo에는 적용되지 않습니다 — 그쪽은 앱 탭의 WSL claude 경로입니다.'}
+                  {wsl?.supported && ' WSL repo에는 적용되지 않습니다 — 그쪽은 WSL 탭의 claude 경로입니다.'}
                 </p>
 
                 <div className="settings-grid">
@@ -723,6 +753,8 @@ export function SettingsPanel({
             <p className="settings-hint">
               모든 workspace가 쓰는 실행 파일. 비워두면 PATH에서 찾습니다. 특정 workspace만 다르게 쓰려면
               실행 탭의 &quot;CLI 경로 — 이 workspace만&quot;에 넣으세요 — 그쪽이 이깁니다.
+              {/* WSL 설정은 WSL 탭으로 옮겼다 (wsl-repo-setup FR-10) — 여기 찾으러 온 사람에게 길을 남긴다 */}
+              {wsl?.supported && ' WSL repo의 claude는 WSL 탭에서 정합니다.'}
             </p>
 
             <div className="settings-grid">
@@ -776,6 +808,7 @@ export function SettingsPanel({
             <p className="settings-hint">
               한 줄에 경로 하나. 여기에 있는 skill과 agent가 목록에 함께 보입니다.
               비워두면 기본값으로 돌아갑니다.
+              {wsl?.supported && ' WSL 안의 skill 경로는 WSL 탭에 있습니다.'}
             </p>
 
             <div className="settings-grid">
@@ -801,51 +834,6 @@ export function SettingsPanel({
             </div>
 
             <button type="button" disabled={busy} onClick={() => void save()}>저장</button>
-
-            {/* WSL (docs/sdlc/wsl-support/ FR-12·27) — Windows에서만. 절마다 저장이 따로다. */}
-            {wsl?.supported && (
-              <>
-                <h3>WSL claude 경로</h3>
-                {wslClaudePathError && <div role="alert" className="form-error">{wslClaudePathError}</div>}
-                <p className="settings-hint">
-                  실행 환경을 WSL로 둔 repo가 쓰는 claude의 <strong>WSL 안</strong> 경로. 비워두면 그 배포판의 로그인 셸 PATH에서
-                  찾습니다. 로그인·환경변수는 WSL 쪽 claude의 것입니다 — Bedrock 변수는 WSL의 ~/.profile에 둡니다.
-                </p>
-                <label className="settings-field">
-                  WSL claude 경로
-                  <input
-                    aria-label="WSL claude 경로"
-                    className="path-input"
-                    value={wslClaudePathDraft}
-                    placeholder="비우면 WSL의 PATH에서 찾습니다"
-                    onChange={(e) => setWslClaudePathDraft(e.target.value)}
-                  />
-                </label>
-                <button type="button" disabled={wslClaudePathBusy} onClick={() => void saveWslClaudePath()}>
-                  WSL claude 경로 저장
-                </button>
-
-                <h3>WSL 글로벌 skill 경로</h3>
-                {wslRootsError && <div role="alert" className="form-error">{wslRootsError}</div>}
-                <p className="settings-hint">
-                  한 줄에 Linux 경로 하나. ~는 그 배포판의 홈입니다. WSL repo가 있는 workspace에서 그 배포판마다 훑습니다.
-                  비워두면 기본값으로 돌아갑니다.
-                </p>
-                <label className="settings-field">
-                  WSL 글로벌 skill 경로
-                  <textarea
-                    aria-label="WSL 글로벌 skill 경로"
-                    className="path-input"
-                    value={wslRootsDraft}
-                    rows={3}
-                    onChange={(e) => setWslRootsDraft(e.target.value)}
-                  />
-                </label>
-                <button type="button" disabled={wslRootsBusy} onClick={() => void saveWslRoots()}>
-                  WSL 글로벌 skill 경로 저장
-                </button>
-              </>
-            )}
 
             {/* 스냅샷이 아직 없으면 칸을 열지 않는다 — 빈 칸에 저장을 누르게 두면
                 무엇을 덮는지 모른 채 쓰게 된다. 도크의 슬롯 표시기도 같은 조건으로 숨는다. */}
@@ -891,9 +879,33 @@ export function SettingsPanel({
                 wsl={wsl}
                 onChange={changeRepoDraft}
                 onSave={(id) => void saveRepo(id)}
+                focusRepoId={focusRepoId}
+                onFocused={() => setFocusRepoId(null)}
               />
             </>
           )
+        )}
+
+        {/* WSL (docs/sdlc/wsl-repo-setup/ FR-7·8) — 탭 컴포넌트는 그리기만 한다. 두 칸의 초안·저장은 여기 있다(FR-10). */}
+        {tab === 'wsl' && wsl?.supported && (
+          <WslTab
+            wsl={wsl}
+            workspace={workspace}
+            repos={repos}
+            statuses={agents}
+            probes={probes}
+            checking={wslListing || probing}
+            onRefresh={() => void refreshWsl()}
+            claudePath={{
+              draft: wslClaudePathDraft, error: wslClaudePathError, busy: wslClaudePathBusy,
+              onChange: setWslClaudePathDraft, onSave: () => void saveWslClaudePath()
+            }}
+            roots={{
+              draft: wslRootsDraft, error: wslRootsError, busy: wslRootsBusy,
+              onChange: setWslRootsDraft, onSave: () => void saveWslRoots()
+            }}
+            onOpenRepo={openRepoInTab}
+          />
         )}
 
         {tab === 'info' && (

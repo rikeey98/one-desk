@@ -40,6 +40,7 @@ import { createWslPreflight } from './wsl/preflight'
 import { createWslPaths } from './wsl/paths'
 import { createWslHome, expandWslRoots } from './wsl/home'
 import { listDistros } from './wsl/distros'
+import { folderStartOf } from './wsl/folderStart'
 import { parseWslPath } from '@shared/wslPath'
 import { killSession, killSessionSync } from './wsl/kill'
 import { LAUNCHER_FILE } from './wsl/launch'
@@ -538,9 +539,20 @@ export function createCore(opts: CoreOptions) {
     /** WSL (wsl-support FR-4). 읽기 전용 — 렌더러가 distro·경로를 정하는 통로가 아니다(FR-32) */
     wsl: {
       async listDistros(): Promise<WslDistros> {
-        if (!wslSupported) return { supported: false, distros: [], reason: 'WSL은 Windows에서만 쓸 수 있습니다' }
+        if (!wslSupported) {
+          return { supported: false, distros: [], defaultDistro: null, reason: 'WSL은 Windows에서만 쓸 수 있습니다' }
+        }
         const out = await listDistros({ platform: 'win32' })
         return { supported: true, ...out }
+      },
+
+      /**
+       * 등록 폼의 `WSL` 버튼이 여는 대화상자의 시작 폴더 (`docs/sdlc/wsl-repo-setup/` FR-11) — 기본 배포판의 홈 UNC. 렌더러는
+       * "WSL에서"라는 뜻만 넘기고(`pickStartOf`) 배포판·경로는 여기서 정한다. 홈은 글로벌 skill 경로와 같은 캐시다.
+       */
+      async folderStart(): Promise<string | null> {
+        if (!wslSupported) return null
+        return folderStartOf({ list: () => listDistros({ platform: 'win32' }), home: (distro) => wslHome.of(distro) })
       }
     },
     files: {

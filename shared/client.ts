@@ -13,7 +13,7 @@ import type {
   GlobalRoots, AgentPaths, CommandTarget, CommandListResult,
   UpdateRepoInput, AppInfo, RevealTarget, AssetBody, FileSearchInput, FileSearchResult,
   FileRef, FileTreeInput, FileTreeResult, FileOpenResult, FileSaveInput, FileSaveResult, FileProbeResult,
-  TerminalOpenInput, TerminalSession, TerminalData, TerminalExit, TerminalShellSetting, WslDistros
+  TerminalOpenInput, TerminalSession, TerminalData, TerminalExit, TerminalShellSetting, WslDistros, PickDirectoryOptions
 } from './models'
 import type { RunEvent } from './events'
 import type { PanelScope } from './panelWindow'
@@ -237,8 +237,11 @@ export interface OneDeskClient {
     info(): Promise<AppInfo>
     /** 정해진 두 위치만 파일 탐색기로 연다. 경로가 아니라 이름을 받는다 (spec NFR-3) */
     reveal(target: RevealTarget): Promise<void>
-    /** 폴더 선택 대화상자. 고른 절대 경로를, 취소하면 null을 돌려준다 */
-    pickDirectory(): Promise<string | null>
+    /**
+     * 폴더 선택 대화상자. 고른 절대 경로를, 취소하면 null을 돌려준다. `{ start: 'wsl' }`이면 기본 WSL 배포판의 홈에서 연다 —
+     * 그 폴더는 core가 정한다(docs/sdlc/wsl-repo-setup/ FR-2·13)
+     */
+    pickDirectory(options?: PickDirectoryOptions): Promise<string | null>
     /**
      * (종류, workspace, repo) 범위의 패널 창을 연다. 이미 열려 있으면 그 창을 앞으로 가져온다.
      * **범위만 받는다** — URL·경로를 넘기는 통로가 아니다 (docs/sdlc/item-windows/ FR-12).

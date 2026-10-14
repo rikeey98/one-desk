@@ -238,11 +238,13 @@ workspace 아래에 그 workspace의 repo가 트리처럼 들여쓰기로 붙는
   대화 목록(`.dock-conv`)이다.
 - **알림**: 오류는 `role="alert"` + `--danger-bg`, 상태 안내는 `role="status"` +
   `--bg-muted`. 문장은 문제와 다음 행동을 함께 말한다.
-- **설정 화면**: 가운데 한 열(최대 760px). 탭은 분절 컨트롤(`.settings-tabs`), 탭 내용은 흰 카드,
-  라벨은 칸 위에 작게, 관련 칸 둘은 `.settings-grid`로 한 줄. 절마다의 저장 버튼이 주 동작(파란 면)이고
-  정보 탭의 폴더 열기만 보조 버튼이다. 라디오(`.settings-radios`, repo 탭의 claude 실행 환경)는 칸 라벨과
+- **설정 화면**: 가운데 한 열(최대 760px). 탭은 분절 컨트롤(`.settings-tabs`) — `실행 · 앱 · repo · WSL · 정보`, WSL은
+  Windows에서만 — 탭 내용은 흰 카드, 라벨은 칸 위에 작게, 관련 칸 둘은 `.settings-grid`로 한 줄. 절마다의 저장 버튼이 주 동작(파란 면)이고
+  저장이 아닌 버튼(정보 탭의 폴더 열기, WSL 탭의 `다시 확인`·`repo 탭에서 열기`)은 보조 버튼(흰 바탕 + 테두리 — `.settings-actions` 안이거나
+  `.settings-secondary`)이다. 라디오(`.settings-radios`, repo 탭의 claude 실행 환경)는 칸 라벨과
   같은 결의 `legend` 아래 선택지를 한 줄에 두고 `accent-color`만 토큰이다. 파싱 결과 같은 경로 글자는
-  `.settings-hint.path-text`(모노)다.
+  `.settings-hint.path-text`(모노)다. **설정 화면은 한국어를 낱말째 넘긴다**(`word-break: keep-all` — 기본값은 음절 사이 어디서나
+  끊어 `로그` / `인`처럼 낱말이 갈린다). 빈 상태는 `.settings-empty`(점선 8px — 제목 한 줄 + 다음 행동 문장)다.
 - **오버레이**: 최상위 레이어(`popover`)와 anchor positioning으로 띄운다. 스크롤
   컨테이너 안에 `position: absolute`로 두지 않는다 — 잘린다. 열렸을 때만 `display`를 준다
   (`:popover-open`) — 작성자 규칙이 닫힌 popover의 UA `display: none`을 덮으면 닫힌 채 인라인에
@@ -254,6 +256,24 @@ workspace 아래에 그 workspace의 repo가 트리처럼 들여쓰기로 붙는
 repo 이름은 식별자다) · 개수 알약이고, 접힌 머리 오른쪽에 그 구획의 답변 필요·실행 중 점이 선다. 두 번째 머리부터 위에 6px와
 `--border-faint` 선. `기타`가 늘 맨 아래다. 구획 안 줄의 메타에서는 repo 이름을 뺀다. 사이드바 거름이 걸리면 목록 맨 위에
 `--accent-bg`/`--accent-border` 알약(`api 대화만` + 원형 ✕ `repo 거름 풀기`)이 서고 구획 머리는 없다.
+
+### WSL — 등록 폼과 설정의 WSL 탭
+
+`docs/sdlc/wsl-repo-setup/`. WSL repo를 **등록하는 자리에서 끝낸다** — 설정에 가서 실행 환경을 바꾸지 않아도 된다.
+
+- **등록 폼**(사이드바 `repo 등록`): 경로 칸 오른쪽에 폴더 아이콘과 나란히 **`WSL` 글자 버튼**(같은 테두리 상자, 0.625rem 700, 이름
+  `WSL 폴더 고르기`, 풍선은 어느 배포판의 홈에서 여는지). 펭귄 글리프를 쓰지 않는다. WSL 경로면 경로 칸 아래에 상자 없이 체크
+  `WSL 안의 claude로 실행`(켜진 채)과 그 밑 모노 두 줄 — 배포판(`--text-muted`) · Linux 경로 — 이 체크 글자에 줄을 맞춰(19px) 선다.
+  끄면 그 자리가 `Windows의 claude가 이 폴더를 다룹니다`, 목록에 없는 배포판이면 `--warn-text` 한 줄. 대화상자가 넣은 경로는 칸을 끝까지
+  민다(고른 폴더 이름이 보이게).
+- **사이드바 repo 카드**: WSL repo는 이름 뒤에 `WSL` 테두리 알약(0.625rem 600, `--border-strong`, 고른 카드에서는 `--accent-border`/
+  `--accent-text`) — 이름이 줄어들지 표식이 줄어들지 않는다. 풍선은 `WSL · <배포판> · <Linux 경로>`.
+- **WSL 탭**: 범위 문장(`이 장비 전체에 적용됩니다 — WSL repo 목록만…`) 오른쪽 끝에 탭 전체의 `다시 확인`(보조). 절은 의존 순서 —
+  `배포판`(표시 전용 알약, 기본 배포판은 테두리 한 단 진하게 + `기본` 표식 — 파랑은 선택 상태의 색이라 쓰지 않는다) · `WSL 안의 claude`
+  (실행 탭 CLI 상태와 같은 줄 컴포넌트, 아직 확인하지 않았으면 같은 자리의 `.settings-note` 상자) · `WSL repo — <workspace>`(제목이 범위를
+  말한다. 테두리 8px 목록, 줄마다 이름 600 · `WSL claude`(`--bg-muted`) 또는 `Windows claude`(`--warn-bg` — WSL 폴더인데 Windows claude는
+  대개 실수다) · 오른쪽 `repo 탭에서 열기`(보조, 작게) · 그 아래 모노 `<배포판> · <Linux 경로>`) · `WSL 글로벌 skill 경로`. 상태 상자·경로
+  칸·목록의 오른쪽 끝은 640px로 맞춘다. 경로 칸의 안내 글(placeholder)은 한국어 문장이라 모노로 그리지 않는다.
 
 ### 인박스의 보기와 묶음
 

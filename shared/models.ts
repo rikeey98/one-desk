@@ -251,8 +251,19 @@ export type AgentProbes = Record<AgentKind, AgentProbe> & { wsl?: WslAgentProbe 
 export interface WslDistros {
   supported: boolean
   distros: string[]
+  /**
+   * 기본 배포판 (`docs/sdlc/wsl-repo-setup/` FR-12) — 하나뿐이면 그것, 여럿이면 `wsl --list --verbose`의 `*`. 못 정하면 null이고
+   * 그때 등록 폼의 `WSL` 버튼은 목록의 첫 배포판에서 연다
+   */
+  defaultDistro: string | null
   /** 목록을 못 얻은 이유. 얻었으면 null */
   reason: string | null
+}
+
+/** 폴더 선택 대화상자의 선택 인자 (`docs/sdlc/wsl-repo-setup/` FR-2·13). 시작 경로가 아니라 뜻만 넘긴다 */
+export interface PickDirectoryOptions {
+  /** `wsl`이면 기본 배포판의 홈에서 연다 — 그 폴더는 core가 정한다 */
+  start?: 'wsl'
 }
 
 export interface CreateRepoInput {

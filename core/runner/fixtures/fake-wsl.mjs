@@ -3,6 +3,7 @@
 // 떴나"를 보는 데 쓴다 — interop·파이프·kill은 흉내내지 않는다. 진짜는 `e2e/wsl-real.e2e.ts`(선택 실행, spec §4-B)다.
 //
 //   wsl.exe --list --quiet                       → UTF-16LE로 'Ubuntu\r\nDebian\r\n' (진짜와 같은 인코딩)
+//   wsl.exe --list --verbose                     → 머리 줄 + '* Ubuntu …'(기본) + '  Debian …'
 //   wsl.exe -d <D> --exec wslpath -a -u <P>      → /mnt/<drive>/… (기본 automount 규칙; POSIX 개발 장비의 절대 경로는 /mnt/host/…)
 //   wsl.exe -d <D> --exec sh -c 'echo $HOME'     → /home/me
 //   wsl.exe -d <D> --exec test -x <P>            → exit 0 (ONE_DESK_FAKE_WSL_MISSING에 <P>가 있으면 1)
@@ -32,7 +33,11 @@ if (process.env.ONE_DESK_WSL_CAPTURE) {
 }
 
 if (argv[0] === '--list') {
-  const body = Buffer.from('Ubuntu\r\nDebian\r\n', 'utf16le')
+  // --verbose는 진짜처럼 머리 줄 + 기본 배포판 앞의 `*` (docs/sdlc/wsl-repo-setup/ FR-12)
+  const text = argv.includes('--verbose')
+    ? '  NAME      STATE           VERSION\r\n* Ubuntu    Running         2\r\n  Debian    Stopped         2\r\n'
+    : 'Ubuntu\r\nDebian\r\n'
+  const body = Buffer.from(text, 'utf16le')
   process.stdout.write(Buffer.concat([Buffer.from([0xff, 0xfe]), body]))
   process.exit(0)
 }

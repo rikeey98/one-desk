@@ -35,43 +35,81 @@ async function registerWslRepo(app: Awaited<ReturnType<typeof launchApp>>) {
 }
 
 describe('WSL repo (docs/sdlc/wsl-support/)', () => {
-  it.skipIf(process.platform !== 'win32')('repo 탭에서 WSL로 바꾸면 IPC를 왕복해 그대로 남고, run이 wsl.exe로 감싸여 뜬다', async () => {
+  it.skipIf(process.platform !== 'win32')('WSL 버튼으로 고른 폴더가 한 번에 WSL repo가 되고, WSL 탭에 모이고, run이 wsl.exe로 감싸여 뜬다', async () => {
     const app = await launchApp({ env: { ONE_DESK_WSL_PATH: FAKE_WSL } })
     const page = app.page
     const capture = join(app.dataDir, 'wsl-capture.jsonl')
     // 캡처 파일은 앱의 env로 넘겨야 가짜 wsl이 본다 — 드라이버의 env는 그대로 자식(가짜 wsl)에 물려진다
     await app.electron.evaluate((_e, file) => { process.env['ONE_DESK_WSL_CAPTURE'] = file }, capture)
-    const ws = await registerWslRepo(app)
+    // 네이티브 대화상자는 Playwright가 누를 수 없다 — main의 dialog만 바꿔 세우고 시작 폴더를 적어 둔다. 버튼 → preload →
+    // ipcMain.handle → core.wsl.folderStart → 대화상자까지의 왕복은 진짜다(repo-pick.e2e와 같은 방식).
+    await app.electron.evaluate(({ dialog }, picked) => {
+      dialog.showOpenDialog = (async (...args: unknown[]) => {
+        const options = args[args.length - 1] as { defaultPath?: string }
+        ;(globalThis as { pickedFrom?: string | null }).pickedFrom = options.defaultPath ?? null
+        return { canceled: false, filePaths: [picked] }
+      }) as typeof dialog.showOpenDialog
+    }, WSL_PATH)
 
-    // 1. repo 탭 — 라디오와 파싱 결과, 저장, 다시 열어도 WSL
+    await page.getByPlaceholder('새 workspace 이름…').fill('wsl-ws')
+    await page.getByPlaceholder('새 workspace 이름…').press('Enter')
+    const ws = page.getByRole('button', { name: 'wsl-ws', exact: true })
+    await ws.waitFor({ state: 'visible', timeout: 10_000 })
+    await ws.click()
+
+    // 1. 등록 폼 — WSL 버튼은 기본 배포판의 홈에서 열고, 고른 WSL 폴더는 체크가 켜진 채 온다 (wsl-repo-setup FR-1~5)
+    await page.getByRole('button', { name: 'repo 등록' }).click()
+    await page.getByPlaceholder('repo 이름').fill('샘플')
+    await page.getByRole('button', { name: 'WSL 폴더 고르기' }).click()
+    await expect.poll(() => page.getByPlaceholder('/절대/경로').inputValue()).toBe(WSL_PATH)
+    expect(await app.electron.evaluate(() => (globalThis as { pickedFrom?: string | null }).pickedFrom)).toBe('\\\\wsl$\\Ubuntu\\home\\me')
+    const check = page.getByRole('checkbox', { name: 'WSL 안의 claude로 실행' })
+    expect(await check.isChecked()).toBe(true)
+    // 배포판과 Linux 경로가 체크 아래 두 줄로 선다
+    expect(await page.locator('.add-repo-env-hint').innerText()).toBe('Ubuntu\n/home/me/api')
+    await page.getByRole('button', { name: '추가', exact: true }).click()
+    const card = page.getByRole('button', { name: '샘플 repo', exact: true })
+    await card.waitFor({ state: 'visible', timeout: 10_000 })
+    // 사이드바 카드가 WSL로 등록됐음을 말한다 (FR-6)
+    await card.locator('.repo-env', { hasText: 'WSL' }).waitFor({ state: 'visible' })
+
+    // 2. repo 탭 — 설정에 가서 바꾸지 않았는데 이미 WSL이다(IPC 왕복). 다시 열어도 그대로
     await page.getByRole('button', { name: '설정' }).click()
     await page.getByRole('tab', { name: 'repo' }).click()
     const group = page.getByRole('radiogroup', { name: '샘플 claude 실행 환경' })
     await group.waitFor({ state: 'visible', timeout: 10_000 })
-    await page.getByText('WSL 폴더입니다', { exact: false }).waitFor({ state: 'visible' })
-    await group.getByRole('radio', { name: 'WSL' }).check()
+    expect(await group.getByRole('radio', { name: 'WSL' }).isChecked()).toBe(true)
     await page.getByText('배포판 Ubuntu · /home/me/api').waitFor({ state: 'visible' })
-    await page.getByRole('button', { name: '샘플 저장', exact: true }).click()
-    await ws.click()
-    await page.getByRole('button', { name: '설정' }).click()
-    await page.getByRole('tab', { name: 'repo' }).click()
-    await expect.poll(() => page.getByRole('radiogroup', { name: '샘플 claude 실행 환경' }).getByRole('radio', { name: 'WSL' }).isChecked(), { timeout: 10_000 }).toBe(true)
 
-    // 2. 실행 탭의 CLI 상태에 WSL 줄이 선다 (FR-13)
+    // 3. WSL 탭 — 배포판·WSL claude 줄·WSL repo가 한곳에 모인다 (wsl-repo-setup FR-8)
+    await page.getByRole('tab', { name: 'WSL', exact: true }).click()
+    const distros = page.getByRole('list', { name: 'WSL 배포판' })
+    await distros.waitFor({ state: 'visible', timeout: 10_000 })
+    expect(await distros.getByRole('listitem').allInnerTexts()).toEqual([expect.stringContaining('Ubuntu'), 'Debian'])
+    await page.getByRole('list', { name: 'WSL claude 상태' }).getByText(/Claude Code \(WSL · Ubuntu\)/).waitFor({ state: 'visible', timeout: 15_000 })
+    const rows = page.getByRole('list', { name: 'WSL repo' }).getByRole('listitem')
+    expect(await rows.count()).toBe(1)
+    await rows.first().getByText('WSL claude', { exact: true }).waitFor({ state: 'visible' })
+    // 바로가기 — repo 탭의 그 repo 실행 환경으로 (FR-9)
+    await page.getByRole('button', { name: '샘플: repo 탭에서 열기' }).click()
+    await expect.poll(() => page.getByRole('radiogroup', { name: '샘플 claude 실행 환경' }).locator('input[value="wsl"]:focus').count(),
+      { timeout: 10_000 }).toBe(1)
+
+    // 4. 실행 탭의 CLI 상태에도 같은 WSL 줄이 선다 (wsl-support FR-13)
     await page.getByRole('tab', { name: '실행' }).click()
     await page.getByText(/Claude Code \(WSL · Ubuntu\)/).waitFor({ state: 'visible', timeout: 15_000 })
 
-    // 3. OpenCode는 고를 수 없다 (FR-7)
+    // 5. OpenCode는 고를 수 없다 (FR-7)
     await ws.click()
     const opencode = page.getByLabel('agent').getByRole('option', { name: 'OpenCode' })
     await expect.poll(() => opencode.isDisabled(), { timeout: 10_000 }).toBe(true)
 
-    // 4. 한 턴 — 가짜 wsl이 안의 가짜 claude를 그대로 띄우므로 성공으로 끝난다
+    // 6. 한 턴 — 가짜 wsl이 안의 가짜 claude를 그대로 띄우므로 성공으로 끝난다
     await page.getByPlaceholder(/무엇을 시킬지/).fill('WSL에서 돌아라')
     await page.getByRole('button', { name: '실행', exact: true }).click()
     await waitConvStatus(page, '샘플', 'succeeded', 30_000)
 
-    // 5. 모양: wsl.exe -d Ubuntu --cd /home/me/api --exec /bin/sh <launcher> <pidfile> <claude> … --mcp-config /mnt/…
+    // 7. 모양: wsl.exe -d Ubuntu --cd /home/me/api --exec /bin/sh <launcher> <pidfile> <claude> … --mcp-config /mnt/…
     const lines = readFileSync(capture, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { argv: string[] })
     // run은 `--mcp-config`가 있는 호출이다 — 저장 직후의 CLI 상태 재판정(probe)도 `--cd`로 먼저 떠 캡처의 앞에 있다
     const launch = lines.map((l) => l.argv).find((a) => a.includes('--mcp-config'))
@@ -85,14 +123,19 @@ describe('WSL repo (docs/sdlc/wsl-support/)', () => {
     expect(existsSync(join(app.dataDir, 'wsl'))).toBe(true)
   }, 120_000)
 
-  it.skipIf(process.platform === 'win32')('Windows가 아니면 repo 탭에 실행 환경 라디오가 없다 (FR-4)', async () => {
+  it.skipIf(process.platform === 'win32')('Windows가 아니면 등록 폼에 WSL 버튼·체크가, 설정에 라디오·WSL 탭이 없다 (FR-4, wsl-repo-setup FR-1·7)', async () => {
     const app = await launchApp()
     const page = app.page
     await registerWslRepo(app)
+    await page.getByRole('button', { name: 'repo 등록' }).click()
+    await page.getByPlaceholder('/절대/경로').fill(WSL_PATH)
+    expect(await page.getByRole('button', { name: 'WSL 폴더 고르기' }).count()).toBe(0)
+    expect(await page.getByRole('checkbox').count()).toBe(0)
     await page.getByRole('button', { name: '설정' }).click()
     await page.getByRole('tab', { name: 'repo' }).click()
     await page.getByLabel('샘플 경로').waitFor({ state: 'visible', timeout: 10_000 })
     expect(await page.getByRole('radiogroup').count()).toBe(0)
+    expect(await page.getByRole('tab', { name: 'WSL' }).count()).toBe(0)
     await page.getByRole('tab', { name: '앱' }).click()
     await page.getByLabel('터미널 셸 실행 파일').waitFor({ state: 'visible', timeout: 10_000 })
     expect(await page.getByLabel('WSL claude 경로').count()).toBe(0)

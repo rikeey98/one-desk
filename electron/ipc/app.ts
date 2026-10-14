@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import { revealDir } from '@core/app/reveal'
+import { pickStartOf } from '@core/app/pickStart'
 import type { Core } from '@core/index'
 import type { AppInfo } from '@shared/models'
 import type { Windows } from './index'
@@ -18,9 +19,11 @@ export function registerAppHandlers(core: Core, windows: Windows) {
   })
   // 경로를 고르는 것은 사람이고, 고른 경로의 검증은 여느 때처럼 repos.create가 한다.
   // 부모 창을 주어야 대화상자가 앱 창 뒤로 숨지 않는다(모달).
-  ipcMain.handle(CHANNELS.appPickDirectory, async (e): Promise<string | null> => {
+  // 시작 폴더는 렌더러가 아니라 core가 정한다 — 렌더러는 "WSL에서"라는 뜻만 넘긴다(docs/sdlc/wsl-repo-setup/ FR-13).
+  ipcMain.handle(CHANNELS.appPickDirectory, async (e, input: unknown): Promise<string | null> => {
     const win = BrowserWindow.fromWebContents(e.sender)
-    const options = { properties: ['openDirectory' as const] }
+    const start = pickStartOf(input) === 'wsl' ? await core.wsl.folderStart() : null
+    const options = { properties: ['openDirectory' as const], ...(start ? { defaultPath: start } : {}) }
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
     return result.canceled ? null : (result.filePaths[0] ?? null)
   })

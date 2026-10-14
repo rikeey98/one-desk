@@ -867,12 +867,24 @@ describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)'
     })
   })
 
-  it('wsl.listDistros는 wsl.exe --list --quiet를 읽는다 (FR-4)', async () => {
+  it('wsl.listDistros는 wsl.exe --list --quiet를 읽고, 여럿이면 --verbose의 `*`로 기본 배포판을 단다 (FR-4, wsl-repo-setup FR-12)', async () => {
     await withWsl({}, async () => {
       const core = open(makeDataDir())
-      expect(await core.wsl.listDistros()).toEqual({ supported: true, distros: ['Ubuntu', 'Debian'], reason: null })
+      expect(await core.wsl.listDistros())
+        .toEqual({ supported: true, distros: ['Ubuntu', 'Debian'], defaultDistro: 'Ubuntu', reason: null })
       close(core)
     })
+  })
+
+  it('wsl.folderStart는 기본 배포판의 홈 UNC다 — 등록 폼의 WSL 버튼이 대화상자를 여는 곳 (wsl-repo-setup FR-11)', async () => {
+    await withWsl({}, async () => {
+      const core = open(makeDataDir())
+      expect(await core.wsl.folderStart()).toBe('\\\\wsl$\\Ubuntu\\home\\me')
+      close(core)
+    })
+    const mac = open(makeDataDir(), undefined, 'darwin')
+    expect(await mac.wsl.folderStart()).toBeNull()
+    close(mac)
   })
 
   it('WSL 설정 둘 — claude 경로는 저장하면 판정 캐시를 비우고, 글로벌 skill 경로는 저장하면 다시 훑는다 (FR-12·27)', async () => {
