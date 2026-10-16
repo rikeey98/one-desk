@@ -42,6 +42,14 @@ win:
   target: portable
   artifactName: ${name}-${version}-${arch}.${ext}
 
+# 포터블 실행 파일은 실행할 때마다 자기만의 임시 폴더(%TEMP%\nsXXXX.tmp\app)에 앱을 푼다 (docs/sdlc/portable-unpack/).
+# 기본값(빌드마다 고정된 이름 하나)이면 앱이 떠 있는 동안 같은 exe를 다시 실행했을 때, 두 번째 실행이 풀기 전과 끝난 뒤
+# 그 폴더를 지워 첫 인스턴스가 나중에 읽는 파일(wsl-launcher.sh·mcp-bridge.mjs·node-pty)이 사라졌다(v0.26.2 실측).
+# **문서와 반대로 true다** — 문서는 false가 실행마다 새 폴더라지만 electron-builder 26의 코드는 false를 기본값처럼 다룬다(실측).
+# core/app/portableUnpack.test.ts가 그 판정을 지킨다. 비정상 종료가 남긴 폴더는 다음 실행이 지운다(core/app/portableUnpack.ts).
+portable:
+  unpackDirName: true
+
 linux:
   target: AppImage
   category: Development

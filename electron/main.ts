@@ -1,7 +1,9 @@
 import { app, dialog, session } from 'electron'
+import { createRequire } from 'node:module'
 import { isAbsolute, join } from 'node:path'
 import { spawn as spawnPty } from 'node-pty'
 import { createCore, type Core } from '@core/index'
+import { portableUnpackOf, removePortableLeftovers } from '@core/app/portableUnpack'
 import { registerIpc } from './ipc'
 import { createMainWindow, getAllWindows, getMainWindow, openPanelWindow } from './windows'
 
@@ -100,6 +102,19 @@ if (dataDirError) {
       event.preventDefault()
     })
     createMainWindow()
+
+    // Windows 포터블 exe는 실행마다 새 임시 폴더에 앱을 푼다(electron-builder.yml의 portable). 정리는 래퍼가 하는데, 전원·로그오프로
+    // 래퍼가 먼저 끝나면 그 폴더(래퍼가 풀 때 쓴 사본까지 1 GB 가까이)가 남는다 — 단일 인스턴스 잠금을 얻은 이 실행이 창을 띄운 뒤
+    // 뒤에서 치운다(docs/sdlc/portable-unpack/). 도는 인스턴스의 폴더는 건드리지 않는다.
+    // 파일 함수는 Electron의 asar 가로채기가 없는 original-fs의 것이다 — Electron의 fs로 지우면 남은 app.asar를 폴더로 보고 그
+    // 안으로 들어가다 실패해 그 파일이 남는다(실측). 번들러가 모르는 모듈이라 createRequire로 연다.
+    const unpack = portableUnpackOf(process.execPath, process.env, process.platform)
+    if (unpack) {
+      const originalFs = createRequire(import.meta.url)('original-fs') as typeof import('node:fs')
+      void removePortableLeftovers(unpack, originalFs.promises).then((removed) => {
+        if (removed.length > 0) console.log('지난 실행이 남긴 포터블 임시 폴더를 지웠습니다', removed)
+      })
+    }
 
     app.on('activate', () => {
       // macOS에서 dock 아이콘을 눌렀을 때. 창이 살아 있으면 새로 만들지 않고 포커스만 준다.
