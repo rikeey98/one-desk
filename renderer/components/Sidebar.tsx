@@ -98,8 +98,31 @@ export function Sidebar({
         <span className="nav-label">리포트</span>
       </button>
       </div>
+      {/* 접힌 줄의 workspace 타일 (ux-proposal ⑦) — 이니셜 한 글자, 고른 것은 채움, 전체 이름은 title. 둘 이상일 때만 그린다.
+          펼친 목록을 그리지 않는 동안만 서므로 접근성 이름(workspace 이름)이 부딪히지 않는다. */}
+      {collapsed && workspaces.length > 1 && (
+        <ul className="ws-tiles" aria-label="워크스페이스">
+          {workspaces.map((w) => (
+            <li key={w.id}>
+              <button
+                type="button"
+                className={w.id === selectedId && view === 'workspace' ? 'ws-tile ws-tile-selected' : 'ws-tile'}
+                aria-label={w.name}
+                title={w.name}
+                aria-current={w.id === selectedId && view === 'workspace' ? 'true' : undefined}
+                onClick={() => onSelect(w.id)}
+              >
+                {initialOf(w.name)}
+                {(counts.byWorkspace[w.id] ?? 0) > 0 && (
+                  <span className="badge">{counts.byWorkspace[w.id]}</span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {!collapsed && <>
-      <div className="sidebar-label">Workspaces</div>
+      <div className="sidebar-label">워크스페이스</div>
       <AddForm placeholder="새 workspace 이름…" onSubmit={addWorkspace} />
       {error && <div role="alert" className="form-error">{error}</div>}
       {loading && !error && <div className="sidebar-empty">불러오는 중…</div>}
@@ -228,4 +251,9 @@ function McpStatusRow({ status, compact }: { status: McpStatus; compact: boolean
       <span className="mcp-label">{label}</span>
     </div>
   )
+}
+
+/** 타일의 글자 — 이름의 첫 글자(서로게이트 쌍도 한 글자) */
+function initialOf(name: string): string {
+  return Array.from(name.trim())[0] ?? '?'
 }

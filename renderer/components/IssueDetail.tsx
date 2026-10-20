@@ -1,3 +1,4 @@
+import { ISSUE_STATUS_LABELS } from '../issueStatus'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useClient } from '../client/ClientProvider'
 import { useDebouncedSave } from '../hooks/useDebouncedSave'
@@ -277,9 +278,9 @@ export function IssueDetail({ issue, repos, onChanged, onDeleted, onRequestClose
         value={status}
         onChange={(e) => changeStatus(e.target.value as IssueStatus)}
       >
-        <option value="open">open</option>
-        <option value="doing">doing</option>
-        <option value="done">done</option>
+        {(Object.keys(ISSUE_STATUS_LABELS) as IssueStatus[]).map((s) => (
+          <option key={s} value={s}>{ISSUE_STATUS_LABELS[s]}</option>
+        ))}
       </select>
       <AxisSelect
         label="출처" value={source} order={SOURCE_ORDER} labels={SOURCE_LABELS}

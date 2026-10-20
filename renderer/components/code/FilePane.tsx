@@ -348,7 +348,9 @@ export function FilePane({ workspaceId, repo, openRequest, onClose, probeInterva
                   />
                 </Suspense>
               )
-              : <p className="code-pane-hint">{openPath ? '여는 중…' : '왼쪽 목록에서 파일을 고르세요'}</p>}
+              : treeResult && !treeResult.ok
+                ? null /* 목록이 없으면 고를 것도 없다 — 왼쪽 안내 하나만 남긴다 (ux-proposal ②) */
+                : <p className="code-pane-hint">{openPath ? '여는 중…' : '왼쪽 목록에서 파일을 고르세요'}</p>}
         </div>
       </div>
     </section>

@@ -364,9 +364,11 @@ export function SettingsPanel({
     void probe(workspace.id)
   }, [workspace, applyWorkspace, check, probe])
 
+  const [savedRoots, setSavedRoots] = useState<{ claude: string; opencode: string } | null>(null)
   const apply = useCallback((roots: GlobalRoots) => {
     setClaude(roots.claude.join('\n'))
     setOpencode(roots.opencode.join('\n'))
+    setSavedRoots({ claude: roots.claude.join('\n'), opencode: roots.opencode.join('\n') })
   }, [])
 
   // 어느 탭이 열려 있든 마운트 때 한 번 읽는다 — 앱 탭을 열었을 때 이미 채워져 있고,
@@ -497,6 +499,26 @@ export function SettingsPanel({
    * 것은 바꾸는 것이 아니다 (전체 설계 §403).
    */
   const raisingToFull = permission === 'full' && workspace?.defaultPermission !== 'full'
+
+  // 절마다 "바뀐 것이 있는가" (ux-proposal, 설정의 저장 버튼). 저장은 절마다 따로인 채다 — 버튼이 활성인 절만 저장할 것이 있다.
+  // 비교 상대는 **저장된 값**이다(초안이 아니라) — 돌려받은 값으로 칸을 다시 채우는 규칙 그대로다.
+  const defaultsDirty = workspace !== null && (
+    agentKind !== workspace.defaultAgentKind
+    || modelClaude !== (workspace.defaultModelClaude ?? '')
+    || modelOpencode !== (workspace.defaultModelOpencode ?? '')
+    || effortClaude !== (workspace.defaultEffortClaude ?? '')
+    || variantOpencode !== (workspace.defaultVariantOpencode ?? '')
+    || permission !== workspace.defaultPermission
+  )
+  const pathsDirty = workspace !== null && (
+    claudePath !== (workspace.claudePath ?? '') || opencodePath !== (workspace.opencodePath ?? '')
+  )
+  const appPathsDirty = appPaths !== null && (
+    appClaudePath !== (appPaths.claude ?? '') || appOpencodePath !== (appPaths.opencode ?? '')
+  )
+  const terminalShellDirty = terminalShell !== null && terminalShellDraft !== (terminalShell.path ?? '')
+  const rootsDirty = savedRoots !== null && (claude !== savedRoots.claude || opencode !== savedRoots.opencode)
+  const limitDirty = queue !== null && limitDraft !== String(queue.limit)
 
   async function savePaths(): Promise<void> {
     if (!workspace) return
@@ -690,7 +712,7 @@ export function SettingsPanel({
                     />
                   </>
                 ) : (
-                  <button type="button" disabled={defaultsBusy} onClick={() => void saveDefaults()}>
+                  <button type="button" disabled={defaultsBusy || !defaultsDirty} onClick={() => void saveDefaults()}>
                     기본값 저장
                   </button>
                 )}
@@ -725,7 +747,7 @@ export function SettingsPanel({
                 </label>
                 </div>
 
-                <button type="button" disabled={pathsBusy} onClick={() => void savePaths()}>
+                <button type="button" disabled={pathsBusy || !pathsDirty} onClick={() => void savePaths()}>
                   CLI 경로 저장
                 </button>
 
@@ -779,7 +801,7 @@ export function SettingsPanel({
             </label>
             </div>
 
-            <button type="button" disabled={appPathsBusy} onClick={() => void saveAppPaths()}>
+            <button type="button" disabled={appPathsBusy || !appPathsDirty} onClick={() => void saveAppPaths()}>
               CLI 기본 경로 저장
             </button>
 
@@ -800,7 +822,7 @@ export function SettingsPanel({
                 onChange={(e) => { terminalShellTouched.current = true; setTerminalShellDraft(e.target.value) }}
               />
             </label>
-            <button type="button" disabled={terminalShellBusy} onClick={() => void saveTerminalShell()}>
+            <button type="button" disabled={terminalShellBusy || !terminalShellDirty} onClick={() => void saveTerminalShell()}>
               터미널 셸 저장
             </button>
 
@@ -833,7 +855,7 @@ export function SettingsPanel({
             </label>
             </div>
 
-            <button type="button" disabled={busy} onClick={() => void save()}>저장</button>
+            <button type="button" disabled={busy || !rootsDirty} onClick={() => void save()}>저장</button>
 
             {/* 스냅샷이 아직 없으면 칸을 열지 않는다 — 빈 칸에 저장을 누르게 두면
                 무엇을 덮는지 모른 채 쓰게 된다. 도크의 슬롯 표시기도 같은 조건으로 숨는다. */}
@@ -855,7 +877,7 @@ export function SettingsPanel({
                     onChange={(e) => setLimitDraft(e.target.value)}
                   />
                 </label>
-                <button type="button" disabled={limitBusy} onClick={() => void saveLimit()}>
+                <button type="button" disabled={limitBusy || !limitDirty} onClick={() => void saveLimit()}>
                   상한 저장
                 </button>
               </>

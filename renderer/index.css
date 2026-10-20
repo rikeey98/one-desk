@@ -1416,3 +1416,33 @@ button.report-flow-line:hover { background: var(--bg-muted); }
 .close-confirm-actions .close-confirm-save { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
 .close-confirm-actions .close-confirm-save:hover:not(:disabled) { background: var(--accent-strong); }
 .close-confirm-actions button:disabled { opacity: .6; cursor: default; }
+
+
+/* ───────── ux-proposal ───────── */
+/* 글자는 보조기기에만 (⑤의 모델 알약 머리) */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* ⑥ 제목 줄 가운데의 범위 — drag 영역 안의 글자라 눌리지 않는다 */
+.titlebar { position: relative; }
+.titlebar-title { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; font-weight: 600; color: var(--text-secondary); pointer-events: none; }
+/* ⑦ 접힌 사이드바의 workspace 타일 */
+.ws-tiles { list-style: none; margin: 0 0 8px; padding: 0 0 8px; display: flex; flex-direction: column; gap: 4px; align-items: center; border-bottom: 1px solid var(--border); }
+.ws-tile { position: relative; width: 28px; height: 28px; padding: 0; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--text-secondary); box-shadow: var(--shadow-panel); font: inherit; font-size: .75rem; font-weight: 700; cursor: pointer; transition: background .12s, border-color .12s, color .12s; }
+.ws-tile:hover { border-color: var(--border-strong); color: var(--text); }
+.ws-tile-selected, .ws-tile-selected:hover { background: var(--accent); border-color: var(--accent-strong); color: var(--on-accent); }
+.ws-tile .badge { position: absolute; top: -5px; right: -6px; margin: 0; padding: 0 4px; }
+/* ④ 훑기 배너의 개수 알약 */
+.triage-banner > span { display: inline-flex; align-items: center; gap: 6px; }
+/* 설정의 "확인 중"은 버튼이 아니라 상태 글자 */
+.settings-checking { display: inline-flex; align-items: center; gap: 6px; font-size: .75rem; color: var(--text-secondary); margin-right: 8px; }
+/* ⑧ 단축키 목록 — popover, 최상위 레이어 */
+.shortcut-help { position: fixed; inset: auto 16px 16px auto; margin: 0; width: 300px; padding: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); box-shadow: var(--shadow-panel), 0 12px 32px rgba(0, 0, 0, .18); font-family: inherit; }
+.shortcut-help:popover-open { display: block; }
+.shortcut-help-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--border-faint); font-size: .75rem; font-weight: 700; letter-spacing: .04em; color: var(--text-secondary); }
+.shortcut-list { margin: 0; padding: 6px 0; }
+.shortcut-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 14px; font-size: .8125rem; }
+.shortcut-row dt { margin: 0; }
+.shortcut-row dd { margin: 0; }
+.shortcut-row kbd { font-family: var(--font-mono); font-size: .6875rem; padding: 2px 6px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; background: var(--bg-muted); color: var(--text-secondary); }
+.report-empty p { margin: 0; }
+.report-empty-nearest { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px !important; }
+.report-empty-nearest .report-btn { display: inline-flex; align-items: center; gap: 6px; }

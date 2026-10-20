@@ -14,7 +14,7 @@ import type { AgentKind, AgentModel } from '@shared/models'
  * 부르면, 기본값을 정해 둔 사람이 실행 패널에서 다른 안내를 보게 된다.
  */
 export function ModelField({
-  agentKind, value, onChange, label, probed = [], resolved = null, disabled = false
+  agentKind, value, onChange, label, probed = [], resolved = null, disabled = false, compact = false
 }: {
   agentKind: AgentKind
   value: string
@@ -26,18 +26,20 @@ export function ModelField({
   /** probe가 해석한 이름. 없으면 줄을 그리지 않는다 */
   resolved?: AgentModel | null
   disabled?: boolean
+  /** 입력부의 알약 — 머리 글자를 숨기고 값(placeholder)이 종류를 말한다 (ux-proposal ⑤) */
+  compact?: boolean
 }) {
   const listId = useId()
   const suggestions = modelSuggestionsOf(agentKind, probed)
 
   return (
     <label className="settings-field">
-      {label}
+      {compact ? <span className="sr-only">{label}</span> : label}
       <input
         aria-label={label}
         value={value}
         list={suggestions.length > 0 ? listId : undefined}
-        placeholder={modelPlaceholderOf(agentKind)}
+        placeholder={compact ? '모델 기본값' : modelPlaceholderOf(agentKind)}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
       />

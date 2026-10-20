@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useClient } from '../client/ClientProvider'
-import { clampDockHeight, readDockHeight, writeDockHeight, DEFAULT_DOCK_RATIO } from '../dockHeight'
+import { clampDockHeight, readDockHeight, writeDockHeight, DEFAULT_DOCK_RATIO, MIN_DOCK_PX } from '../dockHeight'
+import { withShortcut } from '../shortcut'
 import { ConversationPanel } from './ConversationPanel'
 import { ConversationHeader } from './ConversationHeader'
 import { ConversationList } from './ConversationList'
@@ -42,7 +43,7 @@ export function Dock({
   runs, error, workspaceId, workspaces, repos, reposError, queue, queueError, onChangeLimit, chips, onRemoveChip,
   onRunStarted, draftPrompt, draftCwd, selectedRepoId, onClearRepoFilter, focusConversationId, onFocusConsumed,
   // 개발 버전: 선택 prop이다 — plan에서 필수로 올리고 App 배선 테스트를 붙인다 (conversation-issue spec §7).
-  draftIssue = null, onClearDraftIssue = () => {}, focusNew = false, onOpenIssue = () => {}
+  draftIssue = null, onClearDraftIssue = () => {}, focusNew = false, onOpenIssue = () => {}, compact
 }: {
   runs: Run[]
   error: string | null
@@ -82,6 +83,12 @@ export function Dock({
   onClearDraftIssue?: () => void
   /** 이슈 상세의 `대화 시작`이 세운다 — 도크를 펼치고 새 대화 칸으로 옮긴다(FR-15). 쓰면 `onFocusConsumed`로 치운다 */
   focusNew?: boolean
+  /**
+   * 상세(이슈·메모·asset)가 열려 있다 (ux-proposal ①). 그동안 도크는 **하한 높이**로 내려가 상세가 본문을 쓰고,
+   * 상세가 닫히면 사용자가 끈 높이로 돌아온다 — 저장된 높이는 건드리지 않는다. **필수다** — 선택이면 App의 한 줄을
+   * 지워도 조용히 컴파일된다.
+   */
+  compact: boolean
   /** 대화 헤더의 `할당된 이슈 열기` — 그 이슈 상세를 연다(FR-21) */
   onOpenIssue?: (issueId: string) => void
 }) {
@@ -454,6 +461,8 @@ export function Dock({
   }
 
   const isMax = open && maximized
+  // 상세가 열려 있으면 하한이다 — 끌어 둔 높이(`height`)는 남겨 두고 보이는 값만 바꾼다 (①).
+  const shownHeight = compact ? MIN_DOCK_PX : height
   const shownConversation = view === 'new' ? null : selected
   // 보는 대화의 입력칸에 보낼 것이 있는가 — 대화 헤더의 `멈추기`는 그때만 선다(spec §8의 3, 결정
   // 2026-09-27). 입력칸이 비면 같은 자리의 전송 버튼이 이미 중지다. 키는 입력부의 초안 키와 같다.
@@ -511,11 +520,11 @@ export function Dock({
     <section
       className={['dock', open && 'dock-open', isMax && 'dock-max'].filter(Boolean).join(' ')}
       // 최대화하면 인라인 높이를 쓰지 않는다 — 본문 전체를 CSS(`.dock-max`)가 준다.
-      {...(open && !isMax ? { style: { height } } : {})}
+      {...(open && !isMax ? { style: { height: shownHeight } } : {})}
       onKeyDown={onKeyDown}
     >
       {/* 접힌 도크는 헤더뿐이라, 최대화한 도크는 본문 전체라 조절할 것이 없다. */}
-      {open && !isMax && (
+      {open && !isMax && !compact && (
         <div
           role="separator"
           aria-label="대화창 크기 조절"
@@ -546,6 +555,7 @@ export function Dock({
           type="button"
           className="dock-toggle"
           aria-label={open ? '대화창 숨기기' : '대화창 보이기'}
+          title={withShortcut(open ? '대화창 숨기기' : '대화창 보이기', 'toggle-dock', navigator.platform)}
           aria-expanded={open}
           onClick={toggleOpen}
         >

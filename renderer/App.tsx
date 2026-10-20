@@ -25,6 +25,8 @@ import { CloseConfirm } from './components/code/CloseConfirm'
 import { CodePaneSlotContext, TitleBarSlotContext } from './components/code/CodePaneContext'
 import { IconSidebar } from './components/icons'
 import { readSidebarCollapsed, writeSidebarCollapsed } from './sidebarCollapsed'
+import { isEditableTarget, matchShortcut } from './shortcut'
+import { ShortcutHelp } from './components/ShortcutHelp'
 
 export default function App() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
@@ -50,6 +52,8 @@ export default function App() {
   // 각 패널이 따로 들면 둘 다 열린 상태가 만들어지고, 컬럼 비율을 누가 정하는지도
   // 흐려진다. useRepos·useWorkspaces를 자식이 각자 부르다 두 번 사고가 났다.
   const [openItem, setOpenItem] = useState<{ panel: 'issue' | 'memo' | 'asset'; id: string } | null>(null)
+  // `?` 단축키 목록 (ux-proposal ⑧)
+  const [helpOpen, setHelpOpen] = useState(false)
   const { runs, error: runsError } = useRuns(workspaceId)
   // RepoStrip과 RunPanel(Dock 아래)이 각자 useRepos를 부르면 서로의 상태를 모른다 —
   // repo를 등록해도 RunPanel의 작업 디렉토리 select가 영원히 비는 실제 결함이었다.
@@ -160,11 +164,54 @@ export default function App() {
   useEffect(() => {
     if (!openItem) return
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpenItem(null)
+      if (e.key === 'Escape' && !e.defaultPrevented) setOpenItem(null)
     }
     document.addEventListener('keydown', onKeyDown)
     return () => { document.removeEventListener('keydown', onKeyDown) }
   }, [openItem])
+
+  /**
+   * 전역 단축키 (ux-proposal ⑧). 표는 `renderer/shortcut.ts` 하나이고 여기서는 동작만 잇는다. 입력칸·CodeMirror·xterm 안에서는
+   * 수정키 없는 키(`?`)를 먹지 않는다. 제안 단계라 도크 토글과 입력칸 포커스는 DOM을 직접 짚는다 — 본 구현에서는
+   * Dock·패널에 prop으로 올린다.
+   */
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const action = matchShortcut(e, isEditableTarget(e.target))
+      if (!action) return
+      e.preventDefault()
+      switch (action) {
+        case 'help': setHelpOpen((v) => !v); break
+        case 'inbox': setView('inbox'); break
+        case 'new-conversation':
+          setView('workspace'); setFocusConversationId(null); setFocusNew(true); break
+        case 'new-issue':
+        case 'new-memo': {
+          setView('workspace')
+          const placeholder = action === 'new-issue' ? '새 이슈 (첫 줄이 제목)' : '새 메모 (첫 줄이 제목)'
+          requestAnimationFrame(() => document.querySelector<HTMLElement>(`[placeholder="${placeholder}"]`)?.focus())
+          break
+        }
+        case 'toggle-dock':
+          document.querySelector<HTMLElement>('.dock-toggle')?.click(); break
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => { document.removeEventListener('keydown', onKeyDown) }
+  }, [])
+
+  // 제목 줄 가운데의 범위 — 지금 보는 workspace · repo, 다른 화면이면 그 이름 (ux-proposal ⑥). 작업 표시줄도 같은 이름이다.
+  const scopeLabel = view === 'inbox' ? '인박스'
+    : view === 'report' ? '리포트'
+    : view === 'settings' ? '설정'
+    : (() => {
+        const ws = workspaces.find((w) => w.id === workspaceId)
+        const repo = repos.find((r) => r.id === repoId)
+        return ws ? (repo ? `${ws.name} · ${repo.name}` : ws.name) : ''
+      })()
+  useEffect(() => {
+    document.title = scopeLabel ? `${scopeLabel} — one-desk` : 'one-desk'
+  }, [scopeLabel])
 
   // 성공한 스냅샷은 event:queueUpdate로도 오므로 여기서 따로 쓰지 않는다.
   // 설정 화면과 도크가 **같은 IPC**를 탄다 — 통로가 둘이면 한쪽의 저장이 다른
@@ -329,8 +376,10 @@ export default function App() {
             <IconSidebar width="15" height="15" />
           </button>
         </div>
+        {scopeLabel && <div className="titlebar-title" aria-hidden="true">{scopeLabel}</div>}
         <div className="titlebar-actions" ref={setTitleSlot} />
       </header>
+      {helpOpen && <ShortcutHelp onClose={() => setHelpOpen(false)} />}
       <div className="app">
         <Sidebar
           workspaces={workspaces}
@@ -478,6 +527,8 @@ export default function App() {
                     focusNew={focusNew}
                     // 헤더의 `할당된 이슈 열기` — 토글(openIn)이 아니라 연다. 이미 열려 있어도 닫지 않는다(FR-21).
                     onOpenIssue={(issueId) => setOpenItem({ panel: 'issue', id: issueId })}
+                    // 상세가 열려 있는 동안 도크는 하한이다 (ux-proposal ①)
+                    compact={openItem !== null}
                   />
                 </TitleBarSlotContext.Provider>
               </CodePaneSlotContext.Provider>

@@ -1,3 +1,4 @@
+import { withShortcut } from '../shortcut'
 import { RenameField } from './RenameField'
 import { IconCheck, IconChevronRight, IconClose, IconPencil, IconPlus } from './icons'
 import { RUN_STATUS_LABELS } from '../runStatus'
@@ -311,6 +312,7 @@ export function ConversationList({
       <button
         type="button"
         className={isNew ? 'dock-new dock-new-selected' : 'dock-new'}
+        title={withShortcut('새 대화', 'new-conversation', navigator.platform)}
         onClick={onPickNew}
       >
         <IconPlus width="14" height="14" />

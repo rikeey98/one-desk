@@ -27,9 +27,8 @@ export function AgentStatusList({
     <>
       <div className="settings-status-head">
         <h3>CLI 상태</h3>
-        <button type="button" disabled={busy} onClick={onRefresh}>
-          {busy ? '확인 중…' : '다시 확인'}
-        </button>
+        {busy && <span role="status" className="settings-checking"><span className="turn-spinner" aria-hidden="true" />확인 중…</span>}
+        <button type="button" disabled={busy} onClick={onRefresh}>다시 확인</button>
       </div>
       <p className="settings-hint">
         지금 이 workspace로 실행하면 어느 CLI가 어떻게 잡히는지 보여줍니다.

@@ -1,3 +1,4 @@
+import { ISSUE_STATUS_LABELS, showsStatusBadge } from '../issueStatus'
 import { useEffect, useMemo, useState } from 'react'
 import { Panel } from './Panel'
 import { AddForm } from './AddForm'
@@ -161,8 +162,8 @@ export function IssuePanel({
       {untriaged > 0 && (
         // 0건일 때는 그리지 않는다 — 상주하는 잔소리가 된다 (설계 §4).
         <div className="triage-banner">
-          <span>⚠ 정리 안 됨 ({untriaged})</span>
-          <button type="button" onClick={startTriage}>훑어보기</button>
+          <span>⚠ 정리 안 됨 <span className="group-count">{untriaged}</span></span>
+          <button type="button" onClick={startTriage}>훑기</button>
         </div>
       )}
 
@@ -234,7 +235,9 @@ export function IssuePanel({
                             여기서 잠기지 않은 update로 쓰면 그 쓰기가 updatedAt을 올려
                             열려 있는 상세의 기대값만 낡게 만들고, 다음 자동 저장이
                             사용자 자신의 클릭을 agent의 편집으로 착각한다. */}
-                        <span className={`status status-${i.status}`}>{i.status}</span>
+                        {showsStatusBadge(i.status) && (
+                          <span className={`status status-${i.status}`}>{ISSUE_STATUS_LABELS[i.status]}</span>
+                        )}
                       </span>
                       {/* 평소엔 폭 0으로 접혀 있다가 hover·포커스에 펼쳐진다 (repo 줄과 같은
                           패턴). DOM에는 항상 있어야 키보드로도 닿는다. */}
@@ -320,7 +323,7 @@ export function IssuePanel({
 
   return (
     <Panel
-      title="Issues"
+      title="이슈"
       count={issues.length}
       expanded={expanded}
       window={inWindow}

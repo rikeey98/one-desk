@@ -13,7 +13,7 @@ import type { AgentKind } from '@shared/models'
  * 이 표 하나를 나눠 쓴다 — 두 화면이 같은 값을 다른 말로 부르면 안 된다(FR-11).
  */
 export const EFFORT_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: '', label: '기본값' },
+  { value: '', label: 'effort 기본값' },
   { value: 'low', label: 'low' },
   { value: 'medium', label: 'medium' },
   { value: 'high', label: 'high' },

@@ -127,7 +127,7 @@ function renderDock(
             selectedRepoId={null}
             onClearRepoFilter={vi.fn()}
             focusConversationId={focusConversationId}
-            onFocusConsumed={vi.fn()}
+            onFocusConsumed={vi.fn()} compact={false}
           />
         </DraftProvider>
       </RunEventProvider>
@@ -621,7 +621,7 @@ describe('Dock workspace 전환', () => {
       runs: [], error: null, workspaceId: 'w1', workspaces, repos, reposError: null,
       queue: null, queueError: null, onChangeLimit: vi.fn(), chips: [], onRemoveChip: vi.fn(),
       onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null, onClearRepoFilter: vi.fn(),
-      focusConversationId: null, onFocusConsumed: vi.fn(),
+      focusConversationId: null, onFocusConsumed: vi.fn(), compact: false,
       ...over
     }
   }
@@ -1045,7 +1045,7 @@ describe('Dock 헤더 — 토글·최대화·Esc', () => {
       runs: [], error: null, workspaceId: 'w1', workspaces, repos, reposError: null,
       queue: { running: 0, limit: 3, waiting: 0 }, queueError: null, onChangeLimit: vi.fn(),
       chips: [], onRemoveChip: vi.fn(), onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null, onClearRepoFilter: vi.fn(),
-      focusConversationId: null, onFocusConsumed: vi.fn()
+      focusConversationId: null, onFocusConsumed: vi.fn(), compact: false
     }
     render(
       <ClientProvider client={makeClient()}>
@@ -1121,7 +1121,7 @@ describe('Dock 헤더 — 토글·최대화·Esc', () => {
       runs: [], error: null, workspaceId: 'w1', workspaces, repos, reposError: null,
       queue: null, queueError: null, onChangeLimit: vi.fn(), chips: [], onRemoveChip: vi.fn(),
       onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null, onClearRepoFilter: vi.fn(),
-      focusConversationId: null, onFocusConsumed: vi.fn()
+      focusConversationId: null, onFocusConsumed: vi.fn(), compact: false
     }
     const drafts = createDraftStore()
     const wrap = (p: Parameters<typeof Dock>[0]) => (
@@ -1297,7 +1297,7 @@ describe('Dock 대화 헤더', () => {
               error={null} workspaceId="w1" workspaces={workspaces} repos={repos} reposError={null}
               queue={null} queueError={null} onChangeLimit={vi.fn()} chips={[]} onRemoveChip={vi.fn()}
               onRunStarted={vi.fn()} draftPrompt="" draftCwd={null} selectedRepoId={null} onClearRepoFilter={vi.fn()}
-              focusConversationId="a1" onFocusConsumed={vi.fn()}
+              focusConversationId="a1" onFocusConsumed={vi.fn()} compact={false}
             />
           </DraftProvider>
         </RunEventProvider>
@@ -1318,7 +1318,7 @@ describe('Dock 대화 헤더', () => {
       error: null, workspaceId: 'w1', workspaces, repos: named, reposError: null,
       queue: null, queueError: null, onChangeLimit: vi.fn(), chips: [], onRemoveChip: vi.fn(),
       onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null, onClearRepoFilter: vi.fn(),
-      focusConversationId: 'a1', onFocusConsumed: vi.fn()
+      focusConversationId: 'a1', onFocusConsumed: vi.fn(), compact: false
     }
     render(
       <ClientProvider client={makeClient()}>
@@ -1412,7 +1412,7 @@ describe('repo 구획과 사이드바 거름 (docs/sdlc/dock-repo-sections/)', (
               reposError={null} queue={null} queueError={null} onChangeLimit={vi.fn()} chips={[]} onRemoveChip={vi.fn()}
               onRunStarted={vi.fn()} draftPrompt="" draftCwd={null} selectedRepoId={opts.selectedRepoId ?? null}
               onClearRepoFilter={opts.onClear ?? vi.fn()}
-              focusConversationId={opts.focus ?? null} onFocusConsumed={vi.fn()}
+              focusConversationId={opts.focus ?? null} onFocusConsumed={vi.fn()} compact={false}
             />
           </DraftProvider>
         </RunEventProvider>
@@ -1534,7 +1534,7 @@ describe('코드 칸 (docs/sdlc/code-editor/ FR-1~FR-7·FR-23)', () => {
                     runs={list} error={null} workspaceId="w1" workspaces={workspaces} repos={two} reposError={null}
                     queue={null} queueError={null} onChangeLimit={vi.fn()} chips={[]} onRemoveChip={vi.fn()}
                     onRunStarted={vi.fn()} draftPrompt="" draftCwd={null} selectedRepoId={null} onClearRepoFilter={vi.fn()}
-                    focusConversationId={null} onFocusConsumed={vi.fn()}
+                    focusConversationId={null} onFocusConsumed={vi.fn()} compact={false}
                   />
                 </TitleBarSlotContext.Provider>
               </CodePaneSlotContext.Provider>

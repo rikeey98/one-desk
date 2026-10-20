@@ -636,6 +636,7 @@ export function RunPanel({
             label="모델"
             value={model}
             onChange={setModel}
+            compact
           />
 
           {/* claude는 다섯 단계가 정해져 있고(`--help`가 열거한다), opencode의
@@ -643,17 +644,15 @@ export function RunPanel({
               값이 비면 "기본값"만 보여 무엇의 기본값인지 모른다 — 알약에 칸 이름을 머리로 단다. */}
           {agentKind === 'opencode' ? (
             <label className="pill pill-field">
-              <span className="pill-name">variant</span>
               <input
                 aria-label="variant"
                 value={effort}
-                placeholder="기본값"
+                placeholder="variant 기본값"
                 onChange={(e) => setEffort(e.target.value)}
               />
             </label>
           ) : (
             <span className="pill pill-field">
-              <span className="pill-name" aria-hidden="true">effort</span>
               <select
                 aria-label="effort"
                 value={effort}

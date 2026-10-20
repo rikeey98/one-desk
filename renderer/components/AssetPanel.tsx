@@ -159,10 +159,10 @@ export function AssetPanel({
         </button>
       </div>
       {error && <div role="alert">{error}</div>}
-      {group('skill', 'SKILLS')}
-      {group('agent', 'AGENTS')}
+      {group('skill', '스킬')}
+      {group('agent', '에이전트')}
       {/* repo 루트의 CLAUDE.md·AGENTS.md. repo를 고르면 그 repo 것만 보인다 (FR-12). */}
-      {group('instructions', 'INSTRUCTIONS')}
+      {group('instructions', '지시 파일')}
       {missing.length > 0 && (
         <section className="asset-group asset-missing">
           <button
@@ -197,7 +197,7 @@ export function AssetPanel({
 
   return (
     <Panel
-      title="Skills / Agents"
+      title="스킬 / 에이전트"
       // 사라진 파일은 세지 않는다 — 목록에 보이는 것만 센다.
       count={present.length}
       // 이슈·메모와 같이 열리면 세 칸을 통째로 쓴다. 이 prop이 빠져 있던 동안은

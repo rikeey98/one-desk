@@ -142,7 +142,7 @@ export function MemoPanel({
 
   return (
     <Panel
-      title="Memos"
+      title="메모"
       count={memos.length}
       expanded={expanded}
       window={inWindow}

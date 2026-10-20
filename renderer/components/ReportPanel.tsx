@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Memo, ReportData, Workspace } from '@shared/models'
 import { useClient } from '../client/ClientProvider'
 import { useReport } from '../hooks/useReport'
-import { isEmptyReport, projectReport } from '../report/project'
-import { presetRange, type Period, type Preset } from '../report/period'
+import { isEmptyReport, projectReport, reportItemCount } from '../report/project'
+import { PRESETS, presetRange, type Period, type Preset } from '../report/period'
 import { reportTitle, toMarkdown, type Include } from '../report/markdown'
 import { REPORT_TABS, readInclude, readTab, writeInclude, writeTab, type ReportTab } from '../report/prefs'
 import { ReportConditions } from './ReportConditions'
@@ -83,6 +83,31 @@ export function ReportPanel({
     workspaces: data.workspaces.filter((w) => selected.has(w.id))
   }, [data, selected])
   const view = useMemo(() => (shown ? projectReport(shown) : null), [shown])
+
+  // 빈 리포트의 제안 — 지금 preset 말고 **데이터가 있는 가장 가까운 preset**을 찾는다 (ux-proposal ②). 고정된 `지난 30일`
+  // 대신이다: 오늘 만든 것이 있는데 기본 preset(지난주)이 비어 "없다"고 보이던 모순을 푼다. 네 번 세는 비용은 리포트 조회 하나와
+  // 같다. 이미 빈 결과를 본 뒤에만 돈다.
+  const empty = shown !== null && selected.size > 0 && isEmptyReport(shown)
+  const selectedKey = [...selected].join(',')
+  const [nearest, setNearest] = useState<{ preset: Preset; count: number } | null>(null)
+  useEffect(() => {
+    if (!empty) { setNearest(null); return }
+    let alive = true
+    const ids = selectedKey === '' ? [] : selectedKey.split(',')
+    const order: Preset[] = ['this-week', 'last-7', 'last-week', 'last-30']
+    ;(async () => {
+      for (const preset of order) {
+        if (preset === query.preset) continue
+        const range = presetRange(preset, Date.now())
+        const found = await client.reports.build({ workspaceIds: ids, since: range.since, until: range.until })
+        if (!alive) return
+        const count = reportItemCount(found)
+        if (count > 0) { setNearest({ preset, count }); return }
+      }
+      if (alive) setNearest(null)
+    })().catch(() => { if (alive) setNearest(null) })
+    return () => { alive = false }
+  }, [client, empty, selectedKey, query.preset])
 
   const target = workspaces.find((w) => w.id === targetWorkspaceId && selected.has(w.id))
     ?? workspaces.find((w) => w.id === targetWorkspaceId)
@@ -225,16 +250,19 @@ export function ReportPanel({
             <div className="report-empty">workspace를 하나 이상 고르세요.</div>
           ) : isEmptyReport(shown) ? (
             <div className="report-empty">
-              이 기간에 손댄 이슈와 대화가 없습니다. 기간을 넓혀 보세요.
-              {query.preset !== 'last-30' && (
-                <button
-                  type="button"
-                  className="report-btn"
-                  onClick={() => onQueryChange({ ...query, preset: 'last-30', period: presetRange('last-30', Date.now()) })}
-                >
-                  지난 30일
-                </button>
-              )}
+              <p>이 기간에 손댄 이슈와 대화가 없습니다.</p>
+              {nearest ? (
+                <p className="report-empty-nearest">
+                  <span>가까운 기간에는 있습니다</span>
+                  <button
+                    type="button"
+                    className="report-btn"
+                    onClick={() => onQueryChange({ ...query, preset: nearest.preset, period: presetRange(nearest.preset, Date.now()) })}
+                  >
+                    {PRESETS.find((p) => p.id === nearest.preset)?.label} 보기 <span className="group-count">{nearest.count}</span>
+                  </button>
+                </p>
+              ) : <p>기간을 넓혀 보세요.</p>}
             </div>
           ) : tab === 'document' ? (
             <ReportDocument
