@@ -84,7 +84,7 @@ export function ReportPanel({
   }, [data, selected])
   const view = useMemo(() => (shown ? projectReport(shown) : null), [shown])
 
-  // 빈 리포트의 제안 — 지금 preset 말고 **데이터가 있는 가장 가까운 preset**을 찾는다 (ux-proposal ②). 고정된 `지난 30일`
+  // 빈 리포트의 제안 — 지금 preset 말고 **데이터가 있는 가장 가까운 preset**을 찾는다 (docs/sdlc/ux-polish/ FR-2). 고정된 `지난 30일`
   // 대신이다: 오늘 만든 것이 있는데 기본 preset(지난주)이 비어 "없다"고 보이던 모순을 푼다. 네 번 세는 비용은 리포트 조회 하나와
   // 같다. 이미 빈 결과를 본 뒤에만 돈다.
   const empty = shown !== null && selected.size > 0 && isEmptyReport(shown)

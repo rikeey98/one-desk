@@ -175,7 +175,7 @@ export function projectReport(data: ReportData): ReportView {
 }
 
 /** 리포트에 아무것도 없는가 — 빈 상태(FR-20) */
-/** 리포트에 든 항목 수 — 빈 상태의 제안(`이번 주 (3건)`)이 센다 (ux-proposal ②) */
+/** 리포트에 든 항목 수 — 빈 상태의 제안(`이번 주 (3건)`)이 센다 (docs/sdlc/ux-polish/ FR-2) */
 export function reportItemCount(data: ReportData): number {
   return data.workspaces.reduce((n, w) => n + w.issues.length + w.memos.length + w.conversations.length, 0)
 }

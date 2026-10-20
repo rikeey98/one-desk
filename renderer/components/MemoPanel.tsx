@@ -13,7 +13,8 @@ import { IconCollapse, IconTrash } from './icons'
 import type { Repo } from '@shared/models'
 
 export function MemoPanel({
-  workspaceId, repoId, repos, context, layout = 'columns', expanded, openId, onOpen
+  workspaceId, repoId, repos, context, layout = 'columns', expanded, openId, onOpen,
+  focusAdd = false, onFocusAddConsumed = () => {}
 }: {
   workspaceId: string
   repoId: string | null
@@ -28,6 +29,9 @@ export function MemoPanel({
   expanded: boolean
   openId: string | null
   onOpen: (id: string) => void
+  /** 단축키 Ctrl+M — App만 넘긴다(패널 창에는 단축키가 없다). 추가 칸에 포커스를 주고 치운다 (docs/sdlc/ux-polish/ FR-8) */
+  focusAdd?: boolean
+  onFocusAddConsumed?: () => void
 }) {
   const client = useClient()
   const { memos, error: listError, refresh, loaded } = useMemos(workspaceId, repoId)
@@ -69,7 +73,7 @@ export function MemoPanel({
 
   const list = (
     <>
-      <AddForm placeholder="새 메모 (첫 줄이 제목)" onSubmit={addMemo} multiline />
+      <AddForm placeholder="새 메모 (첫 줄이 제목)" onSubmit={addMemo} multiline focusRequested={focusAdd} onFocusConsumed={onFocusAddConsumed} />
       {!listError && memos.length === 0 && (
         <div className="panel-empty">
           메모가 없습니다

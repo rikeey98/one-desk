@@ -91,7 +91,8 @@ describe('패널 창 (docs/sdlc/item-windows/)', () => {
       // web 창이 따로 선다
       const webWin = await openPanelWindow(app, '이슈 새 창으로 열기')
       await webWin.getByRole('heading', { name: '이슈 · web' }).waitFor({ timeout: 10_000 })
-      await expect.poll(() => windowTitles(app)).toEqual(['one-desk', '이슈 · api', '이슈 · web'].sort())
+      // 앱 창의 제목은 지금 보는 범위다 (docs/sdlc/ux-polish/ FR-6) — web을 고른 채다
+      await expect.poll(() => windowTitles(app)).toEqual(['pw-ws · web — one-desk', '이슈 · api', '이슈 · web'].sort())
 
       // 같은 범위를 다시 열면 창이 늘지 않는다 (FR-3)
       await page.getByRole('button', { name: 'api repo', exact: true }).click()

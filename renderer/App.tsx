@@ -52,8 +52,11 @@ export default function App() {
   // 각 패널이 따로 들면 둘 다 열린 상태가 만들어지고, 컬럼 비율을 누가 정하는지도
   // 흐려진다. useRepos·useWorkspaces를 자식이 각자 부르다 두 번 사고가 났다.
   const [openItem, setOpenItem] = useState<{ panel: 'issue' | 'memo' | 'asset'; id: string } | null>(null)
-  // `?` 단축키 목록 (ux-proposal ⑧)
+  // `?` 단축키 목록 (docs/sdlc/ux-polish/ FR-8)
   const [helpOpen, setHelpOpen] = useState(false)
+  // 단축키의 일회성 지시 둘 — 받는 쪽이 치운다 (`focusConversationId`와 같은 모양)
+  const [dockToggle, setDockToggle] = useState(false)
+  const [addFocus, setAddFocus] = useState<'issue' | 'memo' | null>(null)
   const { runs, error: runsError } = useRuns(workspaceId)
   // RepoStrip과 RunPanel(Dock 아래)이 각자 useRepos를 부르면 서로의 상태를 모른다 —
   // repo를 등록해도 RunPanel의 작업 디렉토리 select가 영원히 비는 실제 결함이었다.
@@ -171,9 +174,9 @@ export default function App() {
   }, [openItem])
 
   /**
-   * 전역 단축키 (ux-proposal ⑧). 표는 `renderer/shortcut.ts` 하나이고 여기서는 동작만 잇는다. 입력칸·CodeMirror·xterm 안에서는
-   * 수정키 없는 키(`?`)를 먹지 않는다. 제안 단계라 도크 토글과 입력칸 포커스는 DOM을 직접 짚는다 — 본 구현에서는
-   * Dock·패널에 prop으로 올린다.
+   * 전역 단축키 (docs/sdlc/ux-polish/ FR-8). 표는 `renderer/shortcut.ts` 하나이고 여기서는 동작만 잇는다 — 받는 쪽(도크·패널)에
+   * 일회성 prop으로 내리고 DOM을 짚지 않는다. 입력칸·CodeMirror·xterm 안에서는 수정키 없는 키(`?`)를 먹지 않는다.
+   * 새 이슈·메모는 열린 상세를 먼저 닫는다 — 열린 패널의 추가 칸은 CSS로 숨어 있어 포커스를 받지 못한다.
    */
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -186,21 +189,19 @@ export default function App() {
         case 'new-conversation':
           setView('workspace'); setFocusConversationId(null); setFocusNew(true); break
         case 'new-issue':
-        case 'new-memo': {
-          setView('workspace')
-          const placeholder = action === 'new-issue' ? '새 이슈 (첫 줄이 제목)' : '새 메모 (첫 줄이 제목)'
-          requestAnimationFrame(() => document.querySelector<HTMLElement>(`[placeholder="${placeholder}"]`)?.focus())
-          break
-        }
+        case 'new-memo':
+          setView('workspace'); setOpenItem(null); setAddFocus(action === 'new-issue' ? 'issue' : 'memo'); break
         case 'toggle-dock':
-          document.querySelector<HTMLElement>('.dock-toggle')?.click(); break
+          // 도크는 workspace 화면에만 있다 — 다른 화면에서 세워 두면 돌아오는 순간 뜻밖에 접힌다
+          if (view === 'workspace') setDockToggle(true)
+          break
       }
     }
     document.addEventListener('keydown', onKeyDown)
     return () => { document.removeEventListener('keydown', onKeyDown) }
-  }, [])
+  }, [view])
 
-  // 제목 줄 가운데의 범위 — 지금 보는 workspace · repo, 다른 화면이면 그 이름 (ux-proposal ⑥). 작업 표시줄도 같은 이름이다.
+  // 제목 줄 가운데의 범위 — 지금 보는 workspace · repo, 다른 화면이면 그 이름 (docs/sdlc/ux-polish/ FR-6). 작업 표시줄도 같은 이름이다.
   const scopeLabel = view === 'inbox' ? '인박스'
     : view === 'report' ? '리포트'
     : view === 'settings' ? '설정'
@@ -477,6 +478,8 @@ export default function App() {
                   expanded={openItem?.panel === 'issue'}
                   openId={openItem?.panel === 'issue' ? openItem.id : null}
                   onOpen={(id) => openIn('issue', id)}
+                  focusAdd={addFocus === 'issue'}
+                  onFocusAddConsumed={() => setAddFocus(null)}
                 />
                 <MemoPanel
                   workspaceId={workspaceId}
@@ -486,6 +489,8 @@ export default function App() {
                   expanded={openItem?.panel === 'memo'}
                   openId={openItem?.panel === 'memo' ? openItem.id : null}
                   onOpen={(id) => openIn('memo', id)}
+                  focusAdd={addFocus === 'memo'}
+                  onFocusAddConsumed={() => setAddFocus(null)}
                 />
                 <AssetPanel
                   workspaceId={workspaceId}
@@ -527,8 +532,10 @@ export default function App() {
                     focusNew={focusNew}
                     // 헤더의 `할당된 이슈 열기` — 토글(openIn)이 아니라 연다. 이미 열려 있어도 닫지 않는다(FR-21).
                     onOpenIssue={(issueId) => setOpenItem({ panel: 'issue', id: issueId })}
-                    // 상세가 열려 있는 동안 도크는 하한이다 (ux-proposal ①)
+                    // 상세가 열려 있는 동안 도크는 하한이다 (docs/sdlc/ux-polish/ FR-1)
                     compact={openItem !== null}
+                    toggleRequest={dockToggle}
+                    onToggleConsumed={() => setDockToggle(false)}
                   />
                 </TitleBarSlotContext.Provider>
               </CodePaneSlotContext.Provider>

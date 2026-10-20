@@ -19,7 +19,7 @@ async function addIssue(page: Page, title: string) {
   const input = page.getByPlaceholder('새 이슈 (첫 줄이 제목)')
   await input.fill(title)
   await input.press('Enter')
-  await page.getByRole('region', { name: 'Issues' }).getByText(title).waitFor({ state: 'visible', timeout: 10_000 })
+  await page.getByRole('region', { name: '이슈', exact: true }).getByText(title).waitFor({ state: 'visible', timeout: 10_000 })
 }
 
 /**
@@ -84,7 +84,7 @@ describe('기간 리포트', () => {
       // 메모로 저장 — 버튼 글자가 대상을 말한다
       await page.getByRole('button', { name: 'rep-b에 메모로 저장' }).click()
       await page.getByRole('button', { name: '메모 열기' }).click()
-      const memos = page.getByRole('region', { name: 'Memos' })
+      const memos = page.getByRole('region', { name: '메모', exact: true })
       await expect.poll(async () => (await memos.getAttribute('class')) ?? '', { timeout: 5_000 }).toContain('panel-expanded')
       expect(await page.getByRole('button', { name: 'rep-b', exact: true }).getAttribute('class')).toContain('ws-selected')
 
@@ -102,7 +102,7 @@ describe('기간 리포트', () => {
       await page.getByRole('button', { name: '리포트', exact: true }).click()
       await page.getByRole('tab', { name: '문서' }).click()
       await page.getByRole('article', { name: '리포트 문서' }).getByRole('button', { name: /리포트 이슈 A/ }).click()
-      const issues = page.getByRole('region', { name: 'Issues' })
+      const issues = page.getByRole('region', { name: '이슈', exact: true })
       await expect.poll(async () => (await issues.getAttribute('class')) ?? '', { timeout: 5_000 }).toContain('panel-expanded')
       await page.waitForTimeout(300)
       expect(await issues.getAttribute('class')).toContain('panel-expanded')

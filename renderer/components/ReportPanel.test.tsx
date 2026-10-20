@@ -193,3 +193,31 @@ describe('ReportPanel (docs/sdlc/period-report/)', () => {
     expect(await screen.findByRole('article', { name: '리포트 문서' })).toBeInTheDocument()
   })
 })
+
+// ── docs/sdlc/ux-polish/ ──
+
+describe('빈 기간의 제안 (docs/sdlc/ux-polish/ FR-2)', () => {
+  it('고른 기간이 비면 데이터가 있는 가장 가까운 preset을 개수와 함께 제안하고, 누르면 그 preset으로 간다', async () => {
+    // 기본 preset은 그대로다(period-report FR-4) — 비어 있을 때 다른 preset을 묻는 것뿐이다. 첫 조회(고른 기간)만 비고
+    // 그 뒤의 탐색 조회는 데이터가 있다.
+    let calls = 0
+    const onQuery = vi.fn()
+    const { client } = makeClient({
+      build: async (input) => calls++ === 0 ? { since: input.since, until: input.until, workspaces: [] } : fixture(input)
+    })
+    render(<Harness client={client} onQuery={onQuery} />)
+    expect(await screen.findByText('이 기간에 손댄 이슈와 대화가 없습니다.')).toBeInTheDocument()
+    const suggest = await screen.findByRole('button', { name: /이번 주 보기/ })
+    expect(suggest).toHaveTextContent('3')
+    expect(screen.getByText('가까운 기간에는 있습니다')).toBeInTheDocument()
+    await userEvent.click(suggest)
+    expect(onQuery).toHaveBeenLastCalledWith(expect.objectContaining({ preset: 'this-week' }))
+  })
+
+  it('어느 preset에도 없으면 기간을 넓히라고만 말한다', async () => {
+    const { client } = makeClient({ build: async (input) => ({ since: input.since, until: input.until, workspaces: [] }) })
+    render(<Harness client={client} />)
+    expect(await screen.findByText('기간을 넓혀 보세요.')).toBeInTheDocument()
+    expect(screen.queryByText('가까운 기간에는 있습니다')).not.toBeInTheDocument()
+  })
+})

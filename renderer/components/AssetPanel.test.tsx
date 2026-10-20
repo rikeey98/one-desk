@@ -52,8 +52,8 @@ describe('AssetPanel', () => {
     ]))
     expect(await screen.findByText('알파')).toBeInTheDocument()
     expect(screen.getByText('베타')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'SKILLS' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'AGENTS' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '스킬' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '에이전트' })).toBeInTheDocument()
   })
 
   it('이번 스캔에서 안 보인 파일은 목록에서 빠지고 "사라진 파일" 토글 안에서 "없음"으로 보인다 (docs/sdlc/asset-missing/)', async () => {
@@ -64,7 +64,7 @@ describe('AssetPanel', () => {
     ]))
     await screen.findByText('있음')
     expect(screen.queryByRole('listitem', { name: '사라짐' })).toBeNull()
-    expect(screen.getByRole('heading', { name: 'SKILLS' }).parentElement).toHaveTextContent('1')
+    expect(screen.getByRole('heading', { name: '스킬' }).parentElement).toHaveTextContent('1')
 
     await userEvent.click(screen.getByRole('button', { name: /사라진 파일/ }))
     expect(screen.getByRole('listitem', { name: '사라짐' })).toHaveTextContent('없음')
@@ -190,10 +190,10 @@ describe('AssetPanel — 출처와 필터', () => {
       asset({ id: 'i1', kind: 'instructions', name: 'CLAUDE.md', filePath: '/tmp/api/CLAUDE.md' })
     ]
 
-    it('INSTRUCTIONS 절에 지시 파일만 보인다', async () => {
+    it('지시 파일 절에 지시 파일만 보인다', async () => {
       renderPanel(makeClient(rows))
       expect(await screen.findByText('CLAUDE.md')).toBeInTheDocument()
-      const section = screen.getByRole('heading', { name: 'INSTRUCTIONS' }).closest('section')!
+      const section = screen.getByRole('heading', { name: '지시 파일' }).closest('section')!
       expect(within(section).getByText('CLAUDE.md')).toBeInTheDocument()
       expect(within(section).queryByText('알파')).toBeNull()
     })

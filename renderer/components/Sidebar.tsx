@@ -98,7 +98,7 @@ export function Sidebar({
         <span className="nav-label">리포트</span>
       </button>
       </div>
-      {/* 접힌 줄의 workspace 타일 (ux-proposal ⑦) — 이니셜 한 글자, 고른 것은 채움, 전체 이름은 title. 둘 이상일 때만 그린다.
+      {/* 접힌 줄의 workspace 타일 (docs/sdlc/ux-polish/ FR-7) — 이니셜 한 글자, 고른 것은 채움, 전체 이름은 title. 둘 이상일 때만 그린다.
           펼친 목록을 그리지 않는 동안만 서므로 접근성 이름(workspace 이름)이 부딪히지 않는다. */}
       {collapsed && workspaces.length > 1 && (
         <ul className="ws-tiles" aria-label="워크스페이스">

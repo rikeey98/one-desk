@@ -146,7 +146,8 @@ describe('IssuePanel 그룹', () => {
 
   it('정리 안 된 이슈가 있으면 배너가 뜬다', async () => {
     renderPanel([makeIssue({ id: 'a', title: 'A', triagedAt: null })])
-    expect(await screen.findByText(/정리 안 됨 \(1\)/)).toBeInTheDocument()
+    // 개수는 괄호가 아니라 알약이다 — 그룹 헤더와 같은 `.group-count` (ux-polish FR-4)
+    expect(await screen.findByText(/정리 안 됨/)).toHaveTextContent('정리 안 됨 1')
   })
 
   it('정리 안 된 이슈가 없으면 배너가 없다', async () => {
@@ -172,10 +173,10 @@ describe('IssuePanel 그룹', () => {
 })
 
 describe('IssuePanel 훑기', () => {
-  it('훑어보기를 누르면 첫 대기 항목이 열린다', async () => {
+  it('훑기를 누르면 첫 대기 항목이 열린다', async () => {
     const onOpen = vi.fn()
     renderPanel([makeIssue({ id: 'a', title: 'A', triagedAt: null })], { onOpen })
-    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    await userEvent.click(await screen.findByRole('button', { name: '훑기' }))
     expect(onOpen).toHaveBeenCalledWith('a')
   })
 
@@ -184,7 +185,7 @@ describe('IssuePanel 훑기', () => {
       [makeIssue({ id: 'a', title: 'A', triagedAt: null })],
       { openId: 'a', expanded: true }
     )
-    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    await userEvent.click(await screen.findByRole('button', { name: '훑기' }))
     await userEvent.click(screen.getByRole('button', { name: '회의' }))
     await userEvent.click(screen.getByRole('button', { name: '버그' }))
     await userEvent.click(screen.getByRole('button', { name: '긴급' }))
@@ -200,7 +201,7 @@ describe('IssuePanel 훑기', () => {
     // 분류와 열람은 다른 행위다. 축을 찍었다는 이유로 방치 시계가 리셋되면
     // 훑기가 방치를 감추는 도구가 된다 (설계 §3 ③).
     //
-    // **아무것도 열리지 않은 상태에서 시작해, 훑어보기 자신이 열게 한다.**
+    // **아무것도 열리지 않은 상태에서 시작해, 훑기 자신이 열게 한다.**
     // renderPanel처럼 openId를 미리 프리셋하면 triaging이 아직 false인 첫 렌더에서
     // IssueDetail이 먼저 마운트되고 그 markSeen 이펙트(Task 8)가 먼저 찍혀버려,
     // 이 단언이 훑기와 무관한 이유로 빨개진다 — 실제로 그렇게 한 번 빨개졌었다.
@@ -208,14 +209,14 @@ describe('IssuePanel 훑기', () => {
     // 그 자리에서 훑는 경우) 그때 seenAt이 찍히는 것은 올바른 동작이다. 이 테스트가
     // 좁혀서 지키려는 것은 "훑기 흐름 자체는" seenAt을 찍지 않는다는 것뿐이다.
     //
-    // renderControlledPanel로 진짜 openId state를 써서, 훑어보기 클릭이 onOpen을
+    // renderControlledPanel로 진짜 openId state를 써서, 훑기 클릭이 onOpen을
     // 직접 몰아 triaging과 openId가 같은 배치로 함께 세워지게 한다 — 그러면
     // IssueDetail은 이 테스트 동안 한 번도 마운트되지 않고, TriageCard만 뜬다.
     const mocks = renderControlledPanel(
       [makeIssue({ id: 'a', title: 'A', triagedAt: null })],
       null
     )
-    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    await userEvent.click(await screen.findByRole('button', { name: '훑기' }))
     await userEvent.click(await screen.findByRole('button', { name: '회의' }))
     await userEvent.click(screen.getByRole('button', { name: '버그' }))
     await userEvent.click(screen.getByRole('button', { name: '긴급' }))
@@ -246,11 +247,11 @@ describe('IssuePanel 훑기', () => {
       ],
       { openId: 'a', expanded: true }
     )
-    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    await userEvent.click(await screen.findByRole('button', { name: '훑기' }))
     await userEvent.click(screen.getByRole('button', { name: '건너뛰기' }))
 
     expect(mocks.update).not.toHaveBeenCalled()
-    expect(screen.getByText(/정리 안 됨 \(2\)/)).toBeInTheDocument()
+    expect(screen.getByText(/정리 안 됨/)).toHaveTextContent('정리 안 됨 2')
   })
 
   it('저장이 충돌하면 그 이슈에서 멈추고 경고를 보여준다', async () => {
@@ -264,7 +265,7 @@ describe('IssuePanel 훑기', () => {
     )
     mocks.update.mockRejectedValueOnce(new Error('충돌'))
 
-    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    await userEvent.click(await screen.findByRole('button', { name: '훑기' }))
     await userEvent.click(screen.getByRole('button', { name: '회의' }))
     await userEvent.click(screen.getByRole('button', { name: '버그' }))
     await userEvent.click(screen.getByRole('button', { name: '긴급' }))
@@ -291,7 +292,7 @@ describe('IssuePanel 훑기', () => {
     )
     mocks.update.mockRejectedValueOnce(new Error('충돌'))
 
-    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    await userEvent.click(await screen.findByRole('button', { name: '훑기' }))
     await userEvent.click(screen.getByRole('button', { name: '회의' }))
     await userEvent.click(screen.getByRole('button', { name: '버그' }))
     await userEvent.click(screen.getByRole('button', { name: '긴급' }))
@@ -318,7 +319,7 @@ describe('IssuePanel 훑기', () => {
     )
     mocks.update.mockRejectedValueOnce(new Error('충돌'))
 
-    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    await userEvent.click(await screen.findByRole('button', { name: '훑기' }))
     await userEvent.click(screen.getByRole('button', { name: '회의' }))
     await userEvent.click(screen.getByRole('button', { name: '버그' }))
     await userEvent.click(screen.getByRole('button', { name: '긴급' }))
@@ -366,7 +367,7 @@ describe('IssuePanel 훑기', () => {
       </ClientProvider>
     )
 
-    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    await userEvent.click(await screen.findByRole('button', { name: '훑기' }))
     expect(await screen.findByText('2건 중 1번째')).toBeInTheDocument()
 
     // 이제 목록이 'a'를 이미 분류된 것으로 돌려주게 하고, run 완료를 흉내낸다.
@@ -391,7 +392,7 @@ describe('IssuePanel 훑기', () => {
       makeIssue({ id: 'c', title: 'C', triagedAt: null })
     ], null)
 
-    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    await userEvent.click(await screen.findByRole('button', { name: '훑기' }))
     expect(opened.at(-1)).toBe('a')
 
     await userEvent.click(await screen.findByRole('button', { name: '건너뛰기' }))
@@ -400,7 +401,7 @@ describe('IssuePanel 훑기', () => {
     await userEvent.click(await screen.findByRole('button', { name: '건너뛰기' }))
     expect(opened.at(-1)).toBe('c')
 
-    // a로 되돌아간 적이 없어야 한다 — 첫 훑어보기 클릭 한 번만 a를 열었다.
+    // a로 되돌아간 적이 없어야 한다 — 첫 훑기 클릭 한 번만 a를 열었다.
     expect(opened.filter((id) => id === 'a')).toHaveLength(1)
   })
 })
@@ -416,7 +417,7 @@ describe('IssuePanel repo 배선', () => {
       [makeIssue({ id: 'a', title: 'A', triagedAt: null })],
       { openId: 'a', expanded: true, repos: REPOS }
     )
-    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    await userEvent.click(await screen.findByRole('button', { name: '훑기' }))
     expect(screen.getByRole('button', { name: 'api' })).toBeInTheDocument()
   })
 
@@ -425,7 +426,7 @@ describe('IssuePanel repo 배선', () => {
       [makeIssue({ id: 'a', title: 'A', triagedAt: null })],
       { openId: 'a', expanded: true, repos: REPOS }
     )
-    await userEvent.click(await screen.findByRole('button', { name: '훑어보기' }))
+    await userEvent.click(await screen.findByRole('button', { name: '훑기' }))
     await userEvent.click(screen.getByRole('button', { name: '회의' }))
     await userEvent.click(screen.getByRole('button', { name: '버그' }))
     await userEvent.click(screen.getByRole('button', { name: '긴급' }))

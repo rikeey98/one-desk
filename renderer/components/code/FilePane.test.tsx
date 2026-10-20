@@ -308,3 +308,21 @@ describe('FilePane (docs/sdlc/code-editor/)', () => {
     expect(onClose).toHaveBeenCalled()
   })
 })
+
+// ── docs/sdlc/ux-polish/ ──
+
+describe('빈 상태는 하나만 말한다 (docs/sdlc/ux-polish/ FR-2)', () => {
+  it('목록을 못 얻으면 오른쪽 칸의 "파일을 고르세요"가 서지 않는다 — 고를 목록이 없다', async () => {
+    const { client } = makeClient({ tree: { ok: false, reason: 'git 저장소가 아니라 파일 목록을 만들 수 없습니다' } })
+    renderPane(client)
+    expect(await screen.findByText('git 저장소가 아니라 파일 목록을 만들 수 없습니다')).toBeInTheDocument()
+    expect(screen.queryByText('왼쪽 목록에서 파일을 고르세요')).not.toBeInTheDocument()
+  })
+
+  it('목록이 있으면 오른쪽 칸이 고르라고 안내한다', async () => {
+    const { client } = makeClient()
+    renderPane(client)
+    await screen.findByRole('button', { name: 'README.md' })
+    expect(screen.getByText('왼쪽 목록에서 파일을 고르세요')).toBeInTheDocument()
+  })
+})

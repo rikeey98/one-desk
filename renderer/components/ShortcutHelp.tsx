@@ -3,7 +3,7 @@ import { SHORTCUTS, runShortcutLabel, shortcutLabel } from '../shortcut'
 import { IconClose } from './icons'
 
 /**
- * `?`로 뜨는 단축키 목록 (ux-proposal ⑧). 모달이 아니라 `popover`다 — 뒤의 화면을 막지 않고, Esc 사다리(FR-39)의
+ * `?`로 뜨는 단축키 목록 (docs/sdlc/ux-polish/ FR-8). 모달이 아니라 `popover`다 — 뒤의 화면을 막지 않고, Esc 사다리(FR-39)의
  * 맨 안쪽에 선다. 표는 `renderer/shortcut.ts` 하나다 — 여기 따로 적지 않는다.
  */
 export function ShortcutHelp({ onClose }: { onClose: () => void }) {

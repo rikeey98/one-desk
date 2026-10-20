@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { Sidebar } from './Sidebar'
@@ -329,5 +329,40 @@ describe('리포트 진입점 (docs/sdlc/period-report/ FR-13)', () => {
     expect(screen.getByRole('button', { name: '설정' })).toHaveAttribute('title', '설정')
     // MCP는 점만 보이므로 상태를 풍선이 말한다
     expect(document.querySelector('.mcp-status')).toHaveAttribute('title', 'MCP :12345')
+  })
+})
+
+// ── docs/sdlc/ux-polish/ ──
+
+describe('접힌 사이드바의 workspace 타일 (docs/sdlc/ux-polish/ FR-7)', () => {
+  it('workspace가 둘 이상이면 이니셜 타일이 서고, 고른 것은 표시가 붙으며, 누르면 그 id로 고른다', async () => {
+    const onSelect = vi.fn()
+    renderSidebar({
+      collapsed: true, selectedId: 'w2', onSelect,
+      workspaces: [makeWorkspace('개인', 'w1'), makeWorkspace('회사', 'w2')],
+      counts: { total: 2, byWorkspace: { w1: 2 } }
+    })
+    const tiles = screen.getByRole('list', { name: '워크스페이스' })
+    const personal = within(tiles).getByRole('button', { name: '개인' })
+    const company = within(tiles).getByRole('button', { name: '회사' })
+    expect(personal).toHaveTextContent('개')
+    expect(personal).toHaveAttribute('title', '개인')
+    expect(personal).toHaveTextContent('2')
+    expect(company).toHaveClass('ws-tile-selected')
+    expect(company).toHaveAttribute('aria-current', 'true')
+    expect(personal).not.toHaveClass('ws-tile-selected')
+    await userEvent.click(personal)
+    expect(onSelect).toHaveBeenCalledWith('w1')
+  })
+
+  it('workspace가 하나뿐이면 타일이 없다 — 고를 것이 없다', () => {
+    renderSidebar({ collapsed: true, selectedId: 'w1', workspaces: [makeWorkspace('개인', 'w1')] })
+    expect(screen.queryByRole('list', { name: '워크스페이스' })).not.toBeInTheDocument()
+  })
+
+  it('펼쳐져 있으면 타일 대신 목록이다 — 같은 이름의 버튼이 둘 서지 않는다', () => {
+    renderSidebar({ collapsed: false, workspaces: [makeWorkspace('개인', 'w1'), makeWorkspace('회사', 'w2')] })
+    expect(screen.queryByRole('list', { name: '워크스페이스' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '개인' })).toHaveLength(1)
   })
 })

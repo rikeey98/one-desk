@@ -30,7 +30,8 @@ function AxisChips({ issue }: { issue: Issue }) {
 }
 
 export function IssuePanel({
-  workspaceId, repoId, repos, context, conversations, layout = 'columns', expanded, openId, onOpen
+  workspaceId, repoId, repos, context, conversations, layout = 'columns', expanded, openId, onOpen,
+  focusAdd = false, onFocusAddConsumed = () => {}
 }: {
   workspaceId: string
   repoId: string | null
@@ -46,6 +47,9 @@ export function IssuePanel({
   expanded: boolean
   openId: string | null
   onOpen: (id: string) => void
+  /** 단축키 Ctrl+I — App만 넘긴다(패널 창에는 단축키가 없다). 추가 칸에 포커스를 주고 치운다 (docs/sdlc/ux-polish/ FR-8) */
+  focusAdd?: boolean
+  onFocusAddConsumed?: () => void
 }) {
   const client = useClient()
   const { issues, error: listError, refresh, loaded } = useIssues(workspaceId, repoId)
@@ -157,7 +161,7 @@ export function IssuePanel({
 
   const list = (
     <>
-      <AddForm placeholder="새 이슈 (첫 줄이 제목)" onSubmit={addIssue} multiline />
+      <AddForm placeholder="새 이슈 (첫 줄이 제목)" onSubmit={addIssue} multiline focusRequested={focusAdd} onFocusConsumed={onFocusAddConsumed} />
 
       {untriaged > 0 && (
         // 0건일 때는 그리지 않는다 — 상주하는 잔소리가 된다 (설계 §4).

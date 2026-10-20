@@ -289,7 +289,7 @@ describe('SettingsPanel — 실행 기본값', () => {
     renderPanel(makeClient())
     const select = await screen.findByLabelText('Claude Code 기본 effort')
     expect((select as HTMLSelectElement).value).toBe('')
-    expect(screen.getByRole('option', { name: '기본값' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'effort 기본값' })).toBeInTheDocument()
   })
 
   it('표에 없는 effort 값이 저장돼 있어도 잃지 않는다', async () => {
@@ -1297,5 +1297,27 @@ describe('SettingsPanel — 터미널 셸 (docs/sdlc/code-editor/terminal-spec.m
 
     expect(await screen.findByRole('alert')).toHaveTextContent('셸 파일이 없습니다')
     expect(screen.getByLabelText('터미널 셸 실행 파일')).toHaveValue('/없음/셸')
+  })
+})
+
+// ── docs/sdlc/ux-polish/ ──
+
+describe('저장 버튼은 바뀐 것이 있을 때만 산다 (docs/sdlc/ux-polish/ FR-10)', () => {
+  it('실행 기본값 절 — 고치기 전에는 잠기고 고치면 풀리며 되돌리면 다시 잠긴다', async () => {
+    renderPanel(makeClient())
+    const save = await screen.findByRole('button', { name: '기본값 저장' })
+    expect(save).toBeDisabled()
+    const effort = screen.getByLabelText('Claude Code 기본 effort')
+    await userEvent.selectOptions(effort, 'high')
+    expect(save).toBeEnabled()
+    await userEvent.selectOptions(effort, '')
+    expect(save).toBeDisabled()
+  })
+
+  it('절마다 따로다 — 기본값을 고쳐도 CLI 경로 저장은 잠겨 있다', async () => {
+    renderPanel(makeClient())
+    await screen.findByRole('button', { name: '기본값 저장' })
+    await userEvent.selectOptions(screen.getByLabelText('Claude Code 기본 effort'), 'high')
+    expect(screen.getByRole('button', { name: 'CLI 경로 저장' })).toBeDisabled()
   })
 })

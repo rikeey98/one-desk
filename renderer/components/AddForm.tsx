@@ -1,9 +1,15 @@
-import { useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { IconPlus } from './icons'
 
-export function AddForm({ placeholder, onSubmit, multiline = false }: {
+export function AddForm({ placeholder, onSubmit, multiline = false, focusRequested = false, onFocusConsumed = () => {} }: {
   placeholder: string
   onSubmit: (value: string) => Promise<void>
+  /**
+   * 단축키(Ctrl+I·Ctrl+M)가 세운다 — 입력칸에 포커스를 주고 `onFocusConsumed`로 치운다 (docs/sdlc/ux-polish/ FR-8).
+   * 도크의 `focusNew`와 같은 일회성 지시다: 치우지 않으면 다른 화면에 갔다 올 때마다 다시 포커스가 온다.
+   */
+  focusRequested?: boolean
+  onFocusConsumed?: () => void
   /**
    * 여러 줄로 쓴다 — 이슈·메모의 "첫 줄이 제목, 나머지가 본문"(`renderer/titleBody.ts`). **Enter는 만들기, Shift+Enter는
    * 줄바꿈이다** — 한 줄로 던지던 습관(제목 + Enter)이 그대로 된다. 이름 칸(workspace·asset)은 한 줄이다.
@@ -13,6 +19,14 @@ export function AddForm({ placeholder, onSubmit, multiline = false }: {
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!focusRequested) return
+    ;(multiline ? textareaRef.current : inputRef.current)?.focus()
+    onFocusConsumed()
+  }, [focusRequested])
 
   async function submit() {
     const trimmed = value.trim()
@@ -49,6 +63,7 @@ export function AddForm({ placeholder, onSubmit, multiline = false }: {
       {multiline
         ? (
           <textarea
+            ref={textareaRef}
             rows={1}
             value={value}
             onChange={(e) => setValue(e.target.value)}
@@ -60,6 +75,7 @@ export function AddForm({ placeholder, onSubmit, multiline = false }: {
         )
         : (
           <input
+            ref={inputRef}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder={placeholder}

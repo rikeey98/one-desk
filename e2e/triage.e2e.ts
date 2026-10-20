@@ -26,11 +26,13 @@ describe('이슈 훑기', () => {
     await page.getByPlaceholder('새 이슈 (첫 줄이 제목)').fill(ISSUE)
     await page.getByPlaceholder('새 이슈 (첫 줄이 제목)').press('Enter')
 
-    const banner = page.getByText('⚠ 정리 안 됨 (1)')
+    // 개수는 괄호가 아니라 알약이다 (docs/sdlc/ux-polish/ FR-4) — 글자와 수를 따로 본다
+    const banner = page.getByText('정리 안 됨')
     await banner.waitFor({ state: 'visible', timeout: 10_000 })
+    await expect.poll(() => banner.textContent()).toMatch(/정리 안 됨\s*1$/)
 
     // 훑기는 상세 자리를 빌려 쓴다 — 패널이 확장되면서 카드가 뜬다
-    await page.getByRole('button', { name: '훑어보기', exact: true }).click()
+    await page.getByRole('button', { name: '훑기', exact: true }).click()
     const next = page.getByRole('button', { name: '다음', exact: true })
     await next.waitFor({ state: 'visible', timeout: 5_000 })
 

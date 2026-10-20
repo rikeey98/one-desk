@@ -43,7 +43,7 @@ export function Dock({
   runs, error, workspaceId, workspaces, repos, reposError, queue, queueError, onChangeLimit, chips, onRemoveChip,
   onRunStarted, draftPrompt, draftCwd, selectedRepoId, onClearRepoFilter, focusConversationId, onFocusConsumed,
   // 개발 버전: 선택 prop이다 — plan에서 필수로 올리고 App 배선 테스트를 붙인다 (conversation-issue spec §7).
-  draftIssue = null, onClearDraftIssue = () => {}, focusNew = false, onOpenIssue = () => {}, compact
+  draftIssue = null, onClearDraftIssue = () => {}, focusNew = false, onOpenIssue = () => {}, compact, toggleRequest, onToggleConsumed
 }: {
   runs: Run[]
   error: string | null
@@ -84,11 +84,21 @@ export function Dock({
   /** 이슈 상세의 `대화 시작`이 세운다 — 도크를 펼치고 새 대화 칸으로 옮긴다(FR-15). 쓰면 `onFocusConsumed`로 치운다 */
   focusNew?: boolean
   /**
-   * 상세(이슈·메모·asset)가 열려 있다 (ux-proposal ①). 그동안 도크는 **하한 높이**로 내려가 상세가 본문을 쓰고,
+   * 상세(이슈·메모·asset)가 열려 있다 (docs/sdlc/ux-polish/ FR-1). 그동안 도크는 **하한 높이**로 내려가 상세가 본문을 쓰고,
    * 상세가 닫히면 사용자가 끈 높이로 돌아온다 — 저장된 높이는 건드리지 않는다. **필수다** — 선택이면 App의 한 줄을
    * 지워도 조용히 컴파일된다.
    */
   compact: boolean
+  /**
+   * 단축키 Ctrl+J가 세운다 — 헤더 토글과 같은 `toggleOpen`을 타고 `onToggleConsumed`로 치운다 (docs/sdlc/ux-polish/ FR-8).
+   * `focusNew`와 같은 일회성 지시라 필수다 — 선택이면 App의 한 줄을 지워도 조용히 컴파일되고 단축키만 죽는다.
+   */
+  /**
+   * 단축키 Ctrl+J가 세운다 — 헤더 토글과 같은 `toggleOpen`을 타고 `onToggleConsumed`로 치운다 (docs/sdlc/ux-polish/ FR-8).
+   * `focusNew`와 같은 일회성 지시라 필수다 — 선택이면 App의 한 줄을 지워도 조용히 컴파일되고 단축키만 죽는다.
+   */
+  toggleRequest: boolean
+  onToggleConsumed: () => void
   /** 대화 헤더의 `할당된 이슈 열기` — 그 이슈 상세를 연다(FR-21) */
   onOpenIssue?: (issueId: string) => void
 }) {
@@ -284,6 +294,13 @@ export function Dock({
     setOpen(true)
     onFocusConsumed()
   }, [focusNew])
+
+  // 단축키 Ctrl+J (ux-polish FR-8) — 위와 같은 일회성 지시다. 헤더 토글과 같은 함수라 접을 때 최대화도 함께 푼다.
+  useEffect(() => {
+    if (!toggleRequest) return
+    toggleOpen()
+    onToggleConsumed()
+  }, [toggleRequest])
 
   // 폴백은 "고른 적이 없을 때"(pickedId===null)에만 적용한다. pickedId가 있는데
   // 그 대화가 지금 conversations에 없다고 조용히 다른 대화로 떨어지면 안 된다 —

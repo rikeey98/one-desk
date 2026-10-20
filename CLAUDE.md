@@ -342,8 +342,11 @@ core에 산다**(`core/terminal/service.ts`) — 칸을 닫거나 다른 repo로
 `set`만으로는 모르고, `set`을 들으면 전송이 비우는 자기 쓰기에도 반응한다. 접힌 도크는 펼친다.
 
 **사이드바를 아이콘 줄로 접는다.** 제목 줄 왼쪽 끝의 `사이드바 최소화`/`사이드바 복원`(App이 쥐고 `Sidebar`의 필수 prop
-`collapsed`로 내린다, 이 장비의 localStorage `one-desk.sidebar.collapsed`). 접히면 인박스·리포트·설정 타일과 MCP 점만 남고
-workspace 목록·요금제 줄은 그리지 않는다. 타일의 글자는 화면에서만 숨겨 버튼 이름이 그대로라 e2e의 `{ name: '설정' }`이 산다.
+`collapsed`로 내린다, 이 장비의 localStorage `one-desk.sidebar.collapsed`). 접히면 인박스·리포트·설정 타일과 MCP 점이 남고
+요금제 줄·등록 폼은 그리지 않는다. 타일의 글자는 화면에서만 숨겨 버튼 이름이 그대로라 e2e의 `{ name: '설정' }`이 산다.
+**workspace가 둘 이상이면 이니셜 타일(`.ws-tiles`, `ul[aria-label="워크스페이스"]`)이 선다** (`docs/sdlc/ux-polish/` FR-7, 2026-10-20 —
+"접히면 workspace 목록을 그리지 않는다"를 뒤집었다: 접는 목적은 폭이지 workspace를 못 바꾸게 하는 것이 아니다). 타일의 이름은
+workspace 이름 그대로이고 펼친 목록과 동시에 서지 않아 같은 이름의 버튼이 둘 생기지 않는다. 하나뿐이면 타일이 없다.
 
 **인박스를 시간순 · workspace별 · 상태별로 본다** (`docs/sdlc/inbox-views/`). 마이그레이션·IPC 없음 — 렌더러만. 목록 위 도구 줄이
 보기 세 칸(`인박스 보기` 그룹)과 정렬 버튼(`정렬: 최신 먼저`/`정렬: 오래된 먼저` — 기준은 대표 턴의 `endedAt`, 오래된 먼저는 최신 먼저를
@@ -391,6 +394,21 @@ CLI 상태와 **같은 `AgentStatusRow`·같은 데이터** — 따로 묻지 �
 탭의 그 실행 환경 라디오에 포커스) · WSL 글로벌 skill 경로이고, 맨 위의 `다시 확인`이 배포판 목록과 CLI 상태를 캐시째 다시 묻는다. **WSL
 repo가 없으면 WSL claude를 미리 판정하지 않는다** — WSL VM을 깨운다(spec §5의 1). `WslDistros`에 `defaultDistro`가 늘었다(배포판이
 여럿일 때만 `wsl --list --verbose`의 `*` 줄 — 머리 줄은 로캘을 타므로 읽지 않고, 그 이름이 `--quiet` 목록에 있을 때만 믿는다).
+
+**UI/UX 분석이 꼽은 여덟 가지를 고쳤다** (`docs/sdlc/ux-polish/`, 2026-10-20 — 시안을 worktree에서 먼저 만들어 실제 캡처로 비교한 뒤
+사용자가 "다 적용해줘"로 전부 들였다). 렌더러만, 마이그레이션·IPC 없음. ① **상세가 열려 있으면 도크가 하한(280px)이다** — `Dock`의
+필수 prop `compact`(App이 `openItem !== null`), 끌기 손잡이가 없고 저장된 높이는 건드리지 않는다. ② 코드 칸은 목록을 못 얻으면
+왼쪽 이유만 남고, 리포트는 비면 **데이터가 있는 가장 가까운 preset을 개수와 함께 제안**한다(`이번 주 → 지난 7일 → 지난주 → 지난 30일`
+순으로 `reports.build`를 더 부른다 — 기본 preset은 그대로다). ③ **화면이 전부 한국어다** — 패널 `이슈`·`메모`·`스킬 / 에이전트`, asset
+구획 `스킬`·`에이전트`·`지시 파일`, 사이드바 `워크스페이스`, 이슈 상태 배지는 `renderer/issueStatus.ts`의 표(`열림`·`진행 중`·`완료`,
+**`열림`은 배지를 그리지 않는다**). ④ 훑기 배너의 개수도 알약이고 버튼은 `훑기`다. ⑤ 입력 카드의 알약 다섯이 값만 보인다 — 빈 값의 이름이
+종류를 말한다(`effort 기본값`·`variant 기본값`·`모델 기본값`, `ModelField`의 `compact`). ⑥ **제목 줄 가운데가 지금 보는 범위**(`회사 · api`,
+인박스·리포트·설정)이고 `document.title`도 같다. ⑦ **접힌 사이드바에 workspace 이니셜 타일**이 선다(둘 이상일 때만, 아래 절). ⑧
+**전역 단축키 여섯이 `renderer/shortcut.ts`의 `SHORTCUTS` 한 표다** — 새 대화 Ctrl+N · 새 이슈 Ctrl+I · 새 메모 Ctrl+M · 대화창 토글
+Ctrl+J · 인박스 Ctrl+Shift+I · `?` 목록(`ShortcutHelp` popover, Esc 사다리의 맨 안쪽). App이 keydown을 받아 **받는 쪽에 일회성 prop으로
+내린다**(`Dock`의 필수 `toggleRequest`·`onToggleConsumed`, 패널의 `focusAdd`·`onFocusAddConsumed` → `AddForm`의 `focusRequested`) —
+DOM을 짚지 않는다. 수정키 없는 `?`는 글을 받는 자리(`isEditableTarget`)에서 듣지 않는다. 따라온 것 둘: 설정의 저장 버튼은 그 절에
+바뀐 것이 있을 때만 활성이고, CLI 상태의 `확인 중…`은 버튼이 아니라 `role="status"` 글자다(`다시 확인` 버튼은 잠긴 채 남는다).
 
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
@@ -835,7 +853,7 @@ Electron이 node가 아니라 앱으로 뜬다. `configFile.test`의 "WSL 서버
 
 **e2e에서 `getByRole('button', { name: '실행' })`은 exact 없이 쓰면 강제로 실패한다.** substring 매칭이 기본이라 슬롯 표시기(`aria-label="실행 슬롯"`)까지 같이 걸려 strict mode 위반이 된다 — 전송 버튼(`.run-start`, 이름 `실행`)을 잡으려면 `{ name: '실행', exact: true }`가 필수다(태스크 8이 라벨을 "▶ 실행"에서 "실행"으로 줄이면서 처음 생긴 충돌). **대화가 도는 동안에는 셋이 더 걸린다** — 상태 줄의 `실행 중인 턴 멈추기`(`Transcript.tsx`의 `STOP_RUNNING_TURN`), 대화 헤더의 `이 대화의 실행 멈추기`(입력칸에 초안이 있을 때만 선다), 그리고 **목록 줄 버튼 자체**다(상태 점의 이름 `실행 중`이 줄 버튼의 이름에 들어간다). 예전에는 도크 토글("▾ 실행")도 걸렸다 — 토글이 글자 "실행"을 버린 이유다(아래 "새 이름" 항목).
 
-**이 함정은 "실행"만의 것이 아니다 — 짧은 라벨을 새로 붙일 때마다 기존 e2e가 깨진다.** 설정 화면에 "기본값 저장"을 더하자 글로벌 경로의 `{ name: '저장' }`이 둘을 잡아 `asset.e2e.ts`가 깨졌다. `getByLabel`도 같다 — "Skills / Agents" 패널이 `getByLabel('agent')`에 걸린다. **Vitest/RTL의 `getByLabelText`는 전체 일치라 단위 테스트는 전부 초록인 채로 넘어간다.** 새 라벨이 기존 라벨의 부분 문자열이면 e2e를 먼저 돌려볼 것. 그리고 `<label>`이 `<select>`를 감싸고 있으면 Playwright가 계산하는 접근성 이름에 `<option>` 텍스트까지 빨려 들어가므로(`"agentClaude CodeOpenCode"`), 그런 컨트롤에는 `aria-label`을 명시한다.
+**이 함정은 "실행"만의 것이 아니다 — 짧은 라벨을 새로 붙일 때마다 기존 e2e가 깨진다.** 설정 화면에 "기본값 저장"을 더하자 글로벌 경로의 `{ name: '저장' }`이 둘을 잡아 `asset.e2e.ts`가 깨졌다. `getByLabel`도 같다 — 예전 "Skills / Agents" 패널(지금은 "스킬 / 에이전트")이 `getByLabel('agent')`에 걸렸다. **Vitest/RTL의 `getByLabelText`는 전체 일치라 단위 테스트는 전부 초록인 채로 넘어간다.** 새 라벨이 기존 라벨의 부분 문자열이면 e2e를 먼저 돌려볼 것. 그리고 `<label>`이 `<select>`를 감싸고 있으면 Playwright가 계산하는 접근성 이름에 `<option>` 텍스트까지 빨려 들어가므로(`"agentClaude CodeOpenCode"`), 그런 컨트롤에는 `aria-label`을 명시한다.
 
 **줄 끝의 아이콘은 폭 0으로 접혀 있어 Playwright가 직접 hover할 수 없다.** 이슈·메모 줄의
 삭제(`.item-actions`)와 repo 줄의 열기·이름 바꾸기·삭제(`.repo-actions`)는 hover·포커스에만
@@ -999,8 +1017,9 @@ placeholder에 ⌘를 직접 쓰면 Windows 사용자에게 없는 키를 가리
 
 **그룹 헤더의 개수는 괄호가 아니라 알약이다.** 접근성 이름이 `"긴급 (2)"`가 아니라 `"긴급 2"`다 —
 `IssuePanel.test`의 정규식이 그것을 본다. `Panel`의 `count` prop과 asset 절 제목의 개수도
-같은 `.group-count` 알약이고, asset 절은 개수를 `h3` 밖에 둔다(제목 이름이 "SKILLS 3"이 되면
-안 된다).
+같은 `.group-count` 알약이고, asset 절은 개수를 `h3` 밖에 둔다(제목 이름이 "스킬 3"이 되면
+안 된다). 훑기 배너의 개수도 알약이다(`docs/sdlc/ux-polish/` FR-4) — 글자 `정리 안 됨`과 수를 따로 본다(`toHaveTextContent('정리 안 됨 1')`,
+e2e는 `getByText('정리 안 됨')` + `textContent`).
 
 **항목을 열면 그 패널이 남는 폭을 다 쓰고, 나머지 둘은 180px 목록 열로 옆에 남는다**
 (2026-09-22, CSS `.columns:has(> .panel-expanded)`). 2026-08-14 본문 설계의 "선택한 패널이 커지는
@@ -1100,6 +1119,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/linux-launch-env/` | 리눅스 패키지가 사용자의 `LD_LIBRARY_PATH`에 깨지지 않게 (RHEL, `XML_SetHashSalt`) — spec. 원인 실측(§0 — Electron이 시스템 libexpat을 직접 쓰고 AppRun이 사용자의 값을 이어 붙인다), 막아야 할 자리 셋(§1), 실행 껍데기·되돌리기·브리지 env·릴리스 확인(FR-1~7)과 버린 안, 대가(§3), 배포판 하한과 RHEL 7을 Electron 자신이 막는 실측(§4), 변이와 WSL 실측(§5) |
 | `docs/sdlc/linux-glibc-floor/` | 리눅스 패키지의 배포판 하한을 RHEL 8(glibc 2.28)로 — spec. 무엇이 RHEL 8을 막나(§0 — 네이티브 모듈 둘), manylinux_2_28 컨테이너에서 다시 빌드·사전 빌드 갈아 끼우기·하한 검사 한 자리·스모크(FR-1~7)와 버린 안, 대가(§2), AlmaLinux 8.10 userland 실측·대조·변이(§3) |
 | `docs/sdlc/portable-unpack/` | Windows 포터블 exe를 한 번 더 실행하면 떠 있는 앱의 파일이 지워지던 결함(v0.26.2의 WSL `wsl-launcher.sh`) — spec. 래퍼가 고정 이름 폴더를 비우는 실측(§0), 사라지는 파일 셋과 증상(§1), 문서와 반대인 `unpackDirName: true`(FR-1), 남은 폴더를 지우는 판정(FR-2), `original-fs`(FR-3), 버린 안(NSIS 설치본 등), 패키징 앱을 CDP로 몬 실측(§4) |
+| `docs/sdlc/ux-polish/` | UI/UX 분석이 꼽은 여덟 가지 — intent·spec·plan. 상세가 열리면 도크가 하한(FR-1), 빈 상태 하나·리포트의 가까운 preset 제안(FR-2), 한국어 표와 `열림` 배지 생략(FR-3), 전역 단축키 표와 일회성 prop 배선(FR-8·9), 뒤집은 결정(intent), App 배선 변이 표(plan). 시안 비교 https://claude.ai/artifact/VQBSR9ruuhjttD6P9Choqn |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |

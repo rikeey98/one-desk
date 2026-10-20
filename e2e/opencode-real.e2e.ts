@@ -23,7 +23,7 @@ describe.skipIf(process.env['ONE_DESK_REAL_CLI'] !== '1')('실제 OpenCode 실�
     await page.getByPlaceholder('/절대/경로').fill(app.repoDir)
     await page.getByRole('button', { name: '추가', exact: true }).click()
 
-    // getByLabel('agent')는 'Skills / Agents' 패널까지 걸려 strict mode 위반이다 — exact로 잡는다.
+    // getByLabel('agent')는 예전 'Skills / Agents' 패널까지 걸려 strict mode 위반이다 — exact로 잡는다.
     // 입력부의 칸은 알약이고 이름은 aria-label이다(docs/sdlc/conversation-timeline/ spec FR-27).
     await page.getByLabel('agent', { exact: true }).selectOption('opencode')
     await page.getByLabel('모델', { exact: true }).fill('opencode/big-pickle')

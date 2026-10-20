@@ -5,7 +5,7 @@ describe('EFFORT_OPTIONS', () => {
   it('첫 항목이 빈 값이고 그것이 기본이다', () => {
     // 빈 항목을 빼면 한 번 고른 뒤에는 "CLI 자신의 기본값"으로 되돌릴 수 없다 —
     // 모델 칸을 비우는 것과 같은 자리여야 한다.
-    expect(EFFORT_OPTIONS[0]).toEqual({ value: '', label: '기본값' })
+    expect(EFFORT_OPTIONS[0]).toEqual({ value: '', label: 'effort 기본값' })
   })
 
   it('claude --help가 열거한 다섯 단계를 그 순서로 담는다', () => {

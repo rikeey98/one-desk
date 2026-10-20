@@ -160,7 +160,7 @@ describe('대화가 버리던 데이터', () => {
     })
     const { page } = app
     await prepare(app, 'ev-opencode')
-    // 입력부의 칸은 알약이고 이름은 aria-label이다 — 'Skills / Agents' 패널과 갈리게 exact로 잡는다.
+    // 입력부의 칸은 알약이고 이름은 aria-label이다 — '스킬 / 에이전트' 패널과 갈리게 exact로 잡는다.
     await page.getByLabel('agent', { exact: true }).selectOption('opencode')
     const turn = await runTurn(page)
 

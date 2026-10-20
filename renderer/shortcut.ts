@@ -12,7 +12,7 @@ export function modKeyLabel(platform: string): string {
   return /mac|iphone|ipad/i.test(platform) ? '⌘' : 'Ctrl'
 }
 
-/** 앱 전역 단축키의 동작 (ux-proposal ⑧) */
+/** 앱 전역 단축키의 동작 (docs/sdlc/ux-polish/ FR-8) */
 export type ShortcutAction =
   | 'new-conversation'
   | 'new-issue'

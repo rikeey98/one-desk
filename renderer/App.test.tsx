@@ -820,9 +820,9 @@ describe('App', () => {
 
 describe('패널 확장', () => {
   it.each([
-    ['Issues', '토큰 만료'],
-    ['Memos', '배포 메모'],
-    ['Skills / Agents', '알파 스킬']
+    ['이슈', '토큰 만료'],
+    ['메모', '배포 메모'],
+    ['스킬 / 에이전트', '알파 스킬']
   ])('%s의 축소 버튼으로 상세를 닫고 다시 열 수 있다', async (panelName, title) => {
     renderApp(makeClient({}, {
       issues: [makeIssue({ title: '토큰 만료' })],
@@ -855,8 +855,8 @@ describe('패널 확장', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
 
-    expect(screen.getByRole('region', { name: 'Issues' })).toHaveClass('panel-expanded')
-    expect(screen.getByRole('region', { name: 'Memos' })).not.toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: '이슈' })).toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: '메모' })).not.toHaveClass('panel-expanded')
     // App이 openId를 IssuePanel에 내려보내는지도 확인한다 — expanded만 확인하면
     // App.tsx가 <IssuePanel openId={…}> 한 줄을 빠뜨려도 이 테스트가 여전히
     // 초록이다. 클릭한 항목이 열린 상태(item-open)로 보이는지까지 봐야 한다.
@@ -874,8 +874,8 @@ describe('패널 확장', () => {
     await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
     await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
 
-    expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
-    expect(screen.getByRole('region', { name: 'Memos' })).toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: '이슈' })).not.toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: '메모' })).toHaveClass('panel-expanded')
     // MemoPanel도 마찬가지다 — App이 openId를 내려보내지 않으면 패널은 확장돼도
     // 어느 항목이 열렸는지는 표시되지 않는다.
     expect(screen.getByRole('button', { name: '배포 메모' })).toHaveClass('item-open')
@@ -889,7 +889,7 @@ describe('패널 확장', () => {
     await userEvent.click(title)
     await userEvent.click(title)
 
-    expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: '이슈' })).not.toHaveClass('panel-expanded')
   })
 
   it('Esc로 접는다', async () => {
@@ -899,7 +899,7 @@ describe('패널 확장', () => {
     await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
     await userEvent.keyboard('{Escape}')
 
-    expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: '이슈' })).not.toHaveClass('panel-expanded')
   })
 
   it('workspace를 바꾸면 열린 항목이 접힌다', async () => {
@@ -913,11 +913,11 @@ describe('패널 확장', () => {
     await selectWorkspace()
 
     await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
-    expect(screen.getByRole('region', { name: 'Issues' })).toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: '이슈' })).toHaveClass('panel-expanded')
 
     await userEvent.click(await screen.findByRole('button', { name: 'ws2' }))
 
-    expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: '이슈' })).not.toHaveClass('panel-expanded')
   })
 
   it('항목 클릭은 맥락에 담지 않는다', async () => {
@@ -993,12 +993,15 @@ describe('패널 확장', () => {
     // 상태 편집은 상세로 옮겼다 (설계 §9). 목록에 쓰기 버튼이 다시 생기면 그 쓰기가
     // 잠기지 않은 update를 타고 열려 있는 상세의 기대값을 낡게 만든다 — 아래
     // "유령 충돌" 테스트가 막는 결함의 입구다.
-    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    // 배지는 한국어 표(`renderer/issueStatus.ts`)이고 `열림`은 그리지 않는다 — 기본 상태에 배지를 달면 목록 전체가 같은 말을 반복한다.
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료', status: 'doing' }), makeIssue({ id: 'i2', title: '열린 것' })] }))
     await selectWorkspace()
     await screen.findByRole('button', { name: '토큰 만료' })
 
-    expect(screen.queryByRole('button', { name: 'open' })).toBeNull()
-    expect(screen.getByText('open')).toHaveClass('status')
+    expect(screen.queryByRole('button', { name: /진행 중/ })).toBeNull()
+    expect(screen.getByText('진행 중')).toHaveClass('status')
+    expect(screen.queryByText('열림')).not.toBeInTheDocument()
+    expect(screen.queryByText('open')).not.toBeInTheDocument()
   })
 
   it('상세에서 상태를 바꾼 뒤 본문을 쳐도 유령 충돌이 나지 않는다', async () => {
@@ -1043,7 +1046,7 @@ describe('패널 확장', () => {
     fireEvent.keyDown(screen.getByLabelText('본문'), { key: 'Escape' })
 
     expect(await screen.findByText(/그 사이 바뀌었습니다/)).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Issues' })).toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: '이슈' })).toHaveClass('panel-expanded')
     vi.useRealTimers()
   })
 
@@ -1061,7 +1064,7 @@ describe('패널 확장', () => {
     fireEvent.keyDown(screen.getByLabelText('본문'), { key: 'Escape' })
 
     expect(await screen.findByText(/그 사이 바뀌었습니다/)).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Memos' })).toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: '메모' })).toHaveClass('panel-expanded')
     vi.useRealTimers()
   })
 
@@ -1148,12 +1151,12 @@ describe('패널 확장', () => {
     renderApp(client)
     await selectWorkspace()
     await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
-    expect(screen.getByRole('region', { name: 'Issues' })).toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: '이슈' })).toHaveClass('panel-expanded')
 
     await userEvent.click(screen.getByRole('button', { name: '삭제' }))
     await userEvent.click(screen.getByRole('button', { name: '정말 삭제?' }))
 
-    expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: '이슈' })).not.toHaveClass('panel-expanded')
   })
 
   it('메모를 삭제하면 상세가 접힌다', async () => {
@@ -1166,12 +1169,12 @@ describe('패널 확장', () => {
     renderApp(client)
     await selectWorkspace()
     await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
-    expect(screen.getByRole('region', { name: 'Memos' })).toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: '메모' })).toHaveClass('panel-expanded')
 
     await userEvent.click(screen.getByRole('button', { name: '삭제' }))
     await userEvent.click(screen.getByRole('button', { name: '정말 삭제?' }))
 
-    expect(screen.getByRole('region', { name: 'Memos' })).not.toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: '메모' })).not.toHaveClass('panel-expanded')
   })
 
   it('필터를 바꿔 열린 이슈가 목록에서 빠지면 상세가 접힌다', async () => {
@@ -1192,7 +1195,7 @@ describe('패널 확장', () => {
     renderApp(client)
     await selectWorkspace()
     await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
-    expect(screen.getByRole('region', { name: 'Issues' })).toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: '이슈' })).toHaveClass('panel-expanded')
 
     // repo 카드 버튼에는 aria-label이 없어 접근성 이름이 이름+경로를 이어붙인 값이
     // 되고, 옆의 "api 맥락에 담기" 버튼과 접두어가 겹친다 — role 쿼리로 모호해지는
@@ -1202,7 +1205,7 @@ describe('패널 확장', () => {
     fireEvent.click(repoCard)
 
     await waitFor(() => {
-      expect(screen.getByRole('region', { name: 'Issues' })).not.toHaveClass('panel-expanded')
+      expect(screen.getByRole('region', { name: '이슈' })).not.toHaveClass('panel-expanded')
     })
   })
 
@@ -1240,7 +1243,7 @@ describe('패널 확장', () => {
     renderApp(client)
     await selectWorkspace()
     await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
-    expect(screen.getByRole('region', { name: 'Memos' })).toHaveClass('panel-expanded')
+    expect(screen.getByRole('region', { name: '메모' })).toHaveClass('panel-expanded')
 
     // repo 카드 버튼에는 aria-label이 없어 접근성 이름이 이름+경로를 이어붙인 값이
     // 되고, 옆의 "api 맥락에 담기" 버튼과 접두어가 겹친다 — role 쿼리로 모호해지는
@@ -1250,7 +1253,7 @@ describe('패널 확장', () => {
     fireEvent.click(repoCard)
 
     await waitFor(() => {
-      expect(screen.getByRole('region', { name: 'Memos' })).not.toHaveClass('panel-expanded')
+      expect(screen.getByRole('region', { name: '메모' })).not.toHaveClass('panel-expanded')
     })
   })
 })
@@ -1764,7 +1767,7 @@ describe('기간 리포트 배선 (docs/sdlc/period-report/ FR-19·FR-24·FR-25)
 
     await userEvent.click(within(doc).getByRole('button', { name: /리포트의 이슈/ }))
     expect(screen.queryByRole('region', { name: '리포트' })).toBeNull()
-    expect(await screen.findByRole('region', { name: 'Issues' })).toHaveClass('panel-expanded')
+    expect(await screen.findByRole('region', { name: '이슈' })).toHaveClass('panel-expanded')
     expect(screen.getByRole('button', { name: /^ws1( \d+)?$/ })).toHaveClass('ws-selected')
   })
 
@@ -1941,5 +1944,86 @@ describe('사이드바 최소화 배선', () => {
     renderApp(makeClient())
     expect(await screen.findByRole('button', { name: '사이드바 복원' })).toBeInTheDocument()
     expect(screen.getByRole('navigation')).toHaveClass('sidebar-collapsed')
+  })
+})
+
+// ── docs/sdlc/ux-polish/ ──
+
+describe('전역 단축키 배선 (docs/sdlc/ux-polish/ FR-8)', () => {
+  it('Ctrl+I는 새 이슈 입력칸에, Ctrl+M은 새 메모 입력칸에 포커스를 준다', async () => {
+    renderApp(makeClient())
+    await selectWorkspace()
+    await userEvent.keyboard('{Control>}i{/Control}')
+    expect(screen.getByPlaceholderText('새 이슈 (첫 줄이 제목)')).toHaveFocus()
+    await userEvent.keyboard('{Control>}m{/Control}')
+    expect(screen.getByPlaceholderText('새 메모 (첫 줄이 제목)')).toHaveFocus()
+  })
+
+  it('열린 상세가 있어도 Ctrl+I는 상세를 닫고 입력칸으로 간다 — 열린 패널의 추가 칸은 숨어 있다', async () => {
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+    expect(screen.getByRole('region', { name: '이슈' })).toHaveClass('panel-expanded')
+    await userEvent.keyboard('{Control>}i{/Control}')
+    expect(screen.getByRole('region', { name: '이슈' })).not.toHaveClass('panel-expanded')
+    expect(screen.getByPlaceholderText('새 이슈 (첫 줄이 제목)')).toHaveFocus()
+  })
+
+  it('Ctrl+J는 도크를 접고 다시 펼친다 — 한 번 쓴 요청은 치워져 두 번 접히지 않는다', async () => {
+    renderApp(makeClient())
+    await selectWorkspace()
+    expect(await screen.findByRole('button', { name: '대화창 숨기기' })).toHaveAttribute('aria-expanded', 'true')
+    await userEvent.keyboard('{Control>}j{/Control}')
+    expect(await screen.findByRole('button', { name: '대화창 보이기' })).toHaveAttribute('aria-expanded', 'false')
+    await userEvent.keyboard('{Control>}j{/Control}')
+    expect(await screen.findByRole('button', { name: '대화창 숨기기' })).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('?는 단축키 목록을 열고 Esc가 닫는다 — 입력칸 안의 ?는 글자다', async () => {
+    renderApp(makeClient())
+    await selectWorkspace()
+    await userEvent.keyboard('?')
+    expect(await screen.findByRole('dialog', { name: '단축키' })).toBeInTheDocument()
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '단축키' })).not.toBeInTheDocument())
+
+    const input = screen.getByPlaceholderText('새 이슈 (첫 줄이 제목)')
+    await userEvent.type(input, '?')
+    expect(input).toHaveValue('?')
+    expect(screen.queryByRole('dialog', { name: '단축키' })).not.toBeInTheDocument()
+  })
+
+  it('Ctrl+Shift+I는 인박스로, Ctrl+N은 workspace 화면의 새 대화 칸으로 간다', async () => {
+    renderApp(makeClient())
+    await selectWorkspace()
+    await userEvent.keyboard('{Control>}{Shift>}I{/Shift}{/Control}')
+    expect(await screen.findByRole('button', { name: /^인박스/ })).toHaveAttribute('aria-current', 'page')
+    expect(document.querySelector('.titlebar-title')).toHaveTextContent('인박스')
+    await userEvent.keyboard('{Control>}n{/Control}')
+    expect(await screen.findByRole('button', { name: '대화창 숨기기' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^인박스/ })).not.toHaveAttribute('aria-current', 'page')
+  })
+})
+
+describe('제목 줄의 범위와 상세가 열렸을 때의 도크 (docs/sdlc/ux-polish/ FR-1·FR-6)', () => {
+  it('제목 줄 가운데가 지금 보는 workspace를 말하고 작업 표시줄 제목도 같다', async () => {
+    renderApp(makeClient())
+    await selectWorkspace()
+    await waitFor(() => expect(document.querySelector('.titlebar-title')).toHaveTextContent('ws1'))
+    expect(document.title).toBe('ws1 — one-desk')
+  })
+
+  it('이슈를 열면 도크가 하한으로 내려가고(compact) 닫으면 돌아온다', async () => {
+    renderApp(makeClient({}, { issues: [makeIssue({ id: 'i1', title: '토큰 만료' })] }))
+    await selectWorkspace()
+    const dock = () => document.querySelector<HTMLElement>('section.dock')!
+    await screen.findByRole('button', { name: '대화창 숨기기' })
+    const before = dock().style.height
+    expect(before).not.toBe('280px')
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+    expect(dock().style.height).toBe('280px')
+    expect(document.querySelector('.dock-resizer')).toBeNull()
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() => expect(dock().style.height).toBe(before))
   })
 })

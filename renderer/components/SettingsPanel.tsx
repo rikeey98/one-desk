@@ -500,7 +500,7 @@ export function SettingsPanel({
    */
   const raisingToFull = permission === 'full' && workspace?.defaultPermission !== 'full'
 
-  // 절마다 "바뀐 것이 있는가" (ux-proposal, 설정의 저장 버튼). 저장은 절마다 따로인 채다 — 버튼이 활성인 절만 저장할 것이 있다.
+  // 절마다 "바뀐 것이 있는가" (docs/sdlc/ux-polish/ FR-11). 저장은 절마다 따로인 채다 — 버튼이 활성인 절만 저장할 것이 있다.
   // 비교 상대는 **저장된 값**이다(초안이 아니라) — 돌려받은 값으로 칸을 다시 채우는 규칙 그대로다.
   const defaultsDirty = workspace !== null && (
     agentKind !== workspace.defaultAgentKind

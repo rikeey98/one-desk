@@ -63,9 +63,11 @@ describe('AgentStatusList — 빠른 칸이 먼저 그려진다 (FR-7)', () => {
     expect(onRefresh).toHaveBeenCalledTimes(1)
   })
 
-  it('조회 중에는 버튼이 잠긴다', () => {
+  it('조회 중에는 버튼이 잠기고 "확인 중"은 버튼이 아니라 상태 글자다', () => {
+    // 버튼 글자를 바꾸면 누를 수 없는 버튼이 "확인 중"을 말한다 — 상태는 `role="status"`가 말하고 버튼은 자리를 지킨다 (ux-polish FR-11).
     renderList({ busy: true })
-    expect(screen.getByRole('button', { name: '확인 중…' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '다시 확인' })).toBeDisabled()
+    expect(screen.getByRole('status')).toHaveTextContent('확인 중…')
   })
 })
 

@@ -1418,7 +1418,7 @@ button.report-flow-line:hover { background: var(--bg-muted); }
 .close-confirm-actions button:disabled { opacity: .6; cursor: default; }
 
 
-/* ───────── ux-proposal ───────── */
+/* ───────── docs/sdlc/ux-polish/ ───────── */
 /* 글자는 보조기기에만 (⑤의 모델 알약 머리) */
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 /* ⑥ 제목 줄 가운데의 범위 — drag 영역 안의 글자라 눌리지 않는다 */

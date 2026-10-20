@@ -121,3 +121,14 @@ describe('ModelField — 해석 결과 (FR-10)', () => {
     expect(container.querySelector('.field-note')).toBeNull()
   })
 })
+
+// ── docs/sdlc/ux-polish/ ──
+
+describe('ModelField — 입력 카드의 알약 (docs/sdlc/ux-polish/ FR-5)', () => {
+  it('compact면 이름은 화면에서 숨고(sr-only) 접근성 이름은 그대로이며 placeholder가 종류를 말한다', () => {
+    render(<ModelField agentKind="claude-code" value="" onChange={() => {}} label="모델" compact />)
+    const input = screen.getByLabelText('모델')
+    expect(input).toHaveAttribute('placeholder', '모델 기본값')
+    expect(document.querySelector('.sr-only')).toHaveTextContent('모델')
+  })
+})

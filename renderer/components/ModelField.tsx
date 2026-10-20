@@ -26,7 +26,7 @@ export function ModelField({
   /** probe가 해석한 이름. 없으면 줄을 그리지 않는다 */
   resolved?: AgentModel | null
   disabled?: boolean
-  /** 입력부의 알약 — 머리 글자를 숨기고 값(placeholder)이 종류를 말한다 (ux-proposal ⑤) */
+  /** 입력부의 알약 — 머리 글자를 숨기고 값(placeholder)이 종류를 말한다 (docs/sdlc/ux-polish/ FR-5) */
   compact?: boolean
 }) {
   const listId = useId()
