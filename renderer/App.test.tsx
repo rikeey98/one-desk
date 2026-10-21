@@ -19,7 +19,8 @@ import type {
   CreateIssueInput, CreateMemoInput, CreateRepoInput, CreateWorkspaceInput,
   GuardedUpdateIssueInput, GuardedUpdateMemoInput, InboxCounts, Issue, IssueUpdateResult,
   McpStatus, Memo, MemoUpdateResult, Repo, Run, UpdateIssueInput, UpdateMemoInput, Workspace,
-  UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses, Asset, UpdateRepoInput
+  UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses, AgentProbes, Asset, UpdateRepoInput,
+  HomeSummary, HomeTarget, HomeTodo, StartRunInput
 } from '@shared/models'
 
 const workspace: Workspace = {
@@ -76,6 +77,14 @@ interface Seed {
   /** assets.list가 받은 repoId를 기록한다 */
   assetQueries?: (string | null)[]
   mcpStatus?: McpStatus
+  /** 홈 요약의 할 일 — 나머지(workspace 카드·준비 단계)는 위 상태에서 만든다 (docs/sdlc/home/) */
+  homeTodos?: HomeTodo[]
+  homeRunning?: HomeSummary['running']
+  homeTarget?: HomeTarget | null
+  /** CLI probe — 기본은 로그인된 claude. 실행 파일 칸(checkAgents)은 claudePath가 있거나 이것이 true일 때 초록이다 */
+  cliReady?: boolean
+  /** 준비 단계 ④ — 기본은 inbox 시드에 run이 있는가 */
+  firstRun?: boolean
 }
 
 /**
@@ -200,11 +209,20 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
         return {
           'claude-code': ws?.claudePath
             ? { ok: true, executable: ws.claudePath }
-            : { ok: false, reason: 'PATH에서 claude 실행 파일을 찾을 수 없습니다.' },
+            : seed.cliReady === true
+              ? { ok: true, executable: '/bin/claude' }
+              : { ok: false, reason: 'PATH에서 claude 실행 파일을 찾을 수 없습니다.' },
           opencode: { ok: false, reason: 'PATH에서 opencode 실행 파일을 찾을 수 없습니다.' }
         }
       }),
-      remove: vi.fn()
+      remove: vi.fn(),
+      // 홈의 준비 단계가 묻는다 (docs/sdlc/home/ FR-15). 기본은 로그인된 claude — 준비가 끝난 홈을 보려면 이것이 초록이어야 한다
+      probeAgents: vi.fn(async (): Promise<AgentProbes> => ({
+        'claude-code': seed.cliReady === false
+          ? { auth: { state: 'none', hint: 'claude login' }, model: { state: 'skipped', reason: '인증 없음' }, version: null, models: [] }
+          : { auth: { state: 'ok', method: null, plan: null }, model: { state: 'resolved', model: 'claude-sonnet-5' }, version: null, models: [] },
+        opencode: { auth: { state: 'unknown', reason: '실행 파일 없음' }, model: { state: 'skipped', reason: '없음' }, version: null, models: [] }
+      }))
     },
     repos: {
       // workspace로 거른다 — 인박스는 workspace마다 읽으므로, 거르지 않으면 "그 workspace의 repo만"을 못 본다
@@ -342,6 +360,28 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
     },
     mcp: {
       status: vi.fn(async () => mcpStatus)
+    },
+    // 홈 (docs/sdlc/home/) — 할 일은 seed가 주고 나머지는 지금 상태에서 만든다. count는 todos.length(core와 같은 규칙).
+    home: {
+      summary: vi.fn(async (): Promise<HomeSummary> => ({
+        running: seed.homeRunning ?? [],
+        queued: 0,
+        slots: { used: 0, limit: 3 },
+        todos: seed.homeTodos ?? [],
+        timeline: workspaces.map((w) => ({ workspaceId: w.id, name: w.name, bars: [] })),
+        workspaces: workspaces.map((w) => ({
+          workspaceId: w.id, name: w.name, open: issues.filter((i) => i.workspaceId === w.id && i.status === 'open').length, doing: 0,
+          doneToday: 0, untriaged: issues.filter((i) => i.workspaceId === w.id && i.triagedAt === null).length,
+          repos: repos.filter((r) => r.workspaceId === w.id).map((r) => ({
+            repoId: r.id, name: r.name, path: r.path, agentEnv: r.agentEnv, open: 0, conversations: 0, state: 'none' as const
+          }))
+        })),
+        doneToday: [],
+        setup: { workspace: workspaces.length > 0, repo: repos.length > 0, firstRun: seed.firstRun ?? started.length > 0 }
+      })),
+      count: vi.fn(async () => (seed.homeTodos ?? []).length),
+      lastTarget: vi.fn(async () => seed.homeTarget ?? null),
+      setLastTarget: vi.fn(async (t: HomeTarget) => t)
     },
     account: {
       planUsage: vi.fn(async () => null)
@@ -2025,5 +2065,85 @@ describe('제목 줄의 범위와 상세가 열렸을 때의 도크 (docs/sdlc/u
     expect(document.querySelector('.dock-resizer')).toBeNull()
     await userEvent.keyboard('{Escape}')
     await waitFor(() => expect(dock().style.height).toBe(before))
+  })
+})
+
+/**
+ * 홈 배선 (docs/sdlc/home/ FR-17·FR-18). App이 HomePanel·Sidebar·IssuePanel·Dock에 내리는 한 줄씩이 변이 대상이다 —
+ * plan의 변이 표가 이 describe의 테스트 이름으로 적혀 있다.
+ */
+describe('홈 배선 (docs/sdlc/home/)', () => {
+  const api = makeRepo('r1', 'api', '/tmp/api')
+
+  function needsAnswerTodo(run: Run): HomeTodo {
+    return {
+      kind: 'needs-answer', workspaceId: run.workspaceId, workspaceName: 'ws1', repoId: 'r1', repoName: 'api',
+      conversationId: conversationIdOf(run), runId: run.id, title: run.userPrompt, detail: '어느 브랜치?', at: 2
+    }
+  }
+
+  it('앱을 열면 홈이다 — 준비가 끝난 상태면 오늘 할 일이 보인다', async () => {
+    renderApp(makeClient({}, { repos: [api], firstRun: true, cliReady: true }))
+    expect(await screen.findByRole('heading', { name: '오늘 할 일' })).toBeInTheDocument()
+    expect(document.title).toBe('홈 — one-desk')
+  })
+
+  it('아무것도 없으면 준비 단계이고, 워크스페이스 만들기가 사이드바 입력칸에 포커스한다', async () => {
+    renderApp(makeClient({}, { workspaces: [] }))
+    await userEvent.click(await screen.findByRole('button', { name: '워크스페이스 만들기' }))
+    await waitFor(() => expect(screen.getByPlaceholderText('새 workspace 이름…')).toHaveFocus())
+  })
+
+  it('사이드바 홈을 누르면 홈이다', async () => {
+    renderApp(makeClient({}, { repos: [api], firstRun: true, cliReady: true }))
+    await selectWorkspace()
+    expect(await screen.findByPlaceholderText('새 이슈 (첫 줄이 제목)')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /^홈/ }))
+    expect(await screen.findByRole('heading', { name: '오늘 할 일' })).toBeInTheDocument()
+  })
+
+  it('Ctrl+Shift+H는 홈으로 간다', async () => {
+    renderApp(makeClient({}, { repos: [api], firstRun: true, cliReady: true }))
+    await selectWorkspace()
+    await screen.findByPlaceholderText('새 이슈 (첫 줄이 제목)')
+    await userEvent.keyboard('{Control>}{Shift>}h{/Shift}{/Control}')
+    expect(await screen.findByRole('heading', { name: '오늘 할 일' })).toBeInTheDocument()
+  })
+
+  it('홈 배지는 할 일 수다 — 인박스 배지와 다른 수', async () => {
+    const run = makeRun({ id: 'q-1', needsAnswer: true })
+    renderApp(makeClient({}, { repos: [api], inbox: [run], cliReady: true, homeTodos: [needsAnswerTodo(run), { kind: 'untriaged', workspaceId: 'w1', workspaceName: 'ws1', count: 2, titles: ['a', 'b'] }] }))
+    const home = await screen.findByRole('button', { name: /^홈/ })
+    await waitFor(() => expect(within(home).getByText('2')).toHaveClass('badge'))
+  })
+
+  it('홈의 답하기는 그 workspace의 도크를 그 대화로 열고 입력칸에 포커스한다', async () => {
+    const run = makeRun({ id: 'q-1', needsAnswer: true, userPrompt: '답을 기다리는 대화' })
+    renderApp(makeClient({}, { repos: [api], inbox: [run], cliReady: true, homeTodos: [needsAnswerTodo(run)] }))
+    await userEvent.click(await screen.findByRole('button', { name: '답하기' }))
+    expect(await screen.findByText('답을 기다리는 대화', { selector: '.turn-user' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('textbox', { name: '지시' })).toHaveFocus())
+  })
+
+  it('홈의 훑기는 이슈 패널의 훑기 카드를 띄운다', async () => {
+    renderApp(makeClient({}, {
+      repos: [api], firstRun: true, cliReady: true,
+      issues: [makeIssue({ id: 'u1', title: '정리할 이슈', triagedAt: null })],
+      homeTodos: [{ kind: 'untriaged', workspaceId: 'w1', workspaceName: 'ws1', count: 1, titles: ['정리할 이슈'] }]
+    }))
+    await userEvent.click(await screen.findByRole('button', { name: '훑기' }))
+    expect(await screen.findByText('1건 중 1번째')).toBeInTheDocument()
+  })
+
+  it('새 대화 카드가 보낸 run의 workspace·repo가 home.setLastTarget에 찍히고 그 대화가 열린다', async () => {
+    const started = makeRun({ id: 'from-home', userPrompt: '로그인 고쳐줘' })
+    const client = makeClient({ start: vi.fn(async () => started) }, { repos: [api], firstRun: true, cliReady: true })
+    renderApp(client)
+    await userEvent.type(await screen.findByRole('textbox', { name: '새 대화 지시' }), '로그인 고쳐줘')
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
+    await waitFor(() => expect(client.home.setLastTarget).toHaveBeenCalledWith({ workspaceId: 'w1', repoId: 'r1' }))
+    const input = (client.runs.start as ReturnType<typeof vi.fn>).mock.calls[0]![0] as StartRunInput
+    expect(input).toMatchObject({ workspaceId: 'w1', cwd: '/tmp/api', userPrompt: '로그인 고쳐줘', context: [] })
+    expect(await screen.findByPlaceholderText('새 이슈 (첫 줄이 제목)')).toBeInTheDocument()
   })
 })

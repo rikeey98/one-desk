@@ -684,7 +684,8 @@ export function Dock({
                   draftCwd={draftCwd}
                   selectedRepoId={selectedRepoId}
                   onCwdChange={setNewCwd}
-                  focusInput={replyRequested}
+                  // 그 대화가 실제로 열린 뒤에만 넘긴다 — runs가 아직 오기 전에는 새 대화 칸이 서 있어 거기에 포커스가 가 버린다
+                  focusInput={replyRequested && shownConversation !== null}
                   onFocusInputConsumed={() => setReplyRequested(false)}
                 />
               </div>
