@@ -8,6 +8,7 @@ import { draftKeyOf, isBlankDraft } from '../store/drafts'
 import { PERMISSION_LABELS } from '../permission'
 import { AGENT_KINDS, AGENT_LABELS } from '../agents'
 import { agentBlockedReason, agentEnvOfCwd } from '../agentEnv'
+import { defaultEffortOf, defaultModelOf } from '../runDefaults'
 import { runShortcutLabel } from '../shortcut'
 import type { AgentKind, AssignedIssue, CommandInfo, FileHit, Permission, Repo, Run, Workspace } from '@shared/models'
 import type { Conversation } from '../conversation'
@@ -25,36 +26,6 @@ import { useFileSearch } from '../hooks/useFileSearch'
 /** 예약 칩에 보일 지시 — 첫 줄만. 전체는 칩의 title로 읽는다 (spec FR-30). */
 function firstLineOf(text: string): string {
   return text.trim().split('\n')[0] ?? ''
-}
-
-/**
- * 이 agent에 쓸 workspace 기본 모델. 빈 문자열은 "CLI 자신의 기본값"이다.
- *
- * **컬럼이 agent별로 나뉘어 있는 이유가 여기서 드러난다** — claude는 `sonnet`
- * 같은 별칭을, opencode는 `provider/model`을 쓴다(전체 설계 §199). 한쪽 값을
- * 다른 쪽에 넘기면 그 CLI가 모르는 이름이 되므로, 고르는 기준은 workspace가
- * 아니라 **지금 고른 agent**다.
- */
-function defaultModelOf(workspace: Workspace | null, agentKind: AgentKind): string {
-  if (!workspace) return ''
-  const value = agentKind === 'opencode'
-    ? workspace.defaultModelOpencode
-    : workspace.defaultModelClaude
-  return value ?? ''
-}
-
-/**
- * 이 agent에 쓸 workspace 기본 effort/variant. **모델과 같은 규칙이다.**
- *
- * claude의 `high`와 opencode의 `high`는 다른 것을 가리키므로 컬럼이 갈려 있고
- * (전체 설계 §199), 고르는 기준도 workspace가 아니라 **지금 고른 agent**다.
- */
-function defaultEffortOf(workspace: Workspace | null, agentKind: AgentKind): string {
-  if (!workspace) return ''
-  const value = agentKind === 'opencode'
-    ? workspace.defaultVariantOpencode
-    : workspace.defaultEffortClaude
-  return value ?? ''
 }
 
 /**
