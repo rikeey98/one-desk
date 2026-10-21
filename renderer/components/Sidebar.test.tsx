@@ -44,7 +44,11 @@ function renderSidebar(over: {
   refresh?: () => Promise<void>
   selectedId?: string | null
   onSelect?: (id: string) => void
-  view?: 'workspace' | 'inbox' | 'report' | 'settings'
+  view?: 'home' | 'workspace' | 'inbox' | 'report' | 'settings'
+  onSelectHome?: () => void
+  homeCount?: number
+  focusWorkspaceAdd?: boolean
+  onFocusWorkspaceAddConsumed?: () => void
   onSelectInbox?: () => void
   onSelectSettings?: () => void
   counts?: InboxCounts
@@ -75,6 +79,10 @@ function renderSidebar(over: {
         planUsage={over.planUsage ?? null}
         onDeleted={over.onDeleted ?? vi.fn()}
         collapsed={over.collapsed ?? false}
+        onSelectHome={over.onSelectHome ?? vi.fn()}
+        homeCount={over.homeCount ?? 0}
+        focusWorkspaceAdd={over.focusWorkspaceAdd ?? false}
+        onFocusWorkspaceAddConsumed={over.onFocusWorkspaceAddConsumed ?? vi.fn()}
       />
     </ClientProvider>
   )
@@ -157,6 +165,10 @@ function renderSidebarRaw(mcpStatus: McpStatus) {
           mcpStatus={status}
           planUsage={null}
           collapsed={false}
+        onSelectHome={vi.fn()}
+        homeCount={0}
+        focusWorkspaceAdd={false}
+        onFocusWorkspaceAddConsumed={vi.fn()}
         />
       </ClientProvider>
     )
@@ -364,5 +376,37 @@ describe('접힌 사이드바의 workspace 타일 (docs/sdlc/ux-polish/ FR-7)', 
     renderSidebar({ collapsed: false, workspaces: [makeWorkspace('개인', 'w1'), makeWorkspace('회사', 'w2')] })
     expect(screen.queryByRole('list', { name: '워크스페이스' })).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: '개인' })).toHaveLength(1)
+  })
+})
+
+describe('홈 진입점 (docs/sdlc/home/ FR-12·FR-16·FR-17)', () => {
+  it('홈은 인박스 위에 서고 누르면 onSelectHome이다 — 배지는 오늘 할 일의 수', async () => {
+    const onSelectHome = vi.fn()
+    renderSidebar({ onSelectHome, homeCount: 4, view: 'home' })
+    const nav = screen.getByRole('button', { name: /^홈/ }).parentElement!
+    const labels = within(nav).getAllByRole('button').map((b) => b.textContent?.replace(/\d+$/, ''))
+    expect(labels.slice(0, 2)).toEqual(['홈', '인박스'])
+    const home = screen.getByRole('button', { name: /^홈/ })
+    expect(home).toHaveAttribute('aria-current', 'page')
+    expect(within(home).getByText('4')).toHaveClass('badge')
+    await userEvent.click(home)
+    expect(onSelectHome).toHaveBeenCalled()
+  })
+
+  it('할 일이 없으면 배지가 없다', () => {
+    renderSidebar({ homeCount: 0 })
+    expect(within(screen.getByRole('button', { name: '홈' })).queryByText('0')).not.toBeInTheDocument()
+  })
+
+  it('접혀도 홈 타일은 남는다', () => {
+    renderSidebar({ collapsed: true, homeCount: 2 })
+    expect(screen.getByRole('button', { name: /^홈/ })).toBeInTheDocument()
+  })
+
+  it('focusWorkspaceAdd가 서면 새 workspace 입력칸에 포커스하고 치운다 (준비 단계 ①)', async () => {
+    const consumed = vi.fn()
+    renderSidebar({ focusWorkspaceAdd: true, onFocusWorkspaceAddConsumed: consumed })
+    await waitFor(() => expect(screen.getByPlaceholderText('새 workspace 이름…')).toHaveFocus())
+    expect(consumed).toHaveBeenCalled()
   })
 })

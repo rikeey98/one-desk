@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useClient } from '../client/ClientProvider'
 import { AddRepoForm } from './AddRepoForm'
 import { RenameField } from './RenameField'
@@ -8,7 +8,7 @@ import { repoTitleOf } from '../agentEnv'
 import { IconExternalLink, IconFolder, IconPencil, IconPlus, IconTrash } from './icons'
 import type { Repo } from '@shared/models'
 
-export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, onSelect, chipKeys, onToggleContext, onDeleted }: {
+export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, onSelect, chipKeys, onToggleContext, onDeleted, openRequested, onOpenConsumed }: {
   workspaceId: string
   repos: Repo[]
   error: string | null
@@ -19,6 +19,9 @@ export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, 
   onToggleContext: (chip: ContextChip) => void
   /** 삭제한 repo를 App이 알아야 필터를 풀 수 있다. */
   onDeleted: (id: string) => void
+  /** 홈 준비 단계 ②가 세운다 — 등록 폼을 펼쳐 이름 칸에 포커스(docs/sdlc/home/ FR-16). 일회성 지시, 여기서 치운다 */
+  openRequested: boolean
+  onOpenConsumed: () => void
 }) {
   const client = useClient()
   const [editing, setEditing] = useState<string | null>(null)
@@ -28,6 +31,14 @@ export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, 
   // 등록 폼은 "repo 등록"을 눌렀을 때만 펼친다 — 등록은 repo마다 한 번 있는 일이라
   // 늘 펼쳐 두면 사이드바만 길어진다. 등록이 끝나면 다시 접는다.
   const [adding, setAdding] = useState(false)
+  // 홈의 요청은 App이 곧 치우므로 폼이 마운트될 때까지 여기서 들고 있는다
+  const [focusName, setFocusName] = useState(false)
+  useEffect(() => {
+    if (!openRequested) return
+    setAdding(true)
+    setFocusName(true)
+    onOpenConsumed()
+  }, [openRequested])
 
   async function renameRepo(id: string, name: string) {
     setEditing(null)
@@ -148,6 +159,8 @@ export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, 
         <AddRepoForm
           workspaceId={workspaceId}
           onAdded={async () => { await refresh(); setAdding(false) }}
+          focusName={focusName}
+          onFocusNameConsumed={() => setFocusName(false)}
         />
       )}
     </div>

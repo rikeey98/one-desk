@@ -19,20 +19,27 @@ import { useClient } from './client/ClientProvider'
 import { chipKey, type ContextChip } from './context'
 import { conversationIdOf, groupConversations, type IssueConversations } from './conversation'
 import { confirmSeen } from './conversationSeen'
-import type { AssignedIssue, Memo, Run } from '@shared/models'
+import type { AssignedIssue, HomeTarget, Memo, Run, StartRunInput } from '@shared/models'
 import { ReportPanel, initialReportQuery, POLISH_PROMPT, type ReportQuery } from './components/ReportPanel'
 import { CloseConfirm } from './components/code/CloseConfirm'
 import { CodePaneSlotContext, TitleBarSlotContext } from './components/code/CodePaneContext'
 import { IconSidebar } from './components/icons'
 import { readSidebarCollapsed, writeSidebarCollapsed } from './sidebarCollapsed'
 import { isEditableTarget, matchShortcut } from './shortcut'
+import { HomePanel } from './components/home/HomePanel'
+import { useHome, useHomeCount } from './hooks/useHome'
+import { useCliReadiness } from './hooks/useCliReadiness'
+import { useNow } from './hooks/useNow'
+import { cliReadinessOf, setupStateOf } from './home/setup'
+import { resendInput } from './resend'
 import { ShortcutHelp } from './components/ShortcutHelp'
 
 export default function App() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const [repoId, setRepoId] = useState<string | null>(null)
   const [chips, setChips] = useState<ContextChip[]>([])
-  const [view, setView] = useState<'workspace' | 'inbox' | 'report' | 'settings'>('workspace')
+  // 앱을 열면 홈이다 (docs/sdlc/home/ spec §0·FR-17) — 마지막 화면을 기억하지 않는다
+  const [view, setView] = useState<'home' | 'workspace' | 'inbox' | 'report' | 'settings'>('home')
   // 리포트의 조건 (docs/sdlc/period-report/ FR-19) — 리포트에서 이슈를 열러 갔다 돌아와도 그대로다
   const [reportQuery, setReportQuery] = useState<ReportQuery>(() => initialReportQuery(Date.now()))
   // 인박스의 "대화 열기"·"다시 실행"이 세운다. Dock은 화면 전환 때 다시 마운트돼
@@ -57,6 +64,12 @@ export default function App() {
   // 단축키의 일회성 지시 둘 — 받는 쪽이 치운다 (`focusConversationId`와 같은 모양)
   const [dockToggle, setDockToggle] = useState(false)
   const [addFocus, setAddFocus] = useState<'issue' | 'memo' | null>(null)
+  // 홈의 일회성 지시들 (docs/sdlc/home/ FR-9·FR-16) — 받는 쪽이 치운다
+  const [focusReply, setFocusReply] = useState(false)
+  const [triageStart, setTriageStart] = useState(false)
+  const [wsAddFocus, setWsAddFocus] = useState(false)
+  const [repoFormOpen, setRepoFormOpen] = useState(false)
+  const [homeActionError, setHomeActionError] = useState<string | null>(null)
   const { runs, error: runsError } = useRuns(workspaceId)
   // RepoStrip과 RunPanel(Dock 아래)이 각자 useRepos를 부르면 서로의 상태를 모른다 —
   // repo를 등록해도 RunPanel의 작업 디렉토리 select가 영원히 비는 실제 결함이었다.
@@ -81,6 +94,19 @@ export default function App() {
   // 인박스의 묶음과 소속에 쓰는 repo — 인박스는 workspace를 넘는 목록이라 위의 useRepos(고른 workspace 하나)로는 모자라
   // workspace마다 읽는다. 인박스가 열려 있을 때만 읽는다 (docs/sdlc/inbox-views/ FR-16).
   const { repos: inboxRepos, error: inboxReposError } = useInboxRepos(workspaces, view === 'inbox')
+  // 홈 (docs/sdlc/home/ FR-17) — 요약은 홈이 보일 때만, 배지는 늘. CLI 판정은 준비 단계가 끝나기 전·홈이 보일 때만 묻는다(FR-15)
+  const { summary: homeSummary, lastTarget: homeLastTarget, error: homeError } = useHome(view === 'home')
+  const homeCount = useHomeCount()
+  const firstWorkspaceId = workspaces[0]?.id ?? null
+  const [cliWanted, setCliWanted] = useState(false)
+  const cli = useCliReadiness(firstWorkspaceId, cliWanted)
+  const cliState = cliReadinessOf(cli.statuses, cli.probes)
+  const homeSetup = homeSummary ? setupStateOf(homeSummary.setup, cliState) : null
+  const setupHasWorkspace = homeSummary?.setup.workspace ?? false
+  useEffect(() => {
+    setCliWanted(view === 'home' && setupHasWorkspace && cliState !== 'ready')
+  }, [view, setupHasWorkspace, cliState])
+  const homeNow = useNow(view === 'home')
   // 인박스 행동(확인함/보관/이슈 연동) 실패도 조용히 삼키지 않는다 — inboxError와
   // 같은 자리에 뜨되, 방금 누른 행동의 오류가 더 급하므로 앞에 온다.
   const [inboxActionError, setInboxActionError] = useState<string | null>(null)
@@ -186,6 +212,7 @@ export default function App() {
       switch (action) {
         case 'help': setHelpOpen((v) => !v); break
         case 'inbox': setView('inbox'); break
+        case 'home': setView('home'); break
         case 'new-conversation':
           setView('workspace'); setFocusConversationId(null); setFocusNew(true); break
         case 'new-issue':
@@ -202,7 +229,8 @@ export default function App() {
   }, [view])
 
   // 제목 줄 가운데의 범위 — 지금 보는 workspace · repo, 다른 화면이면 그 이름 (docs/sdlc/ux-polish/ FR-6). 작업 표시줄도 같은 이름이다.
-  const scopeLabel = view === 'inbox' ? '인박스'
+  const scopeLabel = view === 'home' ? '홈'
+    : view === 'inbox' ? '인박스'
     : view === 'report' ? '리포트'
     : view === 'settings' ? '설정'
     : (() => {
@@ -302,6 +330,80 @@ export default function App() {
     setFocusConversationId(conversationId)
   }
 
+  // ---- 홈의 줄 행동 (docs/sdlc/home/ FR-8·FR-9·FR-11·FR-16). 전부 기존 길을 탄다 — 홈은 읽기다.
+
+  /** 답하기 — 그 대화를 열고 입력칸에 포커스(대화록의 답하기와 같은 칸). `focusReply`는 `focusConversationId`와 함께 Dock이 치운다 */
+  function replyFromHome(targetWorkspaceId: string, conversationId: string) {
+    openReportConversation(targetWorkspaceId, conversationId)
+    setFocusReply(true)
+  }
+
+  /** 다시 보내기 — 대화록의 `다시 보내기`와 같은 입력(`resendInput`)으로 같은 대화에 새 턴을 잇고 그 대화를 연다 */
+  async function resendFromHome(targetWorkspaceId: string, runId: string) {
+    setHomeActionError(null)
+    try {
+      const run = (await client.runs.list(targetWorkspaceId)).find((r) => r.id === runId)
+      if (!run) throw new Error('그 턴을 찾을 수 없습니다 — 홈을 다시 읽습니다')
+      const conversationId = conversationIdOf(run)
+      await client.runs.resume(resendInput(conversationId, run))
+      openReportConversation(targetWorkspaceId, conversationId)
+    } catch (err) {
+      setHomeActionError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  /** 멈추기 — 그 대화의 running 턴. 도크의 세 멈추기와 같은 길(`runs.cancel`) */
+  async function stopFromHome(runId: string) {
+    setHomeActionError(null)
+    try {
+      await client.runs.cancel(runId)
+    } catch (err) {
+      setHomeActionError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  /** 훑기 — 그 workspace 화면, 이슈 패널이 훑기를 시작한 상태로(`startTriage`는 IssuePanel이 치운다) */
+  function triageFromHome(targetWorkspaceId: string) {
+    selectWorkspace(targetWorkspaceId)
+    setTriageStart(true)
+  }
+
+  /**
+   * 새 대화 카드 (FR-11, plan 개정 1) — App이 직접 보낸다. 입력은 카드가 `newRunInput`으로 만든 것이고(입력부와 같은 기본값),
+   * 보내고 나서야 "마지막으로 보낸 곳"을 찍는다(FR-7 — 실패한 전송은 찍지 않는다). 실패는 던져 카드의 오류 줄이 된다.
+   */
+  async function startFromHome(input: StartRunInput, target: HomeTarget) {
+    const run = await client.runs.start(input)
+    try {
+      await client.home.setLastTarget(target)
+    } catch {
+      // 대상 저장 실패는 대화를 막지 않는다 — 다음 번 카드가 폴백할 뿐이다
+    }
+    openReportConversation(target.workspaceId, conversationIdOf(run))
+  }
+
+  /** 준비 단계 ① — 사이드바의 workspace 입력칸. 접혀 있으면 펼친다(접힌 줄에는 폼이 없다) */
+  function focusWorkspaceAddFromHome() {
+    if (sidebarCollapsed) { setSidebarCollapsed(false); writeSidebarCollapsed(false) }
+    setWsAddFocus(true)
+  }
+
+  /** 준비 단계 ② — 사이드바의 repo 등록 폼을 펼쳐 포커스. 폼은 고른 workspace 아래에만 있으므로 첫 workspace를 고른다(홈에 남는다) */
+  function openRepoFormFromHome() {
+    if (sidebarCollapsed) { setSidebarCollapsed(false); writeSidebarCollapsed(false) }
+    if (!workspaceId && firstWorkspaceId) setWorkspaceId(firstWorkspaceId)
+    setRepoFormOpen(true)
+  }
+
+  /** 준비 단계 ④ — 그 workspace 화면의 새 대화 칸(Ctrl+N과 같다) */
+  function startFirstFromHome() {
+    const id = workspaceId ?? firstWorkspaceId
+    if (!id) return
+    selectWorkspace(id)
+    setFocusConversationId(null)
+    setFocusNew(true)
+  }
+
   /**
    * `agent에게 다듬기` (period-report FR-24) — 저장한 리포트 메모를 맥락에 담고 그 workspace의 새 대화 칸에 지시 초안을
    * 채운다. **보내지 않는다** — agent·권한·모델은 사람이 보고 보낸다. workspace를 넘는 데이터가 agent에게 가는 길은
@@ -390,6 +492,10 @@ export default function App() {
           selectedId={workspaceId}
           onSelect={selectWorkspace}
           view={view}
+          onSelectHome={() => setView('home')}
+          homeCount={homeCount}
+          focusWorkspaceAdd={wsAddFocus}
+          onFocusWorkspaceAddConsumed={() => setWsAddFocus(false)}
           onSelectInbox={() => setView('inbox')}
           onSelectReport={() => setView('report')}
           onSelectSettings={() => setView('settings')}
@@ -412,10 +518,40 @@ export default function App() {
               chipKeys={chipKeys}
               onToggleContext={toggleChip}
               onDeleted={forgetRepo}
+              openRequested={repoFormOpen}
+              onOpenConsumed={() => setRepoFormOpen(false)}
             />
           ) : null}
         />
         <main className="main">
+          {view === 'home' && (
+            <HomePanel
+              summary={homeSummary}
+              error={homeActionError ?? homeError}
+              lastTarget={homeLastTarget}
+              setup={homeSetup}
+              // 사이드바·RunPanel과 같은 useWorkspaces 인스턴스 — 새 대화 카드의 기본값이 설정 화면에서 저장한 값을 본다
+              workspaces={workspaces}
+              cli={{ statuses: cli.statuses, probes: cli.probes, probing: cli.probing }}
+              now={homeNow}
+              platform={typeof navigator === 'undefined' ? '' : navigator.platform}
+              actions={{
+                onOpenConversation: openReportConversation,
+                onReply: replyFromHome,
+                onResend: (targetWorkspaceId, runId) => { void resendFromHome(targetWorkspaceId, runId) },
+                onStop: (runId) => { void stopFromHome(runId) },
+                onTriage: triageFromHome,
+                onOpenIssues: selectWorkspace,
+                onOpenWorkspace: selectWorkspace,
+                onStartConversation: startFromHome,
+                onFocusWorkspaceAdd: focusWorkspaceAddFromHome,
+                onOpenRepoForm: openRepoFormFromHome,
+                onRefreshCli: cli.refresh,
+                onOpenSettings: () => setView('settings'),
+                onStartFirstConversation: startFirstFromHome
+              }}
+            />
+          )}
           {view === 'settings' && (
             <SettingsPanel
               // Sidebar·RunPanel과 같은 인스턴스를 본다 — 여기서 useWorkspaces()를
@@ -480,6 +616,8 @@ export default function App() {
                   onOpen={(id) => openIn('issue', id)}
                   focusAdd={addFocus === 'issue'}
                   onFocusAddConsumed={() => setAddFocus(null)}
+                  startTriage={triageStart}
+                  onStartTriageConsumed={() => setTriageStart(false)}
                 />
                 <MemoPanel
                   workspaceId={workspaceId}
@@ -524,7 +662,8 @@ export default function App() {
                     focusConversationId={focusConversationId}
                     // 일회성 지시다 — Dock이 열고 나면 치운다. 남아 있으면 설정에 갔다 오는 것만으로
                     // (Dock 재마운트) 그 대화가 되살아난다 (docs/sdlc/conversation-fixes/ spec FR-22).
-                    onFocusConsumed={() => { setFocusConversationId(null); setFocusNew(false) }}
+                    onFocusConsumed={() => { setFocusConversationId(null); setFocusNew(false); setFocusReply(false) }}
+                    focusReply={focusReply}
                     // 담은 맥락은 그 턴에만 적용된다. 다음 실행은 빈 상태에서 시작한다. 할당 예정도 첫 턴에 할당이 됐다.
                     onRunStarted={() => { setChips([]); setDraftPrompt(''); setDraftCwd(null); setDraftIssue(null) }}
                     draftIssue={draftIssue}

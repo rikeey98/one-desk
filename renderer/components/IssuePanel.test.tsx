@@ -499,3 +499,48 @@ describe('IssuePanel 목록 삭제', () => {
     expect(opened).toEqual([])
   })
 })
+
+describe('홈의 훑기 — startTriage (docs/sdlc/home/ FR-9)', () => {
+  function renderWithTriage(issues: Issue[], startTriage: boolean, onConsumed: () => void) {
+    const client = {
+      issues: {
+        list: vi.fn(async () => [...issues]), create: vi.fn(), update: vi.fn(), markSeen: vi.fn(async () => {}), remove: vi.fn(),
+        updateIfUnchanged: vi.fn()
+      },
+      events: { onRunUpdate: () => () => {}, onItemChanged: () => () => {} }
+    } as unknown as OneDeskClient
+    const opened: string[] = []
+    render(
+      <ClientProvider client={client}>
+        <IssuePanel
+          workspaceId="ws" repoId={null} repos={[]} context={{ keys: new Set(), onToggle: () => {} }}
+          expanded={false} openId={null} onOpen={(id) => opened.push(id)}
+          startTriage={startTriage} onStartTriageConsumed={onConsumed}
+        />
+      </ClientProvider>
+    )
+    return opened
+  }
+
+  it('목록을 읽은 뒤 첫 대기 항목을 열고 훑기 상태가 되며 요청을 치운다', async () => {
+    const consumed = vi.fn()
+    const opened = renderWithTriage([makeIssue({ id: 'u1', title: '정리 안 됨', triagedAt: null }), makeIssue({ id: 't1', title: '정리됨', triagedAt: 1 })], true, consumed)
+    await waitFor(() => expect(consumed).toHaveBeenCalled())
+    expect(opened).toEqual(['u1'])
+  })
+
+  it('큐가 비었으면 아무것도 열지 않고 치운다', async () => {
+    const consumed = vi.fn()
+    const opened = renderWithTriage([makeIssue({ id: 't1', triagedAt: 1 })], true, consumed)
+    await waitFor(() => expect(consumed).toHaveBeenCalled())
+    expect(opened).toEqual([])
+  })
+
+  it('요청이 없으면 아무 일도 없다', async () => {
+    const consumed = vi.fn()
+    const opened = renderWithTriage([makeIssue({ id: 'u1', triagedAt: null })], false, consumed)
+    await screen.findByRole('button', { name: '훑기' })
+    expect(consumed).not.toHaveBeenCalled()
+    expect(opened).toEqual([])
+  })
+})

@@ -175,6 +175,11 @@ export function IconInbox(props: SVGProps<SVGSVGElement>) {
   return <Icon {...props}><path d="M2.5 9h3l1 2h3l1-2h3" /><path d="M4 3.5h8l1.5 5.5v3.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V9z" /></Icon>
 }
 
+/** 사이드바의 `홈` — 지붕과 문 (docs/sdlc/home/) */
+export function IconHome(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><path d="M2.5 8 8 3l5.5 5" /><path d="M4 7.5V13h8V7.5" /><path d="M6.5 13V9.5h3V13" /></Icon>
+}
+
 /** 제목 줄의 사이드바 최소화·복원 — 왼쪽 열이 갈린 창 */
 export function IconSidebar(props: SVGProps<SVGSVGElement>) {
   return <Icon {...props}><rect x="2.5" y="3" width="11" height="10" rx="1.5" /><path d="M6.5 3v10" /></Icon>

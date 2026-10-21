@@ -4,15 +4,15 @@ import { planUsageView } from '../planUsage'
 import { RenameField } from './RenameField'
 import { DeleteByName } from './DeleteByName'
 import { useClient } from '../client/ClientProvider'
-import { IconChart, IconInbox, IconPencil, IconSettings, IconTrash } from './icons'
+import { IconChart, IconInbox, IconPencil, IconSettings, IconTrash, IconHome } from './icons'
 import type { InboxCounts, McpStatus, PlanUsage, Workspace } from '@shared/models'
 
 /** workspace 목록은 App이 useWorkspaces()로 한 번만 조회해 내려준다 — 이 컴포넌트가
  * 자기 인스턴스를 따로 가지면 다른 인스턴스(App→InboxPanel 등)가 새 workspace를
  * 모르게 된다(App.tsx의 주석 참고). */
 export function Sidebar({
-  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectInbox, onSelectReport, onSelectSettings, counts, countsError, mcpStatus, planUsage, onDeleted, repoTree,
-  collapsed
+  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectHome, homeCount, onSelectInbox, onSelectReport, onSelectSettings, counts, countsError, mcpStatus, planUsage, onDeleted, repoTree,
+  collapsed, focusWorkspaceAdd, onFocusWorkspaceAddConsumed
 }: {
   workspaces: Workspace[]
   /** 아이콘 줄로 접혔는가 — 제목 줄의 `사이드바 최소화`가 App에서 세운다. 접히면 화면 이동·설정·MCP 점만 남고
@@ -26,7 +26,14 @@ export function Sidebar({
   refresh: () => Promise<void>
   selectedId: string | null
   onSelect: (id: string) => void
-  view: 'workspace' | 'inbox' | 'report' | 'settings'
+  view: 'home' | 'workspace' | 'inbox' | 'report' | 'settings'
+  /** 홈 (docs/sdlc/home/ FR-12·FR-17). 인박스 위. **필수다** — 선택이면 App의 한 줄을 지워도 조용히 컴파일된다 */
+  onSelectHome: () => void
+  /** 홈 배지 — 오늘 할 일의 수(FR-4). 인박스 배지와 다른 수다 */
+  homeCount: number
+  /** 준비 단계 ①이 세운다 — 새 workspace 입력칸에 포커스(FR-16). AddForm이 치운다 */
+  focusWorkspaceAdd: boolean
+  onFocusWorkspaceAddConsumed: () => void
   onSelectInbox: () => void
   /** 기간 리포트 (`docs/sdlc/period-report/` FR-13). **필수다** — 선택이면 App의 한 줄을 지워도 조용히 컴파일된다 */
   onSelectReport: () => void
@@ -71,6 +78,18 @@ export function Sidebar({
       {/* workspace를 가로지르는 화면 둘. 아이콘 타일이 있어야 제목이 아니라 누르는 줄로 읽힌다(2026-10-07 —
           굵은 글자만 있던 "인박스"는 구획 제목처럼 보였다). 설정도 같은 모양이다. */}
       <div className="sidebar-nav">
+      {/* 홈 — 인박스 위(docs/sdlc/home/ FR-12). 배지는 오늘 할 일의 수이고 색만 다르다(spec §4). */}
+      <button
+        type="button"
+        className={view === 'home' ? 'home-link nav-item nav-item-selected' : 'home-link nav-item'}
+        aria-current={view === 'home' ? 'page' : undefined}
+        onClick={onSelectHome}
+        title={collapsed ? '홈' : undefined}
+      >
+        <span className="nav-icon"><IconHome /></span>
+        <span className="nav-label">홈</span>
+        {homeCount > 0 && <span className="badge">{homeCount}</span>}
+      </button>
       <button
         type="button"
         className={view === 'inbox' ? 'inbox-link nav-item nav-item-selected inbox-link-selected' : 'inbox-link nav-item'}
@@ -123,7 +142,7 @@ export function Sidebar({
       )}
       {!collapsed && <>
       <div className="sidebar-label">워크스페이스</div>
-      <AddForm placeholder="새 workspace 이름…" onSubmit={addWorkspace} />
+      <AddForm placeholder="새 workspace 이름…" onSubmit={addWorkspace} focusRequested={focusWorkspaceAdd} onFocusConsumed={onFocusWorkspaceAddConsumed} />
       {error && <div role="alert" className="form-error">{error}</div>}
       {loading && !error && <div className="sidebar-empty">불러오는 중…</div>}
       {!loading && !error && workspaces.length === 0 && (
@@ -185,7 +204,8 @@ export function Sidebar({
               />
             )}
             {/* repo는 고른 workspace 아래에만 펼친다 — App이 그 workspace의 repo만 읽는다. */}
-            {w.id === selectedId && view === 'workspace' && repoTree}
+            {/* 홈에서도 선다 — 준비 단계 ②가 이 폼을 펼쳐 쓴다(docs/sdlc/home/ FR-16, 폼을 둘 두지 않는다) */}
+            {w.id === selectedId && (view === 'workspace' || view === 'home') && repoTree}
           </li>
         ))}
       </ul>

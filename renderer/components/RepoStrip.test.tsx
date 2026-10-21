@@ -29,6 +29,8 @@ describe('RepoStrip', () => {
           chipKeys={new Set()}
           onToggleContext={vi.fn()}
           onDeleted={vi.fn()}
+          openRequested={false}
+          onOpenConsumed={() => {}}
         />
       </ClientProvider>
     )
@@ -50,6 +52,8 @@ describe('RepoStrip', () => {
           chipKeys={new Set()}
           onToggleContext={vi.fn()}
           onDeleted={vi.fn()}
+          openRequested={false}
+          onOpenConsumed={() => {}}
         />
       </ClientProvider>
     )
@@ -75,6 +79,8 @@ describe('RepoStrip', () => {
           chipKeys={new Set()}
           onToggleContext={vi.fn()}
           onDeleted={vi.fn()}
+          openRequested={false}
+          onOpenConsumed={() => {}}
         />
       </ClientProvider>
     )
@@ -102,6 +108,8 @@ describe('RepoStrip 맥락 담기 토글', () => {
           chipKeys={chipKeys}
           onToggleContext={vi.fn()}
           onDeleted={vi.fn()}
+          openRequested={false}
+          onOpenConsumed={() => {}}
         />
       </ClientProvider>
     )
@@ -140,6 +148,8 @@ describe('RepoStrip 세로 목록', () => {
           chipKeys={new Set()}
           onToggleContext={vi.fn()}
           onDeleted={vi.fn()}
+          openRequested={false}
+          onOpenConsumed={() => {}}
         />
       </ClientProvider>
     )
@@ -199,6 +209,8 @@ describe('RepoStrip repo 관리', () => {
           chipKeys={new Set()}
           onToggleContext={vi.fn()}
           onDeleted={over.onDeleted ?? vi.fn()}
+          openRequested={false}
+          onOpenConsumed={() => {}}
         />
       </ClientProvider>
     )
@@ -253,6 +265,8 @@ describe('RepoStrip VS Code로 열기', () => {
           chipKeys={new Set()}
           onToggleContext={vi.fn()}
           onDeleted={vi.fn()}
+          openRequested={false}
+          onOpenConsumed={() => {}}
         />
       </ClientProvider>
     )
@@ -275,5 +289,28 @@ describe('RepoStrip VS Code로 열기', () => {
     await userEvent.click(await screen.findByLabelText('api-server VS Code로 열기'))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('VS Code가 설치돼 있지 않습니다')
+  })
+})
+
+describe('홈 준비 단계 ② — openRequested (docs/sdlc/home/ FR-16)', () => {
+  it('등록 폼을 펼쳐 이름 칸에 포커스하고 요청을 치운다', async () => {
+    const consumed = vi.fn()
+    const client = {
+      repos: { list: vi.fn(async () => []), create: vi.fn(), remove: vi.fn(), rename: vi.fn(), openInEditor: vi.fn() },
+      wsl: { listDistros: vi.fn(async () => ({ supported: false, distros: [], reason: 'x' })) },
+      app: { pickDirectory: vi.fn() }
+    } as unknown as OneDeskClient
+    render(
+      <ClientProvider client={client}>
+        <RepoStrip
+          workspaceId="w1" repos={[]} error={null} refresh={vi.fn().mockResolvedValue(undefined)}
+          selectedRepoId={null} onSelect={vi.fn()} chipKeys={new Set()} onToggleContext={vi.fn()} onDeleted={vi.fn()}
+          openRequested={true} onOpenConsumed={consumed}
+        />
+      </ClientProvider>
+    )
+    await waitFor(() => expect(screen.getByPlaceholderText('repo 이름')).toHaveFocus())
+    expect(screen.getByRole('button', { name: 'repo 등록' })).toHaveAttribute('aria-expanded', 'true')
+    expect(consumed).toHaveBeenCalled()
   })
 })

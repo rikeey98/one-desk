@@ -41,7 +41,7 @@ function availablePaneSpace(slot: HTMLElement | null): number {
 
 export function Dock({
   runs, error, workspaceId, workspaces, repos, reposError, queue, queueError, onChangeLimit, chips, onRemoveChip,
-  onRunStarted, draftPrompt, draftCwd, selectedRepoId, onClearRepoFilter, focusConversationId, onFocusConsumed,
+  onRunStarted, draftPrompt, draftCwd, selectedRepoId, onClearRepoFilter, focusConversationId, onFocusConsumed, focusReply,
   // 개발 버전: 선택 prop이다 — plan에서 필수로 올리고 App 배선 테스트를 붙인다 (conversation-issue spec §7).
   draftIssue = null, onClearDraftIssue = () => {}, focusNew = false, onOpenIssue = () => {}, compact, toggleRequest, onToggleConsumed
 }: {
@@ -77,6 +77,11 @@ export function Dock({
    * App의 배선 한 줄을 지워도 조용히 컴파일된다.
    */
   onFocusConsumed: () => void
+  /**
+   * 홈의 `답하기`(docs/sdlc/home/ FR-9) — `focusConversationId`와 함께 서고 같은 `onFocusConsumed`로 치워진다. 연 대화의
+   * 입력칸에 포커스를 준다(대화록의 답하기 FR-44와 같은 칸). **필수다** — 선택이면 App의 한 줄을 지워도 조용히 컴파일된다.
+   */
+  focusReply: boolean
   /** 새 대화 칸에 걸린 할당 예정 이슈 (`docs/sdlc/conversation-issue/` FR-20). 새 대화 칸에서만 쓴다 */
   draftIssue?: AssignedIssue | null
   /** 할당 예정을 뗀다(새 대화 칸의 `이슈 할당 해제`) */
@@ -209,6 +214,8 @@ export function Dock({
   // 인박스로 돌아가 다른 대화를 "대화 열기"로 열면 그 draft가 새는 결함으로 실측됨).
   const [view, setView] = useState<'conversation' | 'new'>(focusConversationId ? 'conversation' : 'new')
   const [pickedId, setPickedId] = useState<string | null>(focusConversationId)
+  // 홈의 답하기 — 지시는 App이 치우므로 여기서 한 번 받아 두었다가 그 대화의 입력부가 마운트되면 넘긴다
+  const [replyRequested, setReplyRequested] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   // 목록의 펼침·편집 state는 여기서 쥔다 — ConversationList에 내리면 도크를 접었다
   // 펴는 것만으로 편집하던 이름이 사라진다.
@@ -283,6 +290,7 @@ export function Dock({
     setPickedId(focusConversationId)
     setView('conversation')
     setOpen(true)
+    if (focusReply) setReplyRequested(true)
     onFocusConsumed()
   }, [focusConversationId])
 
@@ -676,6 +684,8 @@ export function Dock({
                   draftCwd={draftCwd}
                   selectedRepoId={selectedRepoId}
                   onCwdChange={setNewCwd}
+                  focusInput={replyRequested}
+                  onFocusInputConsumed={() => setReplyRequested(false)}
                 />
               </div>
             </CodePaneContext.Provider>

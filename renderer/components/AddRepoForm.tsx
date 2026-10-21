@@ -9,9 +9,12 @@ function folderName(path: string): string {
   return path.split(/[\\/]+/).filter(Boolean).pop() ?? ''
 }
 
-export function AddRepoForm({ workspaceId, onAdded }: {
+export function AddRepoForm({ workspaceId, onAdded, focusName = false, onFocusNameConsumed = () => {} }: {
   workspaceId: string
   onAdded: () => Promise<void>
+  /** 홈 준비 단계 ②가 세운다 — 이름 칸에 포커스하고 치운다 (docs/sdlc/home/ FR-16). 일회성 지시 */
+  focusName?: boolean
+  onFocusNameConsumed?: () => void
 }) {
   const client = useClient()
   const [name, setName] = useState('')
@@ -25,6 +28,13 @@ export function AddRepoForm({ workspaceId, onAdded }: {
   const hintId = useId()
   // 대화상자가 넣은 경로는 끝(고른 폴더 이름)이 보이게 칸을 끝까지 민다 — 그대로 두면 `\\wsl.localhost\…`의 앞부분만 보인다
   const pathInput = useRef<HTMLInputElement>(null)
+  const nameInput = useRef<HTMLInputElement>(null)
+  // 홈 준비 단계 ②(docs/sdlc/home/ FR-16) — 펼쳐진 폼의 이름 칸에 포커스. 일회성 지시
+  useEffect(() => {
+    if (!focusName) return
+    nameInput.current?.focus()
+    onFocusNameConsumed()
+  }, [focusName])
   const [pickedTick, setPickedTick] = useState(0)
   useEffect(() => {
     const el = pathInput.current
@@ -94,7 +104,7 @@ export function AddRepoForm({ workspaceId, onAdded }: {
 
   return (
     <form onSubmit={handleSubmit} className="add-repo-form">
-      <input value={name} onChange={(e) => setName(e.target.value)}
+      <input ref={nameInput} value={name} onChange={(e) => setName(e.target.value)}
         placeholder="repo 이름" disabled={busy} />
       {/* 직접 치는 칸도 남긴다 — 경로를 붙여 넣는 편이 빠를 때가 있고, e2e가 이 칸을 쓴다. */}
       <div className="add-repo-path">

@@ -19,6 +19,7 @@ export type ShortcutAction =
   | 'new-memo'
   | 'toggle-dock'
   | 'inbox'
+  | 'home'
   | 'help'
 
 export interface Shortcut {
@@ -41,6 +42,8 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { action: 'new-memo', label: '새 메모 입력칸으로', key: 'm', mod: true, shift: false },
   { action: 'toggle-dock', label: '대화창 보이기/숨기기', key: 'j', mod: true, shift: false },
   { action: 'inbox', label: '인박스', key: 'i', mod: true, shift: true },
+  // Ctrl+H는 코드 칸(CodeMirror)의 바꾸기와 겹친다 — Shift를 붙인다 (docs/sdlc/home/ FR-12·§6-3)
+  { action: 'home', label: '홈', key: 'h', mod: true, shift: true },
   { action: 'help', label: '단축키 목록', key: '?', mod: false, shift: false }
 ]
 

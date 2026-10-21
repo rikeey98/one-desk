@@ -127,7 +127,7 @@ function renderDock(
             selectedRepoId={null}
             onClearRepoFilter={vi.fn()}
             focusConversationId={focusConversationId}
-            onFocusConsumed={vi.fn()} compact={false} toggleRequest={false} onToggleConsumed={() => {}}
+            onFocusConsumed={vi.fn()} focusReply={false} compact={false} toggleRequest={false} onToggleConsumed={() => {}}
           />
         </DraftProvider>
       </RunEventProvider>
@@ -621,7 +621,7 @@ describe('Dock workspace 전환', () => {
       runs: [], error: null, workspaceId: 'w1', workspaces, repos, reposError: null,
       queue: null, queueError: null, onChangeLimit: vi.fn(), chips: [], onRemoveChip: vi.fn(),
       onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null, onClearRepoFilter: vi.fn(),
-      focusConversationId: null, onFocusConsumed: vi.fn(), compact: false, toggleRequest: false, onToggleConsumed: () => {},
+      focusConversationId: null, onFocusConsumed: vi.fn(), focusReply: false, compact: false, toggleRequest: false, onToggleConsumed: () => {},
       ...over
     }
   }
@@ -1045,7 +1045,7 @@ describe('Dock 헤더 — 토글·최대화·Esc', () => {
       runs: [], error: null, workspaceId: 'w1', workspaces, repos, reposError: null,
       queue: { running: 0, limit: 3, waiting: 0 }, queueError: null, onChangeLimit: vi.fn(),
       chips: [], onRemoveChip: vi.fn(), onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null, onClearRepoFilter: vi.fn(),
-      focusConversationId: null, onFocusConsumed: vi.fn(), compact: false, toggleRequest: false, onToggleConsumed: () => {}
+      focusConversationId: null, onFocusConsumed: vi.fn(), focusReply: false, compact: false, toggleRequest: false, onToggleConsumed: () => {}
     }
     render(
       <ClientProvider client={makeClient()}>
@@ -1121,7 +1121,7 @@ describe('Dock 헤더 — 토글·최대화·Esc', () => {
       runs: [], error: null, workspaceId: 'w1', workspaces, repos, reposError: null,
       queue: null, queueError: null, onChangeLimit: vi.fn(), chips: [], onRemoveChip: vi.fn(),
       onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null, onClearRepoFilter: vi.fn(),
-      focusConversationId: null, onFocusConsumed: vi.fn(), compact: false, toggleRequest: false, onToggleConsumed: () => {}
+      focusConversationId: null, onFocusConsumed: vi.fn(), focusReply: false, compact: false, toggleRequest: false, onToggleConsumed: () => {}
     }
     const drafts = createDraftStore()
     const wrap = (p: Parameters<typeof Dock>[0]) => (
@@ -1297,7 +1297,7 @@ describe('Dock 대화 헤더', () => {
               error={null} workspaceId="w1" workspaces={workspaces} repos={repos} reposError={null}
               queue={null} queueError={null} onChangeLimit={vi.fn()} chips={[]} onRemoveChip={vi.fn()}
               onRunStarted={vi.fn()} draftPrompt="" draftCwd={null} selectedRepoId={null} onClearRepoFilter={vi.fn()}
-              focusConversationId="a1" onFocusConsumed={vi.fn()} compact={false} toggleRequest={false} onToggleConsumed={() => {}}
+              focusConversationId="a1" onFocusConsumed={vi.fn()} focusReply={false} compact={false} toggleRequest={false} onToggleConsumed={() => {}}
             />
           </DraftProvider>
         </RunEventProvider>
@@ -1318,7 +1318,7 @@ describe('Dock 대화 헤더', () => {
       error: null, workspaceId: 'w1', workspaces, repos: named, reposError: null,
       queue: null, queueError: null, onChangeLimit: vi.fn(), chips: [], onRemoveChip: vi.fn(),
       onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null, onClearRepoFilter: vi.fn(),
-      focusConversationId: 'a1', onFocusConsumed: vi.fn(), compact: false, toggleRequest: false, onToggleConsumed: () => {}
+      focusConversationId: 'a1', onFocusConsumed: vi.fn(), focusReply: false, compact: false, toggleRequest: false, onToggleConsumed: () => {}
     }
     render(
       <ClientProvider client={makeClient()}>
@@ -1412,7 +1412,7 @@ describe('repo 구획과 사이드바 거름 (docs/sdlc/dock-repo-sections/)', (
               reposError={null} queue={null} queueError={null} onChangeLimit={vi.fn()} chips={[]} onRemoveChip={vi.fn()}
               onRunStarted={vi.fn()} draftPrompt="" draftCwd={null} selectedRepoId={opts.selectedRepoId ?? null}
               onClearRepoFilter={opts.onClear ?? vi.fn()}
-              focusConversationId={opts.focus ?? null} onFocusConsumed={vi.fn()} compact={false} toggleRequest={false} onToggleConsumed={() => {}}
+              focusConversationId={opts.focus ?? null} onFocusConsumed={vi.fn()} focusReply={false} compact={false} toggleRequest={false} onToggleConsumed={() => {}}
             />
           </DraftProvider>
         </RunEventProvider>
@@ -1534,7 +1534,7 @@ describe('코드 칸 (docs/sdlc/code-editor/ FR-1~FR-7·FR-23)', () => {
                     runs={list} error={null} workspaceId="w1" workspaces={workspaces} repos={two} reposError={null}
                     queue={null} queueError={null} onChangeLimit={vi.fn()} chips={[]} onRemoveChip={vi.fn()}
                     onRunStarted={vi.fn()} draftPrompt="" draftCwd={null} selectedRepoId={null} onClearRepoFilter={vi.fn()}
-                    focusConversationId={null} onFocusConsumed={vi.fn()} compact={false} toggleRequest={false} onToggleConsumed={() => {}}
+                    focusConversationId={null} onFocusConsumed={vi.fn()} focusReply={false} compact={false} toggleRequest={false} onToggleConsumed={() => {}}
                   />
                 </TitleBarSlotContext.Provider>
               </CodePaneSlotContext.Provider>
@@ -1794,7 +1794,7 @@ describe('상세가 열려 있으면 도크가 하한이다 (docs/sdlc/ux-polish
       runs: [], error: null, workspaceId: 'w1', workspaces, repos, reposError: null,
       queue: { running: 0, limit: 3, waiting: 0 }, queueError: null, onChangeLimit: vi.fn(),
       chips: [], onRemoveChip: vi.fn(), onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null, onClearRepoFilter: vi.fn(),
-      focusConversationId: null, onFocusConsumed: vi.fn(), compact: true, toggleRequest: false, onToggleConsumed: () => {}
+      focusConversationId: null, onFocusConsumed: vi.fn(), focusReply: false, compact: true, toggleRequest: false, onToggleConsumed: () => {}
     }
     const { rerender } = render(
       <ClientProvider client={makeClient()}>
@@ -1827,7 +1827,7 @@ describe('상세가 열려 있으면 도크가 하한이다 (docs/sdlc/ux-polish
       runs: [], error: null, workspaceId: 'w1', workspaces, repos, reposError: null,
       queue: { running: 0, limit: 3, waiting: 0 }, queueError: null, onChangeLimit: vi.fn(),
       chips: [], onRemoveChip: vi.fn(), onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null, onClearRepoFilter: vi.fn(),
-      focusConversationId: null, onFocusConsumed: vi.fn(), compact: false, toggleRequest: true, onToggleConsumed
+      focusConversationId: null, onFocusConsumed: vi.fn(), focusReply: false, compact: false, toggleRequest: true, onToggleConsumed
     }
     render(
       <ClientProvider client={makeClient()}>
@@ -1840,5 +1840,40 @@ describe('상세가 열려 있으면 도크가 하한이다 (docs/sdlc/ux-polish
     )
     expect(await screen.findByRole('button', { name: '대화창 보이기' })).toHaveAttribute('aria-expanded', 'false')
     expect(onToggleConsumed).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('홈의 답하기 — focusReply (docs/sdlc/home/ FR-9)', () => {
+  function renderReply(focusReply: boolean) {
+    const onFocusConsumed = vi.fn()
+    render(
+      <ClientProvider client={makeClient()}>
+        <RunEventProvider store={createRunEventStore()}>
+          <DraftProvider store={createDraftStore()}>
+            <Dock
+              runs={[makeRun({ id: 'a1', rootRunId: 'a1', userPrompt: '답을 기다리는 대화', needsAnswer: true })]}
+              error={null} workspaceId="w1" workspaces={workspaces} repos={repos} reposError={null}
+              queue={null} queueError={null} onChangeLimit={vi.fn()} chips={[]} onRemoveChip={vi.fn()} onRunStarted={vi.fn()}
+              draftPrompt="" draftCwd={null} selectedRepoId={null} onClearRepoFilter={vi.fn()}
+              focusConversationId="a1" onFocusConsumed={onFocusConsumed} focusReply={focusReply}
+              compact={false} toggleRequest={false} onToggleConsumed={() => {}}
+            />
+          </DraftProvider>
+        </RunEventProvider>
+      </ClientProvider>
+    )
+    return onFocusConsumed
+  }
+
+  it('focusConversationId와 함께 서면 그 대화의 입력칸에 포커스하고, 같은 onFocusConsumed로 치운다', async () => {
+    const consumed = renderReply(true)
+    await waitFor(() => expect(screen.getByRole('textbox', { name: '지시' })).toHaveFocus())
+    expect(consumed).toHaveBeenCalled()
+  })
+
+  it('focusReply가 없으면 대화만 열고 입력칸에 포커스하지 않는다', async () => {
+    const consumed = renderReply(false)
+    await waitFor(() => expect(consumed).toHaveBeenCalled())
+    expect(screen.getByRole('textbox', { name: '지시' })).not.toHaveFocus()
   })
 })

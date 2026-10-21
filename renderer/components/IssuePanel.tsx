@@ -32,7 +32,7 @@ function AxisChips({ issue }: { issue: Issue }) {
 
 export function IssuePanel({
   workspaceId, repoId, repos, context, conversations, layout = 'columns', expanded, openId, onOpen,
-  focusAdd = false, onFocusAddConsumed = () => {}
+  focusAdd = false, onFocusAddConsumed = () => {}, startTriage = false, onStartTriageConsumed = () => {}
 }: {
   workspaceId: string
   repoId: string | null
@@ -51,6 +51,12 @@ export function IssuePanel({
   /** 단축키 Ctrl+I — App만 넘긴다(패널 창에는 단축키가 없다). 추가 칸에 포커스를 주고 치운다 (docs/sdlc/ux-polish/ FR-8) */
   focusAdd?: boolean
   onFocusAddConsumed?: () => void
+  /**
+   * 홈의 `훑기`가 세운다 — 훑기를 시작한 상태로 들어온다(docs/sdlc/home/ FR-9). `focusAdd`와 같은 일회성 지시다: 큐가 비었으면
+   * 아무것도 하지 않고 치운다. 패널 창에는 없다.
+   */
+  startTriage?: boolean
+  onStartTriageConsumed?: () => void
 }) {
   const client = useClient()
   const { issues, error: listError, refresh, loaded } = useIssues(workspaceId, repoId)
@@ -78,12 +84,19 @@ export function IssuePanel({
   /** 훑기 대기열. 저장소가 준 순서를 그대로 쓴다 — 술어는 issueGroups의 triageQueue 하나뿐이다. */
   const queue = useMemo(() => triageQueue(issues), [issues])
 
-  function startTriage() {
+  function beginTriage() {
     const first = queue[0]
     if (!first) return
     setTriaging(true)
     if (openId !== first.id) onOpen(first.id)
   }
+
+  // 홈의 `훑기` (home FR-9) — 목록을 읽은 뒤에만 판단한다(`loaded`). 읽기 전에는 큐가 비어 보여 요청이 그냥 치워진다.
+  useEffect(() => {
+    if (!startTriage || !loaded) return
+    beginTriage()
+    onStartTriageConsumed()
+  }, [startTriage, loaded])
 
   /** 훑기를 끝낸다 — 화면 전환과 함께 남아 있던 오류 배너도 걷는다. */
   function endTriage() {
@@ -168,7 +181,7 @@ export function IssuePanel({
         // 0건일 때는 그리지 않는다 — 상주하는 잔소리가 된다 (설계 §4).
         <div className="triage-banner">
           <span>⚠ 정리 안 됨 <span className="group-count">{untriaged}</span></span>
-          <button type="button" onClick={startTriage}>훑기</button>
+          <button type="button" onClick={beginTriage}>훑기</button>
         </div>
       )}
 
