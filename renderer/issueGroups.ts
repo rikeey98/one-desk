@@ -1,8 +1,9 @@
 import type { Issue, Repo } from '@shared/models'
+import { isUntriaged } from '@shared/issueRules'
 import {
   PRIORITY_ORDER, SOURCE_ORDER, KIND_ORDER,
   PRIORITY_LABELS, SOURCE_LABELS, KIND_LABELS,
-  UNSET_LABEL, DONE_LABEL, STALE_MS,
+  UNSET_LABEL, DONE_LABEL,
   type GroupAxis
 } from './issueAxes'
 
@@ -16,24 +17,16 @@ export interface IssueGroup {
 /** 축 값이 비어 있는 그룹의 키. repo id와 겹치지 않게 예약어로 쓴다. */
 const UNSET_KEY = 'unset'
 
-/** 오래 안 본 이슈인가. done에는 붙이지 않는다. */
-export function isStale(issue: Issue, now: number): boolean {
-  if (issue.status === 'done') return false
-  // seenAt이 null이면 createdAt으로 떨어진다. 폴백이 없으면 한 번도 안 연 이슈가
-  // 영원히 방치로 잡히지 않는다 — 가장 잊히기 쉬운 것이 배지를 못 받는다.
-  return now - (issue.seenAt ?? issue.createdAt) > STALE_MS
-}
-
 /**
  * 훑기 대기열. 저장소가 준 순서를 그대로 쓴다.
  *
  * 배너 개수·훑기 진행률·다음 대상 선택이 전부 이 술어 하나에서 나와야 한다.
  * 컴포넌트가 이 술어를 다시 적으면 두 자리가 어긋날 수 있다 — 실제로 한 번
  * `IssuePanel`이 `queue`를 인라인으로 다시 만들며 `untriagedCount`가 프로덕션에서
- * 죽은 채 남았던 자리다.
+ * 죽은 채 남았던 자리다. 술어 자체는 `shared/issueRules.ts`의 `isUntriaged`다 — 홈 요약(core)과 같은 판정이다.
  */
 export function triageQueue(issues: Issue[]): Issue[] {
-  return issues.filter((i) => i.triagedAt === null && i.status !== 'done')
+  return issues.filter(isUntriaged)
 }
 
 /** 훑기 대기열의 크기. 배너가 이 값을 쓴다. */

@@ -1,4 +1,4 @@
-import { pathKey } from '../conversation'
+import { pathKey } from '@shared/repoPath'
 
 /** Windows 경로인가 — `pathKey`와 같은 판정(드라이브 문자로 시작하거나 `\`를 품었다) */
 function isWindowsPath(path: string): boolean {

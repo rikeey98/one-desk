@@ -1,6 +1,6 @@
 import { CATEGORY_LABELS, inboxCategory, type InboxCategory } from '@shared/inbox'
 import type { Repo, Run, Workspace } from '@shared/models'
-import { repoOfCwd } from './conversation'
+import { repoOfCwd } from '@shared/repoPath'
 
 /**
  * 인박스의 보기 · 정렬 · 묶기 (`docs/sdlc/inbox-views/`). 판정은 전부 여기 있고 `InboxPanel`은 그리기만 한다(NFR-1) —

@@ -46,5 +46,3 @@ export const KIND_LABELS: Record<IssueKind, string> = {
 export const UNSET_LABEL = '미지정'
 export const DONE_LABEL = '완료'
 
-/** 이만큼 안 보면 방치로 친다. */
-export const STALE_MS = 14 * 24 * 60 * 60 * 1000

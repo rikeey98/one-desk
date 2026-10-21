@@ -1,4 +1,5 @@
-import { repoOfConversation, repoOfCwd, type Conversation } from '../conversation'
+import { repoOfConversation, type Conversation } from '../conversation'
+import { repoOfCwd } from '@shared/repoPath'
 import type { Repo } from '@shared/models'
 
 /** 코드 칸이 여는 repo, 또는 열 수 없는 이유 — 버튼의 비활성 `title`이 이것이다 */

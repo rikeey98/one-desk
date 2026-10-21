@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { groupIssues, isStale, untriagedCount, triageQueue, nextInQueue } from './issueGroups'
-import { STALE_MS } from './issueAxes'
+import { groupIssues, untriagedCount, triageQueue, nextInQueue } from './issueGroups'
 import type { Issue, Repo } from '@shared/models'
 
 const NOW = 1_800_000_000_000
@@ -78,23 +77,6 @@ describe('groupIssues', () => {
     expect(groups[1]?.issues.map((i) => i.id)).toEqual(['both'])
     expect(groups[2]?.issues.map((i) => i.id)).toEqual(['both'])
     expect(groups[0]?.issues.map((i) => i.id)).toEqual(['none'])
-  })
-})
-
-describe('isStale', () => {
-  it('seenAt이 임계값보다 오래되면 방치다', () => {
-    expect(isStale(makeIssue({ seenAt: NOW - STALE_MS - 1 }), NOW)).toBe(true)
-    expect(isStale(makeIssue({ seenAt: NOW - 1000 }), NOW)).toBe(false)
-  })
-
-  it('한 번도 안 본 이슈는 createdAt으로 판정한다', () => {
-    // 폴백이 없으면 가장 잊히기 쉬운 것이 영원히 배지를 못 받는다.
-    expect(isStale(makeIssue({ seenAt: null, createdAt: NOW - STALE_MS - 1 }), NOW)).toBe(true)
-    expect(isStale(makeIssue({ seenAt: null, createdAt: NOW }), NOW)).toBe(false)
-  })
-
-  it('done에는 붙지 않는다', () => {
-    expect(isStale(makeIssue({ status: 'done', seenAt: NOW - STALE_MS - 1 }), NOW)).toBe(false)
   })
 })
 

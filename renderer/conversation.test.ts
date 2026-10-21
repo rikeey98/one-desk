@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  contextOf, conversationIdOf, filterByRepo, foldByIssue, groupConversations, repoOfConversation, repoOfCwd, sectionByRepo,
+  contextOf, conversationIdOf, filterByRepo, foldByIssue, groupConversations, repoOfConversation, sectionByRepo,
   titleOf
 } from './conversation'
 import type { Repo, Run } from '@shared/models'
@@ -294,22 +294,6 @@ describe('repo로 나누기 (docs/sdlc/dock-repo-sections/)', () => {
     // posix 경로는 대소문자가 다르면 다른 디렉토리다
     const [posix] = groupConversations([makeRun({ id: 'p', cwd: '/work/API' })])
     expect(repoOfConversation(posix!, repos)).toBeNull()
-  })
-
-  it('경로로 repo 찾기는 한 함수다 — 도크 구획·코드 칸·인박스 묶음이 같이 쓴다 (inbox-views NFR-2)', () => {
-    expect(repoOfCwd('/work/api/', repos)).toBe(api)
-    expect(repoOfCwd('c:/WORK/web\\', repos)).toBe(web)
-    expect(repoOfCwd('/work/API', repos)).toBeNull()
-    expect(repoOfCwd('/work/api', [])).toBeNull()
-  })
-
-  it('WSL UNC의 두 접두사는 같은 폴더다 — `\\\\wsl.localhost\\U\\a`와 `\\\\wsl$\\U\\a` (wsl-support §4의 9)', () => {
-    const wsl: Repo = { ...api, id: 'wsl', name: 'wsl', path: '\\\\wsl$\\Ubuntu\\home\\me\\proj' }
-    const all = [...repos, wsl]
-    expect(repoOfCwd('\\\\wsl.localhost\\Ubuntu\\home\\me\\proj', all)).toBe(wsl)
-    expect(repoOfCwd('\\\\WSL$\\Ubuntu\\home\\me\\proj\\', all)).toBe(wsl)
-    // Linux 경로 부분은 대소문자가 다르면 다른 디렉토리다 — Windows 규칙으로 접지 않는다
-    expect(repoOfCwd('\\\\wsl$\\Ubuntu\\home\\me\\PROJ', all)).toBeNull()
   })
 
   const runs = [
