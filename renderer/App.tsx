@@ -102,10 +102,12 @@ export default function App() {
   const cli = useCliReadiness(firstWorkspaceId, cliWanted)
   const cliState = cliReadinessOf(cli.statuses, cli.probes)
   const homeSetup = homeSummary ? setupStateOf(homeSummary.setup, cliState) : null
-  const setupHasWorkspace = homeSummary?.setup.workspace ?? false
+  // ①·②가 끝난 뒤에만 묻는다 — workspace를 만든 직후 홈에서 probe가 뜨면, 그 사이 workspace 화면으로 들어가 돌린 run의 가짜 CLI
+  // 캡처 파일(`ONE_DESK_*_CAPTURE`)을 늦게 끝난 probe가 덮어 e2e 셋이 깨졌다(plan 위험 2 실측). repo까지 등록해야 ③이다.
+  const setupReachedCli = (homeSummary?.setup.workspace ?? false) && (homeSummary?.setup.repo ?? false)
   useEffect(() => {
-    setCliWanted(view === 'home' && setupHasWorkspace && cliState !== 'ready')
-  }, [view, setupHasWorkspace, cliState])
+    setCliWanted(view === 'home' && setupReachedCli && cliState !== 'ready')
+  }, [view, setupReachedCli, cliState])
   const homeNow = useNow(view === 'home')
   // 인박스 행동(확인함/보관/이슈 연동) 실패도 조용히 삼키지 않는다 — inboxError와
   // 같은 자리에 뜨되, 방금 누른 행동의 오류가 더 급하므로 앞에 온다.

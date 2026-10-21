@@ -132,8 +132,9 @@
   workspace로 부른다. `ready` = claude 또는 opencode(또는 WSL claude)가 실행 파일 · 인증 `ok` · 모델 `resolved`(opencode는 모델이
   `skipped`라 인증까지). `pending` = 아직 응답 전. `none` = 어느 것도 아니다. 화면은 `AgentStatusRow`를 그대로 쓴다(wsl-repo-setup이
   WSL 탭에서 한 것과 같다 — 세 번째로 그리는 자리다, 따로 만들지 않는다). **workspace가 없으면 CLI를 묻지 않는다**(probe는 workspace
-  id를 받는다) — 단계 1이 먼저다. 묻는 것은 **홈이 보이고 `done`이 아닐 때만**이다 — workspace 화면으로 들어가면 멈춘다(가짜 CLI를
-  쓰는 기존 e2e에 `--version`이 한 번 더 도는 것을 최소로).
+  id를 받는다) — 단계 1이 먼저다. 묻는 것은 **①·②가 끝나고 홈이 보이며 `done`이 아닐 때만**이다(구현 중 좁힘 — workspace를 만든
+  직후 뜬 probe가, 그 사이 workspace 화면에서 돌린 run의 가짜 CLI 캡처 파일을 늦게 덮어 e2e 셋이 깨졌다). workspace 화면으로
+  들어가면 멈춘다.
 - **FR-16** 단계마다 가는 곳: ① 사이드바의 workspace 추가 폼에 포커스(새 일회성 prop `focusWorkspaceAdd`) ② 사이드바의 `repo 등록` 폼 —
   등록 폼은 그대로 사이드바에 있고 홈은 **그 폼을 펼쳐 포커스**한다(`RepoStrip`의 일회성 prop `openRepoForm` — 폼을 둘 두지 않는다,
   WSL 버튼·폴더 선택이 거기 있다) ③ `다시 확인`은 `probeAgents(refresh)`, `설정에서 경로 지정`은 설정 실행 탭 ④ `Ctrl+N` 안내. 끝난

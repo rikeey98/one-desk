@@ -423,8 +423,8 @@ DOM을 짚지 않는다. 수정키 없는 `?`는 글을 받는 자리(`isEditabl
 `runs.start`를 직접 부른다** — 기본값 유도는 `renderer/runDefaults.ts`(`newRunInput`, RunPanel과 같은 함수)이고 `home.lastTarget`은
 전송에 성공했을 때만 찍는다(자동 재시도·MCP가 만든 run은 "마지막으로 보낸 곳"이 아니다). **처음 켰을 때는 준비 단계 넷**(workspace →
 repo → CLI → 첫 대화)이 그 자리에 서고, 단계마다 가는 곳은 이미 있는 자리다 — 사이드바의 두 폼(일회성 prop `focusWorkspaceAdd`·
-`openRequested`)·설정 실행 탭·새 대화. CLI 칸은 설정의 `AgentStatusRow`를 세 번째로 그리는 자리이고 `useCliReadiness`가 홈이 보이고
-준비가 안 끝났을 때만 묻는다 — core의 `setup`은 셋이고 `cli`·`done`은 렌더러의 `renderer/home/setup.ts`가 합친다. 단축키
+`openRequested`)·설정 실행 탭·새 대화. CLI 칸은 설정의 `AgentStatusRow`를 세 번째로 그리는 자리이고 `useCliReadiness`가 **①·②가 끝나고** 홈이
+보이며 준비가 안 끝났을 때만 묻는다(workspace를 만든 직후의 probe가 뒤이은 run의 가짜 CLI 캡처 파일을 덮어 e2e가 깨졌다) — core의 `setup`은 셋이고 `cli`·`done`은 렌더러의 `renderer/home/setup.ts`가 합친다. 단축키
 `Ctrl+Shift+H`(`Ctrl+H`는 코드 칸의 바꾸기). 홈의 `답하기`는 `Dock`의 필수 prop `focusReply`(`focusConversationId`와 함께 서고 같은
 `onFocusConsumed`로 치워진다, 대화가 실제로 열린 뒤에만 입력칸에 간다), `훑기`는 `IssuePanel`의 일회성 `startTriage`다. 첫 화면이
 바뀌었지만 **기존 e2e는 그대로다** — 전부 사이드바 폼으로 workspace를 만든 뒤 그 버튼을 누르고, `selectWorkspace`가 workspace

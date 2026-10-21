@@ -11,7 +11,8 @@ describe('드라이버', () => {
     // launchApp()이 onTestFinished로 정리를 직접 예약하므로 여기서는 부르지 않는다.
     const app = await launchApp()
 
-    const blank = app.page.getByText('왼쪽에서 workspace를 선택하세요')
+    // 첫 화면은 홈이고, 빈 데이터면 준비 단계다 (docs/sdlc/home/ FR-14·FR-17)
+    const blank = app.page.getByRole('heading', { name: '시작하기' })
     await blank.waitFor({ state: 'visible', timeout: 10_000 })
 
     // 실제 사용자 데이터였다면 workspace가 하나라도 있다.

@@ -46,9 +46,10 @@ export function HomeSetup({
             <p>agent가 작업할 git 폴더를 workspace에 등록합니다. WSL 안의 폴더도 됩니다.</p>
             <button type="button" className="home-primary" disabled={!setup.workspace} onClick={onOpenRepoForm}>폴더 연결하기</button>
           </Step>
-          <Step n={3} done={setup.cli === 'ready'} title="CLI 확인" doneLabel="로그인된 CLI가 있습니다" disabled={!setup.workspace}>
+          <Step n={3} done={setup.cli === 'ready'} title="CLI 확인" doneLabel="로그인된 CLI가 있습니다" disabled={!setup.workspace || !setup.repo}>
             <p>Claude Code나 OpenCode 중 하나가 설치되고 로그인돼 있어야 합니다. 설정 화면의 CLI 상태와 같은 판정입니다.</p>
-            {setup.workspace
+            {/* ①·②가 끝나야 묻는다(FR-15) — 그전에는 줄 대신 안내 한 줄 */}
+            {setup.workspace && setup.repo
               ? (
                 <ul className="settings-status" aria-label="CLI 상태">
                   {AGENT_KINDS.map((kind) => (
@@ -59,9 +60,9 @@ export function HomeSetup({
                   )}
                 </ul>
               )
-              : <p className="home-row-faint">워크스페이스를 만들면 확인합니다.</p>}
+              : <p className="home-row-faint">워크스페이스를 만들고 폴더를 연결하면 확인합니다.</p>}
             <div className="home-step-actions">
-              <button type="button" disabled={!setup.workspace || probing} onClick={onRefreshCli}>다시 확인</button>
+              <button type="button" disabled={!setup.workspace || !setup.repo || probing} onClick={onRefreshCli}>다시 확인</button>
               <button type="button" onClick={onOpenSettings}>설정에서 경로 지정</button>
             </div>
           </Step>
