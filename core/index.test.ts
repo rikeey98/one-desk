@@ -1595,7 +1595,8 @@ describe('홈 배선 (docs/sdlc/home/)', () => {
     const now = Date.now()
     const summary = core.home.summary({ now, dayStart: now - 60 * 60 * 1000 })
 
-    expect(summary.workspaces.map((w) => w.name).sort()).toEqual(['개인', '회사', 'ws'])
+    // workspaces.list()는 최신 먼저다 — 홈 카드도 그 순서다
+    expect(summary.workspaces.map((w) => w.name)).toEqual(['ws', '개인', '회사'])
     expect(summary.todos.map((t) => t.kind)).toEqual(['needs-answer', 'untriaged'])
     expect(summary.todos[0]).toMatchObject({ workspaceName: 'ws', conversationId: seeded.id, title: '어느 브랜치로 할까요?' })
     expect(summary.setup).toEqual({ workspace: true, repo: false, firstRun: true })
