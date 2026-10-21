@@ -72,12 +72,24 @@ function conversationsOf(runsLatestFirst: readonly Run[], repos: readonly Repo[]
   return out
 }
 
+type BadgeKind = 'needs-answer' | 'failed' | 'interrupted'
+
+/** 배지에 세는 카테고리면 그 이름, 아니면 null — 판정은 `INBOX_RULES.badge` 한 칸이다(FR-3) */
+function badgeKindOf(run: Run): BadgeKind | null {
+  const cat = inboxCategory(run)
+  return INBOX_RULES[cat].badge ? (cat as BadgeKind) : null
+}
+
 /** 할 일 1·2 — 인박스 목록 중 배지에 세는 것만, 답변 필요가 먼저(안정 분할), 그 안은 인박스 순 */
-function badgeRuns(inbox: readonly Run[], workspaceIds: ReadonlySet<string>): Run[] {
-  const counted = inbox.filter((r) => workspaceIds.has(r.workspaceId) && INBOX_RULES[inboxCategory(r)].badge)
+function badgeRuns(inbox: readonly Run[], workspaceIds: ReadonlySet<string>): Array<{ run: Run; kind: BadgeKind }> {
+  const counted = inbox.flatMap((run) => {
+    if (!workspaceIds.has(run.workspaceId)) return []
+    const kind = badgeKindOf(run)
+    return kind ? [{ run, kind }] : []
+  })
   return [
-    ...counted.filter((r) => inboxCategory(r) === 'needs-answer'),
-    ...counted.filter((r) => inboxCategory(r) !== 'needs-answer')
+    ...counted.filter((c) => c.kind === 'needs-answer'),
+    ...counted.filter((c) => c.kind !== 'needs-answer')
   ]
 }
 
@@ -145,16 +157,13 @@ export function buildHomeSummary(src: HomeSources, input: HomeSummaryInput): Hom
 
   // 할 일
   const wsIds = new Set(workspaces.map((w) => w.id))
-  const todos: HomeTodo[] = badgeRuns(src.inbox(), wsIds).flatMap((run): HomeTodo[] => {
+  const todos: HomeTodo[] = badgeRuns(src.inbox(), wsIds).map(({ run, kind }): HomeTodo => {
     const conversationId = run.rootRunId ?? run.id
     // 요약이 읽은 run 목록에 없는 대화(그 사이 지워짐)도 줄은 남긴다(제목은 첫 지시) — `homeCount`가 같은 집합을 세야 배지와 줄 수가 같다
     const found = convById.get(conversationId)
-    const cat = inboxCategory(run)
-    // badgeRuns가 이미 배지 카테고리만 남겼다 — 여기는 타입을 좁히는 것뿐이다
-    if (cat !== 'needs-answer' && cat !== 'failed' && cat !== 'interrupted') return []
-    const detail = cat === 'needs-answer' ? run.resultText : run.errorMessage
-    return [{
-      kind: cat,
+    const detail = kind === 'needs-answer' ? run.resultText : run.errorMessage
+    return {
+      kind,
       workspaceId: run.workspaceId,
       workspaceName: found?.workspace.name ?? '',
       repoId: found?.conv.repo?.id ?? null,
@@ -164,7 +173,7 @@ export function buildHomeSummary(src: HomeSources, input: HomeSummaryInput): Hom
       title: found?.conv.title ?? run.userPrompt.split('\n')[0] ?? '',
       detail: detail ? clip(detail, DETAIL_CHARS) : null,
       at: run.endedAt
-    }]
+    }
   })
   todos.push(...issueTodos(data, now))
 

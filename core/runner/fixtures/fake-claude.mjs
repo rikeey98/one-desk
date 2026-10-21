@@ -86,6 +86,8 @@ if (scenario === 'hang') {
   runTimeline()
 } else if (process.env.ONE_DESK_FAKE_SCRIPT === 'events') {
   runEvents()
+} else if (process.env.ONE_DESK_FAKE_SCRIPT === 'home') {
+  runHome()
 } else {
   // e2e가 running 상태를 관찰할 수 있도록 결과를 늦출 수 있다. 기본은 0(즉시).
   // 값이 이상하면 Number()가 NaN을 내고 setTimeout(fn, NaN)은 즉시 실행된다 —
@@ -331,4 +333,32 @@ function runEvents() {
     else finish(0)
   }
   next()
+}
+
+/**
+ * 홈 e2e의 시나리오 (docs/sdlc/home/ spec §7, plan 개정 6) — **지시문으로 가른다.** e2e 드라이버는 --scenario를 못 넘기고
+ * 한 앱에는 환경변수 하나뿐이라, 같은 앱에서 답변 필요 대화와 실패 대화를 둘 다 만들려면 지시문이 갈라야 한다.
+ * `[질문]`으로 시작하면 [NEEDS_ANSWER] 결과(어댑터의 표식 — core/runner/adapters/common.ts), `[실패]`로 시작하면
+ * is_error + exit 1, 그 밖은 기본 시나리오와 같다. 프롬프트는 stdin으로 오므로 끝까지 읽은 뒤에 정한다.
+ * 기본 시나리오는 건드리지 않는다.
+ */
+function runHome() {
+  process.stdin.on('end', () => {
+    const prompt = receivedPrompt.trim()
+    if (prompt.startsWith('[질문]')) {
+      const answer = '[NEEDS_ANSWER] 어느 브랜치에 적용할까요?'
+      emit({ type: 'assistant', message: { content: [{ type: 'text', text: answer }] } })
+      emit({ type: 'result', subtype: 'success', is_error: false, result: answer, session_id: 'fake-session' })
+      finish(0)
+      return
+    }
+    if (prompt.startsWith('[실패]')) {
+      emit({ type: 'result', subtype: 'error', is_error: true, result: '실패함', session_id: 'fake-session' })
+      finish(1)
+      return
+    }
+    emit({ type: 'assistant', message: { content: [{ type: 'text', text: '작업 중' }] } })
+    emit({ type: 'result', subtype: 'success', is_error: false, result: '끝남', session_id: 'fake-session' })
+    finish(0)
+  })
 }

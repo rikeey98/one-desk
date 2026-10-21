@@ -258,3 +258,35 @@ describe('fake-claude.mjs — events 스크립트', () => {
     expect(timeline.some((l) => l.includes('toolu_ev_'))).toBe(false)
   })
 })
+
+describe.skipIf(POSIX_ONLY)('fake-claude.mjs — ONE_DESK_FAKE_SCRIPT=home (docs/sdlc/home/ plan 개정 6)', () => {
+  function run(prompt: string): { lines: Record<string, unknown>[]; status: number } {
+    try {
+      const out = execFileSync(FAKE, [], { input: prompt, encoding: 'utf8', env: { ...process.env, ONE_DESK_FAKE_SCRIPT: 'home' } })
+      return { lines: out.trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>), status: 0 }
+    } catch (err) {
+      const e = err as { stdout: string; status: number }
+      return { lines: e.stdout.trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>), status: e.status }
+    }
+  }
+
+  it('[질문]으로 시작하면 [NEEDS_ANSWER] 결과다', () => {
+    const { lines, status } = run('[질문] 어디에 둘까요')
+    const result = lines.find((l) => l['type'] === 'result')!
+    expect(result).toMatchObject({ is_error: false })
+    expect(String(result['result'])).toMatch(/^\[NEEDS_ANSWER\]/)
+    expect(status).toBe(0)
+  })
+
+  it('[실패]로 시작하면 is_error와 exit 1이다', () => {
+    const { lines, status } = run('[실패] 일부러')
+    expect(lines.find((l) => l['type'] === 'result')).toMatchObject({ is_error: true })
+    expect(status).toBe(1)
+  })
+
+  it('그 밖은 기본 시나리오와 같다 — 끝남', () => {
+    const { lines, status } = run('평범한 지시')
+    expect(lines.find((l) => l['type'] === 'result')).toMatchObject({ is_error: false, result: '끝남' })
+    expect(status).toBe(0)
+  })
+})
