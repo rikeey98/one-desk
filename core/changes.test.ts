@@ -76,10 +76,11 @@ describe('바뀜 알림 래퍼 (item-windows FR-17)', () => {
     expect(seen).toEqual(Array(4).fill({ workspaceId, kind: 'repo' }))
   })
 
-  it('workspace: 이름과 지우기', () => {
+  it('workspace: 만들기·이름·지우기 — 만들기는 홈의 준비 단계가 듣는다 (docs/sdlc/home/ FR-16)', () => {
     const workspaces = notifyingWorkspaces(createWorkspaceRepository(db), notify)
+    const made = workspaces.create({ name: '새 ws' })
     workspaces.rename(workspaceId, 'ws2')
     workspaces.remove(workspaceId)
-    expect(seen).toEqual(Array(2).fill({ workspaceId, kind: 'workspace' }))
+    expect(seen).toEqual([{ workspaceId: made.id, kind: 'workspace' }, ...Array(2).fill({ workspaceId, kind: 'workspace' })])
   })
 })

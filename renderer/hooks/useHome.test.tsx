@@ -28,6 +28,7 @@ type Fire = {
 
 function makeClient(summary: HomeSummary = summaryOf(), count = 3) {
   const fire: Fire = { run: null, inbox: null, queue: null, item: null }
+  const items: Array<(change: ItemChange) => void> = []
   const client = {
     home: {
       summary: vi.fn().mockResolvedValue(summary),
@@ -38,7 +39,12 @@ function makeClient(summary: HomeSummary = summaryOf(), count = 3) {
       onRunUpdate: vi.fn((cb: () => void) => { fire.run = cb; return () => { fire.run = null } }),
       onInboxUpdate: vi.fn((cb: () => void) => { fire.inbox = cb; return () => { fire.inbox = null } }),
       onQueueUpdate: vi.fn((cb: () => void) => { fire.queue = cb; return () => { fire.queue = null } }),
-      onItemChanged: vi.fn((cb: (change: ItemChange) => void) => { fire.item = cb; return () => { fire.item = null } })
+      // 구독이 여럿이다(issue·workspace·repo) — 전부에 흘린다. 각 구독이 kind로 거른다
+      onItemChanged: vi.fn((cb: (change: ItemChange) => void) => {
+        items.push(cb)
+        fire.item = (change) => { for (const f of items) f(change) }
+        return () => { items.splice(items.indexOf(cb), 1) }
+      })
     }
   } as unknown as OneDeskClient
   return { client, fire }
@@ -74,9 +80,14 @@ describe('useHome', () => {
     act(() => fire.queue?.())
     act(() => fire.item?.({ kind: 'issue', workspaceId: 'other', id: 'i' } as ItemChange))
     await waitFor(() => expect(client.home.summary).toHaveBeenCalledTimes(5))
-    // 메모 변경은 홈과 무관하다
+    // 메모·asset 변경은 홈과 무관하다
     act(() => fire.item?.({ kind: 'memo', workspaceId: 'other', id: 'm' } as ItemChange))
+    act(() => fire.item?.({ kind: 'asset', workspaceId: 'other', id: 'a' } as ItemChange))
     expect(client.home.summary).toHaveBeenCalledTimes(5)
+    // workspace·repo는 준비 단계 ①·②와 카드가 바뀐다 — 홈에 남은 채 사이드바 폼으로 만든다
+    act(() => fire.item?.({ kind: 'workspace', workspaceId: 'new', id: 'w' } as ItemChange))
+    act(() => fire.item?.({ kind: 'repo', workspaceId: 'new', id: 'r' } as ItemChange))
+    await waitFor(() => expect(client.home.summary).toHaveBeenCalledTimes(7))
   })
 
   it('도는 턴이 있는 동안 2초마다 다시 읽고, 없으면 타이머가 없다 (plan 개정 7)', async () => {

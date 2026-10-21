@@ -34,6 +34,17 @@ function finish(code) {
   process.stdin.pause()
 }
 
+// `auth status --json` (docs/sdlc/home/ plan 개정 6). **옵트인이다** — `ONE_DESK_FAKE_AUTH=ok`일 때만 로그인된 것으로
+// 답한다. 기본은 지금처럼 init을 찍어(JSON이 아니다) 설정 화면이 "인증 확인 불가"가 된다 — `agent-setup.e2e`가 그것에 기댄다.
+// 홈의 준비 단계는 어느 CLI 하나가 인증까지 초록이어야 끝나므로(FR-15) 홈 e2e만 이것을 켠다.
+if (process.argv.includes('auth') && process.env.ONE_DESK_FAKE_AUTH === 'ok') {
+  process.stdout.write(`${JSON.stringify({ loggedIn: true, authMethod: 'fake', subscriptionType: 'fake' })}\n`)
+  finish(0)
+} else {
+  runScenario()
+}
+
+function runScenario() {
 // 슬래시 커맨드 목록은 시나리오를 가르지 않고 모든 init에 싣는다 — e2e 드라이버는
 // --scenario를 못 넘기고 기본 픽스처를 그대로 spawn하므로, 가르면 e2e에서 피커가 빈다.
 // terminal_slash_commands는 slash_commands의 부분집합이다(진짜 CLI와 같다).
@@ -113,6 +124,8 @@ if (scenario === 'hang') {
     })
     finish(0)
   }, delayMs)
+}
+
 }
 
 /**
@@ -344,15 +357,16 @@ function runEvents() {
  */
 function runHome() {
   process.stdin.on('end', () => {
-    const prompt = receivedPrompt.trim()
-    if (prompt.startsWith('[질문]')) {
+    // 받는 것은 조립된 프롬프트다(맥락·안내가 앞뒤에 붙는다) — 표식은 어디든 있으면 된다
+    const prompt = receivedPrompt
+    if (prompt.includes('[질문]')) {
       const answer = '[NEEDS_ANSWER] 어느 브랜치에 적용할까요?'
       emit({ type: 'assistant', message: { content: [{ type: 'text', text: answer }] } })
       emit({ type: 'result', subtype: 'success', is_error: false, result: answer, session_id: 'fake-session' })
       finish(0)
       return
     }
-    if (prompt.startsWith('[실패]')) {
+    if (prompt.includes('[실패]')) {
       emit({ type: 'result', subtype: 'error', is_error: true, result: '실패함', session_id: 'fake-session' })
       finish(1)
       return

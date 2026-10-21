@@ -410,6 +410,28 @@ Ctrl+J · 인박스 Ctrl+Shift+I · `?` 목록(`ShortcutHelp` popover, Esc 사�
 DOM을 짚지 않는다. 수정키 없는 `?`는 글을 받는 자리(`isEditableTarget`)에서 듣지 않는다. 따라온 것 둘: 설정의 저장 버튼은 그 절에
 바뀐 것이 있을 때만 활성이고, CLI 상태의 `확인 중…`은 버튼이 아니라 `role="status"` 글자다(`다시 확인` 버튼은 잠긴 채 남는다).
 
+**앱을 열면 홈이다 — "오늘 할 일"** (`docs/sdlc/home/`, 2026-10-21). 마이그레이션·스키마 변경 없음(`app_setting` 키 `home.lastTarget` 하나).
+사이드바 맨 위 `홈`(인박스 위)이 workspace를 넘어 **할 일 넷**을 한 목록으로 보인다 — 답변 필요 대화(`답하기`) · 실패·중단 대화(`다시
+보내기`·`대화 열기`) · workspace마다 정리 안 된 이슈(`훑기`) · 오래 안 본 이슈(`방치 이슈 보기`). 줄마다 버튼 하나이고 끝나면 요약을
+다시 읽을 때 줄이 빠진다. 그 수가 홈 배지다(인박스 배지와 **다른 수**). 그 위에 지금 돌고 있는 것(실행 슬롯·대기, 지금 도는 도구·마지막
+텍스트는 **core 메모리의 스냅샷** `core/home/live.ts` — 요금제 사용률과 같은 모양, 앱을 다시 켜면 빈다), 1280px 이상에서만 오늘
+타임라인, workspace 카드(repo별 상태 점), 오늘 완료, 바닥의 새 대화 카드. **workspace를 넘는 읽기는 `core.home.summary`·`count` 한
+자리이고 MCP `deps`에는 넘기지 않는다**(`reports`와 같은 규칙 — `core/index.test`가 소스를 읽어 지킨다). 판정은 전부 재사용이다:
+대표 턴·배지 카테고리는 `shared/inbox.ts`, **정리 안 됨·오래 안 본(14일)은 `shared/issueRules.ts`로 옮겼다**(`STALE_MS`·`isStale`·
+`isUntriaged` — 이슈 패널도 그것을 import한다), 경로로 repo 찾기는 `shared/repoPath.ts`(`pathKey`·`repoOfCwd`), 제목은
+`shared/conversationTitle.ts`. "오늘"의 경계는 **렌더러가 로컬 자정을 넘긴다**(core는 시간대를 모른다). **새 대화 카드는 App이
+`runs.start`를 직접 부른다** — 기본값 유도는 `renderer/runDefaults.ts`(`newRunInput`, RunPanel과 같은 함수)이고 `home.lastTarget`은
+전송에 성공했을 때만 찍는다(자동 재시도·MCP가 만든 run은 "마지막으로 보낸 곳"이 아니다). **처음 켰을 때는 준비 단계 넷**(workspace →
+repo → CLI → 첫 대화)이 그 자리에 서고, 단계마다 가는 곳은 이미 있는 자리다 — 사이드바의 두 폼(일회성 prop `focusWorkspaceAdd`·
+`openRequested`)·설정 실행 탭·새 대화. CLI 칸은 설정의 `AgentStatusRow`를 세 번째로 그리는 자리이고 `useCliReadiness`가 홈이 보이고
+준비가 안 끝났을 때만 묻는다 — core의 `setup`은 셋이고 `cli`·`done`은 렌더러의 `renderer/home/setup.ts`가 합친다. 단축키
+`Ctrl+Shift+H`(`Ctrl+H`는 코드 칸의 바꾸기). 홈의 `답하기`는 `Dock`의 필수 prop `focusReply`(`focusConversationId`와 함께 서고 같은
+`onFocusConsumed`로 치워진다, 대화가 실제로 열린 뒤에만 입력칸에 간다), `훑기`는 `IssuePanel`의 일회성 `startTriage`다. 첫 화면이
+바뀌었지만 **기존 e2e는 그대로다** — 전부 사이드바 폼으로 workspace를 만든 뒤 그 버튼을 누르고, `selectWorkspace`가 workspace
+화면으로 데려간다. 홈 e2e(`e2e/home.e2e.ts`)는 가짜 CLI의 `ONE_DESK_FAKE_SCRIPT=home`(지시문에 `[질문]`·`[실패]`가 있으면 답변 필요·
+실패)과 `ONE_DESK_FAKE_AUTH=ok`(`auth status`에 로그인된 JSON — 기본은 init을 찍어 "인증 확인 불가", `agent-setup.e2e`가 그것에
+기댄다)를 쓴다. 오래 안 본 이슈는 UI로 못 만들어 main에서 SQL로 심는다.
+
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
 한동안 "5단계 착수 전에 정할 것"으로 잡아두고 **평문 SQLite에 자격 증명을 넣을지**를 막힌 결정으로 남겼던 항목이다. 대상 환경을 실측해 보니 **배관 자체가 불필요했다.**
@@ -477,6 +499,14 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 ## 밟으면 조용히 깨지는 것들
 
 전부 실제로 겪은 것들이다.
+
+**홈이 보이는 동안 workspace 이름과 같은 버튼을 두 개 만들지 말 것** (`docs/sdlc/home/` NFR-3). 사이드바의 workspace 버튼 이름이
+곧 workspace 이름이라(`{ name: 'e2e-ws', exact: true }`), 홈의 카드 버튼은 `<이름> 워크스페이스 열기`이고 준비 단계의 버튼은 `repo 등록`·
+`추가`·`폴더 선택`을 부분 문자열로 품지 않는다(`워크스페이스 만들기`·`폴더 연결하기`) — 사이드바 폼과 같은 화면에 선다. 같은 이유로
+**홈 요약은 push가 아니라 다시 읽기다**: `useHome`이 run·인박스·큐 push와 `event:itemChanged`의 issue·**workspace·repo**에 다시 읽는다 —
+`notifyingWorkspaces`가 `create`도 알리는 이유다(홈에 남은 채 사이드바 폼으로 만든 workspace를 준비 단계 ①이 알아야 한다). 도는 턴이
+있으면 2초 타이머다. **e2e에서 DB를 직접 고치려면 main의 evaluate에 모듈의 절대 경로를 넘긴다** — 이름으로 `require`하면 그 컨텍스트가
+node_modules를 못 본다(`e2e/home.e2e.ts`의 `runSql`).
 
 **창이 여럿이다 — push는 앱 창에만, 바뀜 알림만 모든 창으로 간다** (`docs/sdlc/item-windows/` FR-17~19).
 `registerIpc`가 받는 것은 창 하나가 아니라 `Windows`(`getMainWindow`·`getAllWindows`·`openPanelWindow`)다. run 이벤트·큐·
@@ -1120,6 +1150,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/linux-glibc-floor/` | 리눅스 패키지의 배포판 하한을 RHEL 8(glibc 2.28)로 — spec. 무엇이 RHEL 8을 막나(§0 — 네이티브 모듈 둘), manylinux_2_28 컨테이너에서 다시 빌드·사전 빌드 갈아 끼우기·하한 검사 한 자리·스모크(FR-1~7)와 버린 안, 대가(§2), AlmaLinux 8.10 userland 실측·대조·변이(§3) |
 | `docs/sdlc/portable-unpack/` | Windows 포터블 exe를 한 번 더 실행하면 떠 있는 앱의 파일이 지워지던 결함(v0.26.2의 WSL `wsl-launcher.sh`) — spec. 래퍼가 고정 이름 폴더를 비우는 실측(§0), 사라지는 파일 셋과 증상(§1), 문서와 반대인 `unpackDirName: true`(FR-1), 남은 폴더를 지우는 판정(FR-2), `original-fs`(FR-3), 버린 안(NSIS 설치본 등), 패키징 앱을 CDP로 몬 실측(§4) |
 | `docs/sdlc/ux-polish/` | UI/UX 분석이 꼽은 여덟 가지 — intent·spec·plan. 상세가 열리면 도크가 하한(FR-1), 빈 상태 하나·리포트의 가까운 preset 제안(FR-2), 한국어 표와 `열림` 배지 생략(FR-3), 전역 단축키 표와 일회성 prop 배선(FR-8·9), 뒤집은 결정(intent), App 배선 변이 표(plan). 시안 비교 https://claude.ai/artifact/VQBSR9ruuhjttD6P9Choqn |
+| `docs/sdlc/home/` | 앱을 열면 "오늘 할 일"이 보이는 홈 — intent·spec·plan. 미해결 질문의 답(spec §0), 할 일 넷과 배지(FR-3·4), core 한 자리와 MCP 제외(FR-1), 렌더러가 넘기는 오늘의 경계(FR-5), 새 대화 카드를 App이 직접 보내는 이유(FR-11·plan 개정 1), 준비 단계와 CLI 칸(FR-14~16·plan 개정 8), 이름 충돌(NFR-3), 코드를 보고 spec을 고친 여덟(plan §0), 변이 표와 완료 증명(plan). 시안 https://claude.ai/artifact/ST6FQPHU8XPSKXTREZHPVN 셋째 줄 |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |

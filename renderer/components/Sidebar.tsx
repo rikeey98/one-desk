@@ -81,7 +81,7 @@ export function Sidebar({
       {/* 홈 — 인박스 위(docs/sdlc/home/ FR-12). 배지는 오늘 할 일의 수이고 색만 다르다(spec §4). */}
       <button
         type="button"
-        className={view === 'home' ? 'home-link nav-item nav-item-selected' : 'home-link nav-item'}
+        className={view === 'home' ? 'home-link inbox-link nav-item nav-item-selected inbox-link-selected' : 'home-link inbox-link nav-item'}
         aria-current={view === 'home' ? 'page' : undefined}
         onClick={onSelectHome}
         title={collapsed ? '홈' : undefined}

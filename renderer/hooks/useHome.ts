@@ -54,7 +54,10 @@ export function useHome(active: boolean) {
     return () => { for (const off of offs) off() }
   }, [active, client, refresh])
 
+  // 이슈(할 일)뿐 아니라 workspace·repo도 — 준비 단계 ①·②와 workspace 카드가 그것으로 바뀐다. 홈에 남은 채 사이드바 폼으로 만든다.
   useItemChanged(active ? null : undefined, 'issue', refresh)
+  useItemChanged(active ? null : undefined, 'workspace', refresh)
+  useItemChanged(active ? null : undefined, 'repo', refresh)
 
   const hasRunning = (summary?.running.length ?? 0) > 0
   useEffect(() => {

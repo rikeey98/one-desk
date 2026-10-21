@@ -290,3 +290,12 @@ describe.skipIf(POSIX_ONLY)('fake-claude.mjs — ONE_DESK_FAKE_SCRIPT=home (docs
     expect(status).toBe(0)
   })
 })
+
+describe.skipIf(POSIX_ONLY)('fake-claude.mjs — auth status (docs/sdlc/home/ plan 개정 6)', () => {
+  it('ONE_DESK_FAKE_AUTH=ok일 때만 로그인된 JSON을 낸다 — 기본은 init을 찍어 "인증 확인 불가"가 된다(agent-setup.e2e)', () => {
+    const ok = execFileSync(FAKE, ['auth', 'status', '--json'], { input: '', encoding: 'utf8', env: { ...process.env, ONE_DESK_FAKE_AUTH: 'ok' } })
+    expect(JSON.parse(ok.trim())).toMatchObject({ loggedIn: true })
+    const def = execFileSync(FAKE, ['auth', 'status', '--json'], { input: '', encoding: 'utf8' })
+    expect(JSON.parse(def.split('\n')[0]!)).toMatchObject({ type: 'system', subtype: 'init' })
+  })
+})

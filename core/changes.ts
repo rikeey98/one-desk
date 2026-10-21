@@ -163,6 +163,12 @@ export function notifyingRepos(repo: RepoRepository, notify: Notify): RepoReposi
 export function notifyingWorkspaces(repo: WorkspaceRepository, notify: Notify): WorkspaceRepository {
   return {
     ...repo,
+    // 만들기도 알린다 — 홈의 준비 단계 ①이 사이드바 폼으로 만든 workspace를 홈에 남은 채 알아야 한다(docs/sdlc/home/ FR-16). repo의 create와 같다
+    create(input) {
+      const created = repo.create(input)
+      notify({ workspaceId: created.id, kind: 'workspace' })
+      return created
+    },
     rename(id, name) {
       const renamed = repo.rename(id, name)
       notify({ workspaceId: id, kind: 'workspace' })
