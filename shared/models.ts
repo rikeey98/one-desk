@@ -788,3 +788,135 @@ export interface ReportData {
   /** 요청한 순서. 없는 workspace는 빠진다 */
   workspaces: ReportWorkspace[]
 }
+
+// ---------------------------------------------------------------------------
+// 홈 (`docs/sdlc/home/` spec §3). 읽기 전용 요약 — IPC에만 열리고 MCP에는 넘기지 않는다(FR-1).
+// ---------------------------------------------------------------------------
+
+/** 돌고 있는 턴 — 대화마다 하나(`conversation.active`와 같은 판정) */
+export interface HomeRunning {
+  workspaceId: string
+  workspaceName: string
+  /** 뿌리 cwd와 같은 등록 repo(`repoOfCwd`) — 없으면 null */
+  repoId: string | null
+  repoName: string | null
+  conversationId: string
+  runId: string
+  title: string
+  /** 이 대화의 턴 수(시작하지 못하고 취소된 턴 포함) */
+  turns: number
+  startedAt: number | null
+  /** core 메모리의 스냅샷(§6-1) — 앱을 다시 켰으면 null */
+  currentTool: string | null
+  lastText: string | null
+}
+
+/** 오늘 할 일 한 줄 — 종류는 넷이고 순서는 FR-3 */
+export type HomeTodo =
+  | {
+      kind: 'needs-answer' | 'failed' | 'interrupted'
+      workspaceId: string
+      workspaceName: string
+      repoId: string | null
+      repoName: string | null
+      conversationId: string
+      /** 대표 턴(인박스와 같은 턴) */
+      runId: string
+      title: string
+      /** 답변 필요면 질문(resultText 앞 160자), 실패·중단이면 실패 이유. 없으면 null */
+      detail: string | null
+      /** 대표 턴이 끝난 때 */
+      at: number | null
+    }
+  | {
+      kind: 'untriaged' | 'stale'
+      workspaceId: string
+      workspaceName: string
+      count: number
+      /** 앞 세 제목 */
+      titles: string[]
+    }
+
+export interface HomeTimelineBar {
+  conversationId: string
+  title: string
+  /** 오늘로 클립한 `[from, to]` — `to`는 도는 중이면 `now` */
+  from: number
+  to: number
+  status: RunStatus
+  needsAnswer: boolean
+}
+
+export interface HomeTimelineRow {
+  workspaceId: string
+  name: string
+  bars: HomeTimelineBar[]
+}
+
+/** repo 줄의 상태 — 그 repo의 대화 중 가장 급한 것 (FR-6) */
+export type HomeRepoState = 'running' | 'needs-answer' | 'failed' | 'done' | 'none'
+
+export interface HomeRepo {
+  repoId: string
+  name: string
+  /** 새 대화 카드의 cwd와 WSL 규칙에 쓴다 (plan 개정 2) */
+  path: string
+  agentEnv: AgentEnv
+  /** 이 repo에 태그된 열린(done 아님) 이슈 수 */
+  open: number
+  /** 끝내지 않은 대화 수 */
+  conversations: number
+  state: HomeRepoState
+}
+
+export interface HomeWorkspace {
+  workspaceId: string
+  name: string
+  /** `open` 상태 이슈 */
+  open: number
+  /** `doing` 상태 이슈 */
+  doing: number
+  /** 오늘 done이 된 이슈 (`closedAt >= dayStart`) */
+  doneToday: number
+  untriaged: number
+  repos: HomeRepo[]
+}
+
+export interface HomeDoneIssue {
+  workspaceId: string
+  workspaceName: string
+  issueId: string
+  title: string
+  closedAt: number
+}
+
+/** 준비 단계 — core가 아는 셋. CLI 칸과 `done`은 렌더러가 합친다(plan 개정 8) */
+export interface HomeSetup {
+  workspace: boolean
+  repo: boolean
+  firstRun: boolean
+}
+
+export interface HomeSummary {
+  running: HomeRunning[]
+  /** pending 턴 수(예약 + 슬롯 대기) */
+  queued: number
+  slots: { used: number; limit: number }
+  todos: HomeTodo[]
+  timeline: HomeTimelineRow[]
+  workspaces: HomeWorkspace[]
+  doneToday: HomeDoneIssue[]
+  setup: HomeSetup
+}
+
+export interface HomeSummaryInput {
+  now: number
+  /** 이 장비의 로컬 자정 — 렌더러가 넘긴다. core는 시간대를 모른다(FR-5) */
+  dayStart: number
+}
+
+/** 새 대화 카드의 대상 — `app_setting`의 `home.lastTarget` (FR-7) */
+export interface HomeTarget {
+  workspaceId: string
+  repoId: string
+}
