@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import type { Database } from '../open'
 import { appSetting } from '../schema'
-import type { AgentPaths } from '@shared/models'
+import type { AgentPaths, HomeTarget } from '@shared/models'
 
 /** 동시 실행 상한을 담는 키 */
 export const CONCURRENCY_LIMIT_KEY = 'run.concurrencyLimit'
@@ -31,6 +31,9 @@ export const DEFAULT_WSL_GLOBAL_ROOTS = ['~/.claude/skills']
 
 /** 코드 칸 터미널의 셸 경로를 담는 키 (docs/sdlc/code-editor/terminal-spec.md FR-11) */
 export const TERMINAL_SHELL_KEY = 'terminal.shell'
+
+/** 홈의 새 대화 카드가 마지막으로 보낸 workspace · repo — JSON `{"workspaceId","repoId"}` (docs/sdlc/home/ FR-7) */
+export const HOME_LAST_TARGET_KEY = 'home.lastTarget'
 
 /** agent 종류별 글로벌 asset 경로 */
 export interface GlobalRoots {
@@ -169,6 +172,31 @@ export function createSettingRepository(db: Database, homeDir: string) {
       db.insert(appSetting).values({ key: TERMINAL_SHELL_KEY, value })
         .onConflictDoUpdate({ target: appSetting.key, set: { value } }).run()
       return this.terminalShell()
+    },
+
+    /**
+     * 홈의 새 대화 카드 대상 (home FR-7). 저장값이 깨졌거나 모양이 다르면 null — 던지지 않는다(홈이 폴백한다).
+     * 지워진 workspace·repo인지는 core가 본다(저장소는 다른 표를 모른다).
+     */
+    homeLastTarget(): HomeTarget | null {
+      const raw = readPath(HOME_LAST_TARGET_KEY)
+      if (raw === null) return null
+      try {
+        const parsed: unknown = JSON.parse(raw)
+        if (typeof parsed !== 'object' || parsed === null) return null
+        const { workspaceId, repoId } = parsed as Record<string, unknown>
+        if (typeof workspaceId !== 'string' || typeof repoId !== 'string' || !workspaceId || !repoId) return null
+        return { workspaceId, repoId }
+      } catch {
+        return null
+      }
+    },
+
+    setHomeLastTarget(target: HomeTarget): HomeTarget {
+      const value = JSON.stringify({ workspaceId: target.workspaceId, repoId: target.repoId })
+      db.insert(appSetting).values({ key: HOME_LAST_TARGET_KEY, value })
+        .onConflictDoUpdate({ target: appSetting.key, set: { value } }).run()
+      return { workspaceId: target.workspaceId, repoId: target.repoId }
     }
   }
 }

@@ -19,7 +19,7 @@ import { describeCommands } from './commands/describe'
 import type { GlobalRoots } from './db/repositories/setting'
 import type {
   UpdateRepoInput, AppPaths, FileSearchInput, BuildReportInput, ReportData, FileTreeInput, FileRef, FileSaveInput
-, AgentEnv, WslDistros } from '@shared/models'
+, AgentEnv, WslDistros, HomeSummary, HomeSummaryInput, HomeTarget } from '@shared/models'
 import { PANEL_KINDS, type PanelScope } from '@shared/panelWindow'
 import { createFileService } from './files/service'
 import { createTerminalService, type SpawnPty } from './terminal/service'
@@ -28,6 +28,8 @@ import { findExecutable } from './runner/executable'
 import { appLoaderEnv, userProcessEnv } from './runner/userEnv'
 import { taskkillTree, taskkillTreeSync } from './runner/terminate'
 import { buildReport } from './reports/build'
+import { buildHomeSummary, homeCount, type HomeSources } from './home/summary'
+import { applyRunEvent, dropRun, type LiveMap } from './home/live'
 import { createIssueRepository } from './db/repositories/issue'
 import { createMemoRepository } from './db/repositories/memo'
 import { createRunRepository } from './db/repositories/run'
@@ -379,10 +381,15 @@ export function createCore(opts: CoreOptions) {
   })
 
   let planUsage: PlanUsage | null = null
+  // 돌고 있는 턴의 지금 도는 도구·마지막 텍스트 — 홈이 묻는다(docs/sdlc/home/ §6-1). **메모리뿐이다** — planUsage와 같은 모양.
+  const live: LiveMap = new Map()
   const manager = createRunManager({
     adapters,
     logDir,
-    onEvent: (event) => emitter.emit(RUN_EVENT, event),
+    onEvent: (event) => {
+      applyRunEvent(live, event)
+      emitter.emit(RUN_EVENT, event)
+    },
     onError,
     // 계정의 것이라 run이 아니라 앱에 매단다. **메모리의 마지막 값 하나뿐이다** — 저장하지 않는다
     // (docs/sdlc/plan-usage/ FR-1). 여러 run이 동시에 돌면 마지막으로 온 것이 이긴다(FR-6).
@@ -457,6 +464,8 @@ export function createCore(opts: CoreOptions) {
       // 끝난 run이면 그 workspace를 다시 훑는다. agent가 실행 중에 만든 skill 파일이
       // 새로고침 없이 목록에 뜬다. 확인함/보관 같은 후속 갱신으로는 돌지 않는다.
       if (run.endedAt !== null) {
+        // 결과 없이 죽은 run(실패·취소)의 스냅샷도 여기서 지운다 — result 이벤트는 성공한 run만 낸다
+        dropRun(live, run.id)
         void assetService.scanWorkspace(run.workspaceId)
           .catch((err: unknown) => onError('run 후 asset 재스캔 실패', err))
       }
@@ -470,6 +479,19 @@ export function createCore(opts: CoreOptions) {
    */
   function emitInbox(): void {
     emitter.emit(INBOX_UPDATE, runs.inboxCounts())
+  }
+
+  /** 홈 요약의 소스 — `reports.build`와 같은 묶음에 인박스·스냅샷·큐를 더한 것 */
+  function homeSources(): HomeSources {
+    return {
+      workspaces: () => workspaces.list(),
+      repos: (workspaceId) => repos.list(workspaceId),
+      issues: (workspaceId) => issues.list({ workspaceId }),
+      runs: (workspaceId) => runs.list(workspaceId),
+      inbox: () => runs.inbox(),
+      live: (runId) => live.get(runId) ?? null,
+      queue: () => queue.snapshot()
+    }
   }
 
   // MCP 서버를 부팅과 함께 띄운다. **await하지 않는다** — 포트 하나 때문에
@@ -752,6 +774,25 @@ export function createCore(opts: CoreOptions) {
         memos: (workspaceId) => memos.list({ workspaceId }),
         runs: (workspaceId) => runs.list(workspaceId)
       }, input)
+    },
+
+    /**
+     * 홈 요약 (`docs/sdlc/home/` FR-1·FR-7·FR-17). workspace를 넘어 읽는 둘째 길이고 `reports`와 같은 규칙이다 —
+     * MCP `deps`에는 넘기지 않는다. 판정은 `core/home/summary.ts`의 순수 함수고 여기서는 소스만 잇는다.
+     */
+    home: {
+      summary: (input: HomeSummaryInput): HomeSummary => buildHomeSummary(homeSources(), input),
+      count: (input: Pick<HomeSummaryInput, 'now'>): number => homeCount(homeSources(), input),
+      /** 저장값의 workspace·repo가 지금 있을 때만 — 지워졌으면 null이고 화면이 폴백한다(FR-7) */
+      lastTarget(): HomeTarget | null {
+        const saved = settings.homeLastTarget()
+        if (!saved) return null
+        if (!workspaces.list().some((w) => w.id === saved.workspaceId)) return null
+        if (!repos.list(saved.workspaceId).some((r) => r.id === saved.repoId)) return null
+        return saved
+      },
+      /** 렌더러가 전송에 성공했을 때만 부른다 — 자동 재시도·MCP가 만든 run은 "마지막으로 보낸 곳"이 아니다(FR-7) */
+      setLastTarget: (target: HomeTarget): HomeTarget => settings.setHomeLastTarget(target)
     },
 
     /** 테스트용. MCP 서버가 아직 안 떴으면 null. */

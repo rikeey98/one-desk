@@ -1579,3 +1579,56 @@ describe('core.terminal (docs/sdlc/code-editor/terminal-spec.md)', () => {
     expect((await core.settings.setTerminalShell('')).path).toBeNull()
   })
 })
+
+describe('홈 배선 (docs/sdlc/home/)', () => {
+  it('core.home.summary가 실제 DB에서 workspace 둘을 넘어 모으고, count는 todos.length와 같다', () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const a = core.workspaces.create({ name: '회사' }).id
+    const b = core.workspaces.create({ name: '개인' }).id
+    core.issues.create({ workspaceId: a, title: '정리 안 된 이슈' }) // triagedAt null → 정리 안 됨
+    const seeded = seedRun(core, dataDir, '어느 브랜치로 할까요?')
+    core.runs.markFinished(seeded.id, {
+      status: 'succeeded', resultText: '[NEEDS_ANSWER] 어느 브랜치?', externalSessionId: null, needsAnswer: true, exitCode: 0,
+      errorMessage: null, usage: null
+    })
+    const now = Date.now()
+    const summary = core.home.summary({ now, dayStart: now - 60 * 60 * 1000 })
+
+    expect(summary.workspaces.map((w) => w.name).sort()).toEqual(['개인', '회사', 'ws'])
+    expect(summary.todos.map((t) => t.kind)).toEqual(['needs-answer', 'untriaged'])
+    expect(summary.todos[0]).toMatchObject({ workspaceName: 'ws', conversationId: seeded.id, title: '어느 브랜치로 할까요?' })
+    expect(summary.setup).toEqual({ workspace: true, repo: false, firstRun: true })
+    expect(summary.timeline.find((r) => r.workspaceId === seeded.workspaceId)?.bars.map((x) => x.conversationId)).toEqual([seeded.id])
+    expect(core.home.count({ now })).toBe(summary.todos.length)
+    expect(b).toBeTruthy()
+    close(core)
+  })
+
+  it('lastTarget은 저장값의 workspace·repo가 지금 있을 때만 돌려준다 — 지워졌으면 null', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    const repoPath = join(dataDir, 'api')
+    mkdirSync(repoPath, { recursive: true })
+    const repoId = (await core.repos.create({ workspaceId, name: 'api', path: repoPath })).id
+
+    expect(core.home.lastTarget()).toBeNull()
+    expect(core.home.setLastTarget({ workspaceId, repoId })).toEqual({ workspaceId, repoId })
+    expect(core.home.lastTarget()).toEqual({ workspaceId, repoId })
+
+    core.repos.remove(repoId)
+    expect(core.home.lastTarget()).toBeNull()
+    core.home.setLastTarget({ workspaceId: 'gone', repoId })
+    expect(core.home.lastTarget()).toBeNull()
+    close(core)
+  })
+
+  it('홈은 MCP deps에 없다 — agent는 토큰의 workspace만 본다 (FR-1, 전체 설계 §8)', () => {
+    // reports와 같은 규칙이다. 실행 중에 잡을 수 없어 소스로 본다(core/app/titleBar.test가 CSS를 읽는 것과 같다).
+    const source = readFileSync(resolve(__dirname, 'index.ts'), 'utf8')
+    const deps = source.match(/createMcpHost\(\{\s*deps: \{([^}]*)\}/)
+    expect(deps).not.toBeNull()
+    expect(deps![1]).not.toMatch(/home|reports|buildHomeSummary/)
+  })
+})

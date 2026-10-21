@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm'
 import { appSetting } from '../schema'
 import {
   createSettingRepository, CONCURRENCY_LIMIT_KEY, DEFAULT_CONCURRENCY_LIMIT,
-  GLOBAL_ROOTS_CLAUDE_KEY, GLOBAL_ROOTS_OPENCODE_KEY
+  GLOBAL_ROOTS_CLAUDE_KEY, GLOBAL_ROOTS_OPENCODE_KEY, HOME_LAST_TARGET_KEY
 } from './setting'
 import type { Database } from '../open'
 
@@ -177,5 +177,42 @@ describe('SettingRepository — 터미널 셸 (docs/sdlc/code-editor/terminal-sp
     expect(settings4.setTerminalShell('   ')).toBeNull()
     settings4.setTerminalShell('/bin/zsh')
     expect(settings4.setTerminalShell(null)).toBeNull()
+  })
+})
+
+describe('SettingRepository — 홈의 마지막 대상 (docs/sdlc/home/ FR-7)', () => {
+  let db5: Database
+  let settings5: ReturnType<typeof createSettingRepository>
+
+  beforeEach(() => {
+    db5 = makeTestDb()
+    settings5 = createSettingRepository(db5, HOME)
+  })
+
+  function pokeTarget(value: string) {
+    db5.insert(appSetting).values({ key: HOME_LAST_TARGET_KEY, value })
+      .onConflictDoUpdate({ target: appSetting.key, set: { value } }).run()
+  }
+
+  it('저장된 값이 없으면 null이다', () => {
+    expect(settings5.homeLastTarget()).toBeNull()
+  })
+
+  it('저장하면 그 값을 읽고 새 저장소에서도 읽힌다 — 두 필드만 남긴다', () => {
+    expect(settings5.setHomeLastTarget({ workspaceId: 'w', repoId: 'r' })).toEqual({ workspaceId: 'w', repoId: 'r' })
+    expect(createSettingRepository(db5, HOME).homeLastTarget()).toEqual({ workspaceId: 'w', repoId: 'r' })
+    settings5.setHomeLastTarget({ workspaceId: 'w2', repoId: 'r2' })
+    expect(db5.select().from(appSetting).where(eq(appSetting.key, HOME_LAST_TARGET_KEY)).all()).toHaveLength(1)
+  })
+
+  it('깨진 값은 null이다 — 던지지 않는다 (홈이 폴백한다)', () => {
+    pokeTarget('{not json')
+    expect(settings5.homeLastTarget()).toBeNull()
+    pokeTarget('"string"')
+    expect(settings5.homeLastTarget()).toBeNull()
+    pokeTarget('{"workspaceId":"w"}')
+    expect(settings5.homeLastTarget()).toBeNull()
+    pokeTarget('{"workspaceId":"","repoId":"r"}')
+    expect(settings5.homeLastTarget()).toBeNull()
   })
 })

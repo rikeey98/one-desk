@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { OneDeskClient, Unsubscribe } from '@shared/client'
-import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult, ReportData, FileTreeResult, FileOpenResult, FileSaveResult, FileProbeResult, TerminalSession, TerminalData, TerminalExit, TerminalShellSetting, WslDistros } from '@shared/models'
+import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult, ReportData, HomeSummary, HomeTarget, FileTreeResult, FileOpenResult, FileSaveResult, FileProbeResult, TerminalSession, TerminalData, TerminalExit, TerminalShellSetting, WslDistros } from '@shared/models'
 import type { RunEvent } from '@shared/events'
 
 /**
@@ -60,6 +60,12 @@ const client: OneDeskClient = {
   },
   reports: {
     build: (input) => call<ReportData>(CHANNELS.reportsBuild, input)
+  },
+  home: {
+    summary: (input) => call<HomeSummary>(CHANNELS.homeSummary, input),
+    count: (input) => call<number>(CHANNELS.homeCount, input),
+    lastTarget: () => call<HomeTarget | null>(CHANNELS.homeLastTarget),
+    setLastTarget: (target) => call<HomeTarget>(CHANNELS.homeSetLastTarget, target)
   },
   assets: {
     list: (query) => call<Asset[]>(CHANNELS.assetsList, query),

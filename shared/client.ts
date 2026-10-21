@@ -5,7 +5,7 @@ import type {
   GuardedUpdateIssueInput, IssueUpdateResult,
   CreateMemoInput, UpdateMemoInput,
   GuardedUpdateMemoInput, MemoUpdateResult,
-  ListQuery, StartRunInput, QueueSnapshot, BuildReportInput, ReportData,
+  ListQuery, StartRunInput, QueueSnapshot, BuildReportInput, ReportData, HomeSummary, HomeSummaryInput, HomeTarget,
   UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses, AgentProbes,
   InboxCounts,
   McpStatus, PlanUsage, ResumeRunInput, ItemChange,
@@ -108,6 +108,19 @@ export interface OneDeskClient {
      * 화면만 이 길을 탄다. 읽기만 한다.
      */
     build(input: BuildReportInput): Promise<ReportData>
+  }
+  home: {
+    /**
+     * 홈 요약 (`docs/sdlc/home/` FR-1). workspace를 넘어 읽는다 — 리포트와 같은 규칙이다(MCP에는 없다). `dayStart`는
+     * 이 장비의 로컬 자정으로 렌더러가 넘긴다(FR-5).
+     */
+    summary(input: HomeSummaryInput): Promise<HomeSummary>
+    /** 홈 배지 — `summary().todos.length`와 같은 수를 요약 전체 없이 센다(FR-17) */
+    count(input: Pick<HomeSummaryInput, 'now'>): Promise<number>
+    /** 새 대화 카드의 대상. 저장값의 workspace·repo가 지워졌으면 null(FR-7) */
+    lastTarget(): Promise<HomeTarget | null>
+    /** 전송에 성공했을 때만 부른다(FR-7) */
+    setLastTarget(target: HomeTarget): Promise<HomeTarget>
   }
   assets: {
     list(query: ListAssetQuery): Promise<Asset[]>
