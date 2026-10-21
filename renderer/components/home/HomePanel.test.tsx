@@ -94,12 +94,12 @@ describe('HomeBody — 돌고 있는 것 (FR-10)', () => {
 })
 
 describe('HomeBody — 작은 창 (FR-13)', () => {
-  it('1280px 아래에서는 타임라인을 그리지 않는다', () => {
+  it('창 폭 1280px(.home 1040px) 아래에서는 타임라인을 그리지 않는다', () => {
     const summary = summaryOf({ timeline: [{ workspaceId: 'a', name: 'a', bars: [] }] })
-    const { unmount } = render(<HomeBody summary={summary} lastTarget={null} workspaces={[ws('a')]} now={NOW} width={1279} actions={actions()} />)
+    const { unmount } = render(<HomeBody summary={summary} lastTarget={null} workspaces={[ws('a')]} now={NOW} width={1039} actions={actions()} />)
     expect(screen.queryByRole('heading', { name: '오늘 타임라인' })).not.toBeInTheDocument()
     unmount()
-    render(<HomeBody summary={summary} lastTarget={null} workspaces={[ws('a')]} now={NOW} width={1280} actions={actions()} />)
+    render(<HomeBody summary={summary} lastTarget={null} workspaces={[ws('a')]} now={NOW} width={1040} actions={actions()} />)
     expect(screen.getByRole('heading', { name: '오늘 타임라인' })).toBeInTheDocument()
   })
 })

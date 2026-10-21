@@ -371,8 +371,22 @@ function runHome() {
       finish(1)
       return
     }
+    if (prompt.includes('[오래]')) {
+      // 오래 도는 턴 — 홈의 "돌고 있는 것" 카드를 볼 창. 10분 뒤에야 끝난다(앱 종료가 트리째 끝낸다)
+      emit({ type: 'assistant', message: { content: [{ type: 'text', text: '테스트를 돌리는 중' }] } })
+      setTimeout(() => {
+        emit({ type: 'result', subtype: 'success', is_error: false, result: '끝남', session_id: 'fake-session' })
+        finish(0)
+      }, 600_000)
+      return
+    }
+    // 그 밖은 기본 시나리오와 같다 — ONE_DESK_FAKE_DELAY_MS도 같은 뜻이다(홈의 "돌고 있는 것"을 볼 창)
+    const parsedDelay = Number(process.env.ONE_DESK_FAKE_DELAY_MS ?? 0)
+    const delayMs = Number.isFinite(parsedDelay) ? parsedDelay : 0
     emit({ type: 'assistant', message: { content: [{ type: 'text', text: '작업 중' }] } })
-    emit({ type: 'result', subtype: 'success', is_error: false, result: '끝남', session_id: 'fake-session' })
-    finish(0)
+    setTimeout(() => {
+      emit({ type: 'result', subtype: 'success', is_error: false, result: '끝남', session_id: 'fake-session' })
+      finish(0)
+    }, delayMs)
   })
 }

@@ -1,7 +1,7 @@
 # Plan: 앱을 열면 "오늘 할 일"이 보이는 홈
 
 - 출처: `spec.md` (초안 — 승인 대기)
-- 상태: 승인 — 구현 중 (2026-10-21, 사용자 "승인하고 구현 시작해줘" — §0의 개정 여덟은 spec에 반영했다)
+- 상태: 구현 완료 (2026-10-21) — 승인: 사용자 "승인하고 구현 시작해줘". §0의 개정 여덟은 spec에 반영했고, 완료 증명은 맨 아래
 
 ## 0. 코드를 읽고 spec에서 고쳐야 하는 것 (승인 필요 — 승인되면 spec에 반영한다)
 
@@ -171,3 +171,32 @@ spec을 쓸 때 가정한 자리 몇이 코드와 달랐다. 설계 결정을 �
    `clientWidth`를 기준으로 하고, 캡처(17단계)에서 1279·1280을 본다.
 7. **`Ctrl+Shift+H`가 입력칸 안에서도 듣는다** — 다른 전역 단축키(Ctrl+N 등)와 같은 규칙이다(수정키 없는 `?`만 글 받는 자리에서 안 듣는다).
    CodeMirror의 바꾸기는 `Ctrl+H`라 겹치지 않는다.
+
+## 완료 증명 (2026-10-21)
+
+커밋 `985e478`(1·2단계) → `b080d40`(probe 가드)까지 열넷, 전부 `main`. 순서는 plan 그대로 0 → 18이었고 변이 러너(임시 스크립트)가 변이 표를
+돌렸다.
+
+- **기준선(0단계)** — typecheck·lint 초록, 단위 168 파일 3,020 테스트, e2e 30 파일 61 테스트(3 파일 skip) 212초.
+- **끝** — 단위 **180 파일 3,112 테스트**(+12 파일, +92), typecheck·lint 초록. e2e **34 파일**(홈 1 추가): 전체 돌리기에서 넷이 빨갰고(아래) 고친 뒤
+  그 다섯 파일을 다시 돌려 전부 초록, 홈 e2e 2 테스트 초록.
+- **NFR-1** — `summary.test`의 합성 데이터(workspace 3 · 이슈 300 · run 2,000)로 요약 한 번과 count가 둘 다 테스트 한 건 14ms 안에 든다(상한은
+  150ms·75ms로 넉넉히 두었다 — CI 러너 흔들림).
+- **변이** — 표의 19개 중 **18개 KILLED, 1개 SURVIVED → 고침**: `summary.ts`의 배지 판정(`INBOX_RULES.badge` → 늘 참)이 살아남았다 —
+  `todos`의 타입 좁히기 `if (cat !== …) return []`가 같은 판정을 한 번 더 하고 있어서였다. `badgeKindOf` 한 자리로 접고 좁히기를 지운 뒤
+  다시 돌려 KILLED. App 배선 여덟(onSelectHome · homeCount · onTriage · 첫 view · setLastTarget · focusReply · startTriage · Ctrl+Shift+H)은
+  전부 KILLED.
+- **전체 e2e에서 빨갰던 넷과 원인** — (1) `smoke`: 첫 화면이 홈이라 "왼쪽에서 workspace를 선택하세요"가 없다 → 준비 단계 제목으로 고쳤다.
+  (2·3·4) `agent-setup`·`mention`·`slash`: **workspace를 만든 직후 홈에 남아 있는 사이에 뜬 CLI probe**가 그 뒤 workspace 화면에서 돌린
+  run의 가짜 CLI 캡처 파일(`ONE_DESK_ARGS_CAPTURE`·`PROMPT_CAPTURE`)을 늦게 덮었다(plan 위험 2가 예견한 그 모양). probe를 **①·②가
+  끝난 뒤**(repo까지 등록)로 가뒀다 — FR-15에 적었다.
+- **홈 e2e를 통과시키며 고친 것** — `notifyingWorkspaces`가 `create`를 알리지 않아 홈에 남은 채 만든 workspace를 준비 단계 ①이 몰랐다(repo의
+  create는 알렸다 — 비대칭을 고쳤다). 가짜 CLI의 `home` 스크립트는 **조립된 프롬프트**를 받으므로 표식을 `startsWith`가 아니라 `includes`로
+  본다. main의 evaluate에서 `require('better-sqlite3')`는 이름으로는 못 찾아 e2e 프로세스가 푼 절대 경로를 넘긴다. 사이드바 `홈` 버튼은
+  `.inbox-link`를 같이 달아야 줄 모양이 된다. `/^홈/`은 `홈-회사` 같은 workspace 버튼까지 잡는다 — e2e는 `button.home-link`다.
+- **캡처(17단계)로 고친 것** — 1440×900이 한 열로 나왔다: 컨테이너 쿼리 1280px은 `.home`의 폭(창 − 사이드바 236 − 여백 ≈ 1180)에 못 미쳤다.
+  경계를 **`.home` 1040px(= 창 1280)**로 옮겼다(`HOME_WIDE_PX`·CSS·spec FR-13). 준비 단계의 버튼이 세로 flex 안에서 가로로 늘어나
+  `align-self: flex-start`를 두었다. 캡처: `e2e/artifacts/home-{setup-empty,setup-three,1440x900,1100x760}-{light,dark}.png`.
+- **spec에서 더 좁힌 것** — FR-15의 probe 시점(위). intent §5의 "CLI 상태 한 줄"은 준비 단계에서만 그린다 — 넷이 끝난 홈에서는 묻지
+  않는다(probe를 run의 캡처와 겹치지 않게 두는 같은 이유). 필요하면 설정 실행 탭이 그 줄이다.
+- **남은 것** — 임시 캡처 e2e(`e2e/zz-home-capture.e2e.ts`)는 지웠다. 가짜 CLI의 `[오래]` 표식(10분 도는 턴)은 캡처용으로 남겼다.

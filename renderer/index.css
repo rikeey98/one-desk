@@ -1449,14 +1449,14 @@ button.report-flow-line:hover { background: var(--bg-muted); }
 
 
 /* ───────── docs/sdlc/home/ ───────── */
-/* 홈 — 한 열이 기본, 1280px 이상에서만 둘·셋 열(FR-13). 컨테이너 쿼리의 기준은 `.home`의 폭이고 타임라인을 그리지 않는 판정도
+/* 홈 — 한 열이 기본, 창 폭 1280px(.home 1040px) 이상에서만 둘·셋 열(FR-13). 컨테이너 쿼리의 기준은 `.home`의 폭이고 타임라인을 그리지 않는 판정도
    같은 수(`HOME_WIDE_PX`)다. 새 색 없음 — 전부 토큰. */
 .home { container-type: inline-size; flex: 1; min-width: 0; overflow-y: auto; padding: 16px 20px 24px; display: flex; flex-direction: column; gap: 14px; }
 .home-body { display: flex; flex-direction: column; gap: 14px; }
 .home-top { display: grid; grid-template-columns: 1fr; gap: 14px; }
-@container (min-width: 1280px) {
+/* 창 폭 1280px ≈ .home 1040px(사이드바 236 + 여백) — 1440×900에서 둘·셋 열이어야 한다(시안 E1) */
+@container (min-width: 1040px) {
   .home-top { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
-  .home-ws-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 .home-card { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); box-shadow: var(--shadow-panel); padding: 12px 14px; min-width: 0; }
 .home-card-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
@@ -1489,7 +1489,9 @@ button.report-flow-line:hover { background: var(--bg-muted); }
 /* 타임라인 (spec §4 — 줄 28px, 막대 16px, 2시간 눈금, 지금은 danger 2px) */
 .home-tl { position: relative; display: flex; flex-direction: column; gap: 2px; padding-top: 18px; }
 .home-tl-ticks { position: absolute; top: 0; left: 96px; right: 0; height: 16px; font-size: .625rem; color: var(--text-muted); }
-.home-tl-ticks span { position: absolute; transform: translateX(-50%); }
+.home-tl-ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.home-tl-ticks span:first-child { transform: none; }
+.home-tl-ticks span:last-child { transform: translateX(-100%); }
 .home-tl-row { display: flex; align-items: center; height: 28px; gap: 8px; }
 .home-tl-name { flex: 0 0 88px; font-size: .75rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-tl-track { position: relative; flex: 1; height: 16px; border-radius: 4px; background: var(--bg-muted); overflow: hidden; }
@@ -1503,6 +1505,8 @@ button.report-flow-line:hover { background: var(--bg-muted); }
 .home-tl-now { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--danger); }
 /* workspace 카드 */
 .home-ws-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr; gap: 10px; }
+/* 셋 열은 JS가 잰 같은 경계(.home-body-wide, HOME_WIDE_PX)다 — 기본 규칙 뒤에 두어야 이긴다 */
+.home-body-wide .home-ws-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .home-ws-card { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-panel); color: var(--text); cursor: pointer; font: inherit; transition: border-color .12s, background .12s; }
 .home-ws-card:hover { border-color: var(--accent-border); background: var(--bg); }
 .home-ws-name { font-size: .875rem; font-weight: 700; }
@@ -1543,6 +1547,7 @@ button.report-flow-line:hover { background: var(--bg-muted); }
 .home-step-body p { margin: 0; font-size: .75rem; color: var(--text-secondary); }
 .home-step-done-label { font-size: .75rem; font-weight: 500; color: var(--text-muted); }
 .home-step-actions { display: flex; gap: 6px; }
+.home-step-body > button, .home-step-actions { align-self: flex-start; }
 .home-step .settings-status { margin: 4px 0; }
 .home-setup-aside h2 { margin: 0 0 8px; font-size: .875rem; }
 .home-setup-aside h3 { margin: 12px 0 6px; font-size: .75rem; color: var(--text-secondary); }

@@ -9,8 +9,8 @@ import { HomeWorkspaces } from './HomeWorkspaces'
 import { HomeComposer } from './HomeComposer'
 import { HomeSetup } from './HomeSetup'
 
-/** 이 폭부터 둘·셋 열이고 타임라인을 그린다 (FR-13). CSS 컨테이너 쿼리와 같은 수다 */
-export const HOME_WIDE_PX = 1280
+/** 이 .home 폭부터 둘·셋 열이고 타임라인을 그린다 (FR-13) — 창 폭 1280px(사이드바 236 + 여백)에 해당한다. CSS 컨테이너 쿼리와 같은 수다 */
+export const HOME_WIDE_PX = 1040
 
 /** 홈 줄의 행동 — 전부 App이 내리는 **필수** prop이다(FR-8, CLAUDE.md "배선도 검증 대상") */
 export interface HomeActions {
@@ -85,7 +85,7 @@ export function HomePanel({
   )
 }
 
-/** 본문 — 폭을 prop으로 받는다(테스트가 1280 아래를 본다). 1280px 아래에서는 타임라인을 그리지 않는다(FR-13) */
+/** 본문 — 폭을 prop으로 받는다(테스트가 경계 아래를 본다). 좁으면(창 1280px 아래) 타임라인을 그리지 않는다(FR-13) */
 export function HomeBody({
   summary, lastTarget, workspaces, now, width, actions
 }: {
