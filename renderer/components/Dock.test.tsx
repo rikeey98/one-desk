@@ -1788,15 +1788,17 @@ describe('코드 칸 (docs/sdlc/code-editor/ FR-1~FR-7·FR-23)', () => {
 
 // ── docs/sdlc/ux-polish/ ──
 
-describe('상세가 열려 있으면 도크가 하한이다 (docs/sdlc/ux-polish/ FR-1)', () => {
-  it('compact면 높이가 하한(280px)이고 끌기 손잡이가 없다 — 저장된 높이는 건드리지 않는다', () => {
-    const props: Parameters<typeof Dock>[0] = {
+describe('상세가 열려 있으면 도크가 하한에서 시작하되 끌 수 있다 (docs/sdlc/ux-polish/ FR-1, 2026-10-21 개정)', () => {
+  function compactProps(compact: boolean): Parameters<typeof Dock>[0] {
+    return {
       runs: [], error: null, workspaceId: 'w1', workspaces, repos, reposError: null,
       queue: { running: 0, limit: 3, waiting: 0 }, queueError: null, onChangeLimit: vi.fn(),
       chips: [], onRemoveChip: vi.fn(), onRunStarted: vi.fn(), draftPrompt: '', draftCwd: null, selectedRepoId: null, onClearRepoFilter: vi.fn(),
-      focusConversationId: null, onFocusConsumed: vi.fn(), focusReply: false, compact: true, toggleRequest: false, onToggleConsumed: () => {}
+      focusConversationId: null, onFocusConsumed: vi.fn(), focusReply: false, compact, toggleRequest: false, onToggleConsumed: () => {}
     }
-    const { rerender } = render(
+  }
+  function wrap(props: Parameters<typeof Dock>[0]) {
+    return (
       <ClientProvider client={makeClient()}>
         <RunEventProvider store={createRunEventStore()}>
           <DraftProvider store={createDraftStore()}>
@@ -1805,20 +1807,43 @@ describe('상세가 열려 있으면 도크가 하한이다 (docs/sdlc/ux-polish
         </RunEventProvider>
       </ClientProvider>
     )
-    const dock = () => document.querySelector<HTMLElement>('section.dock')!
+  }
+  function drag(fromY: number, toY: number) {
+    const handle = screen.getByRole('separator', { name: '대화창 크기 조절' })
+    handle.dispatchEvent(new MouseEvent('pointerdown', { clientY: fromY, bubbles: true }))
+    act(() => {
+      window.dispatchEvent(new MouseEvent('pointermove', { clientY: toY }))
+      window.dispatchEvent(new MouseEvent('pointerup'))
+    })
+  }
+  const dock = () => document.querySelector<HTMLElement>('section.dock')!
+
+  it('compact면 하한(280px)에서 시작하고 손잡이가 있다 — 끌면 커지되 저장된 높이는 건드리지 않는다', () => {
+    localStorage.setItem('one-desk.dockHeight', '400')
+    render(wrap(compactProps(true)))
     expect(dock().style.height).toBe('280px')
-    expect(document.querySelector('.dock-resizer')).toBeNull()
-    rerender(
-      <ClientProvider client={makeClient()}>
-        <RunEventProvider store={createRunEventStore()}>
-          <DraftProvider store={createDraftStore()}>
-            <Dock {...props} compact={false} />
-          </DraftProvider>
-        </RunEventProvider>
-      </ClientProvider>
-    )
-    expect(dock().style.height).not.toBe('280px')
-    expect(document.querySelector('.dock-resizer')).not.toBeNull()
+    drag(600, 500)
+    expect(dock().style.height).toBe('380px')
+    expect(localStorage.getItem('one-desk.dockHeight')).toBe('400')
+  })
+
+  it('상세를 닫으면 끌어 둔 보통 높이로 돌아오고, 다시 열면 하한에서 다시 시작한다', () => {
+    localStorage.setItem('one-desk.dockHeight', '400')
+    const { rerender } = render(wrap(compactProps(true)))
+    drag(600, 500)
+    expect(dock().style.height).toBe('380px')
+    rerender(wrap(compactProps(false)))
+    expect(dock().style.height).toBe('400px')
+    rerender(wrap(compactProps(true)))
+    expect(dock().style.height).toBe('280px')
+  })
+
+  it('compact에서 더블클릭은 하한으로 되돌린다', async () => {
+    render(wrap(compactProps(true)))
+    drag(600, 450)
+    expect(dock().style.height).toBe('430px')
+    await userEvent.dblClick(screen.getByRole('separator', { name: '대화창 크기 조절' }))
+    expect(dock().style.height).toBe('280px')
   })
 
   it('toggleRequest는 한 번 접고 치운다 — 헤더 토글과 같은 길이다', async () => {

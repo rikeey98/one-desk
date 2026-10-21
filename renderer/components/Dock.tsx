@@ -118,7 +118,16 @@ export function Dock({
   // 창 크기는 마운트 시점에만 읽는다 — 리사이즈 추적은 이 변경의 범위가 아니고,
   // 값은 아래 드래그에서 매번 지금 창 크기로 다시 클램프된다.
   const [height, setHeight] = useState(() => readDockHeight(window.innerHeight))
-  const drag = useRef<{ startY: number; startHeight: number } | null>(null)
+  // 상세가 열려 있는 동안의 높이 (ux-polish FR-1, 2026-10-21 개정). 열리면 하한에서 **시작**하되 끌 수 있다 — 저장하지 않고,
+  // 닫으면 끌어 둔 보통 높이(`height`)로 돌아온다. 처음엔 하한에 고정하고 손잡이를 없앴는데 상세를 보며 대화를 넓힐 수 없었다.
+  const [compactHeight, setCompactHeight] = useState(MIN_DOCK_PX)
+  const [wasCompact, setWasCompact] = useState(compact)
+  if (wasCompact !== compact) {
+    // 렌더 중에 맞춘다(workspace 전환과 같은 패턴) — 상세가 열릴 때마다 하한에서 다시 시작한다
+    setWasCompact(compact)
+    if (compact) setCompactHeight(MIN_DOCK_PX)
+  }
+  const drag = useRef<{ startY: number; startHeight: number; compact: boolean } | null>(null)
   // 코드 칸 (`docs/sdlc/code-editor/` FR-1~FR-7). 열린 종류와 폭은 이 장비에 남는다 — 인박스·설정에 다녀와
   // 도크가 다시 마운트돼도 열린 채다(FR-4). 칸 안의 연 파일·고친 글은 스토어가 쥔다(FR-20).
   const [paneKind, setPaneKind] = useState<PaneKind | null>(readPaneKind)
@@ -141,13 +150,16 @@ export function Dock({
     function onMove(e: PointerEvent) {
       const d = drag.current
       if (!d) return
-      // 위로 끌면(clientY 감소) 대화창이 커진다.
-      setHeight(clampDockHeight(d.startHeight + (d.startY - e.clientY), window.innerHeight))
+      // 위로 끌면(clientY 감소) 대화창이 커진다. 상세가 열린 동안의 끌기는 그동안의 높이만 바꾼다(저장하지 않는다).
+      const next = clampDockHeight(d.startHeight + (d.startY - e.clientY), window.innerHeight)
+      if (d.compact) setCompactHeight(next)
+      else setHeight(next)
     }
     function onUp() {
-      if (!drag.current) return
+      const d = drag.current
+      if (!d) return
       drag.current = null
-      setHeight((h) => { writeDockHeight(h); return h })
+      if (!d.compact) setHeight((h) => { writeDockHeight(h); return h })
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
@@ -198,6 +210,8 @@ export function Dock({
   }
 
   function resetHeight() {
+    // 상세가 열린 동안의 더블클릭은 하한으로 되돌린다 — 그 동안의 기본이 하한이다
+    if (compact) { setCompactHeight(MIN_DOCK_PX); return }
     const next = clampDockHeight(window.innerHeight * DEFAULT_DOCK_RATIO, window.innerHeight)
     setHeight(next)
     writeDockHeight(next)
@@ -486,8 +500,8 @@ export function Dock({
   }
 
   const isMax = open && maximized
-  // 상세가 열려 있으면 하한이다 — 끌어 둔 높이(`height`)는 남겨 두고 보이는 값만 바꾼다 (①).
-  const shownHeight = compact ? MIN_DOCK_PX : height
+  // 상세가 열려 있으면 그동안의 높이(하한에서 시작, 끌 수 있다)다 — 끌어 둔 보통 높이(`height`)는 남겨 둔다 (①, 2026-10-21 개정).
+  const shownHeight = compact ? compactHeight : height
   const shownConversation = view === 'new' ? null : selected
   // 보는 대화의 입력칸에 보낼 것이 있는가 — 대화 헤더의 `멈추기`는 그때만 선다(spec §8의 3, 결정
   // 2026-09-27). 입력칸이 비면 같은 자리의 전송 버튼이 이미 중지다. 키는 입력부의 초안 키와 같다.
@@ -548,8 +562,8 @@ export function Dock({
       {...(open && !isMax ? { style: { height: shownHeight } } : {})}
       onKeyDown={onKeyDown}
     >
-      {/* 접힌 도크는 헤더뿐이라, 최대화한 도크는 본문 전체라 조절할 것이 없다. */}
-      {open && !isMax && !compact && (
+      {/* 접힌 도크는 헤더뿐이라, 최대화한 도크는 본문 전체라 조절할 것이 없다. 상세가 열려 있어도 손잡이는 있다(2026-10-21 개정). */}
+      {open && !isMax && (
         <div
           role="separator"
           aria-label="대화창 크기 조절"
@@ -559,7 +573,7 @@ export function Dock({
             // preventDefault를 부르지 않는다 — 부르면 뒤따르는 click/dblclick이
             // 억제돼 더블클릭 초기화가 죽는다. 드래그 중 텍스트가 선택되는 것은
             // .dock-resizer의 user-select: none이 막는다.
-            drag.current = { startY: e.clientY, startHeight: height }
+            drag.current = { startY: e.clientY, startHeight: shownHeight, compact }
           }}
           onDoubleClick={resetHeight}
         />
