@@ -2,7 +2,8 @@
 
 - 출처: `intent.md`
 - 작성자: 권용현 (초안: Claude)
-- 상태: 초안 — 승인 대기 (2026-10-21)
+- 상태: 승인 (2026-10-21, 사용자 — "승인하고 구현 시작해줘"). plan §0의 개정 여덟을 같이 승인했고 아래에 반영돼 있다(각 자리에
+  "**plan 개정 N**"으로 표시).
 - 시안: https://claude.ai/artifact/ST6FQPHU8XPSKXTREZHPVN 셋째 줄 (E1 · E2 · E3)
 
 ## 0. intent의 미해결 질문에 대한 답
@@ -77,19 +78,26 @@
 - **FR-9** 줄마다 버튼 하나(실패·중단만 둘):
   | 종류 | 버튼 | 가는 곳 |
   |---|---|---|
-  | 답변 필요 | `답하기` | 그 workspace 화면, 도크의 그 대화(`focusConversationId`), 입력칸 포커스(대화록 "답하기"와 같다 — `focusNew`가 아니라 답 포커스. 지금 Transcript의 "답하기"가 쓰는 길을 App까지 올린다) |
+  | 답변 필요 | `답하기` | 그 workspace 화면, 도크의 그 대화(`focusConversationId`), 입력칸 포커스(대화록 "답하기"와 같다 — `focusNew`가 아니라 답 포커스. **plan 개정 3**: Dock의 필수 일회성 prop `focusReply`가 `focusConversationId`와 함께 서고 `onFocusConsumed`로 같이 치워지며, ConversationPanel이 FR-44의 `inputRef`에 포커스한다) |
   | 실패·중단 | `다시 보내기` · `대화 열기` | `runs.resume`(인박스의 "다시 실행"이 아니라 대화록의 "다시 보내기" — 같은 대화) / 대화 열기 |
   | 정리 안 됨 | `훑기` | 그 workspace 화면, repo 거름 없음, 이슈 패널이 **훑기를 시작한 상태**(`IssuePanel`의 새 일회성 prop `startTriage` + `onStartTriageConsumed` — ux-polish FR-9의 `focusAdd`와 같은 모양) |
-  | 오래 안 본 | `보기` | 그 workspace 화면, 이슈 패널 (묶기 축은 그대로, 상세 열지 않음) |
+  | 오래 안 본 | `방치 이슈 보기` | 그 workspace 화면, 이슈 패널 (묶기 축은 그대로, 상세 열지 않음) |
   **줄이 빠지는 때**는 요약을 다시 읽을 때다(FR-4의 두 이벤트) — 낙관적으로 미리 지우지 않는다(실패하면 거짓이 된다).
 - **FR-10** 돌고 있는 것: 대화마다 제목 · workspace · repo · 턴 수 · 경과 · 지금 도는 도구 · 마지막 텍스트 한 줄. `대화 열기`·`멈추기`
   (멈추기는 `conversation.active`의 running 턴 — 도크의 세 멈추기와 같은 턴, 예약은 건드리지 않는다). 경과·도구·텍스트는 **홈이
   run 이벤트 스토어를 보지 않고** 요약의 스냅샷(`startedAt`·마지막 이벤트의 도구 이름·`resultText` 대신 마지막 text — manager가
-  `runs.list`에 주는 값은 없다, §6의 1)으로만 그린다. 비어 있으면 한 줄 "돌고 있는 대화 없음".
+  `runs.list`에 주는 값은 없다, §6의 1)으로만 그린다. 비어 있으면 한 줄 "돌고 있는 대화 없음". **plan 개정 7** — 요약은 push가
+  아니므로 도는 턴이 있는 동안 홈은 **2초마다** 요약을 다시 읽고(타이머 — run 이벤트마다 긁지 않는다) 경과 시간만 `useNow`로 매초
+  센다. 그 밖의 계기는 `onRunUpdate`·`onInboxUpdate`·`onQueueUpdate`·`onItemChanged(issue)`다. `멈추기`의 접근성 이름은 `<제목> 실행
+  멈추기`다(plan 개정 4).
 - **FR-11** 새 대화 카드: 입력칸 + 대상 알약(`<workspace> · <repo> ▾`, 메뉴로 바꿈) + agent·모델·권한 알약(그 workspace의 기본값,
-  `RunPanel`과 같은 표 — `agents.ts`·`permission.ts`·`ModelField compact`) + `실행`. 보내면 **`onStartConversation(target, prompt)`가
-  App에 올리고 App이 그 workspace 화면으로 옮겨 도크의 새 대화 칸에 초안을 넣고 보낸다** — 홈이 `runs.start`를 직접 부르지
-  않는다(맥락·`@` 해석·슬래시 커맨드가 전부 RunPanel에 있다. 홈 카드는 `/`·`@` 피커가 없다 — §6의 2). 비어 있으면 `실행`이 잠긴다.
+  `RunPanel`과 같은 표 — `agents.ts`·`permission.ts`·`ModelField compact`) + `실행`. **plan 개정 1** — 기본값 유도(`defaultModelOf`·
+  `defaultEffortOf`·`defaultPermission`·WSL repo면 claude 강제)를 `renderer/runDefaults.ts`의 순수 함수로 떼어 RunPanel과 홈 카드가 같이
+  쓰고, 카드는 `newRunInput`으로 만든 `StartRunInput`을 `onStartConversation(input, target)`으로 App에 올린다. **App이 `client.runs.start`를
+  직접 부른 뒤** `setLastTarget`(FR-7)과 대화 열기(`openReportConversation`과 같은 길)를 한다 — 홈 컴포넌트가 부르는 것이 아니라 App이
+  부르므로 "홈은 읽기다"는 지켜진다. 초안 넘기기(처음 안)는 카드에서 바꾼 agent·모델·권한을 실어 나를 길이 없어 버렸다 — `@`는 core의
+  `assemble.ts`가 보낼 때 해석하고 슬래시는 입력 중의 피커뿐이라 RunPanel을 거칠 이유가 없다. 홈 카드는 `/`·`@` 피커가 없다(§6의 2).
+  비어 있으면 `실행`이 잠기고 실패는 카드의 오류 줄이다.
   대상 기본값은 FR-7, 없으면 첫 workspace의 첫 repo, repo가 하나도 없으면 카드 대신 "repo를 등록하세요" 한 줄.
 - **FR-12** 제목 줄 범위는 `홈`, `document.title`은 `홈 — one-desk`(ux-polish FR-6의 표에 한 줄). 사이드바 `홈`은 인박스 **위**,
   접힌 사이드바에서도 타일이고 배지는 FR-4. 단축키 표(`SHORTCUTS`)에 **`Ctrl+Shift+H` 홈**을 더한다 — `Ctrl+H`는 브라우저·Electron의
@@ -103,13 +111,18 @@
 
 ### (D) 처음 켰을 때
 
-- **FR-14** `setup`은 네 단계의 상태다:
+- **FR-14** `setup`은 네 단계의 상태다 (**plan 개정 8** — core는 셋만 주고 `cli`·`done`은 렌더러의 `renderer/home/setup.ts`가 합친다.
+  `checkAgents`·`probeAgents`는 1~1.6초라 요약에 묶으면 홈 전체가 그만큼 늦게 뜬다):
   ```ts
+  // core (HomeSummary.setup)
   interface HomeSetup {
     workspace: boolean                  // workspaces.list().length > 0
     repo: boolean                       // 어느 workspace든 repo 하나 이상
-    cli: 'ready' | 'pending' | 'none'   // (E)
     firstRun: boolean                   // run 행 하나 이상
+  }
+  // renderer (renderer/home/setup.ts)
+  interface SetupState extends HomeSetup {
+    cli: 'ready' | 'pending' | 'none'   // FR-15
     done: boolean                       // 넷 다
   }
   ```
@@ -119,11 +132,14 @@
   workspace로 부른다. `ready` = claude 또는 opencode(또는 WSL claude)가 실행 파일 · 인증 `ok` · 모델 `resolved`(opencode는 모델이
   `skipped`라 인증까지). `pending` = 아직 응답 전. `none` = 어느 것도 아니다. 화면은 `AgentStatusRow`를 그대로 쓴다(wsl-repo-setup이
   WSL 탭에서 한 것과 같다 — 세 번째로 그리는 자리다, 따로 만들지 않는다). **workspace가 없으면 CLI를 묻지 않는다**(probe는 workspace
-  id를 받는다) — 단계 1이 먼저다.
-- **FR-16** 단계마다 가는 곳: ① 사이드바의 workspace 추가 폼에 포커스(새 일회성 prop) ② 사이드바의 `repo 등록` 폼 — 등록 폼은
-  그대로 사이드바에 있고 홈은 **그 폼을 펼쳐 포커스**한다(폼을 둘 두지 않는다 — WSL 버튼·폴더 선택이 거기 있다) ③ `다시 확인`은
-  `probeAgents(refresh)`, `설정에서 경로 지정`은 설정 실행 탭 ④ `Ctrl+N` 안내. 끝난 단계는 한 줄로 접힌다(`workspace` 줄에 이름,
-  `repo` 줄에 개수).
+  id를 받는다) — 단계 1이 먼저다. 묻는 것은 **홈이 보이고 `done`이 아닐 때만**이다 — workspace 화면으로 들어가면 멈춘다(가짜 CLI를
+  쓰는 기존 e2e에 `--version`이 한 번 더 도는 것을 최소로).
+- **FR-16** 단계마다 가는 곳: ① 사이드바의 workspace 추가 폼에 포커스(새 일회성 prop `focusWorkspaceAdd`) ② 사이드바의 `repo 등록` 폼 —
+  등록 폼은 그대로 사이드바에 있고 홈은 **그 폼을 펼쳐 포커스**한다(`RepoStrip`의 일회성 prop `openRepoForm` — 폼을 둘 두지 않는다,
+  WSL 버튼·폴더 선택이 거기 있다) ③ `다시 확인`은 `probeAgents(refresh)`, `설정에서 경로 지정`은 설정 실행 탭 ④ `Ctrl+N` 안내. 끝난
+  단계는 한 줄로 접힌다(`workspace` 줄에 이름, `repo` 줄에 개수). 버튼 이름은 `워크스페이스 만들기` · `폴더 연결하기` · `다시 확인` ·
+  `설정에서 경로 지정` · `첫 대화 보내기`다(**plan 개정 4** — `repo 등록`·`추가`·`폴더 선택`을 부분 문자열로 품지 않는다, 사이드바 폼의
+  버튼과 같은 화면에 선다).
 
 ### (E) 배선
 
@@ -144,7 +160,8 @@ type HomeTodo =
   | { kind: 'needs-answer' | 'failed' | 'interrupted'; workspaceId; repoId; conversationId; runId; title; question: string | null; at: number }
   | { kind: 'untriaged' | 'stale'; workspaceId; count: number; titles: string[] }   // titles ≤ 3
 interface HomeTimelineRow { workspaceId; name; bars: { conversationId; title; from; to; status: RunStatus; needsAnswer }[] }
-interface HomeWorkspace { workspaceId; name; open; doing; doneToday; untriaged; repos: { repoId; name; open; conversations; state: HomeRepoState }[] }
+// repos의 path·agentEnv는 plan 개정 2 — 새 대화 카드의 cwd와 WSL 규칙(agentBlockedReason)에 필요하다
+interface HomeWorkspace { workspaceId; name; open; doing; doneToday; untriaged; repos: { repoId; name; path; agentEnv; open; conversations; state: HomeRepoState }[] }
 type HomeRepoState = 'running' | 'needs-answer' | 'failed' | 'done' | 'none'
 interface HomeDoneIssue { workspaceId; issueId; title; closedAt }
 interface HomeTarget { workspaceId: string; repoId: string }
@@ -174,7 +191,10 @@ setLastTarget(target: HomeTarget): void
   `isStale`·`isUntriaged`를 renderer에서 옮긴다)·`shared/conversationTitle.ts`. renderer의 `issueGroups.ts`는 그것을 import한다.
 - **NFR-3** 새 이름이 기존 e2e와 부분 일치로 부딪히지 않는다: `홈`은 버튼 이름으로는 없지만 등록 폼의 WSL 버튼 `title`("…의 홈에서 엽니다")과
   WSL 탭 안내문에 글자로 있다 — e2e는 `getByRole('button', { name: '홈', exact: true })`로 잡는다. `보기`는 **`마크다운으로 보기`·`이전 내용 보기`·`인박스 보기`와 부딪힌다** → 버튼 이름은 `방치 이슈 보기`로 한다. `답하기`는
-  대화록에 턴마다 있지만 홈 화면에서는 대화록이 없다 — 같은 화면에 서지 않는다.
+  대화록에 턴마다 있지만 홈 화면에서는 대화록이 없다 — 같은 화면에 서지 않는다. **plan 개정 4**: (a) workspace 카드 버튼의 이름은
+  workspace 이름이 아니라 `<이름> 워크스페이스 열기`다 — 홈이 보이는 동안 사이드바의 workspace 버튼(`{ name: '<이름>', exact: true }`)과
+  같은 이름의 버튼이 둘이 된다(접힌 사이드바 타일이 펼친 목록과 동시에 서지 않는 것과 같은 규칙). repo 줄은 버튼이 아니다. (b) 준비 단계의
+  버튼 이름은 FR-16. (c) 돌고 있는 것의 멈추기는 `<제목> 실행 멈추기`다.
 - **NFR-4** 세 경계. `core/home/summary.ts`는 DB·electron 없이 순수. 렌더러는 `useClient()`.
 
 ## 6. 우려 사항
@@ -188,12 +208,11 @@ setLastTarget(target: HomeTarget): void
    않는다. 받아들인다. 필요해지면 RunPanel의 입력부를 떼어 홈이 쓴다(그때는 초안 스토어 키 `home`).
 3. **단축키 `Ctrl+Shift+H`**는 Windows의 다른 앱에서 쓰지 않는 조합이다. `Ctrl+H`는 Chromium이 기록을 열지 않지만(Electron에 메뉴가 없다)
    편집기의 "바꾸기"와 겹친다 — 코드 칸이 열려 있으면 CodeMirror가 먼저 받는다. Shift를 붙인다.
-4. **첫 화면이 홈으로 바뀌면 기존 e2e 65개 전부가 첫 화면을 workspace 화면으로 가정한다.** 드라이버 `launchApp`이 **홈을 거쳐
-   workspace로 들어가는 한 단계**를 기본으로 갖고(`openWorkspace()` 헬퍼 — 사이드바의 workspace를 누른다), 홈을 보는 e2e만 그 단계를
-   끈다. 가짜 CLI 환경에서는 준비 단계가 늘 끝난 상태여야 하므로(`setup.done`) 드라이버가 workspace·repo·run을 심는 테스트는 그대로이고,
-   **아무것도 심지 않고 사이드바 폼으로 workspace·repo를 만드는 e2e**(대부분이 그렇다 — `asset`·`body`·`core-loop` 등)는 첫 화면이 준비 단계이지만
-   사이드바의 폼은 그대로 있으므로 **그대로 통과해야 한다** — 준비 단계 화면이 사이드바를 가리거나 폼을 옮기면 안 되는 이유다. repo를
-   등록한 뒤 workspace 화면으로 들어가는 한 단계만 드라이버에 더한다.
+4. **첫 화면이 홈으로 바뀌면 기존 e2e(파일 33개)가 첫 화면을 workspace 화면으로 가정한다.** **plan 개정 5** — 드라이버는 건드리지
+   않는다. 기존 e2e는 전부 사이드바 폼으로 workspace를 만든 뒤 **그 버튼을 누르고**(자동 선택이 없어 누를 수밖에 없다), App의
+   `selectWorkspace`가 이미 `setView('workspace')`를 하므로 그 클릭이 workspace 화면으로 데려간다. 첫 화면은 준비 단계이지만 사이드바의
+   폼은 그대로 있으므로 **그대로 통과해야 한다** — 준비 단계 화면이 사이드바를 가리거나 폼을 옮기면 안 되는 이유다. 전체 e2e를 돌려
+   확인한다(plan 16단계).
 5. `home.lastTarget`은 DB에 있어 **다른 장비의 DB를 옮겨 오면 그 값의 workspace·repo id가 그대로 유효**하다 — 의도다(intent 가정).
 6. 타임라인의 `dayStart`를 렌더러가 넘기므로 **단위 테스트는 시간대에 기대지 않는다**(core 테스트가 고정 epoch를 넘긴다).
 
@@ -209,6 +228,9 @@ setLastTarget(target: HomeTarget): void
 - e2e `e2e/home.e2e.ts`: workspace 둘에 가짜 CLI로 답변 필요 대화 하나 · 실패 대화 하나 · 정리 안 된 이슈 둘 · `seenAt`을 15일 전으로
   둔 이슈 하나를 만든다 → 홈 배지 4 → `답하기`가 그 workspace의 도크를 그 대화로 연다 → `훑기`가 이슈 패널의 훑기 카드를 띄운다 →
   새 대화 카드에서 보내면 그 workspace 도크에 턴이 선다. 그리고 **아무것도 심지 않은 앱**이 준비 단계를 보이고 repo를 등록하면 단계가
-  접힌다.
-- e2e 드라이버 변경 뒤 기존 65개 전부 초록.
+  접힌다. **plan 개정 6** — 드라이버는 가짜 CLI에 `--scenario`를 못 넘기므로 `ONE_DESK_FAKE_SCRIPT=home`을 더한다: 지시문이 `[질문]`으로
+  시작하면 `[NEEDS_ANSWER]` 결과, `[실패]`로 시작하면 `is_error` + exit 1, 그 밖은 기본 시나리오 그대로(기본 시나리오 불변). 오래 안 본
+  이슈는 UI로 만들 수 없으므로(`markSeen`은 지금 시각) e2e 프로세스가 `better-sqlite3`로 `<dataDir>/one-desk.db`의 `issue.seen_at`을 15일
+  전으로 고치고 홈을 떠났다 돌아온다(앱은 바뀜 알림을 못 받는다 — 다시 마운트가 다시 읽는다).
+- 기존 e2e 33개 파일 전부 초록(드라이버 변경 없음).
 - 실제 앱 캡처(라이트·다크, 1440×900 · 1100×760, 준비 단계).
