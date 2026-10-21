@@ -5,6 +5,7 @@ import { useClient } from '../client/ClientProvider'
 import type { Conversation } from '../conversation'
 import type { ContextChip } from '../context'
 import { issueToCarry } from '@shared/conversationIssue'
+import { resendInput } from '../resend'
 import type { AssignedIssue, Repo, Run, Workspace } from '@shared/models'
 
 /**
@@ -63,8 +64,7 @@ export function ConversationPanel({
   /**
    * 다시 보내기 (`docs/sdlc/conversation-timeline/` spec FR-43) — 그 턴의 지시·맥락·조건
    * **그대로** 이 대화에 새 턴을 잇는다. 인박스의 "다시 실행"은 새 대화를 열어 조건을 잃는다
-   * — 하는 일이 달라 이름도 다르다. 맥락은 id만 보낸다: 이름은 core가 읽는 시점에 다시 붙이고,
-   * 지워진 항목은 core가 이미 뺐다.
+   * — 하는 일이 달라 이름도 다르다. 보내는 입력은 `renderer/resend.ts`다(파일 맥락을 거르는 규칙이 거기 있다).
    *
    * 나갔으면 true다. 실패하면 이유를 보이고 false를 돌려준다 — 대화록의 버튼이 다시 풀린다.
    */
@@ -72,16 +72,8 @@ export function ConversationPanel({
     if (!conversation) return false
     setResendError(null)
     try {
-      const next = await client.runs.resume({
-        conversationId: conversation.id,
-        userPrompt: run.userPrompt,
-        // 파일은 빼고 보낸다 — 원문 지시문의 `@`가 다시 가져오고, 요청으로 오면 core가 거부한다
-        // (docs/sdlc/input-triggers/ FR-9·FR-18).
-        context: run.contextItems.filter((item) => item.type !== 'file').map(({ type, id }) => ({ type, id })),
-        model: run.model,
-        effort: run.effort,
-        permission: run.permission
-      })
+      // 입력은 홈의 다시 보내기와 같은 함수다 (docs/sdlc/home/ FR-9)
+      const next = await client.runs.resume(resendInput(conversation.id, run))
       onStarted(next)
       return true
     } catch (err) {

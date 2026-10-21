@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useClient } from '../client/ClientProvider'
-import type { HomeSummary } from '@shared/models'
+import type { HomeSummary, HomeTarget } from '@shared/models'
 import { startOfDay } from '../report/period'
 import { useItemChanged } from './useItemChanged'
 
@@ -19,6 +19,8 @@ export const HOME_LIVE_REFRESH_MS = 2000
 export function useHome(active: boolean) {
   const client = useClient()
   const [summary, setSummary] = useState<HomeSummary | null>(null)
+  // 새 대화 카드의 대상 — 요약과 함께 읽는다(FR-7·FR-11). 요약이 바뀌는 계기마다 같이 읽어 지워진 repo를 따라간다
+  const [lastTarget, setLastTarget] = useState<HomeTarget | null>(null)
   const [error, setError] = useState<string | null>(null)
   // 늦게 온 옛 응답이 새 것을 덮지 않게 — 2초 타이머와 이벤트가 겹치면 요청이 교차한다
   const seq = useRef(0)
@@ -27,9 +29,13 @@ export function useHome(active: boolean) {
     const mine = ++seq.current
     try {
       const now = Date.now()
-      const next = await client.home.summary({ now, dayStart: startOfDay(now) })
+      const [next, target] = await Promise.all([
+        client.home.summary({ now, dayStart: startOfDay(now) }),
+        client.home.lastTarget()
+      ])
       if (mine !== seq.current) return
       setSummary(next)
+      setLastTarget(target)
       setError(null)
     } catch (err) {
       if (mine !== seq.current) return
@@ -57,7 +63,7 @@ export function useHome(active: boolean) {
     return () => clearInterval(timer)
   }, [active, hasRunning, refresh])
 
-  return { summary, error, refresh }
+  return { summary, lastTarget, error, refresh }
 }
 
 /**

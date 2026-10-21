@@ -31,7 +31,8 @@ function makeClient(summary: HomeSummary = summaryOf(), count = 3) {
   const client = {
     home: {
       summary: vi.fn().mockResolvedValue(summary),
-      count: vi.fn().mockResolvedValue(count)
+      count: vi.fn().mockResolvedValue(count),
+      lastTarget: vi.fn().mockResolvedValue({ workspaceId: 'w', repoId: 'r' })
     },
     events: {
       onRunUpdate: vi.fn((cb: () => void) => { fire.run = cb; return () => { fire.run = null } }),
@@ -50,6 +51,7 @@ describe('useHome', () => {
     const { client } = makeClient(summaryOf({ queued: 2 }))
     const { result } = renderHook(() => useHome(true), { wrapper: wrap(client) })
     await waitFor(() => expect(result.current.summary?.queued).toBe(2))
+    expect(result.current.lastTarget).toEqual({ workspaceId: 'w', repoId: 'r' })
     const input = (client.home.summary as ReturnType<typeof vi.fn>).mock.calls[0]![0] as { now: number; dayStart: number }
     const expected = new Date(input.now)
     expected.setHours(0, 0, 0, 0)
