@@ -1419,8 +1419,10 @@ button.report-flow-line:hover { background: var(--bg-muted); }
 
 
 /* ───────── docs/sdlc/ux-polish/ ───────── */
-/* 글자는 보조기기에만 (⑤의 모델 알약 머리) */
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* 글자는 보조기기에만 (⑤의 모델 알약 머리). **`inset`을 지우지 말 것** — absolute인데 위치를 안 주면 글자가 흐름상의 자리에
+   놓이는데, 위치 기준이 될 조상이 없어 그 자리는 **문서** 기준이다. 스크롤하는 칸(`.home`) 안에서 그 자리가 창 아래면 칸이 아니라
+   문서에 스크롤이 생기고, 그것을 내리면 100vh 아래의 빈 body가 하얗게 보였다(2026-10-22 보고, `home.e2e`의 "바깥 스크롤이 없다"). */
+.sr-only { position: absolute; inset: 0 auto auto 0; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 /* ⑥ 제목 줄 가운데의 범위 — drag 영역 안의 글자라 눌리지 않는다 */
 .titlebar { position: relative; }
 .titlebar-title { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; font-weight: 600; color: var(--text-secondary); pointer-events: none; }

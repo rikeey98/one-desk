@@ -167,5 +167,16 @@ describe('홈 (docs/sdlc/home/)', () => {
     await expect.poll(
       () => page.locator('select[aria-label="대상"] option:checked').textContent(), { timeout: 10_000 }
     ).toBe('홈-회사 · api')
+
+    // 바깥 스크롤이 없다 — 홈이 넘쳐도 스크롤은 `.home` 안에서만 한다. ModelField compact의 `.sr-only` 글자가 문서 기준
+    // absolute라 `.home` 밖(문서)에 스크롤을 만들었고, 그것을 내리면 100vh 아래의 빈 body가 하얗게 보였다(2026-10-22 보고).
+    await app.electron.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0]?.setSize(1100, 520) })
+    await expect.poll(() => page.evaluate('innerHeight'), { timeout: 10_000 }).toBeLessThan(600)
+    // e2e의 tsconfig에는 dom lib가 없어 다른 테스트처럼 문자열로 평가한다
+    const scroll = await page.evaluate<{ doc: number, win: number, homeOverflows: boolean }>(
+      '(() => { const home = document.querySelector(".home"); return { doc: document.documentElement.scrollHeight, win: innerHeight, homeOverflows: home.scrollHeight > home.clientHeight } })()'
+    )
+    expect(scroll.homeOverflows).toBe(true)
+    expect(scroll.doc).toBe(scroll.win)
   })
 })
