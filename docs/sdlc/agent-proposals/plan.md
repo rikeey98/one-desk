@@ -136,6 +136,22 @@
 4. **가짜 MCP CLI의 기본 동작을 바꾸지 않는다.** `mcp.e2e`가 `create_issue` 기본값에 기댄다 — 환경변수가 없을 때 바이트 단위로 같은 호출이어야 한다.
 5. **e2e에서 앱을 다시 켜는 시나리오는 드라이버의 `relaunch()`를 쓴다**(`e2e/driver.ts` — 같은 데이터 폴더로 다시 띄운다). 새 드라이버 옵션은 없다.
 
+## 0단계 결과 (2026-10-27)
+
+- **기준선**: `pnpm typecheck`·`pnpm lint` 초록, `pnpm test` — `Test Files 180 passed | 2 skipped (182)`, `Tests 3114 passed | 49 skipped (3163)`.
+- **중첩 트랜잭션** — 확인됨. 바깥 `db.transaction` 안에서 `issues.create`(제 `db.transaction`) 뒤 던지면 이슈가 남지 않는다(better-sqlite3가
+  안쪽을 savepoint로 바꾼다). 임시 테스트는 지우고 6단계 `service.test`의 "할당이 실패하면 만든 이슈도 없다"로 옮겼다. spec FR-17 그대로.
+- **OpenCode의 MCP 권한** — **막혀 있다.** `core/mcp/realOpencode.test.ts`(선택 실행, 새 파일)로 opencode 1.18.30 · `opencode/big-pickle`을 띄워
+  `list_repos`를 부르게 했다. `full`은 `one-desk_list_repos`를 불러 통과, `read_only` 세 번·`edit` 한 번은 도구를 호출하지 못했다("MCP 도구에 접근할
+  수 없습니다"). `"*": "deny"`가 MCP 도구를 모델에게서 지운다 — 이 기능 이전부터 OpenCode의 읽기 전용·편집 허용 대화는 `list_issues`조차 못
+  쓴다는 뜻이다. spec §8의 6은 **사용자에게 묻는다**(이 구현은 권한 설정을 바꾸지 않았다). 그동안 `shouldProposeIssue`는 OpenCode의
+  `full`이 아닌 run에 거짓이다 — plan의 "OpenCode에 거짓"을 `full`만 열어 둔 것은 그 권한에서는 도구가 실제로 부를 수 있기 때문이다(실측).
+- **이름** — `이슈로 만들기`는 인박스 실패 항목 버튼(`InboxPanel.tsx` 84)뿐이고, 도크는 `view === 'workspace'`에서만 그려져(`App.tsx` 607~647)
+  인박스와 한 화면에 서지 않는다. `붙이기`는 터미널의 `선택 영역을 대화에 붙이기`뿐, `만들지`·`제안`·`이슈 제목`은 테스트 제목·placeholder
+  (`이슈 제목으로 찾기`)뿐이다. 부딪힘 없음.
+- **가짜 클라이언트** — `events.onItemChanged`를 세운 테스트는 열 파일이고, 도크를 그리는 것은 `App.test`·`Dock.test`(`Dock.test`는 지금
+  `onItemChanged`가 없다 — 도크가 처음 듣는다).
+
 ## 완료 증명
 
 (구현 뒤에 채운다 — 명령과 실제 출력, 0단계의 확인 결과, 변이 결과, e2e 수와 시간, 10단계의 측정 표.)
