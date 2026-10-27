@@ -2,7 +2,7 @@
 
 - 출처: `spec.md` (승인됨 2026-10-27)
 - 작성자: 권용현 (초안: Claude)
-- 상태: **승인됨** (2026-10-27, 사용자 "spect 만들어줘 개발") — 구현 전. 뒤집을 수 있는 결정은 spec §8이다. 0단계의 확인 둘이 spec과 다르게
+- 상태: **구현됨** (2026-10-27, `feat/agent-proposals`). 뒤집을 수 있는 결정은 spec §8이다. 0단계의 확인 둘이 spec과 다르게
   나오면 구현을 멈추고 spec을 먼저 고친다.
 - 작성일: 2026-10-27
 
@@ -152,6 +152,80 @@
 - **가짜 클라이언트** — `events.onItemChanged`를 세운 테스트는 열 파일이고, 도크를 그리는 것은 `App.test`·`Dock.test`(`Dock.test`는 지금
   `onItemChanged`가 없다 — 도크가 처음 듣는다).
 
+## 구현하며 달라진 것
+
+1. **OpenCode는 전체 허용에서만 안내를 붙인다** — plan은 "OpenCode에 거짓"이었다. 0단계 실측에서 `full`은 MCP 도구를 부르므로
+   (`one-desk_list_repos`), 막힌 두 권한만 거짓이다(`shouldProposeIssue`의 `agentKind`·`permission`). spec §8의 6은 사용자에게 묻는다.
+2. **분류 축 enum을 `core/issueAxes.ts`로 옮겼다** — `tools.ts`에만 있던 것을 payload 스키마가 같이 쓰려고. 동작은 같다.
+3. **`ConversationPanel`의 `proposal` prop 타입은 `IssueProposal`이 아니라 `IssueBanner`다**(`renderer/proposal.ts` — `{ mode, proposal,
+   existing? }`). 갈래를 도크가 `bannerOf`로 한 번 정해 내리려고. 필수인 것은 그대로다.
+4. **받기는 제안 뒤에 지워진 repo를 걸러 이슈를 만든다**(서비스가 맨 repo 저장소를 받는다) — 거르지 않으면 이슈 만들기의 소속 검증에
+   걸려 받기가 통째로 실패한다. spec이 말하지 않은 경우다.
+5. **서비스의 `pending` 검사를 지웠다** — `decide`가 트랜잭션 안에서 같은 검사를 하고, 둘째 받기는 거기서 던져 만든 이슈를 되돌린다.
+   대신 둘째 받기는 할당 검사가 먼저 걸려 `이 대화에는 이미 이슈가 할당돼 있습니다`로 실패하는 일이 많다(어느 쪽이든 이슈는 하나다).
+6. **원본을 가리키는 `start(parentRunId)`도 그 대화의 뿌리로 판정한다** — spec FR-15는 start·resume 둘만 말했지만 `start`는
+   `parentRunId`를 받으면 같은 대화의 턴을 만든다. 렌더러는 그 길을 쓰지 않는다.
+7. **실제 앱 캡처는 `pnpm dev`가 아니라 `e2e/proposal.e2e.ts` 안에서 찍었다**(`e2e/artifacts/proposal-{new,existing,accepted}-{light,dark}.png`) —
+   실제 데이터를 복사하지 않아도 두 갈래와 받은 뒤가 모두 선다. 다크는 `emulateMedia` 뒤 버튼 transition을 기다린다.
+8. **`docs/sdlc/issue-flow/intent.md`는 고치지 않았다** — 그 파일은 `main` 체크아웃에 커밋되지 않은 채 있고 이 브랜치에는 없다. 병합 뒤
+   그쪽에서 (3)과 "진행 방식"의 둘째 사이클이 이 intent를 가리키게 고쳐야 한다.
+
 ## 완료 증명
 
-(구현 뒤에 채운다 — 명령과 실제 출력, 0단계의 확인 결과, 변이 결과, e2e 수와 시간, 10단계의 측정 표.)
+- `pnpm typecheck`·`pnpm lint` 초록. `pnpm test` — `Test Files 186 passed | 4 skipped (190)`, `Tests 3195 passed | 51 skipped (3246)`
+  (기준선 180/3114에서 새 파일 여섯과 새 테스트 81).
+- `pnpm test:e2e` — `Test Files 32 passed | 3 skipped (35)`, `Tests 66 passed | 4 skipped (70)`, 4분 5초(기준선 31/63, 3분 49초).
+  `e2e/proposal.e2e.ts` 셋(제목을 고쳐 받기 · 거절 뒤 다시 켜도 남고 다음 턴에 안내가 없다 · 기존 이슈에 붙이기)이 첫 실행에 통과.
+- 경계 grep 둘 — 출력 없음.
+- `drizzle/0012_overjoyed_nitro.sql` — `CREATE TABLE proposal`·`CREATE INDEX` 둘·`CREATE UNIQUE INDEX … WHERE status = 'pending' AND
+  kind = 'conversation-issue'`뿐. `open.test`의 "0012는 기존 run과 맥락 기록을 건드리지 않고…"가 0011까지의 DB 위에서 본다.
+
+### 변이
+
+| 단계 | 망가뜨린 줄 | 빨개진 테스트 |
+|---|---|---|
+| 2 | proposal.ts: superseded 내리기 지움 | "새 제안이 … 갈아끼운다"(UNIQUE로 던진다) |
+| 2 | 0012: 부분 유니크 → 보통 인덱스 | "저장소를 거치지 않은 pending 둘이 막힌다" |
+| 2 | 0012: `WHERE` 지움 | "갈아끼운다"(셋째 제안) · "다른 종류의 pending 둘" |
+| 3 | execution.ts: `rootRunId: created.id` | "이어 가는 턴의 토큰은 뿌리를 안다" |
+| 4 | tools.ts: `propose_issue`를 조기 반환 뒤로 | "읽기 전용에도 propose_issue가 있다" 외 8 |
+| 4 | tools.ts: 읽기 전용에 `create_issue` | "읽기 전용 토큰에는 쓰기 도구가 없다"(기존) |
+| 4 | tools.ts: 할당 검사 지움 | "이슈가 할당된 대화의 제안은 저장하지 않는다" |
+| 4 | tools.ts: 거절 검사 지움 | "거절한 대화의 제안은 저장하지 않는다" |
+| 4 | tools.ts: `ctx.runId`에 붙임 | "제안은 턴이 아니라 대화에 붙는다" · "거절한 대화…" |
+| 4 | tools.ts: `loadIssue` 대신 `deps.issues.get` | "다른 workspace의 기존 이슈는 없는 id와 같은 오류다" |
+| 4 | index.ts: MCP deps에 맨 제안 저장소 | index.test "MCP로 제안하면 바뀜 알림 proposal이 나간다" |
+| 5 | guide.ts: 거절 조건 지움 | guide.test · execution.test "거절한 대화에는 안내가 없다" |
+| 5 | guide.ts: 할당 조건 지움 | execution.test 셋(자동 할당 · 이슈에서 시작 · 할당된 대화의 다음 턴) |
+| 5 | execution.ts: 자동 할당 전의 `input.issueId`로 판정 | "이슈를 하나만 담아 시작한 대화에는 붙지 않는다" |
+| 5 | assemble.ts: 슬래시 갈래에 안내 없음 | "슬래시 지시에도 안내가 붙는다" |
+| 6 | service.ts: 바깥 `db.transaction` 지움 | "할당이 실패하면 만든 이슈도 없다" |
+| 6 | service.ts: `pending` 검사 지움 | **초록** — `decide`가 같은 검사를 한다(달라진 것 5). `decide`의 검사를 지우면 "두 번 받으면 … 이슈는 하나다"·"두 번 거절은 던진다" |
+| 6 | index.ts: 받기 뒤 `RUN_UPDATE` 지움 | index.test "받으면 … 뿌리·배지를 알린다" |
+| 6 | index.ts: 받기에 감싼 이슈 저장소 | 같은 테스트(알림이 하나 더 나간다) |
+| 8 | renderer/proposal.ts: 할당된 대화도 배너 | "할당된 대화에는 배너가 없다" |
+| 8 | 배너: payload 제목으로 받기 | "고친 제목으로 만든다" · "Enter로도 만든다" |
+| 8 | 배너: 누르는 동안 잠금 지움 | "누르는 동안 세 버튼이 잠긴다" |
+| 8 | useProposals: `proposal` 구독 지움 | Dock.test "제안 바뀜에 다시 읽는다" |
+| 8 | Dock: `proposal={null}` | Dock.test 셋 |
+
+### 10단계 측정 (2026-10-27, claude 2.1.311, 기본 모델, 읽기 전용, 이슈 없는 새 대화의 첫 턴)
+
+`ONE_DESK_REAL_CLI=1 pnpm test core/proposals/realCli`. 읽기 전용 init의 도구에 `mcp__one-desk__propose_issue`가 있고 `create_issue`는 없다.
+
+| 지시 | 1회 | 2회 |
+|---|---|---|
+| 로그인 버튼이 모바일에서 안 눌려, 고쳐줘 | 제안 | 제안 |
+| 설정 화면에 다크 모드 토글을 추가해줘 | 제안 | 제안 |
+| README의 설치 절차가 낡았어, 최신으로 고쳐줘 | 안 함 | 안 함 |
+| 이 함수 뭐 하는 거야? … | 안 함 | 안 함 |
+| TypeScript에서 interface와 type의 차이가 뭐야? | 안 함 | 안 함 |
+| 안녕, 오늘 기분 어때? | 안 함 | 안 함 |
+
+- **일 지시 4/6, 질문 지시 0/6.** 질문 여섯은 MCP 도구를 하나도 부르지 않았다. 제안한 넷은 전부 `list_issues`를 먼저 불렀다(안내대로).
+- README 둘은 `list_issues`까지 보고 `[NEEDS_ANSWER]`로 "지금 쓰는 도구가 무엇인가"를 되물었다 — 사람의 답을 기다리는 턴이라 제안하지
+  않은 것으로 읽힌다(문턱 "애매하면 제안하지 말 것"에 맞는다).
+- 넷 중 둘은 `propose_issue`를 **두 번** 불렀다(한 번은 `list_repos`로 repo id를 얻은 뒤 다시) — 안내의 "한 번"을 어겼지만 FR-4가 앞의 것을
+  `superseded`로 갈아끼워 배너는 하나다.
+- **첫 측정은 빈 작업 디렉토리에서 일 지시도 0/6이었다** — 고칠 코드를 못 찾아 전부 `[NEEDS_ANSWER]`로 끝났다. 위 표는 작은 repo
+  (`src/login.html`·`src/Settings.tsx`·`README.md`)를 둔 뒤의 숫자다. 질문에 제안이 나오지 않았으므로 안내 문구는 다듬지 않았다.
