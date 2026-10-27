@@ -1679,4 +1679,56 @@ describe('agent의 제안 (docs/sdlc/agent-proposals/)', () => {
     expect(seen).toEqual([workspaceId])
     close(core)
   }, 30_000)
+
+  it('받으면 이슈·제안 바뀜과 그 대화의 뿌리·배지를 알린다 — 되돌린 받기는 아무것도 알리지 않는다', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    const rootId = await proposeVia(core, workspaceId, dataDir)
+    const [proposal] = core.proposals.pending(workspaceId)
+    expect(proposal).toMatchObject({ rootRunId: rootId, status: 'pending' })
+
+    const changes: string[] = []
+    const rootUpdates: (string | null)[] = []
+    let inbox = 0
+    core.onItemChanged((c) => { changes.push(c.kind) })
+    core.onRunUpdate((r) => { if (r.id === rootId) rootUpdates.push(r.issue?.title ?? null) })
+    core.onInboxUpdate(() => { inbox++ })
+
+    const { issue, conversation } = core.proposals.accept(proposal!.id, { mode: 'new', title: '고친 제목' })
+    expect(conversation.issue).toEqual({ id: issue.id, title: '고친 제목' })
+    expect(changes).toEqual(['issue', 'proposal'])
+    expect(rootUpdates).toEqual(['고친 제목'])
+    expect(inbox).toBe(1)
+
+    // 같은 제안을 다시 받으면 던지고(이미 할당됐다), 아무것도 알리지 않는다
+    expect(() => core.proposals.accept(proposal!.id, { mode: 'new', title: '또' })).toThrow()
+    expect(changes).toEqual(['issue', 'proposal'])
+    expect(rootUpdates).toEqual(['고친 제목'])
+    expect(inbox).toBe(1)
+    expect(core.issues.list({ workspaceId })).toHaveLength(1)
+    close(core)
+  }, 30_000)
+
+  it('거절하면 제안 바뀜을 알리고, 그 뒤 같은 대화의 propose_issue는 저장되지 않는다', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    const rootId = await proposeVia(core, workspaceId, dataDir)
+    const [proposal] = core.proposals.pending(workspaceId)
+    const changes: string[] = []
+    core.onItemChanged((c) => { changes.push(c.kind) })
+    expect(core.proposals.decline(proposal!.id).status).toBe('declined')
+    expect(changes).toEqual(['proposal'])
+
+    await withFakeMcp({ name: 'propose_issue', arguments: { title: '다시' } }, async () => {
+      const turn = await core.execution.resume({ conversationId: rootId, permission: 'read_only', userPrompt: '이어서', context: [] })
+      await vi.waitFor(() => expect(core.runs.get(turn.id).endedAt).toBeTypeOf('number'), { timeout: 20_000 })
+      // 도구 오류라 가짜 CLI는 실패로 끝난다 — 제안은 하나도 서지 않는다
+      expect(core.runs.get(turn.id).status).toBe('failed')
+      expect(core.runs.get(turn.id).assembledPrompt).not.toContain('propose_issue 도구로')
+    })
+    expect(core.proposals.pending(workspaceId)).toEqual([])
+    close(core)
+  }, 40_000)
 })
