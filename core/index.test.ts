@@ -35,12 +35,12 @@ function makeDataDir(): string {
  * **pid는 있을 수 없는 번호다** — 앱 종료·repo 삭제가 Windows에서 진짜 `taskkill /T /F`를 부르므로, 실제 프로세스와 겹치는 번호면
  * 그 프로세스를 죽인다. 없는 번호라 taskkill이 실패하고 서비스가 pty의 kill로 되돌아간다 — `killed`가 그것을 센다.
  */
-interface FakePty extends PtyProcess { killed: number; opts: Parameters<SpawnPty>[2]; emit(data: string): void }
+interface FakePty extends PtyProcess { killed: number; file: string; args: string[]; opts: Parameters<SpawnPty>[2]; emit(data: string): void }
 const ptys: FakePty[] = []
-const fakeSpawnPty: SpawnPty = (_file, _args, opts) => {
+const fakeSpawnPty: SpawnPty = (file, args, opts) => {
   const dataCbs: Array<(d: string) => void> = []
   const pty: FakePty = {
-    pid: 2_147_483_644, killed: 0, opts,
+    pid: 2_147_483_644, killed: 0, file, args, opts,
     onData(cb) { dataCbs.push(cb); return { dispose() {} } },
     onExit() { return { dispose() {} } },
     write() {}, resize() {},
@@ -813,13 +813,17 @@ describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)'
       const core = open(dataDir)
       const ws = core.workspaces.create({ name: 'ws' }).id
       const repoId = (await core.repos.create({ workspaceId: ws, name: 'w', path: WSL_PATH, agentEnv: 'wsl' })).id
-      const session = await core.terminal.open({ workspaceId: ws, repoId, cols: 80, rows: 24 })
-      expect(session.shell).toBe('wsl · Ubuntu')
-      const pty = ptys[ptys.length - 1]!
-      // pidfile은 userData/wsl/term-<repoId>.pid — 가짜 pty는 런처를 돌리지 않으므로 비어 있고, 끝낼 때는 pty만 끝낸다
+      const [first] = await core.terminal.open({ workspaceId: ws, repoId, cols: 80, rows: 24 })
+      expect(first!.label).toBe('wsl · Ubuntu')
+      const second = await core.terminal.create({ workspaceId: ws, repoId, shell: 'wsl', cols: 80, rows: 24 })
+      expect(second.label).toBe('wsl · Ubuntu 2')
+      // pidfile은 탭마다 userData/wsl/term-<tabId>.pid (terminal-tabs FR-21) — 가짜 pty는 런처를 돌리지 않으므로 비어 있고, 끝낼 때는 pty만
       expect(existsSync(join(dataDir, 'wsl'))).toBe(true)
+      const pidArg = (i: number) => ptys[i]!.args.find((a) => a.endsWith('.pid'))
+      expect(pidArg(0)).toMatch(new RegExp(`/term-${first!.tabId}\\.pid$`))
+      expect(pidArg(1)).toMatch(new RegExp(`/term-${second.tabId}\\.pid$`))
       close(core)
-      expect(pty.killed).toBe(1)
+      expect(ptys.map((p) => p.killed)).toEqual([1, 1])
     })
   })
 
@@ -832,18 +836,20 @@ describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)'
       const core = open(dataDir)
       const ws = core.workspaces.create({ name: 'ws' }).id
       const repoId = (await core.repos.create({ workspaceId: ws, name: 'w', path: WSL_PATH, agentEnv: 'wsl' })).id
-      const pidfile = join(dataDir, 'wsl', `term-${repoId}.pid`)
-      const sessionKill = ['-d', 'Ubuntu', '--exec', 'pkill', '-KILL', '-s', '2147483644']
+      const sessionKill = (sid: string) => ['-d', 'Ubuntu', '--exec', 'pkill', '-KILL', '-s', sid]
       const kills = () => existsSync(capture) ? readCapture(capture).filter((c) => c[3] === 'pkill' || c[3] === 'kill') : []
 
-      await core.terminal.open({ workspaceId: ws, repoId, cols: 80, rows: 24 })
-      writeFileSync(pidfile, '2147483644\n')
-      await core.terminal.restart({ workspaceId: ws, repoId, cols: 80, rows: 24 })
-      await vi.waitFor(() => expect(kills()).toEqual([sessionKill]))
+      const [a] = await core.terminal.open({ workspaceId: ws, repoId, cols: 80, rows: 24 })
+      const b = await core.terminal.create({ workspaceId: ws, repoId, shell: 'default', cols: 80, rows: 24 })
+      const pidfile = (tabId: string) => join(dataDir, 'wsl', `term-${tabId}.pid`)
+      writeFileSync(pidfile(a!.tabId), '2147483644\n')
+      writeFileSync(pidfile(b.tabId), '2147483645\n')
+      await core.terminal.restart({ workspaceId: ws, tabId: a!.tabId, cols: 80, rows: 24 })
+      await vi.waitFor(() => expect(kills()).toEqual([sessionKill('2147483644')]))
 
-      writeFileSync(pidfile, '2147483644\n')
+      writeFileSync(pidfile(a!.tabId), '2147483644\n')
       close(core)
-      expect(kills()).toEqual([sessionKill, sessionKill])
+      expect(kills()).toEqual([sessionKill('2147483644'), sessionKill('2147483644'), sessionKill('2147483645')])
     })
   })
 
@@ -885,14 +891,15 @@ describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)'
       const ws = core.workspaces.create({ name: 'ws' }).id
       const repoId = (await core.repos.create({ workspaceId: ws, name: 'w', path: WSL_PATH })).id
       await core.terminal.open({ workspaceId: ws, repoId, cols: 80, rows: 24 })
-      const pty = ptys[ptys.length - 1]!
+      await core.terminal.create({ workspaceId: ws, repoId, shell: 'default', cols: 80, rows: 24 })
       // host 판정으로 한 번 채운 캐시
       await core.commands.list({ workspaceId: ws, cwd: WSL_PATH })
       expect(existsSync(capture)).toBe(false)
 
       await core.repos.update({ id: repoId, agentEnv: 'wsl' })
-      // Windows는 taskkill이 비동기로 실패한 뒤에야 pty.kill로 되돌아온다 — "repo를 지우면 그 셸을 끝낸다"와 같은 기다림
-      await vi.waitFor(() => expect(pty.killed).toBe(1), { timeout: 10_000 })
+      // Windows는 taskkill이 비동기로 실패한 뒤에야 pty.kill로 되돌아온다 — "repo를 지우면 그 셸을 끝낸다"와 같은 기다림.
+      // 탭 둘이 다 끝난다 (terminal-tabs FR-19)
+      await vi.waitFor(() => expect(ptys.map((p) => p.killed)).toEqual([1, 1]), { timeout: 10_000 })
       // 캐시가 비었으므로 다음 조회는 WSL 안에서 다시 묻는다
       await core.commands.list({ workspaceId: ws, cwd: WSL_PATH })
       expect(readCapture(capture).some((c) => c.includes('test'))).toBe(true)
@@ -1505,7 +1512,8 @@ describe('기간 리포트 배선 (docs/sdlc/period-report/)', () => {
   })
 })
 
-describe('core.terminal (docs/sdlc/code-editor/terminal-spec.md)', () => {
+describe('core.terminal (docs/sdlc/code-editor/terminal-spec.md, docs/sdlc/terminal-tabs/)', () => {
+  /** repo 하나에 탭 둘 — 끝내기 배선이 "그 repo의 탭 전부"인지 본다 (terminal-tabs FR-19·20) */
   async function withShell() {
     const dataDir = makeDataDir()
     const core = open(dataDir)
@@ -1513,36 +1521,44 @@ describe('core.terminal (docs/sdlc/code-editor/terminal-spec.md)', () => {
     const repoPath = join(dataDir, 'api')
     mkdirSync(repoPath)
     const repoId = (await core.repos.create({ workspaceId, name: 'api', path: repoPath })).id
-    const session = await core.terminal.open({ workspaceId, repoId, cols: 80, rows: 24 })
-    return { core, dataDir, workspaceId, repoId, repoPath, session, pty: ptys[ptys.length - 1]! }
+    const [first] = await core.terminal.open({ workspaceId, repoId, cols: 80, rows: 24 })
+    const second = await core.terminal.create({ workspaceId, repoId, shell: 'default', cols: 80, rows: 24 })
+    return { core, dataDir, workspaceId, repoId, repoPath, first: first!, second, pty: ptys[0]! }
   }
+  const killedAll = () => ptys.map((p) => p.killed)
 
-  it('앱을 끄면 셸을 끝낸다 (FR-9)', async () => {
-    const { core, pty } = await withShell()
+  it('앱을 끄면 탭 둘의 셸을 다 끝낸다 (terminal-spec FR-9, terminal-tabs FR-20)', async () => {
+    const { core } = await withShell()
     close(core)
-    expect(pty.killed).toBe(1)
+    expect(killedAll()).toEqual([1, 1])
   })
 
-  it('repo를 지우면 그 셸을 끝낸다 (FR-10)', async () => {
-    const { core, repoId, pty } = await withShell()
+  it('repo를 지우면 그 repo의 탭을 다 끝낸다 (FR-19)', async () => {
+    const { core, repoId } = await withShell()
     core.repos.remove(repoId)
-    await vi.waitFor(() => expect(pty.killed).toBe(1), { timeout: 10_000 })
+    await vi.waitFor(() => expect(killedAll()).toEqual([1, 1]), { timeout: 10_000 })
   })
 
-  it('repo 경로를 바꾸면 그 셸을 끝낸다 — 이름만 바꾸면 그대로다 (FR-10)', async () => {
-    const { core, dataDir, repoId, pty } = await withShell()
+  it('repo 경로를 바꾸면 그 repo의 탭을 다 끝낸다 — 이름만 바꾸면 그대로다 (FR-19)', async () => {
+    const { core, dataDir, repoId } = await withShell()
     await core.repos.update({ id: repoId, name: 'api2' })
-    expect(pty.killed).toBe(0)
+    expect(killedAll()).toEqual([0, 0])
     const moved = join(dataDir, 'api-moved')
     mkdirSync(moved)
     await core.repos.update({ id: repoId, path: moved })
-    await vi.waitFor(() => expect(pty.killed).toBe(1), { timeout: 10_000 })
+    await vi.waitFor(() => expect(killedAll()).toEqual([1, 1]), { timeout: 10_000 })
   })
 
-  it('workspace를 지우면 그 아래 repo의 셸을 끝낸다 (FR-10)', async () => {
-    const { core, workspaceId, pty } = await withShell()
+  it('workspace를 지우면 그 아래 repo의 탭을 다 끝낸다 (FR-19)', async () => {
+    const { core, workspaceId } = await withShell()
     core.workspaces.remove(workspaceId)
-    await vi.waitFor(() => expect(pty.killed).toBe(1), { timeout: 10_000 })
+    await vi.waitFor(() => expect(killedAll()).toEqual([1, 1]), { timeout: 10_000 })
+  })
+
+  it('탭을 닫으면 그 탭의 셸만 끝낸다 (FR-18)', async () => {
+    const { core, workspaceId, second } = await withShell()
+    await core.terminal.close({ workspaceId, tabId: second.tabId })
+    await vi.waitFor(() => expect(killedAll()).toEqual([0, 1]), { timeout: 10_000 })
   })
 
   it('리눅스 패키지에서는 셸에 사용자의 LD_LIBRARY_PATH를 되돌려 주고 표식은 넘기지 않는다 (linux-launch-env)', async () => {
@@ -1551,19 +1567,36 @@ describe('core.terminal (docs/sdlc/code-editor/terminal-spec.md)', () => {
     expect(pty.opts.env[ORIGINAL_LD_LIBRARY_PATH]).toBeUndefined()
   })
 
-  it('남의 workspace repo로는 셸을 열 수 없다 (FR-18)', async () => {
-    const { core, repoId } = await withShell()
+  it('남의 workspace repo로는 셸을 열 수도, 그 탭에 붙을 수도 없다 (terminal-spec FR-18, terminal-tabs FR-14)', async () => {
+    const { core, repoId, first } = await withShell()
     const other = core.workspaces.create({ name: 'other' }).id
     await expect(core.terminal.open({ workspaceId: other, repoId, cols: 80, rows: 24 })).rejects.toThrow()
+    await expect(core.terminal.attach({ workspaceId: other, tabId: first.tabId })).rejects.toThrow('이 workspace의 repo가 아닙니다')
   })
 
-  it('셸 출력을 구독자에게 낸다', async () => {
-    const { core, pty, repoId } = await withShell()
+  it('셸 키는 등록부가 푼다 — 경로를 키로 보내면 셸을 띄우기 전에 거부한다 (FR-12)', async () => {
+    const { core, workspaceId, repoId } = await withShell()
+    const before = ptys.length
+    await expect(core.terminal.create({ workspaceId, repoId, shell: 'C:\\Windows\\System32\\cmd.exe' as 'cmd', cols: 80, rows: 24 }))
+      .rejects.toThrow('이 repo에서 쓸 수 없는 셸입니다')
+    expect(ptys).toHaveLength(before)
+  })
+
+  it('셸 메뉴의 `기본` 표식은 설정 화면이 말하는 셸이다 — `+`가 띄울 셸과 같은 해석 (NFR-3)', async () => {
+    const { core, workspaceId, repoId } = await withShell()
+    const options = await core.terminal.shells({ workspaceId, repoId })
+    const resolved = (await core.settings.terminalShell()).resolved
+    expect(options.filter((o) => o.isDefault).map((o) => o.path.toLowerCase())).toEqual([resolved.toLowerCase()])
+    expect(ptys[0]!.file).toBe(resolved)
+  })
+
+  it('셸 출력을 그 탭 id로 구독자에게 낸다', async () => {
+    const { core, pty, first } = await withShell()
     const got: TerminalData[] = []
     core.onTerminalData((d) => { got.push(d) })
     pty.emit('hello')
     await vi.waitFor(() => expect(got.map((d) => d.data).join('')).toBe('hello'))
-    expect(got[0]!.repoId).toBe(repoId)
+    expect(got[0]!.tabId).toBe(first.tabId)
   })
 
   it('셸 설정: 비었으면 기본값을 말하고, 없는 파일은 거부한다 (FR-11)', async () => {

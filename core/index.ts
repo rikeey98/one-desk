@@ -1,6 +1,8 @@
 import { EventEmitter } from 'node:events'
 import { spawn } from 'node:child_process'
 import { mkdirSync, rmSync, statSync } from 'node:fs'
+import { access } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { openDb } from './db/open'
@@ -23,7 +25,7 @@ import type {
 import { PANEL_KINDS, type PanelScope } from '@shared/panelWindow'
 import { createFileService } from './files/service'
 import { createTerminalService, type SpawnPty } from './terminal/service'
-import { resolveShell, shellEnv, type ShellLookup } from './terminal/shell'
+import { discoverShells, resolveShell, resolveShellKey, shellEnv, type ShellLookup } from './terminal/shell'
 import { findExecutable } from './runner/executable'
 import { appLoaderEnv, userProcessEnv } from './runner/userEnv'
 import { taskkillTree, taskkillTreeSync } from './runner/terminate'
@@ -63,7 +65,8 @@ import { consoleErrorSink, type ErrorSink } from './errors'
 import type { AgentAdapter } from './runner/types'
 import type { RunEvent } from '@shared/events'
 import type {
-  AgentKind, AgentPaths, InboxCounts, ItemChange, McpStatus, PlanUsage, QueueSnapshot, Run, TerminalData, TerminalExit, TerminalOpenInput,
+  AgentKind, AgentPaths, InboxCounts, ItemChange, McpStatus, PlanUsage, QueueSnapshot, Repo, Run, TerminalCreateInput, TerminalData,
+  TerminalExit, TerminalOpenInput, TerminalTabInput, TerminalTabRef,
   TerminalShellSetting, Workspace
 } from '@shared/models'
 
@@ -406,15 +409,27 @@ export function createCore(opts: CoreOptions) {
   const files = createFileService({ getRepo: (id) => repos.get(id) })
 
   /**
-   * 코드 칸의 터미널 (docs/sdlc/code-editor/terminal-spec.md) — repo마다 셸 하나. 셸 경로는 설정(비면 기본값)에서, repo 경로는
-   * 그 workspace의 repo에서 여기서 정한다 — 렌더러는 repo id만 넘긴다(FR-18).
+   * 코드 칸의 터미널 (docs/sdlc/code-editor/terminal-spec.md, docs/sdlc/terminal-tabs/) — repo마다 탭 여럿. 셸은 렌더러가 넘긴 **키**를
+   * 등록부(`resolveShellKey`)가 풀고, repo 경로는 그 workspace의 repo에서 여기서 정한다 — 렌더러는 경로를 넘기지 못한다(FR-18).
    */
   const shellLookup = (): ShellLookup => ({
-    platform: process.platform, env: process.env, find: (name) => findExecutable(name)
+    platform: process.platform,
+    env: process.env,
+    find: (name) => findExecutable(name),
+    exists: (path) => access(path).then(() => true, () => false)
   })
+  const resolveTerminalShell = (key: string, repo: Repo) =>
+    resolveShellKey(key, envOfRepo(repo), shellLookup(), settings.terminalShell())
   const terminal = createTerminalService({
     spawnPty: opts.spawnPty,
-    resolveShell: () => resolveShell(settings.terminalShell(), shellLookup()),
+    resolveShell: resolveTerminalShell,
+    // `기본` 표식은 `+`가 실제로 띄울 셸과 같은 해석이다 (terminal-tabs NFR-3)
+    discover: async (repo) => {
+      const lookup = shellLookup()
+      const fallback = await resolveTerminalShell('default', repo)
+      return discoverShells(envOfRepo(repo), lookup, fallback.file)
+    },
+    newId: randomUUID,
     repoOf: (workspaceId, repoId) => {
       const repo = repos.get(repoId)
       if (repo.workspaceId !== workspaceId) throw new Error(`이 workspace의 repo가 아닙니다: ${repoId}`)
@@ -428,7 +443,8 @@ export function createCore(opts: CoreOptions) {
     // WSL repo의 셸 (wsl-support FR-29·30) — 런처는 run과 같은 것, 종료는 안에서 **세션**째(작업 제어가 작업마다 그룹을 만든다)
     killSession,
     killSessionSync,
-    wslLauncher: (distro, repoId) => wslLauncherFor(distro, `term-${repoId}`),
+    // pidfile은 탭마다다 (terminal-tabs FR-21) — 한 repo의 WSL 탭 둘이 같은 파일을 쓰면 하나를 닫을 때 다른 탭의 세션을 겨눈다
+    wslLauncher: (distro, tabId) => wslLauncherFor(distro, `term-${tabId}`),
     hostCwd: opts.dataDir,
     platform: process.platform,
     onData: (data) => {
@@ -930,12 +946,16 @@ export function createCore(opts: CoreOptions) {
      * 이슈·메모·asset·repo·workspace가 바뀔 때 준다 (docs/sdlc/item-windows/ FR-17). IPC로 온 쓰기와 MCP로
      * 온 쓰기, asset 스캔이 전부 이 길이다. 모든 창이 듣는다.
      */
-    /** 코드 칸의 터미널 (docs/sdlc/code-editor/terminal-spec.md) — 핸들러는 이것을 한 줄씩 부른다 */
+    /** 코드 칸의 터미널 (docs/sdlc/code-editor/terminal-spec.md, docs/sdlc/terminal-tabs/) — 핸들러는 이것을 한 줄씩 부른다 */
     terminal: {
       open: (input: TerminalOpenInput) => terminal.open(input),
-      write: (repoId: string, data: string) => { terminal.write(repoId, data) },
-      resize: (repoId: string, cols: number, rows: number) => { terminal.resize(repoId, cols, rows) },
-      restart: (input: TerminalOpenInput) => terminal.restart(input)
+      shells: (input: { workspaceId: string; repoId: string }) => terminal.shells(input),
+      create: (input: TerminalCreateInput) => terminal.create(input),
+      attach: (ref: TerminalTabRef) => terminal.attach(ref),
+      restart: (input: TerminalTabInput) => terminal.restart(input),
+      close: (ref: TerminalTabRef) => terminal.close(ref),
+      write: (tabId: string, data: string) => { terminal.write(tabId, data) },
+      resize: (tabId: string, cols: number, rows: number) => { terminal.resize(tabId, cols, rows) }
     },
 
     /** 셸 출력 — 16ms마다 모은 덩어리 (terminal-spec FR-20) */
