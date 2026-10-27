@@ -6,7 +6,9 @@ import type { Conversation } from '../conversation'
 import type { ContextChip } from '../context'
 import { issueToCarry } from '@shared/conversationIssue'
 import { resendInput } from '../resend'
-import type { AssignedIssue, Repo, Run, Workspace } from '@shared/models'
+import { IssueProposalBanner } from './IssueProposalBanner'
+import type { IssueBanner } from '../proposal'
+import type { AcceptIssueProposal, AssignedIssue, Repo, Run, Workspace } from '@shared/models'
 
 /**
  * 대화 하나. 위는 대화록, 아래는 입력이다 (설계 §4-1).
@@ -21,7 +23,7 @@ import type { AssignedIssue, Repo, Run, Workspace } from '@shared/models'
 export function ConversationPanel({
   conversation, workspaceId, workspaces, repos, reposError, chips, onRemoveChip,
   onStarted, onCancel, draftPrompt, draftCwd, selectedRepoId, onCwdChange, pendingIssue = null,
-  focusInput = false, onFocusInputConsumed = () => {}
+  focusInput = false, onFocusInputConsumed = () => {}, proposal, onAcceptProposal, onDeclineProposal
 }: {
   conversation: Conversation | null
   /** 새 대화 칸에 걸린 할당 예정 이슈 (conversation-issue FR-20). 대화가 있으면 쓰지 않는다 */
@@ -42,6 +44,14 @@ export function ConversationPanel({
   /** 홈의 `답하기`(docs/sdlc/home/ FR-9) — 대화록의 답하기(FR-44)와 같은 칸에 포커스를 주고 치운다. 일회성 지시 */
   focusInput?: boolean
   onFocusInputConsumed?: () => void
+  /**
+   * 이 대화의 `이 대화를 이슈로 만들까요?` (`docs/sdlc/agent-proposals/` FR-21·24) — 도크가 `bannerOf`로 골라 내린다. **필수다** —
+   * 선택이면 도크의 한 줄을 지워도 조용히 컴파일되고 배너가 영영 서지 않는다
+   */
+  proposal: IssueBanner | null
+  /** 실패하면 던진다 — 배너가 이유를 보인다 */
+  onAcceptProposal: (proposalId: string, choice: AcceptIssueProposal) => Promise<void>
+  onDeclineProposal: (proposalId: string) => Promise<void>
 }) {
   const client = useClient()
   const [resendError, setResendError] = useState<string | null>(null)
@@ -106,6 +116,17 @@ export function ConversationPanel({
         )
         : <div className="panel-empty">지시를 입력하면 대화가 시작됩니다</div>}
       {resendError && <div role="alert" className="form-error">{resendError}</div>}
+      {/* 대화록과 입력부 사이 (FR-21) — 제안은 턴의 끝에 오고 사람은 그때 마지막 답과 입력칸을 본다. key가 제안 id라 새 제안이
+          오면 그 제목으로 다시 시작한다(FR-4) */}
+      {proposal && (
+        <IssueProposalBanner
+          key={proposal.proposal.id}
+          banner={proposal}
+          repos={repos}
+          onAccept={(choice) => onAcceptProposal(proposal.proposal.id, choice)}
+          onDecline={() => onDeclineProposal(proposal.proposal.id)}
+        />
+      )}
       <RunPanel
         conversation={conversation}
         workspaceId={workspaceId}

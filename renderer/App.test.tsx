@@ -386,6 +386,12 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
     account: {
       planUsage: vi.fn(async () => null)
     },
+    // 도크가 기다리는 제안을 읽는다 (agent-proposals FR-25)
+    proposals: {
+      pending: vi.fn(async () => []),
+      accept: vi.fn(),
+      decline: vi.fn()
+    },
     app: {
       info: vi.fn(async () => ({ version: '0.0.0-test', dataDir: '/data', dbFile: '/data/one-desk.db', logDir: '/data/logs' })),
       reveal: vi.fn(async () => {})

@@ -4,6 +4,8 @@ import { useClient } from '../client/ClientProvider'
 import { clampDockHeight, readDockHeight, writeDockHeight, DEFAULT_DOCK_RATIO, MIN_DOCK_PX } from '../dockHeight'
 import { withShortcut } from '../shortcut'
 import { ConversationPanel } from './ConversationPanel'
+import { useProposals } from '../hooks/useProposals'
+import { bannerOf } from '../proposal'
 import { ConversationHeader } from './ConversationHeader'
 import { ConversationList } from './ConversationList'
 import { draftKeyOf } from '../store/drafts'
@@ -23,7 +25,7 @@ import { conversationIdOf, filterByRepo, groupConversations, repoOfConversation,
 import { readCollapsedSections, writeCollapsedSections } from '../dockSections'
 import { confirmSeen as confirmConversationSeen } from '../conversationSeen'
 import type { ContextChip } from '../context'
-import type { AssignedIssue, QueueSnapshot, Repo, Run, Workspace } from '@shared/models'
+import type { AcceptIssueProposal, AssignedIssue, QueueSnapshot, Repo, Run, Workspace } from '@shared/models'
 
 /** 코드 칸 폭 경계의 폭(px)과 칸 열의 오른쪽 여백 — CSS `.code-pane-resizer`·`.code-column`과 같다 */
 const PANE_RESIZER_PX = 9
@@ -459,6 +461,15 @@ export function Dock({
     }
   }
 
+  // 기다리는 제안 (agent-proposals FR-24) — 도크가 쥐고 보는 대화의 배너만 내린다. App을 거치지 않는다(assignIssue와 같다)
+  const { proposals } = useProposals(workspaceId)
+  async function acceptProposal(proposalId: string, choice: AcceptIssueProposal) {
+    await client.proposals.accept(proposalId, choice)
+  }
+  async function declineProposal(proposalId: string) {
+    await client.proposals.decline(proposalId)
+  }
+
   /** 대화의 할당 이슈를 바꾸거나 뗀다 (conversation-issue FR-21). 뿌리 id에 찍는다 */
   async function assignIssue(conv: Conversation, issueId: string | null) {
     setActionError(null)
@@ -701,6 +712,9 @@ export function Dock({
                   // 그 대화가 실제로 열린 뒤에만 넘긴다 — runs가 아직 오기 전에는 새 대화 칸이 서 있어 거기에 포커스가 가 버린다
                   focusInput={replyRequested && shownConversation !== null}
                   onFocusInputConsumed={() => setReplyRequested(false)}
+                  proposal={bannerOf(proposals, shownConversation)}
+                  onAcceptProposal={acceptProposal}
+                  onDeclineProposal={declineProposal}
                 />
               </div>
             </CodePaneContext.Provider>

@@ -13,7 +13,7 @@ import { createCloseGuard } from '../store/closeGuard'
 import { createPendingSaves } from '../store/pendingSaves'
 import { Dock } from './Dock'
 import type { OneDeskClient } from '@shared/client'
-import type { Repo, Run, Workspace } from '@shared/models'
+import type { IssueProposal, ItemChange, Repo, Run, Workspace } from '@shared/models'
 import type { RunEvent } from '@shared/events'
 
 // CodeMirror는 jsdom에서 그릴 수 없다(측정이 없다 — code-editor plan 위험 2). 코드 칸이 여는 편집기는 글만 보이는 대역이다.
@@ -65,7 +65,11 @@ function textEvent(runId: string, text: string): RunEvent {
   return { type: 'text', runId, seq: 0, at: 0, text }
 }
 
-function makeClient(over: Partial<OneDeskClient['runs']> = {}): OneDeskClient {
+function makeClient(
+  over: Partial<OneDeskClient['runs']> = {},
+  proposals: Partial<OneDeskClient['proposals']> = {},
+  onItemChanged: OneDeskClient['events']['onItemChanged'] = vi.fn(() => () => {})
+): OneDeskClient {
   return {
     workspaces: { list: vi.fn().mockResolvedValue([]), create: vi.fn(), remove: vi.fn() },
     repos: { list: vi.fn().mockResolvedValue([]), create: vi.fn(), remove: vi.fn() },
@@ -92,7 +96,15 @@ function makeClient(over: Partial<OneDeskClient['runs']> = {}): OneDeskClient {
       onRunEvent: vi.fn(() => () => {}),
       onRunUpdate: vi.fn(() => () => {}),
       onQueueUpdate: vi.fn(() => () => {}),
-      onInboxUpdate: vi.fn(() => () => {})
+      onInboxUpdate: vi.fn(() => () => {}),
+      onItemChanged
+    },
+    // 기다리는 제안 (agent-proposals FR-25) — 도크가 읽는다. 기본은 빈 목록
+    proposals: {
+      pending: vi.fn().mockResolvedValue([]),
+      accept: vi.fn().mockResolvedValue(undefined),
+      decline: vi.fn().mockResolvedValue(undefined),
+      ...proposals
     }
   } as unknown as OneDeskClient
 }
@@ -1900,5 +1912,68 @@ describe('홈의 답하기 — focusReply (docs/sdlc/home/ FR-9)', () => {
     const consumed = renderReply(false)
     await waitFor(() => expect(consumed).toHaveBeenCalled())
     expect(screen.getByRole('textbox', { name: '지시' })).not.toHaveFocus()
+  })
+})
+
+describe('이슈화 제안 (docs/sdlc/agent-proposals/ FR-21~24)', () => {
+  const proposal = (over: Partial<IssueProposal> = {}): IssueProposal => ({
+    id: 'p1', workspaceId: 'w1', rootRunId: 'run-1', runId: 'run-1', status: 'pending', createdAt: 1, decidedAt: null,
+    kind: 'conversation-issue', existingIssue: null,
+    payload: { title: '모바일 로그인 버튼', body: '', repoIds: [], source: null, kind: null, priority: null, existingIssueId: null },
+    ...over
+  })
+  const BANNER = { name: '이 대화를 이슈로 만들까요?' }
+  const openConv = () => userEvent.click(screen.getByText('토큰 버그 고쳐줘', { selector: '.dock-conv-title' }))
+  const done = () => makeRun({ id: 'run-1', status: 'succeeded', endedAt: 2, resultText: '고쳤다' })
+
+  it('제안 바뀜에 다시 읽는다 — 그 workspace의 proposal 알림만', async () => {
+    let listener: (c: ItemChange) => void = () => {}
+    const pending = vi.fn().mockResolvedValueOnce([]).mockResolvedValue([proposal()])
+    const onItemChanged = vi.fn((cb: (c: ItemChange) => void) => { listener = cb; return () => {} })
+    renderDock([done()], null, makeClient({}, { pending }, onItemChanged))
+    await openConv()
+    await waitFor(() => expect(pending).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('status', BANNER)).toBeNull()
+
+    act(() => { listener({ workspaceId: 'w1', kind: 'issue' }) })
+    act(() => { listener({ workspaceId: 'w2', kind: 'proposal' }) })
+    expect(pending).toHaveBeenCalledTimes(1)
+    act(() => { listener({ workspaceId: 'w1', kind: 'proposal' }) })
+    expect(await screen.findByRole('status', BANNER)).toBeInTheDocument()
+    expect(pending).toHaveBeenLastCalledWith('w1')
+  })
+
+  it('새 대화 칸에는 배너가 없다', async () => {
+    const pending = vi.fn().mockResolvedValue([proposal()])
+    renderDock([done()], null, makeClient({}, { pending }))
+    await openConv()
+    expect(await screen.findByRole('status', BANNER)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '새 대화' }))
+    expect(screen.queryByRole('status', BANNER)).toBeNull()
+  })
+
+  it('받기·거절이 그 제안 id로 간다', async () => {
+    const accept = vi.fn().mockResolvedValue(undefined)
+    const decline = vi.fn().mockResolvedValue(undefined)
+    const pending = vi.fn().mockResolvedValue([proposal({ id: 'p7' })])
+    const { unmount } = renderDock([done()], null, makeClient({}, { pending, accept, decline }))
+    await openConv()
+    await userEvent.click(await screen.findByRole('button', { name: '이슈로 만들기' }))
+    expect(accept).toHaveBeenCalledWith('p7', { mode: 'new', title: '모바일 로그인 버튼' })
+    unmount()
+
+    renderDock([done()], null, makeClient({}, { pending, accept, decline }))
+    await openConv()
+    await userEvent.click(await screen.findByRole('button', { name: '이슈로 만들지 않기' }))
+    expect(decline).toHaveBeenCalledWith('p7')
+  })
+
+  it('할당된 대화에는 제안이 있어도 배너가 없다', async () => {
+    const pending = vi.fn().mockResolvedValue([proposal()])
+    renderDock([makeRun({ id: 'run-1', status: 'succeeded', endedAt: 2, issue: { id: 'i1', title: '붙인 이슈' } })], null,
+      makeClient({}, { pending }))
+    await userEvent.click(screen.getByText('붙인 이슈', { selector: '.dock-conv-title' }))
+    await waitFor(() => expect(pending).toHaveBeenCalled())
+    expect(screen.queryByRole('status', BANNER)).toBeNull()
   })
 })
