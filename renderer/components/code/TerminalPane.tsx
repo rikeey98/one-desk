@@ -59,7 +59,12 @@ export function TerminalPane({ workspaceId, repo, onClose, onSendSelection }: {
 
   useEffect(() => { void load(null) }, [load])
 
-  useEffect(() => { if (active !== null) writeActiveTab(repo.id, active) }, [repo.id, active])
+  useEffect(() => {
+    if (active === null) return
+    writeActiveTab(repo.id, active)
+    // 넘친 탭 줄에서 보이는 탭이 화면 밖이면 데려온다 — 스크롤바는 숨겼다(캡처: 새 탭이 오른쪽 밖에 섰다). jsdom에는 없다
+    tabButtons.current.get(active)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+  }, [repo.id, active, tabs?.length])
 
   const full = (tabs?.length ?? 0) >= TERMINAL_TABS_PER_REPO
 
@@ -180,7 +185,14 @@ export function TerminalPane({ workspaceId, repo, onClose, onSendSelection }: {
     <section className="code-pane terminal-pane" aria-label="터미널 칸" onKeyDown={onKeyDown}>
       <header className="code-pane-head terminal-head">
         <span className="code-pane-repo">{repo.name}</span>
-        <div className="terminal-tabs" role="tablist" aria-label="터미널 탭" onKeyDown={onTabsKeyDown}>
+        <div
+          className="terminal-tabs"
+          role="tablist"
+          aria-label="터미널 탭"
+          onKeyDown={onTabsKeyDown}
+          // 세로 휠로 가로 탭 줄을 민다 — 숨긴 스크롤바 대신
+          onWheel={(e) => { if (e.deltaY !== 0) e.currentTarget.scrollLeft += e.deltaY }}
+        >
           {(tabs ?? []).map((t) => {
             const selected = t.tabId === active
             return (
