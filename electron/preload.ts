@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { OneDeskClient, Unsubscribe } from '@shared/client'
-import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult, ReportData, HomeSummary, HomeTarget, FileTreeResult, FileOpenResult, FileSaveResult, FileProbeResult, TerminalSession, TerminalData, TerminalExit, TerminalShellSetting, WslDistros } from '@shared/models'
+import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult, ReportData, HomeSummary, HomeTarget, FileTreeResult, FileOpenResult, FileSaveResult, FileProbeResult, TerminalSession, TerminalTab, TerminalShellOption, TerminalData, TerminalExit, TerminalShellSetting, WslDistros } from '@shared/models'
 import type { RunEvent } from '@shared/events'
 
 /**
@@ -103,10 +103,14 @@ const client: OneDeskClient = {
     listDistros: () => call<WslDistros>(CHANNELS.wslListDistros)
   },
   terminal: {
-    open: (input) => call<TerminalSession>(CHANNELS.terminalOpen, input),
-    write: (repoId, data) => { ipcRenderer.send(CHANNELS.terminalWrite, repoId, data) },
-    resize: (repoId, cols, rows) => { ipcRenderer.send(CHANNELS.terminalResize, repoId, cols, rows) },
-    restart: (input) => call<TerminalSession>(CHANNELS.terminalRestart, input)
+    open: (input) => call<TerminalTab[]>(CHANNELS.terminalOpen, input),
+    shells: (input) => call<TerminalShellOption[]>(CHANNELS.terminalShells, input),
+    create: (input) => call<TerminalSession>(CHANNELS.terminalCreate, input),
+    attach: (ref) => call<TerminalSession>(CHANNELS.terminalAttach, ref),
+    restart: (input) => call<TerminalSession>(CHANNELS.terminalRestart, input),
+    close: (ref) => call<void>(CHANNELS.terminalClose, ref),
+    write: (tabId, data) => { ipcRenderer.send(CHANNELS.terminalWrite, tabId, data) },
+    resize: (tabId, cols, rows) => { ipcRenderer.send(CHANNELS.terminalResize, tabId, cols, rows) }
   },
   runs: {
     list: (workspaceId) => call<Run[]>(CHANNELS.runsList, workspaceId),
