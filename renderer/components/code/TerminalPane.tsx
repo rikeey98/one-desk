@@ -31,6 +31,7 @@ export function TerminalPane({ workspaceId, repo, onClose, onSendSelection }: {
   /** 마지막으로 잰 칸의 크기 — 새 탭을 그 크기로 연다(아직 잰 적이 없으면 80×24 — 붙은 뒤 크기를 맞춘다) */
   const size = useRef({ cols: 80, rows: 24 })
   const tabButtons = useRef(new Map<string, HTMLButtonElement>())
+  const tabStrip = useRef<HTMLDivElement>(null)
   const menuButton = useRef<HTMLButtonElement>(null)
   const menuBox = useRef<HTMLDivElement>(null)
   const menuId = useId()
@@ -63,7 +64,15 @@ export function TerminalPane({ workspaceId, repo, onClose, onSendSelection }: {
     if (active === null) return
     writeActiveTab(repo.id, active)
     // 넘친 탭 줄에서 보이는 탭이 화면 밖이면 데려온다 — 스크롤바는 숨겼다(캡처: 새 탭이 오른쪽 밖에 섰다). jsdom에는 없다
-    tabButtons.current.get(active)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+    // 이름 단추가 아니라 탭(이름 + 닫기)째 — 이름만 데려오면 닫기 아이콘이 잘린다(캡처)
+    const reveal = () => { tabButtons.current.get(active)?.parentElement?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }) }
+    reveal()
+    // 칸 폭을 줄이면 보던 탭이 다시 밖으로 밀린다(캡처: 320px에서 끝 탭이 잘렸다) — 탭 줄 폭이 바뀔 때도 데려온다
+    const strip = tabStrip.current
+    if (!strip || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(reveal)
+    observer.observe(strip)
+    return () => { observer.disconnect() }
   }, [repo.id, active, tabs?.length])
 
   const full = (tabs?.length ?? 0) >= TERMINAL_TABS_PER_REPO
@@ -186,6 +195,7 @@ export function TerminalPane({ workspaceId, repo, onClose, onSendSelection }: {
       <header className="code-pane-head terminal-head">
         <span className="code-pane-repo">{repo.name}</span>
         <div
+          ref={tabStrip}
           className="terminal-tabs"
           role="tablist"
           aria-label="터미널 탭"

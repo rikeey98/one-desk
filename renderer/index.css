@@ -1374,7 +1374,7 @@ button.report-flow-line:hover { background: var(--bg-muted); }
 /* 탭 줄 (docs/sdlc/terminal-tabs/ FR-1) — 넘치면 가로로 스크롤한다(칸 하한 320px). 보이는 탭은 파일 칸의 눌림(현재 파일)과 같은 면,
    끝난 탭은 이름 앞의 흐린 점이다(이름에는 넣지 않는다 — title이 종료 코드를 말한다). 둘째 줄은 지금 탭의 동작이다. */
 .terminal-head { gap: 6px; padding-right: 6px; }
-.terminal-tabs { flex: 1 1 auto; display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.terminal-tabs { flex: 1 1 auto; display: flex; align-items: center; gap: 2px; min-width: 0; padding-left: 6px; border-left: 1px solid var(--border-faint); overflow-x: auto; scrollbar-width: none; }
 .terminal-tab { flex: 0 0 auto; display: flex; align-items: center; height: 24px; border-radius: 5px; color: var(--text-secondary); }
 .terminal-tab:hover { background: var(--bg-hover); color: var(--text); }
 .terminal-tab-active, .terminal-tab-active:hover { background: var(--accent-bg); color: var(--accent-text); }
