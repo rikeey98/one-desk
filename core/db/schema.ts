@@ -220,3 +220,31 @@ export const asset = sqliteTable('asset', {
   // (docs/sdlc/asset-scope/spec.md — 2026-09-07 설계 §3-3을 대체함)
   uniqueIndex('asset_discovered_idx').on(t.workspaceId, t.filePath)
 ])
+
+/**
+ * agent의 제안 (`docs/sdlc/agent-proposals/` spec FR-1). 사람이 받기 전에는 이슈·대화 테이블에 한 줄도 쓰지 않는다 — 받으면 core가
+ * 한 트랜잭션에서 이슈를 만들고 할당한 뒤 이 행을 `accepted`로 둔다.
+ *
+ * `kind`에 CHECK가 없는 것은 `asset.kind`와 같은 판단이다 — 둘째 사이클이 종류를 더해도 마이그레이션이 없다. `payload`는 종류별
+ * JSON이고 쓰고 읽을 때 같은 zod로 검증한다(`core/proposals/payload.ts`). `run_id`는 기록일 뿐이라 외래키가 없다.
+ */
+export const proposal = sqliteTable('proposal', {
+  id: text('id').primaryKey(),
+  workspaceId: text('workspace_id').notNull()
+    .references(() => workspace.id, { onDelete: 'cascade' }),
+  rootRunId: text('root_run_id').notNull()
+    .references(() => run.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull(),
+  kind: text('kind').$type<'conversation-issue'>().notNull(),
+  payload: text('payload').notNull(),
+  status: text('status').$type<'pending' | 'accepted' | 'declined' | 'superseded'>().notNull().default('pending'),
+  createdAt: integer('created_at').notNull(),
+  decidedAt: integer('decided_at')
+}, (t) => [
+  index('proposal_workspace_status_idx').on(t.workspaceId, t.status),
+  index('proposal_root_idx').on(t.rootRunId),
+  // 대화당 기다리는 이슈화 제안은 하나다 (FR-4). `kind`를 조건에 넣는 것은 둘째 사이클의 정리 run이 한 대화에서 여러 제안을
+  // 기다리게 하려는 것이다. **WHERE가 빠지면** superseded 행 하나가 같은 대화의 다음 제안을 막는다.
+  uniqueIndex('proposal_pending_issue_idx').on(t.rootRunId)
+    .where(sql`status = 'pending' AND kind = 'conversation-issue'`)
+])
