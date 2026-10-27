@@ -264,8 +264,12 @@ export function createTerminalService(deps: TerminalServiceDeps) {
       if (tabsOf(repo.id).length === 0) {
         let pending = starting.get(repo.id)
         if (!pending) {
-          pending = launchTab(repo, 'default', input).finally(() => { starting.delete(repo.id) })
-          starting.set(repo.id, pending)
+          // 끝내기가 이 자리를 비우고 새 띄우기가 들어섰을 수 있다 — 제 것일 때만 지운다
+          const mine: Promise<unknown> = launchTab(repo, 'default', input).finally(() => {
+            if (starting.get(repo.id) === mine) starting.delete(repo.id)
+          })
+          pending = mine
+          starting.set(repo.id, mine)
         }
         await pending
       }
@@ -327,6 +331,8 @@ export function createTerminalService(deps: TerminalServiceDeps) {
     /** repo를 지우거나 경로·실행 환경을 바꿨다 (FR-19) — 그 repo의 탭 전부, 띄우는 중인 것까지 */
     killRepo(repoId: string): void {
       repoEpoch.set(repoId, (repoEpoch.get(repoId) ?? 0) + 1)
+      // 띄우는 중인 첫 탭은 곧 던진다 — 그동안 온 열기가 그것을 기다리지 않고 새로 띄우게
+      starting.delete(repoId)
       for (const shell of tabsOf(repoId)) {
         shells.delete(shell.tabId)
         end(shell, false)
@@ -336,6 +342,7 @@ export function createTerminalService(deps: TerminalServiceDeps) {
     /** 앱 종료 (FR-20) — 모든 탭을 **동기로** 트리째 끝낸다 */
     killAll(): void {
       allEpoch++
+      starting.clear()
       for (const shell of shells.values()) end(shell, true)
       shells.clear()
     }

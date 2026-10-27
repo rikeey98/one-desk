@@ -416,6 +416,31 @@ describe('셸 서비스 — 닫기와 끝내기 (FR-2·18~20)', () => {
     expect(spawnPty).toHaveBeenCalledTimes(2)
   })
 
+  it.each([
+    ['repo를 끝내면', (s: ReturnType<typeof setup>['service']) => { s.killRepo('api') }],
+    ['앱을 끄면', (s: ReturnType<typeof setup>['service']) => { s.killAll() }]
+  ])('첫 탭을 띄우는 중에 %s 다음 열기는 옛 띄우기를 기다리지 않고 새로 띄운다 (FR-5·19)', async (_, kill) => {
+    const { service, resolveShell, spawnPty } = setup()
+    const release = deferShell(resolveShell)
+    const first = service.open(open())
+    await vi.waitFor(() => expect(resolveShell).toHaveBeenCalledTimes(1))
+    kill(service)
+    // 옛 띄우기가 아직 매달려 있어도 새 열기는 제 띄우기를 시작한다
+    const releaseFresh = deferShell(resolveShell)
+    const fresh = service.open(open())
+    await vi.waitFor(() => expect(resolveShell).toHaveBeenCalledTimes(2))
+    release()
+    await expect(first).rejects.toThrow('터미널을 여는 사이 repo의 셸이 끝났습니다')
+    // 옛 띄우기의 정리가 새 띄우기의 자리를 지우지 않는다 — 그 사이 온 열기는 새 것을 기다린다
+    const third = service.open(open())
+    releaseFresh()
+    const [a, b] = await Promise.all([fresh, third])
+    expect(a).toHaveLength(1)
+    expect(b).toEqual(a)
+    expect(resolveShell).toHaveBeenCalledTimes(2)
+    expect(spawnPty).toHaveBeenCalledTimes(2)
+  })
+
   it('앱 종료는 모든 탭을 **동기로** 트리째 끝낸다 — 비동기 taskkill은 메인 프로세스와 같이 죽는다 (FR-20)', async () => {
     const { service, killTree, killTreeSync } = setup()
     await service.open(open())
