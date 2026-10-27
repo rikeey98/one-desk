@@ -168,7 +168,7 @@ B는 이번 사이클만 보면 가장 싸지만 둘째 사이클이 다시 만�
 - **FR-17.** `core.proposals.accept(id, choice)` — `choice`는 `{ mode: 'new'; title: string } | { mode: 'existing' }`. **한 트랜잭션**(`db.transaction`)에서:
   1. 제안을 읽는다. `pending`이 아니면 `이미 처리된 제안입니다`. 종류가 `conversation-issue`가 아니면 던진다.
   2. 뿌리에 살아 있는 이슈가 있으면 `이 대화에는 이미 이슈가 할당돼 있습니다` — 사람이 `⋯`로 먼저 붙였을 수 있다.
-  3. `existing`이면 `existingIssueId`의 이슈가 같은 workspace에 있어야 한다(없으면 `제안한 이슈가 지워졌습니다`). `new`면 `issues.create({ workspaceId, title, body, repoIds, source, kind, priority })` — 제목은 `choice.title`(trim, 빈 값·줄바꿈 거부).
+  3. `existing`이면 `existingIssueId`의 이슈가 같은 workspace에 있어야 한다(없으면 `제안한 이슈가 지워졌습니다`, 제안 뒤에 `done`이 됐으면 `완료된 이슈에는 붙일 수 없습니다 — 새 이슈로 받으세요` — §8의 7). `new`면 `issues.create({ workspaceId, title, body, repoIds, source, kind, priority })` — 제목은 `choice.title`(trim, 빈 값·줄바꿈 거부).
   4. `runs.assignIssue(rootRunId, issueId)`(`run.ts` 642 — `assertRoot`와 소속 검증을 그대로 탄다).
   5. 제안을 `accepted`, `decided_at = Date.now()`.
 
@@ -185,7 +185,7 @@ B는 이번 사이클만 보면 가장 싸지만 둘째 사이클이 다시 만�
 - **FR-22.** 배너의 모양은 두 갈래다.
   - **새 이슈** (`existingIssue`가 null): `이 대화를 이슈로 만들까요?` · 제목 입력칸(이름 `제안된 이슈 제목`, 제안의 제목으로 채운다) · 본문 첫 두 줄(`--text-muted`, 넘치면 `…` 뒤 전체는 `title`) · repo 이름과 분류 축 알약(있는 것만, `renderer/issueStatus.ts` 같은 표의 한국어) · 버튼 `이슈로 만들기` · `이슈로 만들지 않기`.
   - **기존 이슈** (`existingIssue`가 있다): `기존 이슈 「<제목>」에 붙일까요?` · 버튼 `기존 이슈에 붙이기` · `이슈로 만들기`(새로 만든다 — 그때만 제목 입력칸이 펼쳐진다) · `이슈로 만들지 않기`.
-  - `existingIssueId`가 있었는데 그 이슈가 지워졌으면(`existingIssue: null`) 새 이슈 갈래로 그린다 — payload의 제목이 그것을 위해 있다(FR-2).
+  - `existingIssueId`가 있었는데 그 이슈가 지워졌거나(`existingIssue: null`) 제안 뒤에 완료됐으면(`status: done` — §8의 7) 새 이슈 갈래로 그린다 — payload의 제목이 그것을 위해 있다(FR-2).
 - **FR-23.** 버튼:
   - `이슈로 만들기` → `proposals.accept(id, { mode: 'new', title })`. 제목이 비면 잠긴다. Enter로도 보낸다(입력칸에서).
   - `기존 이슈에 붙이기` → `accept(id, { mode: 'existing' })`.

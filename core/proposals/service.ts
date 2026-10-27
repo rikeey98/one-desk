@@ -51,6 +51,8 @@ export function createProposalService(deps: ProposalServiceDeps) {
         if (choice.mode === 'existing') {
           if (proposal.existingIssue === null) throw new Error('제안한 이슈가 지워졌습니다')
           issue = deps.issues.get(proposal.existingIssue.id)
+          // 제안 뒤에 완료됐을 수 있다 — 대화 쪽에서 이슈 상태를 쓰지 않으므로 다시 열지도 않는다(spec §8-7)
+          if (issue.status === 'done') throw new Error('완료된 이슈에는 붙일 수 없습니다 — 새 이슈로 받으세요')
         } else {
           const { payload } = proposal
           const living = new Set(deps.repos.list(proposal.workspaceId).map((r) => r.id))

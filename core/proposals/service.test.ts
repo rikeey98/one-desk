@@ -97,6 +97,15 @@ describe('제안 받기·거절 (agent-proposals spec FR-17~20)', () => {
     expect(proposals().get(p.id).status).toBe('pending')
   })
 
+  it('제안한 기존 이슈가 그 뒤 완료됐으면 기존으로는 받지 못한다 — 완료된 이슈에는 붙이지 않는다(§8-7)', () => {
+    const existing = issues().create({ workspaceId, title: '끝낼 것' })
+    const p = propose({ existingIssueId: existing.id })
+    issues().update({ id: existing.id, status: 'done' })
+    expect(() => service().accept(p.id, { mode: 'existing' })).toThrow('완료된 이슈에는 붙일 수 없습니다')
+    expect(runs.get(rootRunId).issue).toBeNull()
+    expect(proposals().get(p.id).status).toBe('pending')
+  })
+
   it.each([['빈 제목', '   '], ['여러 줄 제목', '첫 줄\n둘째 줄']])('새 이슈의 %s은 거부한다', (_, title) => {
     const p = propose()
     expect(() => service().accept(p.id, { mode: 'new', title })).toThrow()

@@ -48,4 +48,10 @@ describe('bannerOf (agent-proposals spec FR-21·22)', () => {
     const gone = proposal({ payload: { ...proposal().payload, existingIssueId: 'i9' }, existingIssue: null })
     expect(bannerOf([gone], conv())).toMatchObject({ mode: 'new' })
   })
+
+  it('기존 이슈가 제안 뒤에 완료됐으면 지워진 것처럼 새 갈래다 (§8-7)', () => {
+    const done = { id: 'i1', title: '끝난 이슈', status: 'done' as const }
+    const p = proposal({ payload: { ...proposal().payload, existingIssueId: 'i1' }, existingIssue: done })
+    expect(bannerOf([p], conv())).toEqual({ mode: 'new', proposal: p })
+  })
 })
