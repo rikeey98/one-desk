@@ -76,6 +76,11 @@ const terminalTab = (page: Page, name: string) => terminalPane(page).getByRole('
 
 /** `PID=<n>`를 찍고 잠드는 node — 되울림에는 `process.pid*1`이 그대로 있고 출력에만 숫자가 있다 */
 const SLEEPING_NODE = `node -e "console.log('PID='+(process.pid*1)); setInterval(()=>{},1e9)"`
+/**
+ * 콘솔 없이(detached) 띄운 손자의 pid를 찍는 node. ConPTY는 닫히며 콘솔에 붙은 프로세스를 같이 끝내므로 pty만 끝내도 `SLEEPING_NODE`는
+ * 죽는다 — 트리째 끝냈는지(`taskkill /T`)는 콘솔 밖의 손자로만 보인다(변이로 확인했다: pty kill만으로도 위 node는 끝났다)
+ */
+const DETACHED_GRANDCHILD = `node -e "const c=require('child_process').spawn(process.execPath,['-e','setInterval(()=>{},1e9)'],{detached:true,stdio:'ignore'});c.unref();console.log('PID='+(c.pid*1));setInterval(()=>{},1e9)"`
 
 async function readPid(page: Page): Promise<number> {
   await expect.poll(async () => /PID=\d+/.test(await termText(page)), { timeout: 30_000 }).toBe(true)
@@ -216,7 +221,8 @@ describe('코드 칸 — 터미널 탭 (docs/sdlc/terminal-tabs/)', () => {
     const nameB = (await selectedTab(page).textContent())!
     expect(nameB).not.toBe(nameA)
     await expect.poll(async () => (await termText(page)).includes(`PID=${pidA}`), { timeout: 20_000 }).toBe(false)
-    await run(page, SLEEPING_NODE)
+    // Windows는 탭 B의 콘솔 밖 손자로 트리 종료를 본다. macOS·Linux의 닫기는 pty kill(SIGHUP)이라 setsid한 손자는 남는 것이 규칙이다
+    await run(page, WIN ? DETACHED_GRANDCHILD : SLEEPING_NODE)
     const pidB = await readPid(page)
     expect(pidB).not.toBe(pidA)
 
