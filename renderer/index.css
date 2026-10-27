@@ -1371,7 +1371,28 @@ button.report-flow-line:hover { background: var(--bg-muted); }
 
 /* 터미널 칸 (docs/sdlc/code-editor/terminal-spec.md) — 머리는 파일 칸과 같은 결이고, 본문은 xterm이 칸을 꽉 채운다(열·행은
    fit이 잰다). 끝남 줄은 본문 아래 한 줄이다. */
-.terminal-shell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+/* 탭 줄 (docs/sdlc/terminal-tabs/ FR-1) — 넘치면 가로로 스크롤한다(칸 하한 320px). 보이는 탭은 파일 칸의 눌림(현재 파일)과 같은 면,
+   끝난 탭은 이름 앞의 흐린 점이다(이름에는 넣지 않는다 — title이 종료 코드를 말한다). 둘째 줄은 지금 탭의 동작이다. */
+.terminal-head { gap: 6px; padding-right: 6px; }
+.terminal-tabs { flex: 1 1 auto; display: flex; align-items: center; gap: 2px; min-width: 0; padding-left: 6px; border-left: 1px solid var(--border-faint); overflow-x: auto; scrollbar-width: none; }
+.terminal-tab { flex: 0 0 auto; display: flex; align-items: center; height: 24px; border-radius: 5px; color: var(--text-secondary); }
+.terminal-tab:hover { background: var(--bg-hover); color: var(--text); }
+.terminal-tab-active, .terminal-tab-active:hover { background: var(--accent-bg); color: var(--accent-text); }
+.terminal-tab-name { display: inline-flex; align-items: center; gap: 5px; height: 24px; border: 0; padding: 0 2px 0 8px; background: transparent; color: inherit; cursor: pointer; font-family: var(--font-mono); font-size: .6875rem; white-space: nowrap; }
+.terminal-tab-ended { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
+.terminal-tab-close.row-action { width: 20px; height: 20px; margin-right: 2px; color: inherit; }
+.terminal-tab-close.confirm-armed.row-action { width: auto; padding: 0 6px; white-space: nowrap; }
+.terminal-head .row-action[aria-disabled="true"], .terminal-head .row-action[aria-disabled="true"]:hover { background: transparent; color: var(--text-muted); cursor: default; }
+.terminal-tab-actions { flex: 0 0 auto; display: flex; align-items: center; justify-content: flex-end; gap: 4px; padding: 3px 6px; border-bottom: 1px solid var(--border-faint); }
+.terminal-empty { flex: 1 1 auto; }
+/* 셸 고르기 메뉴 — 대화 헤더의 대화 메뉴와 같은 결(최상위 레이어 popover + anchor), 단추의 오른쪽 끝에 맞춘다 */
+.terminal-menu-button { anchor-name: --terminal-menu; }
+.terminal-menu { position: fixed; position-anchor: --terminal-menu; inset: auto; top: anchor(bottom); right: anchor(right); position-try-fallbacks: flip-block, flip-inline; margin: 4px 0 0; min-width: 180px; padding: 4px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--bg); color: var(--text); box-shadow: var(--shadow-overlay); }
+.terminal-menu:popover-open { display: flex; flex-direction: column; gap: 1px; }
+.terminal-menu [role="menuitem"] { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; border-radius: 4px; padding: 5px 8px; background: transparent; color: var(--text); cursor: pointer; font: inherit; font-size: .75rem; text-align: left; transition: background .12s; }
+.terminal-menu [role="menuitem"]:is(:hover, :focus) { background: var(--bg-hover); }
+.terminal-menu [role="menuitem"]:focus:not(:focus-visible) { outline: none; }
+.terminal-menu-default { margin-left: auto; font-size: .6875rem; color: var(--text-muted); }
 .terminal-body { flex: 1 1 auto; min-height: 0; display: flex; padding: 6px 4px 4px 10px; background: var(--bg); }
 .terminal-view { flex: 1 1 auto; min-width: 0; min-height: 0; }
 .terminal-view .xterm { height: 100%; }

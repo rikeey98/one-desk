@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { Core } from '@core/index'
-import type { TerminalOpenInput } from '@shared/models'
+import type { TerminalCreateInput, TerminalOpenInput, TerminalTabInput, TerminalTabRef } from '@shared/models'
 import type { Windows } from './index'
 
 /**
@@ -11,12 +11,16 @@ import type { Windows } from './index'
  */
 export function registerTerminalHandlers(core: Core, windows: Pick<Windows, 'getMainWindow'>) {
   ipcMain.handle(CHANNELS.terminalOpen, (_e, input: TerminalOpenInput) => core.terminal.open(input))
-  ipcMain.handle(CHANNELS.terminalRestart, (_e, input: TerminalOpenInput) => core.terminal.restart(input))
-  ipcMain.on(CHANNELS.terminalWrite, (_e, repoId: string, data: string) => {
-    try { core.terminal.write(repoId, data) } catch (err) { console.error('one-desk: 셸에 쓰지 못했습니다', err) }
+  ipcMain.handle(CHANNELS.terminalShells, (_e, input: { workspaceId: string; repoId: string }) => core.terminal.shells(input))
+  ipcMain.handle(CHANNELS.terminalCreate, (_e, input: TerminalCreateInput) => core.terminal.create(input))
+  ipcMain.handle(CHANNELS.terminalAttach, (_e, ref: TerminalTabRef) => core.terminal.attach(ref))
+  ipcMain.handle(CHANNELS.terminalRestart, (_e, input: TerminalTabInput) => core.terminal.restart(input))
+  ipcMain.handle(CHANNELS.terminalClose, (_e, ref: TerminalTabRef) => core.terminal.close(ref))
+  ipcMain.on(CHANNELS.terminalWrite, (_e, tabId: string, data: string) => {
+    try { core.terminal.write(tabId, data) } catch (err) { console.error('one-desk: 셸에 쓰지 못했습니다', err) }
   })
-  ipcMain.on(CHANNELS.terminalResize, (_e, repoId: string, cols: number, rows: number) => {
-    core.terminal.resize(repoId, cols, rows)
+  ipcMain.on(CHANNELS.terminalResize, (_e, tabId: string, cols: number, rows: number) => {
+    core.terminal.resize(tabId, cols, rows)
   })
   core.onTerminalData((data) => {
     windows.getMainWindow()?.webContents.send(EVENT_CHANNELS.terminalData, data)

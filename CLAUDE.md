@@ -330,8 +330,8 @@ repo는 이어 가는 대화면 뿌리 cwd(`repoOfConversation`), 새 대화면 
 대화록 편집 줄의 `코드 칸에서 열기`가 그 파일을 그 편집 줄로 연다. `e2e/code-pane.e2e.ts`가 디스크 바이트(CRLF·BOM)까지 본다.
 
 **코드 칸의 둘째 — 터미널** (`docs/sdlc/code-editor/terminal-spec.md`·`terminal-plan.md`). 마이그레이션 없음. 제목 줄 `파일` 왼쪽의
-`터미널`이 같은 칸을 그 대화 repo의 셸로 바꾼다(칸은 한 번에 한 종류 — `PaneKind = 'files' | 'terminal'`). **셸은 repo당 하나이고
-core에 산다**(`core/terminal/service.ts`) — 칸을 닫거나 다른 repo로 옮기거나 인박스에 다녀와도 돌고, 칸은 붙었다 떨어진다(셸마다
+`터미널`이 같은 칸을 그 대화 repo의 셸로 바꾼다(칸은 한 번에 한 종류 — `PaneKind = 'files' | 'terminal'`). **셸은 탭마다 하나이고
+core에 산다**(`core/terminal/service.ts` — repo당 탭 여럿은 아래 `terminal-tabs` 절) — 칸을 닫거나 다른 repo로 옮기거나 인박스에 다녀와도 돌고, 칸은 붙었다 떨어진다(셸마다
 최근 출력 512 KiB를 core가 쥐고 다시 붙을 때 준다). 앱을 끄면 `shutdown`이 모든 셸을 **동기로** 트리째 끝내고(`taskkillTreeSync` —
 `cancelAll`과 같은 이유), repo 삭제·경로 변경·workspace 삭제도 그 셸을 끝낸다. 셸은 설정 앱 탭의 `터미널 셸`(`app_setting`의
 `terminal.shell`)이고 비면 PATH의 `pwsh` → Windows PowerShell(posix는 `$SHELL`). 렌더러는 repo id만 넘긴다 — cwd·셸·명령을 정하지
@@ -340,6 +340,16 @@ core에 산다**(`core/terminal/service.ts`) — 칸을 닫거나 다른 repo로
 터미널 칸 머리의 `대화에 붙이기`(이름 `선택 영역을 대화에 붙이기`)가 고른 글을 코드 블록(`code/terminalSelection.ts`)으로 **도크가
 보는 대화의 입력칸 끝**에 붙인다 — 보내지는 않는다. 통로는 초안 스토어의 `append`/`onAppend`다: 입력부는 글을 state로 쥐므로
 `set`만으로는 모르고, `set`을 들으면 전송이 비우는 자기 쓰기에도 반응한다. 접힌 도크는 펼친다.
+
+**터미널은 repo마다 탭 여럿이고, 탭을 열 때 셸을 고른다** (`docs/sdlc/terminal-tabs/` — terminal-spec FR-5 "repo당 하나"·FR-11 "설정 하나가
+정한다"를 뒤집었다). 마이그레이션 없음. 칸 머리 첫 줄이 repo 이름 · 탭 줄(`터미널 탭`, 탭 이름 = 셸 이름 + 비어 있는 가장 작은 번호 — `pwsh 2`) ·
+`새 터미널`(기본 셸) · `셸 고르기`(▾ 메뉴 — Windows는 PowerShell 7 · Windows PowerShell · 명령 프롬프트 · Git Bash 중 **있는 것만**, posix는
+`$SHELL` 하나, WSL repo는 그 distro 하나) · 닫기이고, 둘째 줄이 지금 탭의 `대화에 붙이기` · `다시 시작`이다. 탭은 repo당 8개(`TERMINAL_TABS_PER_REPO`,
+끝난 탭·띄우는 중인 탭도 센다)이고 도는 탭의 닫기는 두 번 누르기(`정말 닫기`)다. **탭 목록의 진실은 core다** — 평평한 `Map<tabId, Shell>`이고
+렌더러가 쥐는 것은 repo마다 본 탭 하나(localStorage `one-desk.terminal.tab.<repoId>`)뿐이다. 보이는 탭 하나만 마운트하고(`TerminalTabView`,
+`key={tabId}`) 탭을 바꾸면 스냅샷으로 다시 그린다. **렌더러가 넘기는 것은 셸의 키(`TerminalShellKey`)이고 경로가 아니다** — 키 → 셸은
+`core/terminal/shell.ts`의 `resolveShellKey` 한 자리이고 메뉴(`discoverShells`)·만들기·다시 시작이 그것을 탄다. `default`는 설정 앱 탭의
+`터미널 셸`(그대로 남았다 — `+`와 처음 열 때의 셸). push·쓰기·크기는 `repoId`가 아니라 `tabId`로 간다.
 
 **사이드바를 아이콘 줄로 접는다.** 제목 줄 왼쪽 끝의 `사이드바 최소화`/`사이드바 복원`(App이 쥐고 `Sidebar`의 필수 prop
 `collapsed`로 내린다, 이 장비의 localStorage `one-desk.sidebar.collapsed`). 접히면 인박스·리포트·설정 타일과 MCP 점이 남고
@@ -1008,11 +1018,27 @@ CI의 `electron-builder --win`이 같이 깨진다. Electron용 빌드는 postin
 core는 그것을 import하지 않는다 — `CoreOptions.spawnPty`(**필수**)로 main이 넘긴다. **core 테스트의 가짜 pty pid는 있을 수 없는
 번호(2147483644)여야 한다** — repo 삭제·앱 종료가 Windows에서 진짜 `taskkill /T /F`를 부르므로, 실제 프로세스와 겹치면 그것을 죽인다.
 
+**Git Bash는 PATH의 `bash`로 찾지 않는다 — `git.exe`에서 거슬러 오른다** (`core/terminal/shell.ts`의 `findGitBash`, terminal-tabs FR-10).
+PATH에는 `C:\Windows\System32`가 Git보다 앞에 오는 일이 흔하고 그 `bash.exe`는 WSL을 띄우는 껍데기다. `git.exe`의 폴더가 `cmd`·`bin`이면 부모,
+`mingw64\bin`이면 그 위의 위가 Git 루트다(이 장비는 PATH의 첫 `git`이 `mingw64\bin`에 있다), 이어 고정 설치 자리 셋. SystemRoot·WindowsApps 아래는
+따로 거른다. cmd는 `%ComSpec%`가 아니라 `%SystemRoot%\System32\cmd.exe`다 — 사용자가 바꿀 수 있는 값이라 "cmd"가 다른 것을 띄울 수 있다.
+**WSL 탭의 pidfile은 탭마다(`term-<tabId>.pid`)다** — `term-<repoId>`로 되돌리면 한 repo의 두 WSL 탭이 같은 파일을 써 하나를 닫을 때 다른 탭의
+세션을 겨눈다(`service.test`·`index.test` 둘 다 잡는다). **띄우는 중에 끝내면 돌아온 셸을 곧바로 끝낸다** — `killRepo`·`killAll`이 세대를 올리고
+`launch`가 spawn 뒤에 본다(앱 종료면 동기로). 없으면 지운 repo의 셸이 목록에 들어가 앱을 끌 때까지 돈다. 다시 시작은 같은 탭 id·같은 자리
+(`Map.set`)이고 그 사이 탭을 닫았으면 새 셸을 끝낸다. 다시 시작이 셸을 못 띄우면 그 탭은 core에서 사라지고 칸이 목록을 다시 읽는다.
+
+**ConPTY는 닫히며 콘솔에 붙은 자식을 같이 끝낸다 — 탭 닫기의 트리 종료는 콘솔 밖 손자로만 보인다** (terminal-tabs plan 10단계 변이). 탭 닫기를
+`taskkill /T` 없이 pty kill만으로 바꿔도 탭에서 띄운 `node`는 죽어 e2e가 초록이었다. 그래서 `terminal.e2e`의 탭 시나리오는 Windows에서
+`detached`로 띄운 손자의 pid를 본다(posix의 닫기는 pty kill이라 setsid한 손자는 남는 것이 규칙 — 그 갈래는 평범한 node다). 변이를 돌리면
+손자가 살아남으니 직접 치운다.
+
 **터미널 e2e는 셸이 조용해질 때까지 기다린 뒤 친다** (`e2e/terminal.e2e.ts`의 `waitShellIdle`). PowerShell은 프로필을 읽는 동안 친
 글자를 버린다 — 이 장비의 conda 프로필은 3초 가까이 걸려 입력이 통째로 사라졌다(실측). 프롬프트 모양에는 기대지 않고, 명령은 계산을
 품게 써서(`echo "api-$(40+2)"`) 되울림이 아니라 출력에만 나타나는 글자(`api-42`)를 기다린다. xterm은 DOM 렌더러라 보이는 줄이
-`.xterm-rows`에 있다. **칸은 개발 모드에서 두 번 마운트된다**(StrictMode) — 열기 응답이 왔을 때 껍데기가 바뀌었으면 버린다
-(`TerminalPane`의 `view.current !== handle`), 안 그러면 스냅샷이 두 번 찍힌다.
+`.xterm-rows`에 있다. **칸은 개발 모드에서 두 번 마운트된다**(StrictMode) — 붙기 응답이 왔을 때 껍데기가 바뀌었으면 버린다
+(`TerminalTabView`의 `view.current !== handle`), 안 그러면 스냅샷이 두 번 찍힌다. 탭은 `getByRole('tab', { name, exact: true })`로,
+보이는 탭은 `{ selected: true }`로 잡는다 — 옛 `.terminal-shell`(머리의 셸 이름)은 없어졌다. `새 터미널`·`셸 고르기`는 `aria-disabled`로 잠기는데
+Playwright는 그것을 비활성으로 보아 `click()`이 30초 기다린다 — 잠긴 단추를 누르는 e2e는 `force: true`다.
 
 **앱 창의 `beforeunload`는 `closeGuard`다 — 패널 창은 `guardUnload` 그대로다** (`renderer/main.tsx`). 대기 중인 저장을 먼저
 흘려보내고, 그 `close()`가 다시 부른 `beforeunload`에서 코드 칸의 고친 글을 본다. **e2e에서 칸에 고친 글을 남긴 채 끝내면
@@ -1145,6 +1171,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/period-report/` | 기간 리포트 — intent·spec·plan. workspace를 넘는 읽기를 MCP가 아니라 화면에만 둔 이유(intent, spec FR-1·24), 기간 판정 공유(FR-2), 칸 분류와 합계가 다른 질문인 이유(FR-6·7), 세 보기(FR-16~18), 내보내기 셋(FR-22~24), 상태가 "지금"인 한계(§6). 시안 https://claude.ai/artifact/6bn58ES8XQwBP9k68VfV4E |
 | `docs/sdlc/dock-repo-sections/` | 도크 대화 목록의 repo 구획과 사이드바 거름 — spec·plan. 대화의 repo를 뿌리 cwd로 정하는 이유(FR-1), 구획이 하나면 머리가 없는 이유(FR-5), 거름이 보기만 바꾸는 이유(FR-9), 머리를 대문자로 쓰지 않는 이유(NFR-2) |
 | `docs/sdlc/code-editor/` | 코드 칸(터미널 · 변경사항 · 파일) — intent 하나, spec·plan은 첫 사이클(틀 + 파일 칸), `terminal-spec.md`·`terminal-plan.md`는 둘째(터미널 — repo당 셸 하나, 앱 종료의 동기 트리 종료, 렌더러는 repo id만, 출력 이어 붙이기 규칙, node-pty 사전 빌드와 패키징). git diff로 가는 결정(intent), 배치 시안(안 A로 구현했다가 안 B — 창 오른쪽 전체 높이로 바꿈, spec §0), 버튼을 앱 제목 줄의 OS 창 단추 왼쪽으로 옮긴 것과 사이클 순서 변경(spec §0·FR-1), 목록 안의 파일만 읽고 쓰는 이유(spec §3-4), 명시적 저장과 해시 충돌(FR-17·19), 줄바꿈·BOM 되살리기(FR-18), 닫기 확인(FR-21), 우려와 승인(§4). plan에 변이 결과와 번들 크기 |
+| `docs/sdlc/terminal-tabs/` | 터미널 탭과 셸 고르기 — intent·spec·plan. 평평한 `Map<tabId, Shell>`을 고른 비교(spec §2-3), 키 등록부와 렌더러가 경로를 못 넘기는 이유(§2-1·FR-12), Git Bash 찾기(FR-10), 상한(FR-3), 띄우는 중 끝내기(FR-19), 탭마다 pidfile(FR-21), 뒤집을 수 있는 결정 여덟(§0-B). plan에 변이 표·완료 증명·달라진 것 |
 | `docs/sdlc/inbox-views/` | 인박스의 보기(시간순 · workspace별 · 상태별)와 정렬 — spec·plan. 시간 기준과 정확한 역순(spec FR-2), 묶음 순서가 정렬을 따르는 이유(FR-7)와 상태별 고정 순서(FR-10), 그 workspace의 repo만 보는 이유(FR-6), repo를 App이 읽어 필수 prop으로 내리는 이유(FR-16). plan에 변이 결과 |
 | `docs/sdlc/wsl-support/` | WSL2 안의 repo를 WSL 안의 claude로 — intent·spec·plan. UNC를 저장하는 이유(spec §0), spawn 변환 한 자리와 필수 인자(FR-8·9), 런처와 그룹 종료(FR-10·18), 브리지가 Windows에 남는 이유와 인자 파일(FR-21·22), WSL 판정 캐시 규칙(FR-13), 실측을 건너뛴 결정과 그래서 어느 쪽이든 되게 만든 두 자리(§4-A), 첫 실측이 찾은 `--`의 셸 해석과 고친 뒤의 결과(§4-B), 둘째 실측 — 로그인 셸 판정·터미널 세션 종료·cmd.exe 없는 브리지(§4-C). plan의 "달라진 것" |
 | `docs/sdlc/wsl-repo-setup/` | WSL repo를 등록 폼에서 한 번에, WSL 설정을 WSL 탭에 — spec. 대화상자가 `\\wsl$`를 시작 폴더로 받지 않는 실측(§0), wsl-support FR-5를 뒤집은 등록 동선(FR-1~6), 탭 규칙의 예외인 WSL 탭과 절의 순서(FR-7·8), 렌더러가 뜻만 넘기는 시작 폴더(FR-11~13), WSL VM을 깨우지 않는 이유(§5의 1), 캡처로 고친 것과 변이 결과(§6) |

@@ -13,7 +13,8 @@ import type {
   GlobalRoots, AgentPaths, CommandTarget, CommandListResult,
   UpdateRepoInput, AppInfo, RevealTarget, AssetBody, FileSearchInput, FileSearchResult,
   FileRef, FileTreeInput, FileTreeResult, FileOpenResult, FileSaveInput, FileSaveResult, FileProbeResult,
-  TerminalOpenInput, TerminalSession, TerminalData, TerminalExit, TerminalShellSetting, WslDistros, PickDirectoryOptions
+  TerminalOpenInput, TerminalSession, TerminalData, TerminalExit, TerminalShellSetting, WslDistros, PickDirectoryOptions,
+  TerminalTab, TerminalShellOption, TerminalCreateInput, TerminalTabInput, TerminalTabRef
 } from './models'
 import type { RunEvent } from './events'
 import type { PanelScope } from './panelWindow'
@@ -191,16 +192,25 @@ export interface OneDeskClient {
     listDistros(): Promise<WslDistros>
   }
   /**
-   * 코드 칸의 터미널 (terminal-spec). **repo id만 넘긴다** — 작업 디렉토리·셸·명령은 core가 정한다(FR-18). 셸은 repo당 하나다.
+   * 코드 칸의 터미널 (terminal-spec, terminal-tabs). **repo id·탭 id·셸 키만 넘긴다** — 작업 디렉토리·셸 경로·명령은 core가 정한다
+   * (FR-18). repo마다 탭 여럿, 탭마다 셸 하나다.
    */
   terminal: {
-    /** 그 repo의 셸에 붙는다 — 없으면 띄운다. 지금까지의 출력(스냅샷)을 준다 */
-    open(input: TerminalOpenInput): Promise<TerminalSession>
+    /** 그 repo의 탭 목록(만든 순) — 없으면 기본 셸 탭 하나를 띄운 뒤 준다 */
+    open(input: TerminalOpenInput): Promise<TerminalTab[]>
+    /** `셸 고르기` 메뉴 — core가 이 장비·이 repo에서 찾은 셸 */
+    shells(input: { workspaceId: string; repoId: string }): Promise<TerminalShellOption[]>
+    /** 그 키의 셸로 새 탭 */
+    create(input: TerminalCreateInput): Promise<TerminalSession>
+    /** 탭에 붙는다 — 지금까지의 출력(스냅샷)을 준다. 셸을 띄우지 않는다 */
+    attach(ref: TerminalTabRef): Promise<TerminalSession>
+    /** 도는 셸을 트리째 끝내고 같은 탭에 새로 띄운다 */
+    restart(input: TerminalTabInput): Promise<TerminalSession>
+    /** 탭을 닫는다 — 그 셸을 트리째 끝낸다 */
+    close(ref: TerminalTabRef): Promise<void>
     /** 키 입력. 응답을 기다리지 않는다(키마다 왕복하지 않는다) */
-    write(repoId: string, data: string): void
-    resize(repoId: string, cols: number, rows: number): void
-    /** 도는 셸을 트리째 끝내고 새로 띄운다 */
-    restart(input: TerminalOpenInput): Promise<TerminalSession>
+    write(tabId: string, data: string): void
+    resize(tabId: string, cols: number, rows: number): void
   }
   runs: {
     list(workspaceId: string): Promise<Run[]>

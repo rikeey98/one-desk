@@ -3,7 +3,7 @@
 - 출처: `intent.md` (승인 2026-10-27, 사용자 "spec 만들어줘 개발")
 - 앞 사이클: `docs/sdlc/code-editor/terminal-spec.md` · `terminal-plan.md` (터미널, 구현 완료 — 이 spec이 그 FR-5·FR-11을 뒤집는다)
 - 작성자: 권용현 (초안: Claude)
-- 상태: **승인됨** (2026-10-27, 사용자 "spect 만들어줘 개발") — 구현 전. 사용자가 뒤집을 수 있는 결정은 §0-B에 모았다
+- 상태: **승인됨** (2026-10-27, 사용자 "spect 만들어줘 개발") — 구현 완료(구현 중 달라진 것은 plan의 "달라진 것"). 사용자가 뒤집을 수 있는 결정은 §0-B에 모았다
 - 작성일: 2026-10-27
 - 적용한 규칙: CLAUDE.md의 세 경계, 렌더러는 이름만 넘긴다(`core/app/reveal.ts`), Windows 트리 종료(`taskkill /T /F`, 앱 종료는 동기),
   WSL 터미널은 세션째(`pkill -s`), push는 앱 창에만(item-windows FR-17), e2e 이름 충돌, 아이콘·색 토큰

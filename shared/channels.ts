@@ -60,6 +60,11 @@ export const CHANNELS = {
   terminalWrite: 'terminal:write',
   terminalResize: 'terminal:resize',
   terminalRestart: 'terminal:restart',
+  /** 탭 (docs/sdlc/terminal-tabs/) — 셸 메뉴·새 탭·붙기·닫기 */
+  terminalShells: 'terminal:shells',
+  terminalCreate: 'terminal:create',
+  terminalAttach: 'terminal:attach',
+  terminalClose: 'terminal:close',
   runsList: 'runs:list',
   runsStart: 'runs:start',
   runsCancel: 'runs:cancel',

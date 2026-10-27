@@ -596,8 +596,8 @@ export interface FileProbeResult {
 }
 
 /**
- * 코드 칸의 터미널 (`docs/sdlc/code-editor/terminal-spec.md`). 셸은 **repo당 하나**라 repo id가 셸의 이름이다(FR-5). 렌더러는
- * repo id만 넘긴다 — 작업 디렉토리·셸 경로·명령을 렌더러가 정하지 못한다(FR-18).
+ * 코드 칸의 터미널 (`docs/sdlc/code-editor/terminal-spec.md`, 탭은 `docs/sdlc/terminal-tabs/`). repo마다 탭이 여럿이고 탭마다 셸
+ * 하나다. 렌더러는 repo id·탭 id·셸 **키**만 넘긴다 — 작업 디렉토리·셸 경로·명령을 렌더러가 정하지 못한다(terminal-spec FR-18).
  */
 export interface TerminalOpenInput {
   workspaceId: string
@@ -606,32 +606,76 @@ export interface TerminalOpenInput {
   rows: number
 }
 
-/**
- * 칸이 셸에 붙을 때 받는 것. `generation`은 `셸 다시 시작`마다 오른다 — 옛 셸의 늦은 출력을 칸이 버린다.
- * `snapshot.end`는 지금까지 받은 글자 수다 — 칸은 그보다 앞의 조각을 버린다(같은 출력이 두 번 찍히지 않게).
- */
-export interface TerminalSession {
+/** 렌더러가 넘길 수 있는 셸의 이름 — 경로가 아니다. `default`는 설정의 셸(비면 기본값) (terminal-tabs §2-1) */
+export type TerminalShellKey = 'default' | 'pwsh' | 'powershell' | 'cmd' | 'git-bash' | 'login' | 'wsl'
+
+export const TERMINAL_SHELL_KEYS: readonly TerminalShellKey[] = ['default', 'pwsh', 'powershell', 'cmd', 'git-bash', 'login', 'wsl']
+
+/** IPC 경계에서 core가 쓰는 판정 (FR-12) */
+export function isTerminalShellKey(value: unknown): value is TerminalShellKey {
+  return typeof value === 'string' && (TERMINAL_SHELL_KEYS as readonly string[]).includes(value)
+}
+
+/** `셸 고르기` 메뉴의 한 줄 — core가 이 장비·이 repo에서 찾은 것만 */
+export interface TerminalShellOption {
+  key: Exclude<TerminalShellKey, 'default'>
+  /** 메뉴의 이름(`명령 프롬프트`) */
+  label: string
+  /** 실행 파일의 전체 경로 — 메뉴 줄의 `title` */
+  path: string
+  /** 지금 `default`가 이 셸로 풀리는가 — 메뉴에 `기본` 표식 */
+  isDefault: boolean
+}
+
+/** 탭 수 상한 — core의 거부와 렌더러의 버튼 잠금이 같은 값을 본다 (FR-3) */
+export const TERMINAL_TABS_PER_REPO = 8
+
+/** 탭 하나. 탭 id는 core가 만든다 — 렌더러는 받은 것만 되돌려 준다 */
+export interface TerminalTab {
+  tabId: string
   repoId: string
-  generation: number
-  /** 칸 머리의 셸 이름(`pwsh`) */
-  shell: string
-  /** 셸 실행 파일의 전체 경로 — 머리의 `title` */
+  /** 탭 줄의 이름(`pwsh 2`) */
+  label: string
+  /** 이 탭을 연 키 — 다시 시작이 같은 키로 다시 푼다 */
+  shellKey: TerminalShellKey
   shellPath: string
-  snapshot: { text: string; end: number }
   /** 셸이 이미 끝났으면 그 종료 코드 */
   exited: { exitCode: number } | null
 }
 
+/**
+ * 칸이 탭에 붙을 때 받는 것. `generation`은 `셸 다시 시작`마다 오른다 — 옛 셸의 늦은 출력을 칸이 버린다.
+ * `snapshot.end`는 지금까지 받은 글자 수다 — 칸은 그보다 앞의 조각을 버린다(같은 출력이 두 번 찍히지 않게).
+ */
+export interface TerminalSession extends TerminalTab {
+  generation: number
+  snapshot: { text: string; end: number }
+}
+
+export interface TerminalCreateInput extends TerminalOpenInput {
+  shell: TerminalShellKey
+}
+
+export interface TerminalTabRef {
+  workspaceId: string
+  tabId: string
+}
+
+export interface TerminalTabInput extends TerminalTabRef {
+  cols: number
+  rows: number
+}
+
 /** 셸 출력 한 덩어리(16ms마다 모은 것). `start`는 이 덩어리의 누적 시작 위치다 */
 export interface TerminalData {
-  repoId: string
+  tabId: string
   generation: number
   start: number
   data: string
 }
 
 export interface TerminalExit {
-  repoId: string
+  tabId: string
   generation: number
   exitCode: number
 }

@@ -1,7 +1,7 @@
 # Plan: 터미널 탭 — repo마다 여러 셸, 탭을 열 때 셸 고르기
 
 - 출처: `spec.md`
-- 상태: **승인됨** (2026-10-27, 사용자 "spect 만들어줘 개발") — 구현 전. spec §0-B의 결정 여덟은 사용자가 뒤집을 수 있다
+- 상태: **승인됨** (2026-10-27, 사용자 "spect 만들어줘 개발") — **구현 완료**(2026-10-27, 아래 완료 증명·달라진 것). spec §0-B의 결정 여덟은 사용자가 뒤집을 수 있다
 
 ## 순서
 
@@ -175,8 +175,86 @@
 
 ## 완료 증명
 
-(구현 후 채운다 — 기준선, 테스트 먼저의 빨강, 변이 결과, e2e 수, WSL 실측, 캡처.)
+구현 2026-10-27, 브랜치 `feat/terminal-tabs`(worktree `D:\Workspace\one-desk-tabs`, main `55954c0` 위). 커밋은 단계마다 하나(10단계는 둘).
+
+**기준선 (0단계).** `pnpm typecheck`·`pnpm lint` 초록, `pnpm test` 180 files / 3114 passed · 49 skipped, `pnpm test:e2e` 34 files 중 30 통과 ·
+67 tests 중 62 통과 · 1 실패 · 4 skipped(238초). 실패 하나는 `workspace-defaults.e2e`의 `{ name: '설정' }`이 홈의 `설정에서 경로 지정`과 부분 일치한
+strict 위반으로, 이 작업과 무관하고 다음 전체 실행 두 번에서 통과했다(경합 — 고치지 않았다). 이 장비: PATH의 첫 `git`은
+`C:\Program Files\Git\mingw64\bin\git.exe`(다음이 `…\Git\cmd\git.exe`), `C:\Program Files\Git\bin\bash.exe` 있음, `C:\Windows\System32\bash.exe` 없음.
+
+**테스트 먼저.** 단계마다 테스트를 먼저 쓰고 빨간 것을 본 뒤 구현했다 — 1단계 `isTerminalShellKey` 없음(2 failed), 2단계 `findGitBash is not a function`
+(28 failed), 7단계 옛 `TerminalPane.test`가 새 칸에서 12 failed. 3·4단계는 테스트를 통째로 다시 써 옛 서비스로는 컴파일되지 않았고, 그 대신 아래
+변이로 각 줄을 확인했다.
+
+**마지막 실행.** `pnpm typecheck` 초록 · `pnpm lint` 초록 · `pnpm test` **182 files passed · 2 skipped / 3180 passed · 49 skipped** ·
+`pnpm test:e2e` **31 files passed · 3 skipped / 67 passed · 4 skipped (254초)** — 기준선보다 테스트 넷(터미널 탭 시나리오)이 늘었다. 경계 grep 둘 출력 없음.
+e2e가 끝난 뒤 `setInterval(()=>{},1e9)` node 프로세스 0개.
+
+**WSL 실측 (11단계).** `ONE_DESK_REAL_WSL=1`, Ubuntu-24.04 — 1 passed, 관찰은 `e2e/artifacts/wsl-real-tabs/observations.json`. `5d-terminal-tabs`:
+메뉴 줄은 `WSL · Ubuntu-24.04` 하나(+`기본`), 둘째 탭 이름 `wsl · Ubuntu-24.04 2`, pidfile 둘(`term-1e72f125-….pid`·`term-76a5ac6a-….pid`, 세션 1080·844),
+둘째 탭의 `python3 … sleep(13013) &`(pid 1103)는 그 탭을 닫으니 사라지고 첫 탭의 셸은 살았다. 9단계(앱 종료 뒤) `wslLeft`·`winLeft` 빈 문자열, 5c의 백그라운드
+작업 여섯 모두 끝남. 나머지 단계(MCP·큰 출력·취소)도 전부 ok.
+
+**변이.** 망가뜨리고 돌려 빨강을 본 뒤 되돌렸다(`node scratchpad/mutate.mjs` — 바꾸고, vitest를 돌리고, 되돌린다).
+
+| 망가뜨린 줄 | 결과 |
+|---|---|
+| `findGitBash`가 PATH의 `bash`를 먼저 본다 | 빨강 — System32 bash.exe만 있는 장비 |
+| WSL 자리 거름을 지운다 | 빨강 — SystemRoot·WindowsApps 아래 |
+| `mingw64\bin` 거슬러 오르기를 뺀다 | 빨강 — mingw64\bin |
+| cmd를 `ComSpec`에서 | 빨강 — cmd는 ComSpec을 따르지 않는다 |
+| WSL에서 목록 밖의 키를 받아 준다 | 빨강 — WSL repo의 cmd |
+| `isDefault`를 첫 줄로 | 빨강 — 기본 표식은 설정이 풀린 셸 |
+| `nextTabLabel`이 개수+1 | 빨강 — 빈 번호 채우기 |
+| `shells` 키를 repoId로 | 빨강 23 |
+| `open`이 탭이 있어도 띄운다 | 빨강 6 |
+| 상한이 띄우는 중을 세지 않는다 | 빨강 — 동시에 두 번 |
+| 상한이 끝난 탭을 세지 않는다 | 빨강 — 끝난 탭도 센다 |
+| `restart`가 새 탭 id | 빨강 6 |
+| `restart`가 `default`로 푼다 | 빨강 — cmd 탭을 다시 시작하면 cmd |
+| `killRepo`가 첫 탭만 | 빨강 — 탭 셋이 다 끝난다 |
+| 띄우는 중 끝내기 검사를 지운다 | 빨강 3 (repo 끝내기·앱 종료·다시 시작 중 닫기) |
+| `killAll`이 비동기 | 빨강 2 |
+| WSL pidfile을 `term-<repoId>`로 (service) | 빨강 5 |
+| WSL pidfile을 하나로 (core/index) | 빨강 2 |
+| `attach`가 workspace를 보지 않는다 | 빨강 2 |
+| core/index: 메뉴의 기본 표식에 다른 해석 | 빨강 — `기본` 표식은 설정 화면이 말하는 셸 |
+| core/index: 키 해석 없이 설정의 셸 | 빨강 2 |
+| `terminalStream`이 tabId를 보지 않는다 | **처음엔 살았다** — 그 테스트의 다른 탭 조각이 이미 쓴 범위라 위치 규칙에 걸렸다. 이어 쓸 자리(3)로 고친 뒤 빨강 |
+| `nextActiveAfterClose`가 첫 탭으로 | 빨강 |
+| `pickTab`이 기억을 보지 않는다 | 빨강 |
+| 칸이 보이지 않는 탭의 끝남을 버린다 | 빨강 |
+| 도는 탭 닫기를 한 번 누르기로 | 빨강 |
+| 잠금을 다른 수(9)로 | 빨강 |
+| 메뉴 Esc의 `stopPropagation`을 지운다 | **살았다** — 칸 `<section>`의 Esc 규칙이 이미 감싼다. 그 줄을 지웠다(달라진 것 2) |
+| 닫은 뒤 볼 탭을 정하지 않는다 | 빨강 |
+| 본 탭을 기억하지 않는다 | 빨강 |
+| 붙은 셸 크기를 맞추지 않는다 | 빨강 |
+| 다시 시작 응답을 탭 줄에 반영하지 않는다 | 빨강 2 |
+| e2e: 탭 닫기가 pty kill만 | **처음엔 살았다** — ConPTY가 콘솔 자식을 같이 끝낸다. 콘솔 밖(detached) 손자로 바꾼 뒤 빨강(`expected 'alive' to be 'gone'`) — 달라진 것 3 |
+
+**캡처 (12단계).** `e2e/artifacts/terminal-tabs/` — `tabs-{light,dark}.png`(powershell · 끝난 cmd · powershell 2, 512 KiB 가까이 찬 탭), `menu-{light,dark}.png`,
+`narrow-8-{light,dark}.png`(칸 하한에 탭 8개), `empty-{light,dark}.png`, WSL은 `e2e/artifacts/wsl-real-tabs/5d-terminal-tabs.png`. 20,000줄(약 220 KB)
+찬 탭으로 돌아오는 데 76 ms(클릭부터 마지막 줄이 보일 때까지, 20 ms 간격 poll) — spec §6의 1의 우려는 이 크기에서 드러나지 않았다.
 
 ## 달라진 것
 
-(구현 중 spec과 달라진 것을 여기 적고 spec에도 반영한다.)
+1. **캡처로 고친 것 둘.** 넘친 탭 줄에서 새로 연 탭이 오른쪽 밖에 섰고, 칸을 좁히면 보던 탭이 다시 밖으로 밀렸다 — 보이는 탭(이름 + 닫기)을 `scrollIntoView`
+   하고 탭 줄 폭이 바뀔 때도 다시 데려온다(ResizeObserver). Chromium의 가로 스크롤바가 화살표와 함께 굵게 그려져 숨기고 세로 휠로 민다. 탭 줄과
+   repo 이름 사이에 `--border-faint` 선을 그었다(잘린 탭 조각이 `api 2`처럼 이름에 붙어 읽혔다).
+2. **메뉴의 Esc가 `stopPropagation`을 하지 않는다.** plan 7단계는 "메뉴의 Esc는 `preventDefault`+`stopPropagation`"이었지만 메뉴는 칸 안에 그려지고 칸이
+   Esc를 이미 막아 그 줄을 지워도 아무 테스트도 빨개지지 않았다. 지우고, 행동은 "메뉴를 닫는 Esc는 메뉴만 닫는다 — 칸 밖으로 새지 않는다"가 지킨다
+   (메뉴를 칸 밖으로 옮기면 그것이 빨개진다).
+3. **e2e의 탭 닫기 확인은 Windows에서 콘솔 밖 손자다.** plan 10단계의 "탭 B의 `node`가 끝난다"는 트리 종료 없이도 성립했다(ConPTY). 탭 B는 `detached`
+   손자를 띄워 그 pid를 본다. posix는 닫기가 pty kill이라(FR-18) 평범한 node 그대로다.
+4. **다시 시작이 셸을 못 띄우면 그 탭은 core에서 사라진다**(spec에 없던 경우). 끝낸 셸을 도는 것처럼 남기지 않으려는 것이고, 칸은 이유를 보인 채 목록을
+   다시 읽는다. 오류 줄은 칸 하나(`TerminalPane`)에 모았다 — 열기·만들기·붙기·다시 시작·닫기의 실패가 같은 `role="alert"`이고 `다시 시도`는 목록을
+   다시 읽는다.
+5. **붙은 뒤 셸 크기를 맞춘다.** 칸은 xterm을 재기 전에 `open`을 부르므로 첫 탭은 80×24로 뜬다 — `TerminalTabView`가 붙자마자 `resize`를 보낸다
+   (xterm의 첫 fit은 `onResize`를 내지 않는다). 새 탭은 마지막으로 잰 크기로 연다.
+6. **이름.** plan의 `keepLabel(oldLabel, newBase)`는 `restartLabel({ base, label }, newBase, others)`다(다르면 새로 매기려면 다른 탭 이름이 필요하다).
+   WSL repo의 `resolveShellKey`는 distro 안의 명령(`sh -c 'exec "${SHELL:-/bin/bash}" -l'`)을 돌려주고 wsl.exe로 감싸기는 서비스가 한다(런처·pidfile이
+   탭마다라). 메뉴 줄 WSL의 `path`(title)는 `wsl.exe -d <distro>`다.
+7. **머리에서 셸 이름 글자(`.terminal-shell`)가 없어졌다** — 탭 이름이 셸 이름이고 전체 경로는 탭의 `title`이다. 옛 e2e 셋째 시나리오는 보이는 탭의 이름을 본다.
+8. **`terminal.e2e`의 "설정에서 셸을 바꾸면"은 placeholder가 기본값을 말할 때까지 기다린 뒤 친다** — 전체 e2e 한 번에서 설정을 읽기 전에 친 글자가 덮여 저장이
+   잠긴 채 깨졌다(앞 사이클부터 있던 경합).

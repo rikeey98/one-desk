@@ -70,6 +70,25 @@ async function run(page: Page, command: string): Promise<void> {
   await page.keyboard.press('Enter')
 }
 
+/** 지금 보이는 탭 (terminal-tabs FR-1) */
+const selectedTab = (page: Page) => terminalPane(page).getByRole('tab', { selected: true })
+const terminalTab = (page: Page, name: string) => terminalPane(page).getByRole('tab', { name, exact: true })
+
+/** `PID=<n>`를 찍고 잠드는 node — 되울림에는 `process.pid*1`이 그대로 있고 출력에만 숫자가 있다 */
+const SLEEPING_NODE = `node -e "console.log('PID='+(process.pid*1)); setInterval(()=>{},1e9)"`
+/**
+ * 콘솔 없이(detached) 띄운 손자의 pid를 찍는 node. ConPTY는 닫히며 콘솔에 붙은 프로세스를 같이 끝내므로 pty만 끝내도 `SLEEPING_NODE`는
+ * 죽는다 — 트리째 끝냈는지(`taskkill /T`)는 콘솔 밖의 손자로만 보인다(변이로 확인했다: pty kill만으로도 위 node는 끝났다)
+ */
+const DETACHED_GRANDCHILD = `node -e "const c=require('child_process').spawn(process.execPath,['-e','setInterval(()=>{},1e9)'],{detached:true,stdio:'ignore'});c.unref();console.log('PID='+(c.pid*1));setInterval(()=>{},1e9)"`
+
+async function readPid(page: Page): Promise<number> {
+  await expect.poll(async () => /PID=\d+/.test(await termText(page)), { timeout: 30_000 }).toBe(true)
+  return Number(/PID=(\d+)/.exec(await termText(page))![1])
+}
+
+const isAlive = (pid: number) => { try { process.kill(pid, 0); return 'alive' } catch { return 'gone' } }
+
 async function openTerminal(page: Page): Promise<void> {
   await page.getByRole('button', { name: '터미널', exact: true }).click()
   await terminalPane(page).locator('.xterm-rows').waitFor({ timeout: 20_000 })
@@ -130,12 +149,15 @@ describe('코드 칸 — 터미널', () => {
     const { page } = app
     await prepare(app)
     await openTerminal(page)
-    const shellName = terminalPane(page).locator('.terminal-shell')
+    // 탭 이름이 셸 이름이다 — 다시 시작한 default 탭은 바뀐 셸의 이름으로 다시 매긴다 (terminal-tabs FR-16)
+    const shellName = selectedTab(page)
     await expect.poll(() => shellName.textContent(), { timeout: 20_000 }).toMatch(/pwsh|powershell|sh/)
 
     await page.getByRole('navigation').getByRole('button', { name: /설정/ }).click()
     await page.getByRole('tab', { name: '앱' }).click()
     const target = WIN ? join(process.env['SystemRoot'] ?? 'C:\\Windows', 'System32', 'cmd.exe') : '/bin/sh'
+    // 설정을 읽어 오기 전에 치면 읽은 값이 덮어 저장이 잠긴 채다(전체 e2e에서 한 번 깨졌다) — placeholder가 기본값을 말할 때까지
+    await expect.poll(() => page.getByLabel('터미널 셸 실행 파일').getAttribute('placeholder'), { timeout: 20_000 }).toMatch(/^기본값: /)
     await page.getByLabel('터미널 셸 실행 파일').fill(target)
     await page.getByRole('button', { name: '터미널 셸 저장' }).click()
     await expect.poll(() => page.getByLabel('터미널 셸 실행 파일').inputValue()).toBe(target)
@@ -153,15 +175,132 @@ describe('코드 칸 — 터미널', () => {
     const { page } = app
     await prepare(app)
     await openTerminal(page)
-    await run(page, `node -e "console.log('PID='+(process.pid*1)); setInterval(()=>{},1e9)"`)
-    // 되울림에는 `process.pid*1`이 그대로 있고 출력에만 숫자가 있다
-    await expect.poll(async () => /PID=\d+/.test(await termText(page)), { timeout: 30_000 }).toBe(true)
-    const pid = Number(/PID=(\d+)/.exec(await termText(page))![1])
-    expect(() => process.kill(pid, 0)).not.toThrow()
+    await run(page, SLEEPING_NODE)
+    const pid = await readPid(page)
+    expect(isAlive(pid)).toBe('alive')
 
     await app.close()
-    await expect.poll(() => {
-      try { process.kill(pid, 0); return 'alive' } catch { return 'gone' }
-    }, { timeout: 10_000 }).toBe('gone')
+    await expect.poll(() => isAlive(pid), { timeout: 10_000 }).toBe('gone')
+  }, 120_000)
+})
+
+describe('코드 칸 — 터미널 탭 (docs/sdlc/terminal-tabs/)', () => {
+  it.runIf(WIN)('셸 고르기에서 명령 프롬프트를 고르면 cmd 탭이 서고, PowerShell 탭의 출력은 그대로다 (FR-7·8)', async () => {
+    const app = await launchApp()
+    const { page } = app
+    await prepare(app)
+    await openTerminal(page)
+    const first = (await selectedTab(page).textContent())!
+    await run(page, echo42('ps'))
+    await waitForText(page, 'ps-42')
+
+    await terminalPane(page).getByRole('button', { name: '셸 고르기' }).click()
+    await page.getByRole('menuitem', { name: '명령 프롬프트', exact: true }).click()
+    await expect.poll(() => selectedTab(page).textContent(), { timeout: 20_000 }).toBe('cmd')
+    await expect.poll(async () => (await termText(page)).includes('ps-42'), { timeout: 20_000 }).toBe(false)
+    // 되울림에는 `%OS%`가 그대로 남고 출력에만 펼친 값이 있다(spec §6의 3)
+    await run(page, 'echo tab-cmd-%OS%')
+    await waitForText(page, 'tab-cmd-Windows_NT')
+
+    await terminalTab(page, first).click()
+    await waitForText(page, 'ps-42')
+    await app.close()
+  }, 120_000)
+
+  it('탭 둘이 따로 돈다 — 탭을 오가고 인박스에 다녀와도 출력이 남고, 탭을 닫으면 그 탭의 자식만 끝나며 앱을 끄면 다 끝난다 (FR-4·18·20)', async () => {
+    const app = await launchApp()
+    const { page } = app
+    await prepare(app)
+    await openTerminal(page)
+    const nameA = (await selectedTab(page).textContent())!
+    await run(page, SLEEPING_NODE)
+    const pidA = await readPid(page)
+
+    await terminalPane(page).getByRole('button', { name: '새 터미널', exact: true }).click()
+    await expect.poll(() => terminalPane(page).getByRole('tab').count(), { timeout: 20_000 }).toBe(2)
+    const nameB = (await selectedTab(page).textContent())!
+    expect(nameB).not.toBe(nameA)
+    await expect.poll(async () => (await termText(page)).includes(`PID=${pidA}`), { timeout: 20_000 }).toBe(false)
+    // Windows는 탭 B의 콘솔 밖 손자로 트리 종료를 본다. macOS·Linux의 닫기는 pty kill(SIGHUP)이라 setsid한 손자는 남는 것이 규칙이다
+    await run(page, WIN ? DETACHED_GRANDCHILD : SLEEPING_NODE)
+    const pidB = await readPid(page)
+    expect(pidB).not.toBe(pidA)
+
+    await terminalTab(page, nameA).click()
+    await waitForText(page, `PID=${pidA}`)
+    await terminalTab(page, nameB).click()
+    await waitForText(page, `PID=${pidB}`)
+
+    // 인박스에 다녀오면 칸이 다시 붙는다 — 그 repo에서 마지막으로 본 탭(B)이다 (FR-6)
+    await page.getByRole('navigation').getByRole('button', { name: /인박스/ }).click()
+    await expect.poll(() => terminalPane(page).count()).toBe(0)
+    await page.getByRole('button', { name: 'term-ws', exact: true }).click()
+    await terminalPane(page).locator('.xterm-rows').waitFor({ timeout: 20_000 })
+    await expect.poll(() => selectedTab(page).textContent(), { timeout: 20_000 }).toBe(nameB)
+    await waitForText(page, `PID=${pidB}`)
+
+    await terminalPane(page).getByRole('button', { name: `${nameB} 터미널 닫기`, exact: true }).click()
+    await terminalPane(page).getByRole('button', { name: '정말 닫기', exact: true }).click()
+    await expect.poll(() => isAlive(pidB), { timeout: 10_000 }).toBe('gone')
+    expect(isAlive(pidA)).toBe('alive')
+    await expect.poll(() => selectedTab(page).textContent(), { timeout: 20_000 }).toBe(nameA)
+    await waitForText(page, `PID=${pidA}`)
+
+    await app.close()
+    await expect.poll(() => isAlive(pidA), { timeout: 10_000 }).toBe('gone')
+  }, 180_000)
+
+  it('탭은 repo당 8개까지다 — 8개면 새 터미널이 잠기고 이유를 말하며, 하나를 닫으면 풀린다 (FR-3)', async () => {
+    const app = await launchApp()
+    const { page } = app
+    await prepare(app)
+    await openTerminal(page)
+    const tabs = terminalPane(page).getByRole('tab')
+    // 셸 여덟을 띄운다 — 준비를 기다리지 않고 탭 수와 잠김만 본다(plan 위험 1). Windows는 가벼운 cmd로
+    for (let n = 2; n <= 8; n++) {
+      if (WIN) {
+        await terminalPane(page).getByRole('button', { name: '셸 고르기' }).click()
+        await page.getByRole('menuitem', { name: '명령 프롬프트', exact: true }).click()
+      } else {
+        await terminalPane(page).getByRole('button', { name: '새 터미널', exact: true }).click()
+      }
+      await expect.poll(() => tabs.count(), { timeout: 20_000 }).toBe(n)
+    }
+    const plus = terminalPane(page).getByRole('button', { name: '새 터미널', exact: true })
+    await expect.poll(() => plus.getAttribute('aria-disabled')).toBe('true')
+    expect(await plus.getAttribute('title')).toBe('터미널은 repo당 8개까지입니다 — 하나를 닫으세요')
+    // aria-disabled는 Playwright가 비활성으로 본다 — 눌러도 아무것도 안 생기는지 보려고 억지로 누른다
+    await plus.click({ force: true })
+    await page.waitForTimeout(500)
+    expect(await tabs.count()).toBe(8)
+
+    const last = (await tabs.last().textContent())!
+    await terminalPane(page).getByRole('button', { name: `${last} 터미널 닫기`, exact: true }).click()
+    await terminalPane(page).getByRole('button', { name: '정말 닫기', exact: true }).click()
+    await expect.poll(() => tabs.count(), { timeout: 20_000 }).toBe(7)
+    await expect.poll(() => plus.getAttribute('aria-disabled')).toBeNull()
+    await app.close()
+  }, 180_000)
+
+  it.runIf(WIN)('Git Bash가 있는 장비에서는 그 탭이 bash다 (FR-10)', async () => {
+    const app = await launchApp()
+    const { page } = app
+    await prepare(app)
+    await openTerminal(page)
+    await terminalPane(page).getByRole('button', { name: '셸 고르기' }).click()
+    const gitBash = page.getByRole('menuitem', { name: 'Git Bash', exact: true })
+    await page.getByRole('menu', { name: '셸 고르기' }).waitFor({ timeout: 10_000 })
+    if (await gitBash.count() === 0) {
+      // 장비를 탄다(plan 위험 2) — 조용히 빠지지 않게 남긴다
+      console.log('[terminal.e2e] 이 장비에는 Git Bash가 없어 Git Bash 탭 시나리오를 건너뛴다')
+      await page.keyboard.press('Escape')
+      await app.close()
+      return
+    }
+    await gitBash.click()
+    await expect.poll(() => selectedTab(page).textContent(), { timeout: 20_000 }).toBe('bash')
+    await run(page, 'echo "gb-$((40+2))"')
+    await waitForText(page, 'gb-42')
+    await app.close()
   }, 120_000)
 })

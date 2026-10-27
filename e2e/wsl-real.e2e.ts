@@ -278,6 +278,47 @@ describe.skipIf(process.env['ONE_DESK_REAL_WSL'] !== '1')('WSL 실측 (진짜 ws
         return { jobs }
       })
 
+      // 탭 (docs/sdlc/terminal-tabs/ FR-9·18·21) — WSL repo의 셸 메뉴는 그 distro 하나이고, 둘째 탭을 닫으면 그 탭의 세션만 끝난다.
+      // pidfile은 탭마다다(`term-<tabId>.pid`) — 한 repo의 두 탭이 같은 파일을 쓰면 하나를 닫을 때 다른 탭의 세션을 겨눈다
+      await step('5d-terminal-tabs', async () => {
+        const firstTab = (await terminal.getByRole('tab', { selected: true }).textContent())!
+        const firstShell = pidsOf(wslOurs())
+        await terminal.getByRole('button', { name: '셸 고르기' }).click()
+        const menu = page.getByRole('menu', { name: '셸 고르기' })
+        await menu.waitFor({ timeout: 10_000 })
+        const items = await menu.getByRole('menuitem').allTextContents()
+        await page.keyboard.press('Escape')
+        if (items.length !== 1 || !items[0]!.startsWith(`WSL · ${DISTRO}`)) throw Object.assign(new Error('WSL repo의 셸 메뉴가 그 distro 하나가 아니다'), { items })
+
+        await terminal.getByRole('button', { name: '새 터미널', exact: true }).click()
+        await expect.poll(() => terminal.getByRole('tab').count(), { timeout: 20_000 }).toBe(2)
+        const secondTab = (await terminal.getByRole('tab', { selected: true }).textContent())!
+        await waitShellIdle()
+        await typeLine(`python3 -c 'import time; time.sleep(13013)' &`)
+        let scan = ''
+        await expect.poll(() => { scan = wslOurs(); return scan.includes('time.sleep(13013)') }, { timeout: 20_000, interval: 1_000 }).toBe(true)
+        const job = scan.split('\n').filter((l) => l.includes('time.sleep(13013)')).map((l) => l.split(' ')[0]!)
+        const wslDir = join(app.dataDir, 'wsl')
+        const pidfiles = readdirSync(wslDir).filter((f) => f.startsWith('term-'))
+        const sessions = pidfiles.map((f) => readFileSync(join(wslDir, f), 'utf8').trim())
+        await shot('5d-terminal-tabs')
+        if (pidfiles.length !== 2 || new Set(sessions).size !== 2) throw Object.assign(new Error('WSL 탭 둘의 pidfile이 각자의 것이 아니다'), { pidfiles, sessions })
+
+        await terminal.getByRole('button', { name: `${secondTab} 터미널 닫기`, exact: true }).click()
+        await terminal.getByRole('button', { name: '정말 닫기', exact: true }).click()
+        let left = job
+        try {
+          await expect.poll(() => { const now = pidsOf(wslOurs()); left = job.filter((p) => now.has(p)); return left.length === 0 }, { timeout: 15_000, interval: 1_000 }).toBe(true)
+        } catch { /* 남은 것을 기록한다 */ }
+        const after = pidsOf(wslOurs())
+        const firstAlive = [...firstShell].every((p) => after.has(p))
+        const result = { items, firstTab, secondTab, pidfiles, sessions, job, left, firstAlive }
+        if (left.length > 0) throw Object.assign(new Error('둘째 탭을 닫아도 그 탭의 작업이 남았다'), result)
+        if (!firstAlive) throw Object.assign(new Error('둘째 탭을 닫았는데 첫 탭의 셸이 끝났다'), result)
+        await expect.poll(() => terminal.getByRole('tab', { selected: true }).textContent(), { timeout: 10_000 }).toBe(firstTab)
+        return result
+      })
+
       // 앱 종료(동기 세션 KILL)가 끝내야 할 백그라운드 작업 — 9단계가 본다. 그 뒤의 기준선(취소 단계가 빼고 볼 것)도 여기서 잡는다
       await step('5c-terminal-bg-for-close', async () => {
         await waitShellIdle()
