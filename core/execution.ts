@@ -15,6 +15,8 @@ import type { AgentKind, Asset, ContextItemRef, Permission, ResumeRunInput, Run,
 import type { RunEventInit } from '@shared/events'
 import { issueToCarry, soleIssueOf } from '@shared/conversationIssue'
 import { envOfRepo, HOST_ENV, type ProcessEnvSpec } from './wsl/env'
+import { shouldProposeIssue } from './proposals/guide'
+import { proposalStateOf } from './db/repositories/proposal'
 
 /** 맥락에 그 이슈를 더한다 — 이미 있으면 그대로다(같은 항목이 run_context_item에 두 줄 생기면 안 된다, FR-11). */
 function withIssue(context: ContextItemRef[], issueId: string | null): ContextItemRef[] {
@@ -336,6 +338,21 @@ export function createExecutionService(opts: ExecutionOptions) {
     timeoutMs: number | null
     /** 새 대화에 할당할 이슈. 이어 가는 턴은 늘 null이다 (conversation-issue FR-5) */
     issueId: string | null
+    /** 이 턴에 `propose_issue` 안내를 붙이는가 (agent-proposals FR-15) — `proposeIssueFor`가 정한다 */
+    proposeIssue: boolean
+  }
+
+  /**
+   * 안내를 붙이는가 (agent-proposals FR-15) — start·resume이 같이 부르는 한 자리. `assignedIssueId`는 이 턴이 끝난 뒤의 할당이고
+   * (새 대화면 자동 할당까지 거친 값), `rootId`가 null이면 새 대화라 기다림·거절이 없다.
+   */
+  function proposeIssueFor(
+    agentKind: AgentKind, permission: Permission, assignedIssueId: string | null, rootId: string | null
+  ): boolean {
+    return shouldProposeIssue({
+      mcp: opts.mcp !== undefined, agentKind, permission, assignedIssueId,
+      state: rootId === null ? { pending: false, declined: false } : proposalStateOf(opts.db, rootId)
+    })
   }
 
   /** 작업 디렉토리와 경로가 같은 그 workspace의 repo. 등록된 경로가 아니면 null */
@@ -371,7 +388,8 @@ export function createExecutionService(opts: ExecutionOptions) {
     const assembled = assemblePrompt({
       repos, issues, memos, assets: resolved, userPrompt: spec.userPrompt,
       files: mentions.files.map((f) => ({ repoName: f.repoName, path: f.path, content: f.content })),
-      resolvedMentions: mentions.resolvedStarts
+      resolvedMentions: mentions.resolvedStarts,
+      proposeIssue: spec.proposeIssue
     })
     // 기록은 멘션마다 한 행이다 (FR-15). 요청의 맥락에는 file이 올 수 없다(collectContext가 막는다).
     const context: ContextItemRef[] = [
@@ -571,6 +589,10 @@ export function createExecutionService(opts: ExecutionOptions) {
     // 그것. 이어 가는 턴(parentRunId)에는 자동 할당을 하지 않는다. 할당한 이슈는 첫 턴에 실린다 — 맥락에 더하면
     // collectContext가 workspace 소속까지 검증한다(FR-11).
     const issueId = input.parentRunId ? null : (input.issueId ?? soleIssueOf(input.context))
+    // 원본을 가리키는 start(parentRunId)는 그 대화의 턴이다 — 할당과 제안은 뿌리에서 본다
+    const parent = input.parentRunId ? opts.runs.get(input.parentRunId) : null
+    const parentRoot = parent ? (parent.rootRunId ?? parent.id) : null
+    const assignedAfter = parentRoot ? (opts.runs.get(parentRoot).issue?.id ?? null) : issueId
     return launch({
       workspaceId: input.workspaceId,
       agentKind: input.agentKind,
@@ -583,7 +605,8 @@ export function createExecutionService(opts: ExecutionOptions) {
       parentRunId: input.parentRunId ?? null,
       resumeFromRootRunId: null,
       timeoutMs: input.timeoutMs ?? null,
-      issueId
+      issueId,
+      proposeIssue: proposeIssueFor(input.agentKind, input.permission, assignedAfter, parentRoot)
     })
   }
 
@@ -639,7 +662,8 @@ export function createExecutionService(opts: ExecutionOptions) {
       context: withIssue(input.context, carry),
       // timeoutMs는 원본의 성질을 따른다 (설계 §6의 목록에 빠져 있던 자리다).
       timeoutMs: source.timeoutMs,
-      issueId: null
+      issueId: null,
+      proposeIssue: proposeIssueFor(source.agentKind, input.permission, assigned, rootId)
     })
   }
 
