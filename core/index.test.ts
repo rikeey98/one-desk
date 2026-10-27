@@ -1633,3 +1633,50 @@ describe('홈 배선 (docs/sdlc/home/)', () => {
     expect(deps![1]).not.toMatch(/home|reports|buildHomeSummary/)
   })
 })
+
+describe('agent의 제안 (docs/sdlc/agent-proposals/)', () => {
+  const FAKE_MCP = resolve(HERE, 'runner/fixtures/fake-claude-mcp.mjs')
+
+  /** 가짜 MCP CLI가 그 도구를 부르게 하고 fn을 돌린다. 환경변수는 되돌린다 */
+  async function withFakeMcp(call: unknown, fn: () => Promise<void>): Promise<void> {
+    const keys = ['ONE_DESK_AGENT_PATH', 'ONE_DESK_AGENT_LAUNCHER', 'ONE_DESK_FAKE_MCP_CALL'] as const
+    const previous = keys.map((k) => process.env[k])
+    process.env['ONE_DESK_AGENT_PATH'] = FAKE_MCP
+    process.env['ONE_DESK_AGENT_LAUNCHER'] = process.execPath
+    process.env['ONE_DESK_FAKE_MCP_CALL'] = JSON.stringify(call)
+    try {
+      await fn()
+    } finally {
+      keys.forEach((k, i) => {
+        const v = previous[i]
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      })
+    }
+  }
+
+  /** 읽기 전용 대화 하나를 돌려 propose_issue를 부르게 하고 끝날 때까지 기다린다 */
+  async function proposeVia(core: Core, workspaceId: string, cwd: string, title = '모바일 로그인 버튼') {
+    let runId = ''
+    await withFakeMcp({ name: 'propose_issue', arguments: { title, body: '오버레이' } }, async () => {
+      const run = await core.execution.start({
+        workspaceId, agentKind: 'claude-code', cwd, permission: 'read_only', userPrompt: '고쳐줘', context: []
+      })
+      runId = run.id
+      await vi.waitFor(() => expect(core.runs.get(run.id).endedAt).toBeTypeOf('number'), { timeout: 20_000 })
+    })
+    return runId
+  }
+
+  it('MCP로 제안하면 바뀜 알림 proposal이 나간다 — MCP deps가 감싼 저장소를 받는다', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    const seen: string[] = []
+    core.onItemChanged((c) => { if (c.kind === 'proposal') seen.push(c.workspaceId) })
+    const runId = await proposeVia(core, workspaceId, dataDir)
+    expect(core.runs.get(runId).status).toBe('succeeded')
+    expect(seen).toEqual([workspaceId])
+    close(core)
+  }, 30_000)
+})

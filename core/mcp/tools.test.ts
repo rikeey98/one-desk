@@ -9,6 +9,7 @@ import { createIssueRepository } from '../db/repositories/issue'
 import { createMemoRepository } from '../db/repositories/memo'
 import { createWorkspaceRepository } from '../db/repositories/workspace'
 import { createRunRepository } from '../db/repositories/run'
+import { createProposalRepository } from '../db/repositories/proposal'
 import { HOST_ENV } from '../wsl/env'
 import { createMcpHost, type McpHost } from './host'
 import { rpc } from './testing'
@@ -27,6 +28,7 @@ interface Fixture {
   db: ReturnType<typeof makeTestDb>
   issues: ReturnType<typeof createIssueRepository>
   runs: ReturnType<typeof createRunRepository>
+  proposals: ReturnType<typeof createProposalRepository>
 }
 
 let f: Fixture
@@ -38,6 +40,7 @@ beforeEach(() => {
   const issues = createIssueRepository(db)
   const memos = createMemoRepository(db)
   const runs = createRunRepository(db)
+  const proposals = createProposalRepository(db, () => {})
 
   const wsA = workspaces.create({ name: 'A' }).id
   const wsB = workspaces.create({ name: 'B' }).id
@@ -46,13 +49,13 @@ beforeEach(() => {
 
   const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-mcptools-'))
   f = {
-    db, dir, wsA, wsB, repoA, issues, runs,
+    db, dir, wsA, wsB, repoA, issues, runs, proposals,
     issueA: issues.create({ workspaceId: wsA, title: 'A의 이슈', body: '본문 A' }).id,
     issueB: issues.create({ workspaceId: wsB, title: 'B의 이슈', body: '본문 B' }).id,
     memoA: memos.create({ workspaceId: wsA, title: 'A의 메모', body: '메모 A' }).id,
     memoB: memos.create({ workspaceId: wsB, title: 'B의 메모', body: '메모 B' }).id,
     host: createMcpHost({
-      deps: { repos, issues, memos, runs },
+      deps: { repos, issues, memos, runs, proposals },
       configDir: resolve(dir, 'mcp'),
     execPath: process.execPath,
     execEnv: {},
@@ -170,9 +173,10 @@ describe('읽기 도구', () => {
     expect(text.replace(f.memoB, 'X')).toBe(missing.text.replace('없는-id', 'X'))
   })
 
-  it('읽기 전용 토큰에 읽기 도구 일곱 개가 있다', async () => {
+  it('읽기 전용 토큰에 읽기 도구 일곱 개와 propose_issue가 있다', async () => {
     expect(new Set(await toolNames(f.wsA, 'read_only'))).toEqual(new Set([
-      'list_repos', 'list_issues', 'get_issue', 'list_memos', 'get_memo', 'list_conversations', 'get_conversation'
+      'list_repos', 'list_issues', 'get_issue', 'list_memos', 'get_memo', 'list_conversations', 'get_conversation',
+      'propose_issue'
     ]))
   })
 })
@@ -248,9 +252,9 @@ describe('권한이 도구 등록을 통제한다', () => {
     expect(names).not.toContain('update_memo')
   })
 
-  it('편집 허용과 전체 허용에는 열한 개가 모두 있다', async () => {
+  it('편집 허용과 전체 허용에는 열두 개가 모두 있다', async () => {
     for (const p of ['edit', 'full'] as const) {
-      expect(await toolNames(f.wsA, p)).toHaveLength(11)
+      expect(await toolNames(f.wsA, p)).toHaveLength(12)
     }
   })
 
@@ -447,5 +451,102 @@ describe('시각', () => {
       expect(await titles({ since: '2026-09-02', until: '2026-09-05' })).toEqual(['9월 초 작업'])
       expect(await titles({ since: '2026-09-15' })).toEqual(['지금 대화'])
     })
+  })
+})
+
+describe('propose_issue (docs/sdlc/agent-proposals/ FR-7~13)', () => {
+  /** wsA의 대화 하나 — 뿌리와 둘째 턴 */
+  function conversation() {
+    const base = {
+      workspaceId: f.wsA, agentKind: 'claude-code' as const, model: null, effort: null, cwd: '/tmp/a',
+      permission: 'read_only' as const, userPrompt: '고쳐줘', assembledPrompt: '고쳐줘', logPath: '/tmp/x', context: []
+    }
+    const root = f.runs.create(base)
+    const turn = f.runs.create({ ...base, parentRunId: root.id })
+    return { root: root.id, turn: turn.id }
+  }
+  const propose = (c: { root: string; turn: string }, args: Record<string, unknown>, permission: Permission = 'read_only') =>
+    call(f.wsA, permission, 'propose_issue', { title: '로그인 버튼이 모바일에서 안 눌린다', ...args }, { runId: c.turn, rootRunId: c.root })
+
+  it('읽기 전용에도 propose_issue가 있다 — 쓰기 도구는 여전히 없다', async () => {
+    const names = await toolNames(f.wsA, 'read_only')
+    expect(names).toContain('propose_issue')
+    expect(names).not.toContain('create_issue')
+  })
+
+  it('제안을 저장할 뿐 이슈도 대화의 할당도 바꾸지 않는다', async () => {
+    const c = conversation()
+    const before = f.issues.list({ workspaceId: f.wsA }).length
+    const { text, isError } = await propose(c, { body: '오버레이가 가로챈다', kind: 'bug', repoIds: [f.repoA] })
+    expect(isError).toBe(false)
+    const out = JSON.parse(text) as { proposalId: string; status: string }
+    expect(out.status).toBe('pending')
+    expect(f.issues.list({ workspaceId: f.wsA })).toHaveLength(before)
+    expect(f.runs.get(c.root).issue).toBeNull()
+    expect(f.proposals.get(out.proposalId).payload).toMatchObject({ body: '오버레이가 가로챈다', kind: 'bug', repoIds: [f.repoA] })
+  })
+
+  it('제안은 턴이 아니라 대화에 붙는다', async () => {
+    const c = conversation()
+    const out = JSON.parse((await propose(c, {})).text) as { proposalId: string }
+    expect(f.proposals.get(out.proposalId)).toMatchObject({ rootRunId: c.root, runId: c.turn })
+  })
+
+  it('이슈가 할당된 대화의 제안은 저장하지 않는다', async () => {
+    const c = conversation()
+    f.runs.assignIssue(c.root, f.issueA)
+    const { text, isError } = await propose(c, {})
+    expect(isError).toBe(true)
+    expect(text).toContain('이미 이슈가 할당돼 있습니다')
+    expect(f.proposals.pendingIn(f.wsA)).toHaveLength(0)
+  })
+
+  it('거절한 대화의 제안은 저장하지 않는다', async () => {
+    const c = conversation()
+    const first = JSON.parse((await propose(c, {})).text) as { proposalId: string }
+    f.proposals.decide(first.proposalId, 'declined')
+    const { text, isError } = await propose(c, { title: '다시' })
+    expect(isError).toBe(true)
+    expect(text).toContain('다시 제안하지 마세요')
+    expect(f.proposals.pendingIn(f.wsA)).toHaveLength(0)
+  })
+
+  it('다른 workspace의 기존 이슈는 없는 id와 같은 오류다', async () => {
+    const c = conversation()
+    const foreign = await propose(c, { existingIssueId: f.issueB })
+    const missing = await propose(c, { existingIssueId: '없는-id' })
+    expect(foreign.isError).toBe(true)
+    expect(foreign.text.replace(f.issueB, 'X')).toBe(missing.text.replace('없는-id', 'X'))
+    expect(f.proposals.pendingIn(f.wsA)).toHaveLength(0)
+  })
+
+  it('완료된 기존 이슈에는 붙일 수 없다', async () => {
+    const c = conversation()
+    f.issues.update({ id: f.issueA, status: 'done' })
+    const { text, isError } = await propose(c, { existingIssueId: f.issueA })
+    expect(isError).toBe(true)
+    expect(text).toContain('완료된 이슈')
+  })
+
+  it('같은 workspace의 열린 기존 이슈는 받는다', async () => {
+    const c = conversation()
+    const { isError } = await propose(c, { existingIssueId: f.issueA })
+    expect(isError).toBe(false)
+    expect(f.proposals.pendingIn(f.wsA)[0]?.existingIssue?.id).toBe(f.issueA)
+  })
+
+  it('다른 workspace의 repo는 오류다', async () => {
+    const c = conversation()
+    const otherRepo = createRepoRepository(f.db).list(f.wsB)[0]!.id
+    const { text, isError } = await propose(c, { repoIds: [otherRepo] })
+    expect(isError).toBe(true)
+    expect(text).toContain('이 workspace의 repo가 아닙니다')
+  })
+
+  it('여러 줄 제목은 거부한다', async () => {
+    const c = conversation()
+    const { isError } = await propose(c, { title: '첫 줄\n둘째 줄' })
+    expect(isError).toBe(true)
+    expect(f.proposals.pendingIn(f.wsA)).toHaveLength(0)
   })
 })

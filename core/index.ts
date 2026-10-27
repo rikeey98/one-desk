@@ -33,6 +33,7 @@ import { applyRunEvent, dropRun, type LiveMap } from './home/live'
 import { createIssueRepository } from './db/repositories/issue'
 import { createMemoRepository } from './db/repositories/memo'
 import { createRunRepository } from './db/repositories/run'
+import { createProposalRepository } from './db/repositories/proposal'
 import { createRunManager } from './runner/manager'
 import { createExecutionService } from './execution'
 import { claudeCodeAdapter } from './runner/adapters/claudeCode'
@@ -57,7 +58,7 @@ import { createRunQueue } from './runner/queue'
 import { createMcpHost } from './mcp/host'
 import {
   notifyingIssues, notifyingMemos, notifyingAssets, notifyingRepos, notifyingWorkspaces,
-  announcingAssignedConversations, type Notify
+  announcingAssignedConversations, notifyingProposals, type Notify
 } from './changes'
 import { consoleErrorSink, type ErrorSink } from './errors'
 import type { AgentAdapter } from './runner/types'
@@ -167,6 +168,9 @@ export function createCore(opts: CoreOptions) {
     }
   )
   const memos = notifyingMemos(createMemoRepository(db), notify)
+  // agent의 제안 (docs/sdlc/agent-proposals/ FR-12) — 감싼 것을 MCP deps와 IPC 표면이 같이 받는다. 받기는 맨 저장소로(FR-18)
+  const proposalRows = createProposalRepository(db, onError)
+  const proposals = notifyingProposals(proposalRows, notify)
   const repos = notifyingRepos(createRepoRepository(db), notify)
   const assetRows = notifyingAssets(createAssetRepository(db), notify)
   const settings = createSettingRepository(db, opts.homeDir)
@@ -331,7 +335,7 @@ export function createCore(opts: CoreOptions) {
   runs.reapStale()
 
   const mcp = createMcpHost({
-    deps: { repos, issues, memos, runs },
+    deps: { repos, issues, memos, runs, proposals },
     configDir: join(opts.dataDir, 'mcp'),
     execPath: opts.execPath ?? process.execPath,
     // 리눅스 패키지에서는 앱이 뜬 LD_LIBRARY_PATH — agent가 물려준 사용자의 값으로는 브리지(Electron)가 못 뜰 수 있다(linux-launch-env)

@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 // --mcp-config로 받은 설정 파일을 읽어 실제 MCP 호출로 이슈를 만든다.
 // 진짜 Claude Code가 하는 일 중 우리가 검증하고 싶은 부분만 흉내낸다.
-import { readFileSync } from 'node:fs'
+//
+// `ONE_DESK_FAKE_MCP_CALL`(JSON `{ name, arguments }`)이 있으면 그 도구를 부른다 — 없으면 지금의 create_issue 그대로다
+// (mcp.e2e가 기댄다). `{ "name": "propose_issue", "existing": "first", ... }`이면 list_issues를 먼저 불러 첫 열린 이슈를
+// existingIssueId로 준다(e2e가 이슈 id를 환경변수로 미리 넣을 수 없다 — docs/sdlc/agent-proposals/ plan 9단계).
+// `ONE_DESK_PROMPT_CAPTURE`가 있으면 받은 프롬프트를 남긴다(fake-claude.mjs와 같다).
+import { readFileSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 
 function emit(obj) {
@@ -9,7 +14,13 @@ function emit(obj) {
 }
 
 process.stdin.resume()
-process.stdin.on('data', () => {})
+let receivedPrompt = ''
+process.stdin.on('data', (chunk) => { receivedPrompt += chunk.toString() })
+process.stdin.on('end', () => {
+  if (process.env.ONE_DESK_PROMPT_CAPTURE) writeFileSync(process.env.ONE_DESK_PROMPT_CAPTURE, receivedPrompt)
+})
+
+const custom = process.env.ONE_DESK_FAKE_MCP_CALL ? JSON.parse(process.env.ONE_DESK_FAKE_MCP_CALL) : null
 
 // indexOf가 못 찾으면 -1을 주는데 +1을 그대로 더하면 0이 되어 argv[0](node
 // 실행 파일 경로)을 집어온다 — 그 값은 항상 참(truthy)이라 아래 !configPath
@@ -36,7 +47,7 @@ async function main() {
   // **진짜 claude가 하는 그대로 한다** — 브리지를 자식 프로세스로 띄우고
   // stdio로 JSON-RPC를 주고받는다. HTTP로 직접 부르면 브리지가 통째로
   // 검증에서 빠지는데, 지금은 그게 실행 경로의 전부다.
-  const message = await new Promise((done, fail) => {
+  const callTool = (name, args) => new Promise((done, fail) => {
     const child = spawn(cfg.command, cfg.args, { env: { ...process.env, ...cfg.env } })
     let buf = ''
     const timer = setTimeout(() => fail(new Error('브리지가 응답하지 않았다')), 15000)
@@ -52,15 +63,28 @@ async function main() {
     child.on('error', fail)
     child.stdin.write(`${JSON.stringify({
       jsonrpc: '2.0', id: 1, method: 'tools/call',
-      params: { name: 'create_issue', arguments: { title: 'agent가 만든 이슈', body: 'MCP 경유' } }
+      params: { name, arguments: args }
     })}\n`)
   })
+
+  let message
+  if (custom) {
+    const args = { ...(custom.arguments ?? {}) }
+    if (custom.existing === 'first') {
+      const listed = await callTool('list_issues', {})
+      const open = JSON.parse(listed.result.content[0].text).find((i) => i.status !== 'done')
+      args.existingIssueId = open.id
+    }
+    message = await callTool(custom.name, args)
+  } else {
+    message = await callTool('create_issue', { title: 'agent가 만든 이슈', body: 'MCP 경유' })
+  }
 
   const ok = Boolean(message.result) && message.result.isError !== true
 
   emit({
     type: 'result', subtype: ok ? 'success' : 'error', is_error: !ok,
-    result: ok ? 'MCP로 이슈를 만들었다' : `MCP 실패: ${JSON.stringify(message).slice(0, 200)}`,
+    result: ok ? (custom ? `MCP로 ${custom.name}을 불렀다` : 'MCP로 이슈를 만들었다') : `MCP 실패: ${JSON.stringify(message).slice(0, 200)}`,
     session_id: 'fake-mcp-session'
   })
   process.exitCode = ok ? 0 : 1

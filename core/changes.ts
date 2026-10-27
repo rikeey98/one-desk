@@ -5,6 +5,7 @@ import type { MemoRepository } from './db/repositories/memo'
 import type { AssetRepository } from './db/repositories/asset'
 import type { RepoRepository } from './db/repositories/repo'
 import type { WorkspaceRepository } from './db/repositories/workspace'
+import type { ProposalRepository } from './db/repositories/proposal'
 
 /**
  * 쓰기마다 바뀜 알림을 내는 저장소 래퍼 (docs/sdlc/item-windows/ spec FR-17).
@@ -177,6 +178,26 @@ export function notifyingWorkspaces(repo: WorkspaceRepository, notify: Notify): 
     remove(id) {
       repo.remove(id)
       notify({ workspaceId: id, kind: 'workspace' })
+    }
+  }
+}
+
+/**
+ * agent의 제안 (`docs/sdlc/agent-proposals/` spec FR-12). MCP `propose_issue`의 저장과 사람의 거절이 알린다 — 도크가 그 workspace의
+ * 기다리는 제안을 다시 읽는다. 받기는 여기를 지나지 않는다: core가 트랜잭션이 끝난 뒤 한 번 알린다(FR-18, 되돌린 쓰기를 알리지 않게).
+ */
+export function notifyingProposals(repo: ProposalRepository, notify: Notify): ProposalRepository {
+  return {
+    ...repo,
+    createIssueProposal(input) {
+      const made = repo.createIssueProposal(input)
+      notify({ workspaceId: made.workspaceId, kind: 'proposal' })
+      return made
+    },
+    decide(id, status) {
+      const decided = repo.decide(id, status)
+      notify({ workspaceId: decided.workspaceId, kind: 'proposal' })
+      return decided
     }
   }
 }

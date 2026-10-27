@@ -8,6 +8,7 @@ import { createRepoRepository } from '../db/repositories/repo'
 import { createIssueRepository } from '../db/repositories/issue'
 import { createMemoRepository } from '../db/repositories/memo'
 import { createRunRepository } from '../db/repositories/run'
+import { createProposalRepository } from '../db/repositories/proposal'
 import { createWorkspaceRepository } from '../db/repositories/workspace'
 import { claudeCodeAdapter } from '../runner/adapters/claudeCode'
 import { HOST_ENV } from '../wsl/env'
@@ -28,7 +29,8 @@ beforeEach(() => {
       repos: createRepoRepository(db),
       issues: createIssueRepository(db),
       memos: createMemoRepository(db),
-      runs: createRunRepository(db)
+      runs: createRunRepository(db),
+      proposals: createProposalRepository(db, () => {})
     },
     configDir: resolve(dir, 'mcp'),
     execPath: process.execPath,
@@ -143,7 +145,7 @@ describe('prepare — 브리지를 띄울 환경 (docs/sdlc/linux-launch-env/)',
     const db = makeTestDb()
     const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
     const host = createMcpHost({
-      deps: { repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db), runs: createRunRepository(db) },
+      deps: { repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db), runs: createRunRepository(db), proposals: createProposalRepository(db, () => {}) },
       configDir: resolve(dir, 'mcp'), execPath: '/app/one-desk.bin', bridgePath: '/app/resources/mcp-bridge.mjs',
       execEnv: { LD_LIBRARY_PATH: '/tmp/.mount_one-dAbC/usr/lib' }
     })
@@ -167,7 +169,7 @@ describe('prepare — WSL run (docs/sdlc/wsl-support/ FR-21·23)', () => {
     const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
     const asked: string[] = []
     const host = createMcpHost({
-      deps: { repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db), runs: createRunRepository(db) },
+      deps: { repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db), runs: createRunRepository(db), proposals: createProposalRepository(db, () => {}) },
       configDir: resolve(dir, 'mcp'), execPath: 'C:\\app\\one-desk.exe', bridgePath: 'C:\\app\\resources\\mcp-bridge.mjs',
       // 리눅스 로더의 변수는 WSL 브리지(Windows 프로세스)에 싣지 않는다 — 아래 env 단언이 본다
       execEnv: { LD_LIBRARY_PATH: '/tmp/.mount_one-dAbC/usr/lib' },
@@ -197,7 +199,7 @@ describe('prepare — WSL run (docs/sdlc/wsl-support/ FR-21·23)', () => {
     const db = makeTestDb()
     const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
     const host = createMcpHost({
-      deps: { repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db), runs: createRunRepository(db) },
+      deps: { repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db), runs: createRunRepository(db), proposals: createProposalRepository(db, () => {}) },
       configDir: resolve(dir, 'mcp'), execPath: '/host/electron', execEnv: {}, bridgePath: '/host/bridge.mjs',
       toLinux: async () => { throw new Error('WSL 경로를 변환하지 못했습니다 (Ubuntu): x') }
     })

@@ -18,6 +18,7 @@ import { createRepoRepository } from '../db/repositories/repo'
 import { createIssueRepository } from '../db/repositories/issue'
 import { createMemoRepository } from '../db/repositories/memo'
 import { createRunRepository } from '../db/repositories/run'
+import { createProposalRepository } from '../db/repositories/proposal'
 import { createWorkspaceRepository } from '../db/repositories/workspace'
 import { opencodeAdapter } from '../runner/adapters/opencode'
 import { HOST_ENV } from '../wsl/env'
@@ -41,7 +42,8 @@ beforeEach(() => {
       repos: createRepoRepository(db),
       issues: createIssueRepository(db),
       memos: createMemoRepository(db),
-      runs: createRunRepository(db)
+      runs: createRunRepository(db),
+      proposals: createProposalRepository(db, () => {})
     },
     configDir: resolve(dir, 'mcp'),
     execPath: process.execPath,
