@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { claudeCodePermissionArgs, opencodePermissionConfig, OPENCODE_PERMISSION_KEYS } from './permission'
+import { MCP_SERVER_NAME } from '../mcp/configFile'
 import type { Permission } from '@shared/models'
 
 const ALL: Permission[] = ['read_only', 'edit', 'full']
@@ -164,6 +165,20 @@ describe('opencodePermissionConfig', () => {
     // 전체 설계 §7 "파일 수정 자동 승인, 그 외 차단".
     const config = opencodePermissionConfig('edit')
     expect(config['edit']).toBe('allow')
+    expect(config['bash']).toBe('deny')
+  })
+
+  it.each(['read_only', 'edit'] as const)('%s도 one-desk MCP 도구는 연다 — "*": "deny"가 모델에게서 지우지 않게 (agent-proposals §8의 6)', (level) => {
+    const config = opencodePermissionConfig(level)
+    expect(config[`${MCP_SERVER_NAME}_*`]).toBe('allow')
+  })
+
+  it.each(['read_only', 'edit'] as const)('%s에서 여는 MCP 키는 one-desk 서버 것뿐이다 — 남의 MCP 서버와 셸은 닫힌 채다', (level) => {
+    const config = opencodePermissionConfig(level)
+    const opened = Object.entries(config).filter(([, v]) => v === 'allow').map(([k]) => k)
+    const known = new Set<string>(OPENCODE_PERMISSION_KEYS)
+    expect(opened.filter((k) => !known.has(k))).toEqual([`${MCP_SERVER_NAME}_*`])
+    expect(config['*']).toBe('deny')
     expect(config['bash']).toBe('deny')
   })
 

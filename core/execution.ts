@@ -346,11 +346,9 @@ export function createExecutionService(opts: ExecutionOptions) {
    * 안내를 붙이는가 (agent-proposals FR-15) — start·resume이 같이 부르는 한 자리. `assignedIssueId`는 이 턴이 끝난 뒤의 할당이고
    * (새 대화면 자동 할당까지 거친 값), `rootId`가 null이면 새 대화라 기다림·거절이 없다.
    */
-  function proposeIssueFor(
-    agentKind: AgentKind, permission: Permission, assignedIssueId: string | null, rootId: string | null
-  ): boolean {
+  function proposeIssueFor(assignedIssueId: string | null, rootId: string | null): boolean {
     return shouldProposeIssue({
-      mcp: opts.mcp !== undefined, agentKind, permission, assignedIssueId,
+      mcp: opts.mcp !== undefined, assignedIssueId,
       state: rootId === null ? { pending: false, declined: false } : proposalStateOf(opts.db, rootId)
     })
   }
@@ -606,7 +604,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       resumeFromRootRunId: null,
       timeoutMs: input.timeoutMs ?? null,
       issueId,
-      proposeIssue: proposeIssueFor(input.agentKind, input.permission, assignedAfter, parentRoot)
+      proposeIssue: proposeIssueFor(assignedAfter, parentRoot)
     })
   }
 
@@ -663,7 +661,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       // timeoutMs는 원본의 성질을 따른다 (설계 §6의 목록에 빠져 있던 자리다).
       timeoutMs: source.timeoutMs,
       issueId: null,
-      proposeIssue: proposeIssueFor(source.agentKind, input.permission, assigned, rootId)
+      proposeIssue: proposeIssueFor(assigned, rootId)
     })
   }
 

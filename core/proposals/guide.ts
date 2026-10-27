@@ -1,5 +1,3 @@
-import type { AgentKind, Permission } from '@shared/models'
-
 /**
  * 이슈 없는 대화의 턴에 붙이는 안내 (`docs/sdlc/agent-proposals/` spec FR-16). 문턱은 문구로만 지킨다(§6 우려 2) — 바꿀 때는 plan
  * 10단계처럼 일 대화·질문 대화로 다시 잰다.
@@ -16,8 +14,6 @@ export const PROPOSE_ISSUE_GUIDE = `
 export interface ProposeIssueInput {
   /** MCP가 배선돼 있는가 — 없으면 부를 도구가 없다 */
   mcp: boolean
-  agentKind: AgentKind
-  permission: Permission
   /** 이 턴이 끝난 뒤 대화에 할당될 이슈. 새 대화면 자동 할당까지 거친 값이다 */
   assignedIssueId: string | null
   /** 그 대화의 이슈화 제안 — 새 대화는 늘 둘 다 거짓이다 */
@@ -26,13 +22,11 @@ export interface ProposeIssueInput {
 
 /**
  * 이 턴에 안내를 붙이는가 (FR-15). 기다리는 제안이 있는 동안 빼는 것은 사람이 답하기 전에 같은 질문을 다시 묻지 않으려는 것이다.
- *
- * **OpenCode는 전체 허용에서만이다** (plan 0단계, 2026-10-27 실측 — opencode 1.18.30) — 읽기 전용·편집 허용의 `"*": "deny"`가
- * MCP 도구를 모델에게서 지운다. 권한 설정에 MCP 서버 키를 열지는 사용자가 정한다(spec §8의 6). 정해지면 이 갈래를 지운다.
+ * agent·권한을 보지 않는다 — OpenCode도 읽기 전용·편집 허용에서 one-desk MCP 도구가 열려 있다(`opencodePermissionConfig`, spec §8의
+ * 6 — 2026-10-27 사용자 결정).
  */
 export function shouldProposeIssue(input: ProposeIssueInput): boolean {
   if (!input.mcp) return false
-  if (input.agentKind === 'opencode' && input.permission !== 'full') return false
   if (input.assignedIssueId !== null) return false
   return !input.state.pending && !input.state.declined
 }

@@ -454,9 +454,9 @@ repo → CLI → 첫 대화)이 그 자리에 서고, 단계마다 가는 곳은
   도구를 만들지 말 것. 뒤로 옮기면 `tools.test`의 "읽기 전용에도 propose_issue가 있다"가 빨개진다.
 - **토큰이 대화를 안다** — `RunContext.rootRunId`(필수). 제안은 턴이 아니라 뿌리에 붙는다.
 - **안내의 판정은 `shouldProposeIssue` 한 자리**(MCP · 할당 · 기다리는 제안 · 거절)이고 `assemblePrompt`의 `proposeIssue`는 필수다.
-  새 대화는 자동 할당(`soleIssueOf`) **뒤의** 이슈를 본다. **OpenCode는 전체 허용에서만 붙는다** — 1.18.30의 읽기 전용·편집 허용에서는
-  `"*": "deny"`가 MCP 도구를 모델에게서 지운다(plan 0단계 실측, `core/mcp/realOpencode.test.ts`). 이 기능 이전부터 OpenCode의 그 두 권한은
-  `list_issues`조차 못 썼다는 뜻이다 — 권한 설정에 MCP 키를 열지는 사용자가 정한다(spec §8의 6).
+  새 대화는 자동 할당(`soleIssueOf`) **뒤의** 이슈를 본다. **OpenCode에도 모든 권한에서 붙는다** — 1.18.30의 읽기 전용·편집 허용에서는
+  `"*": "deny"`가 MCP 도구를 모델에게서 지워(plan 0단계 실측) 그 두 권한의 OpenCode는 `list_issues`조차 못 썼다. 2026-10-27 사용자 결정
+  "one-desk MCP만 허용"으로 권한 설정이 one-desk 서버의 키를 연다(아래 OpenCode 권한 항목, spec §8의 6).
 - **받기는 core의 한 트랜잭션이다** (`core/proposals/service.ts`) — 이슈 만들기/고르기 → 뿌리에 할당 → `accepted`. 저장소마다 제
   `db.transaction`을 쓰지만 better-sqlite3가 안쪽을 savepoint로 바꿔 바깥 하나가 전부 되돌린다(실측). **서비스에는 감싸지 않은 저장소를
   넘긴다** — 감싼 것이면 되돌린 쓰기를 알린다. 알림(`issue`·`proposal` 바뀜, 뿌리 `RUN_UPDATE`, `emitInbox`)은 `core.proposals.accept`가
@@ -789,7 +789,7 @@ junction/심링크가 밖을 가리키는 것을 못 막는다. `..` 검사 테�
 
 **asset 본문은 신뢰할 수 없는 입력이다.** 외부 repo의 SKILL.md를 그대로 화면에 그리고 프롬프트에 싣는다. 조립기는 반드시 이스케이프하고, 화면은 평문으로 그린다. 마크다운은 agent 답과 상세 본문의 읽기 화면(`BodyField`, `item-windows`)에 붙었다 — 둘 다 `renderer/components/Markdown.tsx`를 쓴다(아래 마크다운 항목). 규칙을 우회하는 렌더러를 따로 두지 말 것. 렌더링에 구멍이 있으면 그 스크립트가 preload의 앱 API로 `runs.start({ permission: 'full' })`을 부를 수 있다.
 
-**OpenCode는 설정을 병합하고, 우리가 이길 수 없는 자리가 있다.** 우선순위는 `OPENCODE_PERMISSION` 환경변수 > 프로젝트 `opencode.json` > `OPENCODE_CONFIG`가 가리키는 파일 > 전역 설정이고, `permission` 안에서 키 단위로 합쳐진다. **`"*"`는 구체 키를 이기지 못한다** — 소스 우선순위와 무관하게 구체적인 키가 와일드카드를 이긴다. 그래서 권한은 파일이 아니라 환경변수로 넘기고 알려진 키 15개를 전부 명시한다. 이름을 대지 않은 키는 남의 설정 값이 그대로 산다.
+**OpenCode는 설정을 병합하고, 우리가 이길 수 없는 자리가 있다.** 우선순위는 `OPENCODE_PERMISSION` 환경변수 > 프로젝트 `opencode.json` > `OPENCODE_CONFIG`가 가리키는 파일 > 전역 설정이고, `permission` 안에서 키 단위로 합쳐진다. **`"*"`는 구체 키를 이기지 못한다** — 소스 우선순위와 무관하게 구체적인 키가 와일드카드를 이긴다. 그래서 권한은 파일이 아니라 환경변수로 넘기고 알려진 키 15개를 전부 명시한다. 이름을 대지 않은 키는 남의 설정 값이 그대로 산다. **읽기 전용·편집 허용은 one-desk MCP 도구만 하나 더 연다** — `` `${MCP_SERVER_NAME}_*`: "allow" ``(`core/runner/permission.ts`, agent-proposals spec §8의 6). OpenCode는 MCP 도구를 `<서버>_<도구>`로 부르고 `"*": "deny"`가 그것까지 모델에게서 지운다(1.18.30 실측). 키는 서버 이름에서 만든다 — 리터럴로 적으면 서버 이름을 바꾼 날 조용히 닫힌다. 다른 MCP 서버는 열지 않는다. 키 모양을 바꾸면 `ONE_DESK_REAL_CLI=1 ONE_DESK_REAL_OPENCODE_MODEL=opencode/big-pickle pnpm test realOpencode`(기본 read_only, `ONE_DESK_REAL_OPENCODE_PERMISSION`)로 진짜 CLI에서 본다 — 그 둘째 테스트가 bash가 여전히 막혀 있는지 본다.
 
 **OpenCode는 설정이 잘못돼도 조용히 무시한다.** `OPENCODE_CONFIG`가 없는 파일을 가리켜도, 거기에 인라인 JSON을 넣어도(경로만 받는다), `OPENCODE_PERMISSION`이 깨진 JSON이어도 **종료 코드 0으로 사용자 설정에 그대로 되돌아간다.** 셋 다 결과가 같다 — 사용자 설정의 `ask`가 살아남는다. **1.18.x의 `run`은 그 `ask`를 자동 거부하고 조용히 exit 0으로 끝난다**(남는 것은 도구 실패뿐이다 — 소스 `run.ts` v1.18.30:801-822, 1.18.27과 바이트 동일). 예전에 여기 적혀 있던 "헤드리스 실행이 영원히 멈추고 슬롯을 점유한다"는 틀린 서술이었다(2026-09-27 정정, `docs/sdlc/conversation-fixes/` FR-14). 멈추지 않는 대신 **agent가 그 도구를 못 쓴 run이 성공으로 기록되고** 사용자는 이유를 알 길이 없다. `opencodeAdapter.verifyRunnable`이 실행 직전에 해결된 설정을 다시 읽어 `ask`가 남았는지 보는 이유이고, 그것을 실행 전의 명시적 실패로 바꾸므로 그 검사는 여전히 선택이 아니다.
 

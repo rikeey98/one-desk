@@ -1,4 +1,5 @@
 import type { Permission } from '@shared/models'
+import { MCP_SERVER_NAME } from '../mcp/configFile'
 
 /**
  * 읽기 전용에서 살려둘 빌트인 도구 (Claude Code 2.1.x 기준, 실측 노트 Q22).
@@ -85,6 +86,9 @@ export const OPENCODE_PERMISSION_KEYS = [
   'lsp', 'question', 'read', 'skill', 'task', 'todowrite', 'webfetch', 'websearch'
 ] as const
 
+/** OpenCode가 one-desk MCP 서버의 도구에 붙이는 이름(`<서버>_<도구>`)의 와일드카드 */
+const ONE_DESK_MCP_KEY = `${MCP_SERVER_NAME}_*`
+
 /** 읽기 전용에서 살려두는 키. 위 READ_ONLY_TOOLS와 대응이 어긋나지 않게 유지한다. */
 const OPENCODE_READ_KEYS = [
   'read', 'glob', 'grep', 'list', 'lsp', 'todowrite', 'webfetch', 'websearch'
@@ -115,6 +119,9 @@ export function opencodePermissionConfig(
   config['*'] = 'deny'
   for (const key of OPENCODE_PERMISSION_KEYS) config[key] = 'deny'
   for (const key of OPENCODE_READ_KEYS) config[key] = 'allow'
+  // one-desk의 MCP 도구만 연다 — `"*": "deny"`가 MCP 도구(`<서버>_<도구>`)를 모델에게서 지우면 읽기 전용 대화가 list_issues·propose_issue를
+  // 못 쓴다(agent-proposals §8의 6, 2026-10-27 사용자 결정 "one-desk MCP만 허용"). 쓰기 도구는 서버가 권한으로 등록하지 않는다
+  config[ONE_DESK_MCP_KEY] = 'allow'
   // 편집 허용은 파일 수정만 더 연다. bash는 그대로 막힌다 (전체 설계 §7).
   if (permission === 'edit') config['edit'] = 'allow'
   return config

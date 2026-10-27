@@ -2230,6 +2230,11 @@ describe('이슈화 제안 안내 (docs/sdlc/agent-proposals/ FR-14·15)', () =>
     expect(guided(ctx2, second.id)).toBe(false)
   })
 
+  it.each(['read_only', 'edit', 'full'] as const)('OpenCode %s에도 붙는다 — one-desk MCP 도구는 모든 권한에서 열려 있다 (§8의 6)', async (permission) => {
+    const run = await startNew(ctx2, { agentKind: 'opencode', permission })
+    expect(guided(ctx2, run.id)).toBe(true)
+  })
+
   it('MCP가 없으면 붙지 않는다', async () => {
     const noMcp = setup()
     const run = await startNew(noMcp)

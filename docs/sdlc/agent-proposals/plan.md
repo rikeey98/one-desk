@@ -178,6 +178,14 @@
     `propose_issue`는 그 이유를 도구 오류로 돌려준다. 쓰는 곳이 없어진 `superseded` 상태는 타입·스키마 타입에서 뺐다(text 열이라
     마이그레이션은 없다). 10단계 측정의 "두 번 부른 둘"은 이제 둘째가 도구 오류다. 던지는 줄을 지우면 proposal.test·tools.test의
     "기다리는 제안이 있으면" 둘이 빨개진다(부분 유니크가 다른 문구로 던진다).
+11. **OpenCode의 읽기 전용·편집 허용에 one-desk MCP 도구를 연다**(2026-10-27 사용자 결정 "one-desk MCP만 허용", spec §8의 6) —
+    달라진 것 1의 "OpenCode는 전체 허용에서만 안내"를 지웠다. `opencodePermissionConfig`가 `${MCP_SERVER_NAME}_*`를 `allow`로 더하고
+    `shouldProposeIssue`는 agent·권한을 받지 않는다(유일한 독자였던 두 필드를 뺐다). 키 모양은 진짜 1.18.30으로 정했다 —
+    `ONE_DESK_REAL_CLI=1 ONE_DESK_REAL_OPENCODE_MODEL=opencode/big-pickle pnpm test realOpencode`가 read_only·edit 모두 2/2(`one-desk_list_repos`를
+    부르고, `hostname`을 시켜도 bash가 끝까지 돌지 않는다). 키를 지우면 read_only의 첫 테스트가 실패하고(모델이 `grep`으로 돌아간다), bash를
+    열면 둘째가 실패한다(둘 다 실측). 둘째의 지시는 셸 없이는 알 수 없는 것이어야 한다 — 처음의 `echo one-desk-probe`는 bash를 열어도 모델이
+    도구 없이 답해 아무것도 못 봤다. 단위로는 permission.test의 "one-desk MCP 도구는 연다"·"여는 MCP 키는 one-desk 서버 것뿐이다"와
+    execution.test의 "OpenCode %s에도 붙는다"가 지킨다.
 
 ## 완료 증명
 
