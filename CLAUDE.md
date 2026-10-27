@@ -445,7 +445,7 @@ repo → CLI → 첫 대화)이 그 자리에 서고, 단계마다 가는 곳은
 기댄다)를 쓴다. 오래 안 본 이슈는 UI로 못 만들어 main에서 SQL로 심는다.
 
 **agent가 대화를 이슈로 제안하고 사람은 한 번 누른다** (`docs/sdlc/agent-proposals/` 첫째 사이클, 2026-10-27). **첫 실행에 마이그레이션
-`0012`가 돈다** — `proposal` 테이블 하나(종류 · JSON payload · 상태 `pending`/`accepted`/`declined`/`superseded`, 백필 없음). 이슈 없는
+`0012`가 돈다** — `proposal` 테이블 하나(종류 · JSON payload · 상태 `pending`/`accepted`/`declined`, 백필 없음). 이슈 없는
 대화의 턴에 안내(`PROPOSE_ISSUE_GUIDE`, `core/proposals/guide.ts`)가 붙고, agent가 MCP `propose_issue`로 제안하면 대화 칸의 대화록과
 입력부 사이에 `이 대화를 이슈로 만들까요?`(새 이슈 — 제목만 고친다) 또는 `기존 이슈 「…」에 붙일까요?`가 선다. 버튼은 `이슈로 만들기` ·
 `기존 이슈에 붙이기` · `이슈로 만들지 않기`(영구 — 그 대화에는 안내도 도구도 다시 서지 않는다).
@@ -461,9 +461,10 @@ repo → CLI → 첫 대화)이 그 자리에 서고, 단계마다 가는 곳은
   `db.transaction`을 쓰지만 better-sqlite3가 안쪽을 savepoint로 바꿔 바깥 하나가 전부 되돌린다(실측). **서비스에는 감싸지 않은 저장소를
   넘긴다** — 감싼 것이면 되돌린 쓰기를 알린다. 알림(`issue`·`proposal` 바뀜, 뿌리 `RUN_UPDATE`, `emitInbox`)은 `core.proposals.accept`가
   끝난 뒤 한 번 낸다. MCP 쪽 저장은 `notifyingProposals`가 알린다(감싼 것을 MCP `deps`가 받는다 — 맨 것을 넘기면 `index.test`가 빨개진다).
-- **대화당 기다리는 이슈화 제안은 하나** — 부분 유니크 인덱스 `(root_run_id) WHERE status = 'pending' AND kind = 'conversation-issue'`. 새로
-  부르면 앞의 것이 `superseded`가 되고 **새 행**이 선다(배너의 제목 칸이 제안 id를 key로 잡는다). drizzle이 `WHERE`를 빼먹으면 superseded
-  행 하나가 다음 제안을 막는다 — 스키마를 고치면 생성된 SQL을 읽는다.
+- **대화당 기다리는 이슈화 제안은 하나** — 부분 유니크 인덱스 `(root_run_id) WHERE status = 'pending' AND kind = 'conversation-issue'`. **기다리는
+  동안 다시 부르면 도구 오류이고 첫 제안이 남는다**(2026-10-27 사용자 결정 "첫 제안 유지", spec FR-4·§8의 4) — 갈아끼우던 동안 앞 턴 뒤에
+  예약된 턴(안내를 받은 채 조립된다)이 사람이 고치던 배너를 바꿨다. 판정은 저장소의 `createIssueProposal` 한 자리다(트랜잭션 안에서 기다리는
+  행을 본다). drizzle이 `WHERE`를 빼먹으면 받거나 거절한 행 하나가 다음 제안을 막는다 — 스키마를 고치면 생성된 SQL을 읽는다.
 - **도크가 기다리는 제안을 쥔다**(`useProposals` — 바뀜 알림 `proposal`에 다시 읽는다)**.** `ConversationPanel`의 `proposal`·
   `onAcceptProposal`·`onDeclineProposal`은 필수이고 App을 거치지 않는다. 가짜 클라이언트에 `proposals`가 있어야 도크를 그리는 테스트가
   제대로 돈다(`Dock.test`·`App.test`). 배너는 그 대화를 열었을 때만 보인다(목록·홈·인박스 표시 없음 — spec §6 우려 4).

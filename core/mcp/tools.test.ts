@@ -511,6 +511,15 @@ describe('propose_issue (docs/sdlc/agent-proposals/ FR-7~13)', () => {
     expect(f.proposals.pendingIn(f.wsA)).toHaveLength(0)
   })
 
+  it('기다리는 제안이 있으면 둘째 제안은 오류이고 첫 제안이 그대로 남는다 — 사람이 고치던 배너를 갈아끼우지 않는다', async () => {
+    const c = conversation()
+    const first = JSON.parse((await propose(c, { title: '첫 제목' })).text) as { proposalId: string }
+    const { text, isError } = await propose(c, { title: '둘째 제목' })
+    expect(isError).toBe(true)
+    expect(text).toContain('이 대화에는 이미 기다리는 이슈 제안이 있습니다')
+    expect(f.proposals.pendingIn(f.wsA).map((p) => [p.id, p.payload.title])).toEqual([[first.proposalId, '첫 제목']])
+  })
+
   it('다른 workspace의 기존 이슈는 없는 id와 같은 오류다', async () => {
     const c = conversation()
     const foreign = await propose(c, { existingIssueId: f.issueB })

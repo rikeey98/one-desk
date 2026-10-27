@@ -48,14 +48,13 @@ describe('ProposalRepository (agent-proposals spec FR-1·FR-4)', () => {
     expect(proposals.pendingIn(workspaceId).map((p) => p.id)).toEqual([made.id])
   })
 
-  it('새 제안이 같은 대화의 앞의 것을 갈아끼운다 — 새 행이고 앞의 것은 superseded다', () => {
+  it('기다리는 제안이 있으면 새 제안을 저장하지 않는다 — 첫 제안이 남는다 (FR-4, §8의 4)', () => {
     const first = propose({ title: '첫 제목' })
-    const second = propose({ title: '둘째 제목' })
-    expect(second.id).not.toBe(first.id)
-    expect(proposals.get(first.id)).toMatchObject({ status: 'superseded' })
-    expect(proposals.get(first.id).decidedAt).not.toBeNull()
-    expect(proposals.pendingIn(workspaceId).map((p) => p.payload.title)).toEqual(['둘째 제목'])
-    // 갈아끼운 뒤에도 같은 대화에 또 제안할 수 있다 — 부분 유니크가 WHERE를 잃으면 여기서 던진다
+    expect(() => propose({ title: '둘째 제목' })).toThrow('이 대화에는 이미 기다리는 이슈 제안이 있습니다')
+    expect(proposals.get(first.id)).toMatchObject({ status: 'pending', decidedAt: null })
+    expect(proposals.pendingIn(workspaceId).map((p) => p.payload.title)).toEqual(['첫 제목'])
+    // 받은 뒤에는 같은 대화에 또 저장할 수 있다 — 부분 유니크가 WHERE를 잃으면 여기서 던진다
+    proposals.decide(first.id, 'accepted')
     expect(() => propose({ title: '셋째' })).not.toThrow()
   })
 

@@ -67,19 +67,20 @@ export function createProposalRepository(db: Database, onError: ErrorSink) {
 
   return {
     /**
-     * 같은 대화의 기다리는 이슈화 제안을 `superseded`로 내리고 새 행을 넣는다 — 한 트랜잭션 (FR-4). 제자리 갱신이 아니라 새 행인 것은
-     * 배너의 제목 칸이 제안 id를 key로 잡기 때문이다.
+     * 같은 대화에 기다리는 이슈화 제안이 있으면 던지고 첫 것을 둔다 (FR-4, spec §8의 4 — 사람이 고치던 배너를 갈아끼우지 않는다). 부분
+     * 유니크 인덱스도 같은 것을 막지만 그 오류는 agent에게 이유를 말하지 못한다.
      */
     createIssueProposal(input: CreateIssueProposalInput): Proposal {
       const id = randomUUID()
       const now = Date.now()
       db.transaction((tx) => {
-        tx.update(proposal).set({ status: 'superseded', decidedAt: now })
+        const waiting = tx.select({ id: proposal.id }).from(proposal)
           .where(and(
             eq(proposal.rootRunId, input.rootRunId),
             eq(proposal.kind, 'conversation-issue'),
             eq(proposal.status, 'pending')
-          )).run()
+          )).get()
+        if (waiting) throw new Error('이 대화에는 이미 기다리는 이슈 제안이 있습니다 — 사람이 답할 때까지 다시 제안하지 마세요')
         tx.insert(proposal).values({
           id, workspaceId: input.workspaceId, rootRunId: input.rootRunId, runId: input.runId,
           kind: 'conversation-issue', payload: JSON.stringify(input.payload), status: 'pending', createdAt: now

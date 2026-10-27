@@ -237,14 +237,14 @@ export const proposal = sqliteTable('proposal', {
   runId: text('run_id').notNull(),
   kind: text('kind').$type<'conversation-issue'>().notNull(),
   payload: text('payload').notNull(),
-  status: text('status').$type<'pending' | 'accepted' | 'declined' | 'superseded'>().notNull().default('pending'),
+  status: text('status').$type<'pending' | 'accepted' | 'declined'>().notNull().default('pending'),
   createdAt: integer('created_at').notNull(),
   decidedAt: integer('decided_at')
 }, (t) => [
   index('proposal_workspace_status_idx').on(t.workspaceId, t.status),
   index('proposal_root_idx').on(t.rootRunId),
   // 대화당 기다리는 이슈화 제안은 하나다 (FR-4). `kind`를 조건에 넣는 것은 둘째 사이클의 정리 run이 한 대화에서 여러 제안을
-  // 기다리게 하려는 것이다. **WHERE가 빠지면** superseded 행 하나가 같은 대화의 다음 제안을 막는다.
+  // 기다리게 하려는 것이다. **WHERE가 빠지면** 받거나 거절한 행 하나가 같은 대화의 다음 제안을 막는다.
   uniqueIndex('proposal_pending_issue_idx').on(t.rootRunId)
     .where(sql`status = 'pending' AND kind = 'conversation-issue'`)
 ])

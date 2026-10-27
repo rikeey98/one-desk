@@ -49,9 +49,8 @@ export interface ItemChange {
 
 /**
  * agent의 제안 (`docs/sdlc/agent-proposals/` spec FR-1~3). 사람이 받기 전에는 이슈·메모·대화의 어떤 행도 바꾸지 않는다.
- * `superseded`는 같은 대화의 새 제안에 밀려난 것이다(FR-4).
  */
-export type ProposalStatus = 'pending' | 'accepted' | 'declined' | 'superseded'
+export type ProposalStatus = 'pending' | 'accepted' | 'declined'
 
 /**
  * `conversation-issue` 제안의 내용. 선택 필드(`?`)를 쓰지 않고 null로 채운다 — DB에 들어갔다 나오는 JSON이라 "키가 없다"와
