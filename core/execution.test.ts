@@ -1597,6 +1597,26 @@ describe('MCP 배선', () => {
     rmSync(ctx2.logDir, { recursive: true, force: true })
   })
 
+  it('이어 가는 턴의 토큰은 뿌리를 안다 — 첫 턴은 자기 id (agent-proposals FR-6)', async () => {
+    const fake = fakeHost()
+    const ctx2 = setup({ mcp: fake.host })
+    const first = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'read_only', userPrompt: 'x', context: []
+    })
+    await vi.waitFor(() => expect(ctx2.runs.get(first.id).status).toBe('succeeded'))
+    const second = await ctx2.service.resume({ conversationId: first.id, permission: 'read_only', userPrompt: 'y', context: [] })
+    await vi.waitFor(() => expect(ctx2.runs.get(second.id).endedAt).toBeTypeOf('number'))
+    const third = await ctx2.service.resume({ conversationId: second.id, permission: 'read_only', userPrompt: 'z', context: [] })
+    await vi.waitFor(() => expect(ctx2.runs.get(third.id).endedAt).toBeTypeOf('number'))
+    expect(fake.turns).toEqual([
+      { runId: first.id, rootRunId: first.id },
+      { runId: second.id, rootRunId: first.id },
+      { runId: third.id, rootRunId: first.id }
+    ])
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+
   it('run이 끝나면 토큰을 폐기한다', async () => {
     const fake = fakeHost()
     const ctx2 = setup({ mcp: fake.host })
@@ -1700,13 +1720,16 @@ describe('MCP 배선', () => {
  */
 function fakeHost() {
   const prepared: string[] = []
+  /** prepare에 넘어온 (턴, 대화) — 토큰이 대화를 아는지 본다 (agent-proposals FR-6) */
+  const turns: { runId: string; rootRunId: string }[] = []
   const released: string[] = []
   let failing = false
   let failingRelease = false
   const host = {
-    async prepare(ctx: { runId: string }) {
+    async prepare(ctx: { runId: string; rootRunId: string }) {
       if (failing) throw new Error('포트를 열지 못했습니다')
       prepared.push(ctx.runId)
+      turns.push({ runId: ctx.runId, rootRunId: ctx.rootRunId })
       return { token: `tok-${ctx.runId}`, url: 'http://127.0.0.1:1/mcp', configFile: `/tmp/${ctx.runId}.json` }
     },
     release(runId: string) {
@@ -1722,6 +1745,7 @@ function fakeHost() {
   return {
     host: host as unknown as McpHost,
     prepared,
+    turns,
     released,
     fail: () => { failing = true },
     failRelease: () => { failingRelease = true }

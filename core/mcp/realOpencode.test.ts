@@ -58,7 +58,7 @@ afterEach(() => {
 describe.skipIf(!ENABLED)('진짜 opencode CLI', () => {
   it(`${PERMISSION}에서 MCP 도구 list_repos를 부를 수 있다`, async () => {
     await host.start()
-    const p = await host.prepare({ runId: 'probe', workspaceId, permission: PERMISSION, agentKind: 'opencode', env: HOST_ENV })
+    const p = await host.prepare({ runId: 'probe', rootRunId: 'probe', workspaceId, permission: PERMISSION, agentKind: 'opencode', env: HOST_ENV })
     const spec = opencodeAdapter.buildCommand({
       runId: 'probe', cwd: dir, model: MODEL, effort: null, permission: PERMISSION,
       prompt: '', resumeSessionId: null, executable: 'opencode',

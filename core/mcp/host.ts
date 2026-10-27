@@ -16,6 +16,11 @@ export { MCP_SERVER_NAME }
 
 export interface RunContext {
   runId: string
+  /**
+   * 이 턴이 속한 대화의 뿌리 (`docs/sdlc/agent-proposals/` spec FR-6) — `propose_issue`가 제안을 이 대화에 붙인다. 토큰이 run에
+   * 묶인 것처럼 대화에도 묶인다. **필수다** — 선택이면 한 자리를 빠뜨려도 컴파일되고 그 run의 제안만 엉뚱한 대화에 붙는다.
+   */
+  rootRunId: string
   workspaceId: string
   permission: Permission
   /** 설정 파일 형식이 CLI마다 다르다. */

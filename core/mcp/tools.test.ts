@@ -68,9 +68,13 @@ afterEach(() => {
 
 /** 그 workspace·권한의 토큰으로 도구를 부르고 결과 텍스트를 돌려준다. */
 async function call(
-  workspaceId: string, permission: Permission, name: string, args: unknown = {}
+  workspaceId: string, permission: Permission, name: string, args: unknown = {},
+  turn: { runId?: string; rootRunId?: string } = {}
 ): Promise<{ text: string; isError: boolean }> {
-  const p = await f.host.prepare({ runId: `run-${name}-${Math.random()}`, workspaceId, permission, agentKind: 'claude-code', env: HOST_ENV })
+  const runId = turn.runId ?? `run-${name}-${Math.random()}`
+  const p = await f.host.prepare({
+    runId, rootRunId: turn.rootRunId ?? runId, workspaceId, permission, agentKind: 'claude-code', env: HOST_ENV
+  })
   const res = await rpc(p.url, p.token, {
     jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args }
   })
@@ -79,7 +83,7 @@ async function call(
 }
 
 async function toolNames(workspaceId: string, permission: Permission): Promise<string[]> {
-  const p = await f.host.prepare({ runId: `list-${permission}`, workspaceId, permission, agentKind: 'claude-code', env: HOST_ENV })
+  const p = await f.host.prepare({ runId: `list-${permission}`, rootRunId: `list-${permission}`, workspaceId, permission, agentKind: 'claude-code', env: HOST_ENV })
   const res = await rpc(p.url, p.token, { jsonrpc: '2.0', id: 1, method: 'tools/list' })
   return res.json.result.tools.map((t: { name: string }) => t.name)
 }

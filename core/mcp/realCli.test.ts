@@ -56,7 +56,7 @@ afterEach(() => {
 
 describe.skipIf(!ENABLED)('진짜 claude CLI', () => {
   it('우리 설정 파일로 MCP 서버에 붙고 도구 아홉 개를 노출한다', async () => {
-    const p = await host.prepare({ runId: 'probe', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
+    const p = await host.prepare({ runId: 'probe', rootRunId: 'probe', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
     const { args } = claudeCodeAdapter.buildCommand({
       runId: 'probe',
       cwd: dir,

@@ -473,6 +473,8 @@ export function createExecutionService(opts: ExecutionOptions) {
       try {
         const prepared = await opts.mcp.prepare({
           runId: created.id,
+          // 토큰이 대화를 안다 (agent-proposals FR-6) — `propose_issue`가 이 대화에 붙인다
+          rootRunId: created.rootRunId ?? created.id,
           workspaceId: spec.workspaceId,
           permission: spec.permission,
           agentKind: spec.agentKind,
