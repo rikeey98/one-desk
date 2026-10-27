@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest'
 import type { TerminalData } from '@shared/models'
 import { createTerminalStream } from './terminalStream'
 
-const chunk = (start: number, data: string, generation = 1, repoId = 'api'): TerminalData => ({ repoId, generation, start, data })
+const chunk = (start: number, data: string, generation = 1, tabId = 'tab-a'): TerminalData => ({ tabId, generation, start, data })
 
 function setup() {
   const written: string[] = []
-  const stream = createTerminalStream('api', (text) => { written.push(text) })
+  const stream = createTerminalStream('tab-a', (text) => { written.push(text) })
   return { stream, written, all: () => written.join('') }
 }
 
@@ -35,10 +35,11 @@ describe('셸 출력 이어 붙이기 (docs/sdlc/code-editor/terminal-plan.md 7�
     expect(all()).toBe('abcdefgh')
   })
 
-  it('다른 셸(generation)과 다른 repo의 조각은 버린다 — 다시 시작하면 새 셸의 것만 받는다', () => {
+  it('다른 셸(generation)과 다른 탭의 조각은 버린다 (terminal-tabs FR-4) — 다시 시작하면 새 셸의 것만 받는다', () => {
     const { stream, all } = setup()
     stream.attach(1, { text: 'old', end: 3 })
-    stream.push(chunk(0, 'x', 1, 'web'))
+    // 이어 쓸 자리(3)에 온 다른 탭의 조각 — generation만으로는 갈리지 않는 모양이다
+    stream.push(chunk(3, 'x', 1, 'tab-b'))
     stream.attach(2, { text: '', end: 0 })
     stream.push(chunk(3, 'late', 1))
     stream.push(chunk(0, 'new', 2))
