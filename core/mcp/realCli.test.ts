@@ -57,7 +57,7 @@ afterEach(() => {
 })
 
 describe.skipIf(!ENABLED)('진짜 claude CLI', () => {
-  it('우리 설정 파일로 MCP 서버에 붙고 도구 아홉 개를 노출한다', async () => {
+  it('우리 설정 파일로 MCP 서버에 붙고 도구 열두 개를 노출한다', async () => {
     const p = await host.prepare({ runId: 'probe', rootRunId: 'probe', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
     const { args } = claudeCodeAdapter.buildCommand({
       runId: 'probe',
@@ -90,10 +90,11 @@ describe.skipIf(!ENABLED)('진짜 claude CLI', () => {
       .find((o) => o['type'] === 'system' && o['subtype'] === 'init')
 
     const servers = init?.['mcp_servers'] as { name: string; status: string }[]
-    expect(servers).toContainEqual({ name: MCP_SERVER_NAME, status: 'connected' })
+    // 2.1.311부터 `source` 같은 필드가 더 온다 — 이름과 상태만 본다
+    expect(servers.find((s) => s.name === MCP_SERVER_NAME)).toMatchObject({ status: 'connected' })
 
     const mcpTools = (init?.['tools'] as string[]).filter((t) => t.startsWith('mcp__'))
-    expect(mcpTools).toHaveLength(9)
+    expect(mcpTools).toHaveLength(12)
     expect(mcpTools).toContain(`mcp__${MCP_SERVER_NAME}__create_issue`)
   }, 130_000)
 })
