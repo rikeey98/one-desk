@@ -35,6 +35,8 @@ export function TerminalTabView({ workspaceId, tab, onSendSelection, onSize, onS
   const [attached, setAttached] = useState(false)
   const [exited, setExited] = useState<{ exitCode: number } | null>(null)
   const [hasSelection, setHasSelection] = useState(false)
+  /** 다시 시작이 도는 중 — 두 번 누르면 둘째가 첫째가 갈아 끼운 탭을 못 찾아 거짓 오류가 선다 */
+  const [restarting, setRestarting] = useState(false)
 
   // 구독은 붙기보다 먼저다 — 붙기 응답이 오는 사이의 출력을 잃지 않는다
   useEffect(() => {
@@ -72,6 +74,15 @@ export function TerminalTabView({ workspaceId, tab, onSendSelection, onSize, onS
     }
   }, [client, workspaceId, tab.tabId, onSize, onSession, onFailed])
 
+  async function restart() {
+    setRestarting(true)
+    try {
+      await attach(true)
+    } finally {
+      setRestarting(false)
+    }
+  }
+
   /** 고른 글은 누른 순간 다시 읽는다 — 보낸 뒤에는 선택을 푼다(복사의 Ctrl+C와 같다) */
   function sendSelection() {
     const handle = view.current
@@ -103,7 +114,7 @@ export function TerminalTabView({ workspaceId, tab, onSendSelection, onSize, onS
             label="다시 시작"
             confirmLabel="정말 다시 시작"
             ariaLabel="셸 다시 시작"
-            onConfirm={() => { void attach(true) }}
+            onConfirm={() => { void restart() }}
           />
         )}
       </div>
@@ -120,7 +131,7 @@ export function TerminalTabView({ workspaceId, tab, onSendSelection, onSize, onS
       {exited && (
         <div className="terminal-exit" role="status">
           <span>셸이 끝났습니다 (종료 코드 {exited.exitCode})</span>
-          <button type="button" onClick={() => { void attach(true) }}>셸 다시 시작</button>
+          <button type="button" disabled={restarting} onClick={() => { void restart() }}>셸 다시 시작</button>
         </div>
       )}
     </>

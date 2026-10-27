@@ -344,6 +344,24 @@ describe('TerminalPane — 끝남과 다시 시작 (terminal-spec FR-7·8, termi
     expect(tab('pwsh')).toHaveAttribute('title', 'C:\\pwsh\\pwsh.exe')
   })
 
+  it('끝남 줄의 다시 시작을 두 번 눌러도 한 번만 보낸다 — 도는 동안 잠기고 거짓 오류가 서지 않는다', async () => {
+    const { client, exit, lastGeneration } = setup()
+    await waitFor(() => expect(view.written).toEqual(['pwsh> ']))
+    exit({ tabId: 't1', generation: lastGeneration(), exitCode: 0 })
+    let finish!: () => void
+    vi.mocked(client.terminal.restart).mockImplementationOnce(({ tabId }) => new Promise((resolve) => {
+      finish = () => { resolve({ ...tabOf(tabId, 'pwsh'), generation: 99, snapshot: { text: '', end: 0 } }) }
+    }))
+    const button = screen.getByRole('button', { name: '셸 다시 시작' })
+    fireEvent.click(button)
+    fireEvent.click(button)
+    expect(client.terminal.restart).toHaveBeenCalledTimes(1)
+    expect(button).toBeDisabled()
+    await act(async () => { finish() })
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument())
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('도는 셸의 다시 시작은 두 번 눌러야 한다 — 셸이 띄운 dev 서버까지 끝난다', async () => {
     const { client } = setup()
     await waitFor(() => expect(view.written).toEqual(['pwsh> ']))
