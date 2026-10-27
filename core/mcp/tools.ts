@@ -11,6 +11,7 @@ import type { Issue, IssueStatus, IssueSource, IssueKind, IssuePriority, Memo } 
 import { parseBound, toIso } from './time'
 import { summarizeConversations, conversationDetail } from './conversations'
 import { issueTouchedIn, memoTouchedIn } from '../period/range'
+import { ISSUE_SOURCE, ISSUE_KIND, ISSUE_PRIORITY } from '../issueAxes'
 
 export interface McpHostDeps {
   repos: RepoRepository
@@ -140,26 +141,6 @@ type AssertIssueStatusExhaustive<T extends readonly IssueStatus[]> =
 const issueStatusValues: AssertIssueStatusExhaustive<typeof ISSUE_STATUS_VALUES> = ISSUE_STATUS_VALUES
 
 const ISSUE_STATUS = z.enum(issueStatusValues)
-
-const ISSUE_SOURCE_VALUES = ['customer', 'plan', 'meeting', 'dev'] as const
-const ISSUE_KIND_VALUES = ['bug', 'feature', 'refactor', 'docs', 'research'] as const
-const ISSUE_PRIORITY_VALUES = ['urgent', 'week', 'someday'] as const
-
-/** ISSUE_STATUS와 같은 장치다 — 축이 추가·개명되면 이 줄에서 타입 오류가 난다. */
-type AssertSourceExhaustive<T extends readonly IssueSource[]> =
-  IssueSource extends T[number] ? T : never
-type AssertKindExhaustive<T extends readonly IssueKind[]> =
-  IssueKind extends T[number] ? T : never
-type AssertPriorityExhaustive<T extends readonly IssuePriority[]> =
-  IssuePriority extends T[number] ? T : never
-
-const issueSourceValues: AssertSourceExhaustive<typeof ISSUE_SOURCE_VALUES> = ISSUE_SOURCE_VALUES
-const issueKindValues: AssertKindExhaustive<typeof ISSUE_KIND_VALUES> = ISSUE_KIND_VALUES
-const issuePriorityValues: AssertPriorityExhaustive<typeof ISSUE_PRIORITY_VALUES> = ISSUE_PRIORITY_VALUES
-
-const ISSUE_SOURCE = z.enum(issueSourceValues)
-const ISSUE_KIND = z.enum(issueKindValues)
-const ISSUE_PRIORITY = z.enum(issuePriorityValues)
 
 export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
   const server = new McpServer({ name: MCP_SERVER_NAME, version: '0.1.0' })
