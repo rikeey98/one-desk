@@ -808,8 +808,9 @@ export function SettingsPanel({
             <h3>터미널 셸</h3>
             {terminalShellError && <div role="alert" className="form-error">{terminalShellError}</div>}
             <p className="settings-hint">
-              코드 칸의 터미널이 띄울 셸. 비워두면 PowerShell 7(없으면 Windows PowerShell)이고, macOS·Linux는 로그인 셸입니다.
-              바꾸면 다음에 뜨는 셸부터 적용됩니다 — 도는 셸은 터미널 칸의 &quot;셸 다시 시작&quot;으로 바꿉니다.
+              코드 칸의 터미널이 처음 열 때와 +로 띄울 셸. 비워두면 PowerShell 7(없으면 Windows PowerShell)이고, macOS·Linux는 로그인
+              셸입니다. 바꾸면 다음에 뜨는 셸부터 적용됩니다 — 도는 셸은 터미널 칸의 &quot;셸 다시 시작&quot;으로 바꿉니다. 다른 셸은 터미널
+              칸의 ▾에서 고릅니다.
             </p>
             <label className="settings-field">
               터미널 셸 실행 파일
