@@ -44,8 +44,55 @@ export interface PlanUsage {
  */
 export interface ItemChange {
   workspaceId: string
-  kind: 'issue' | 'memo' | 'asset' | 'repo' | 'workspace'
+  kind: 'issue' | 'memo' | 'asset' | 'repo' | 'workspace' | 'proposal'
 }
+
+/**
+ * agent의 제안 (`docs/sdlc/agent-proposals/` spec FR-1~3). 사람이 받기 전에는 이슈·메모·대화의 어떤 행도 바꾸지 않는다.
+ * `superseded`는 같은 대화의 새 제안에 밀려난 것이다(FR-4).
+ */
+export type ProposalStatus = 'pending' | 'accepted' | 'declined' | 'superseded'
+
+/**
+ * `conversation-issue` 제안의 내용. 선택 필드(`?`)를 쓰지 않고 null로 채운다 — DB에 들어갔다 나오는 JSON이라 "키가 없다"와
+ * "null"이 갈리면 읽는 쪽이 둘을 다 다뤄야 한다(FR-2).
+ */
+export interface ConversationIssuePayload {
+  /** 한 줄, 1~200자. 기존 이슈를 고른 제안에도 있다 — 그 이슈가 지워졌을 때의 대안이다 */
+  title: string
+  body: string
+  repoIds: string[]
+  source: IssueSource | null
+  kind: IssueKind | null
+  priority: IssuePriority | null
+  /** 같은 일을 하는 열린 이슈. 있으면 배너가 그것을 먼저 권한다 */
+  existingIssueId: string | null
+}
+
+export interface ProposalBase {
+  id: string
+  workspaceId: string
+  /** 제안을 낸 대화(뿌리) */
+  rootRunId: string
+  /** 제안을 낸 턴 */
+  runId: string
+  status: ProposalStatus
+  createdAt: number
+  decidedAt: number | null
+}
+
+export interface IssueProposal extends ProposalBase {
+  kind: 'conversation-issue'
+  payload: ConversationIssuePayload
+  /** existingIssueId를 읽는 시점의 이슈. 지워졌거나 다른 workspace면 null (`Run.issue`와 같은 규칙) */
+  existingIssue: { id: string; title: string; status: IssueStatus } | null
+}
+
+/** 둘째 사이클이 갈래를 더한다 */
+export type Proposal = IssueProposal
+
+/** 이슈화 제안을 받는 방법 (FR-17). `new`는 사람이 고친 제목으로 새 이슈를, `existing`은 제안한 기존 이슈를 */
+export type AcceptIssueProposal = { mode: 'new'; title: string } | { mode: 'existing' }
 
 export type IssueStatus = 'open' | 'doing' | 'done'
 /** 이슈가 어디서 왔는가 */

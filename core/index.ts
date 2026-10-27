@@ -35,6 +35,8 @@ import { applyRunEvent, dropRun, type LiveMap } from './home/live'
 import { createIssueRepository } from './db/repositories/issue'
 import { createMemoRepository } from './db/repositories/memo'
 import { createRunRepository } from './db/repositories/run'
+import { createProposalRepository } from './db/repositories/proposal'
+import { createProposalService } from './proposals/service'
 import { createRunManager } from './runner/manager'
 import { createExecutionService } from './execution'
 import { claudeCodeAdapter } from './runner/adapters/claudeCode'
@@ -59,14 +61,14 @@ import { createRunQueue } from './runner/queue'
 import { createMcpHost } from './mcp/host'
 import {
   notifyingIssues, notifyingMemos, notifyingAssets, notifyingRepos, notifyingWorkspaces,
-  announcingAssignedConversations, type Notify
+  announcingAssignedConversations, notifyingProposals, type Notify
 } from './changes'
 import { consoleErrorSink, type ErrorSink } from './errors'
 import type { AgentAdapter } from './runner/types'
 import type { RunEvent } from '@shared/events'
 import type {
-  AgentKind, AgentPaths, InboxCounts, ItemChange, McpStatus, PlanUsage, QueueSnapshot, Repo, Run, TerminalCreateInput, TerminalData,
-  TerminalExit, TerminalOpenInput, TerminalTabInput, TerminalTabRef,
+  AcceptIssueProposal, AgentKind, AgentPaths, InboxCounts, Issue, ItemChange, Proposal, McpStatus, PlanUsage, QueueSnapshot, Repo, Run,
+  TerminalCreateInput, TerminalData, TerminalExit, TerminalOpenInput, TerminalTabInput, TerminalTabRef,
   TerminalShellSetting, Workspace
 } from '@shared/models'
 
@@ -170,6 +172,12 @@ export function createCore(opts: CoreOptions) {
     }
   )
   const memos = notifyingMemos(createMemoRepository(db), notify)
+  // agent의 제안 (docs/sdlc/agent-proposals/ FR-12) — 감싼 것을 MCP deps와 IPC 표면이 같이 받는다. 받기는 맨 저장소로(FR-18)
+  const proposalRows = createProposalRepository(db, onError)
+  const proposals = notifyingProposals(proposalRows, notify)
+  const proposalService = createProposalService({
+    db, runs, issues: createIssueRepository(db), proposals: proposalRows, repos: createRepoRepository(db)
+  })
   const repos = notifyingRepos(createRepoRepository(db), notify)
   const assetRows = notifyingAssets(createAssetRepository(db), notify)
   const settings = createSettingRepository(db, opts.homeDir)
@@ -334,7 +342,7 @@ export function createCore(opts: CoreOptions) {
   runs.reapStale()
 
   const mcp = createMcpHost({
-    deps: { repos, issues, memos, runs },
+    deps: { repos, issues, memos, runs, proposals },
     configDir: join(opts.dataDir, 'mcp'),
     execPath: opts.execPath ?? process.execPath,
     // 리눅스 패키지에서는 앱이 뜬 LD_LIBRARY_PATH — agent가 물려준 사용자의 값으로는 브리지(Electron)가 못 뜰 수 있다(linux-launch-env)
@@ -885,6 +893,30 @@ export function createCore(opts: CoreOptions) {
         emitter.emit(RUN_UPDATE, assigned)
         emitInbox()
         return assigned
+      }
+    },
+
+    /**
+     * agent의 제안 (`docs/sdlc/agent-proposals/` FR-17~20). 받기는 사람이 누른 버튼이고 IPC로만 온다 — MCP에 받는 도구가 없다.
+     * 알림은 **트랜잭션이 끝난 뒤** 한 번 낸다(FR-18) — `conversations.assignIssue`가 내는 짝(`RUN_UPDATE`·`emitInbox`)에 이슈·제안
+     * 바뀜을 더한 것이다. 되돌린 받기는 아무것도 알리지 않는다.
+     */
+    proposals: {
+      pending: (workspaceId: string): Proposal[] => proposalService.pending(workspaceId),
+
+      accept(id: string, choice: AcceptIssueProposal): { issue: Issue; conversation: Run } {
+        const { issue, conversation, created } = proposalService.accept(id, choice)
+        if (created) notify({ workspaceId: issue.workspaceId, kind: 'issue' })
+        notify({ workspaceId: conversation.workspaceId, kind: 'proposal' })
+        emitter.emit(RUN_UPDATE, conversation)
+        emitInbox()
+        return { issue, conversation }
+      },
+
+      decline(id: string): Proposal {
+        const declined = proposalService.decline(id)
+        notify({ workspaceId: declined.workspaceId, kind: 'proposal' })
+        return declined
       }
     },
 

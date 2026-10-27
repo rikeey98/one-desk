@@ -6,11 +6,14 @@ import type { RepoRepository } from '../db/repositories/repo'
 import type { IssueRepository } from '../db/repositories/issue'
 import type { MemoRepository } from '../db/repositories/memo'
 import type { RunRepository } from '../db/repositories/run'
+import type { ProposalRepository } from '../db/repositories/proposal'
 import type { RunContext } from './host'
 import type { Issue, IssueStatus, IssueSource, IssueKind, IssuePriority, Memo } from '@shared/models'
 import { parseBound, toIso } from './time'
 import { summarizeConversations, conversationDetail } from './conversations'
 import { issueTouchedIn, memoTouchedIn } from '../period/range'
+import { ISSUE_SOURCE, ISSUE_KIND, ISSUE_PRIORITY } from '../issueAxes'
+import { ISSUE_PROPOSAL_SHAPE, conversationIssuePayload } from '../proposals/payload'
 
 export interface McpHostDeps {
   repos: RepoRepository
@@ -18,6 +21,11 @@ export interface McpHostDeps {
   memos: MemoRepository
   /** `list_conversations`가 읽는다 (docs/sdlc/timestamps/ FR-7). 쓰지 않는다 */
   runs: RunRepository
+  /**
+   * `propose_issue`가 쓰는 유일한 저장소 (docs/sdlc/agent-proposals/ FR-11). core가 바뀜 알림으로 감싼 것을 넘긴다 — 이슈·run
+   * 저장소는 그 도구에서 읽기만 한다
+   */
+  proposals: ProposalRepository
 }
 
 /** 도구 결과의 공통 형태. 던진 것은 isError로 바꿔 agent가 읽고 대응하게 한다. */
@@ -141,26 +149,6 @@ const issueStatusValues: AssertIssueStatusExhaustive<typeof ISSUE_STATUS_VALUES>
 
 const ISSUE_STATUS = z.enum(issueStatusValues)
 
-const ISSUE_SOURCE_VALUES = ['customer', 'plan', 'meeting', 'dev'] as const
-const ISSUE_KIND_VALUES = ['bug', 'feature', 'refactor', 'docs', 'research'] as const
-const ISSUE_PRIORITY_VALUES = ['urgent', 'week', 'someday'] as const
-
-/** ISSUE_STATUS와 같은 장치다 — 축이 추가·개명되면 이 줄에서 타입 오류가 난다. */
-type AssertSourceExhaustive<T extends readonly IssueSource[]> =
-  IssueSource extends T[number] ? T : never
-type AssertKindExhaustive<T extends readonly IssueKind[]> =
-  IssueKind extends T[number] ? T : never
-type AssertPriorityExhaustive<T extends readonly IssuePriority[]> =
-  IssuePriority extends T[number] ? T : never
-
-const issueSourceValues: AssertSourceExhaustive<typeof ISSUE_SOURCE_VALUES> = ISSUE_SOURCE_VALUES
-const issueKindValues: AssertKindExhaustive<typeof ISSUE_KIND_VALUES> = ISSUE_KIND_VALUES
-const issuePriorityValues: AssertPriorityExhaustive<typeof ISSUE_PRIORITY_VALUES> = ISSUE_PRIORITY_VALUES
-
-const ISSUE_SOURCE = z.enum(issueSourceValues)
-const ISSUE_KIND = z.enum(issueKindValues)
-const ISSUE_PRIORITY = z.enum(issuePriorityValues)
-
 export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
   const server = new McpServer({ name: MCP_SERVER_NAME, version: '0.1.0' })
 
@@ -222,8 +210,33 @@ export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
     return detail
   }))
 
-  // 읽기 전용은 여기서 끝난다. 파일은 못 고치는데 이슈 상태는 바꿀 수 있다면
-  // "읽기 전용"이라는 표현을 신뢰할 수 없게 된다 (설계 §8).
+  server.registerTool('propose_issue', {
+    description: '이 대화가 처리해야 할 일이면 사람에게 이슈로 만들자고 제안한다. 아무것도 만들거나 바꾸지 않는다 — 사람이 받아야 이슈가 생기고 이 대화에 할당된다. 같은 일을 하는 열린 이슈가 있으면 existingIssueId로 그 이슈를 준다.',
+    inputSchema: ISSUE_PROPOSAL_SHAPE
+  }, async (args) => reply(() => {
+    // 할당·거절을 먼저 본다 (FR-10) — 사람이 이미 답한 대화에 다시 묻지 않는다
+    if (deps.runs.get(ctx.rootRunId).issue !== null) throw new Error('이 대화에는 이미 이슈가 할당돼 있습니다')
+    if (deps.proposals.stateOf(ctx.rootRunId).declined) {
+      throw new Error('사용자가 이 대화를 이슈로 만들지 않기로 했습니다. 다시 제안하지 마세요')
+    }
+    const payload = conversationIssuePayload.parse(args)
+    if (payload.existingIssueId !== null) {
+      // 소속 확인은 loadIssue가 한다 — 다른 workspace의 이슈는 없는 id와 같은 말로 떨군다 (FR-9)
+      const existing = loadIssue(deps, ctx, payload.existingIssueId)
+      if (existing.status === 'done') throw new Error('완료된 이슈에는 붙일 수 없습니다 — 새 이슈로 제안하세요')
+    }
+    const known = new Set(deps.repos.list(ctx.workspaceId).map((r) => r.id))
+    const outside = payload.repoIds.find((id) => !known.has(id))
+    if (outside !== undefined) throw new Error(`이 workspace의 repo가 아닙니다: ${outside}`)
+    const made = deps.proposals.createIssueProposal({
+      workspaceId: ctx.workspaceId, rootRunId: ctx.rootRunId, runId: ctx.runId, payload
+    })
+    return { proposalId: made.id, status: 'pending' }
+  }))
+
+  // 읽기 전용은 여기서 끝난다 — **"앱 데이터(이슈·메모·대화)와 파일을 바꾸는 도구가 없다"**가 그 뜻이다 (agent-proposals FR-13).
+  // 파일은 못 고치는데 이슈 상태는 바꿀 수 있다면 "읽기 전용"을 신뢰할 수 없다(설계 §8). 위의 propose_issue는 그 안에 든다 —
+  // 사람이 배너에서 받기 전에는 어떤 이슈·메모·대화도 바뀌지 않고, 받기는 사람이 누른 버튼이라 IPC로만 간다(MCP에 받는 도구가 없다).
   if (ctx.permission === 'read_only') return server
 
   server.registerTool('create_issue', {

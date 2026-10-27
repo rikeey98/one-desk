@@ -10,7 +10,8 @@ import { ConversationPanel } from './ConversationPanel'
 import { groupConversations } from '../conversation'
 import type { OneDeskClient } from '@shared/client'
 import type { Conversation } from '../conversation'
-import type { Repo, Run, Workspace } from '@shared/models'
+import type { IssueProposal, Repo, Run, Workspace } from '@shared/models'
+import type { IssueBanner } from '../proposal'
 
 const repos: Repo[] = [
   { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 }
@@ -67,6 +68,7 @@ function renderPanel(
     resume?: ReturnType<typeof vi.fn>
     onCancel?: (runId: string) => void
     store?: RunEventStore
+    proposal?: IssueBanner | null
   } = {}
 ) {
   const client = makeClient(opts)
@@ -93,6 +95,9 @@ function renderPanel(
             draftCwd={null}
             selectedRepoId={null}
             onCwdChange={vi.fn()}
+            proposal={opts.proposal ?? null}
+            onAcceptProposal={vi.fn().mockResolvedValue(undefined)}
+            onDeclineProposal={vi.fn().mockResolvedValue(undefined)}
           />
         </DraftProvider>
       </RunEventProvider>
@@ -447,5 +452,29 @@ describe('ConversationPanel', () => {
       expect(box.scrollTop).toBe(100)
       expect(screen.getByRole('button', { name: '최신으로 이동' })).toBeInTheDocument()
     })
+  })
+})
+
+describe('이슈화 제안 배너의 자리 (agent-proposals FR-21)', () => {
+  const proposal: IssueProposal = {
+    id: 'p1', workspaceId: 'w1', rootRunId: 'run-1', runId: 'run-1', status: 'pending', createdAt: 1, decidedAt: null,
+    kind: 'conversation-issue', existingIssue: null,
+    payload: { title: '제안 제목', body: '', repoIds: [], source: null, kind: null, priority: null, existingIssueId: null }
+  }
+
+  it('대화록과 입력부 사이에 선다', () => {
+    const conversation = groupConversations([makeRun({ id: 'run-1', status: 'succeeded', resultText: '답' })])[0]!
+    const { container } = renderPanel(conversation, { proposal: { mode: 'new', proposal } })
+    const panel = container.querySelector('.conversation-panel')!
+    const order = [...panel.children].map((c) => c.className.split(' ')[0])
+    const banner = order.indexOf('conversation-proposal')
+    expect(banner).toBeGreaterThan(-1)
+    expect(order.slice(0, banner).some((c) => c?.startsWith('transcript'))).toBe(true)
+    expect(order[banner + 1]).toBe('run-panel')
+  })
+
+  it('배너가 없으면 아무것도 서지 않는다', () => {
+    renderPanel(null)
+    expect(screen.queryByRole('status', { name: '이 대화를 이슈로 만들까요?' })).toBeNull()
   })
 })

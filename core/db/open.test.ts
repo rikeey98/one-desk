@@ -198,4 +198,38 @@ describe('openDb 마이그레이션', () => {
     check.close()
     rmSync(dir, { recursive: true, force: true })
   })
+
+  it('0012는 기존 run과 맥락 기록을 건드리지 않고 proposal 테이블만 더한다 (agent-proposals FR-5)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'one-desk-0012-'))
+    const file = join(dir, 'test.db')
+    const full = resolve(HERE, '../../drizzle')
+    const partial = join(dir, 'migrations')
+    mkdirSync(join(partial, 'meta'), { recursive: true })
+    const journal = JSON.parse(readFileSync(join(full, 'meta/_journal.json'), 'utf8')) as {
+      entries: { idx: number; tag: string }[]
+    }
+    const idx0012 = journal.entries.find((e) => e.tag.startsWith('0012'))!.idx
+    const keep = journal.entries.filter((e) => e.idx < idx0012)
+    writeFileSync(join(partial, 'meta/_journal.json'), JSON.stringify({ ...journal, entries: keep }))
+    for (const entry of keep) copyFileSync(join(full, `${entry.tag}.sql`), join(partial, `${entry.tag}.sql`))
+    openDb({ file, migrationsDir: partial }).$client.close()
+
+    const seed = new BetterSqlite3(file)
+    seed.exec(`
+      INSERT INTO workspace (id, name, created_at, updated_at) VALUES ('ws', 'ws', 1, 1);
+      INSERT INTO run (id, root_run_id, workspace_id, agent_kind, cwd, permission, user_prompt, assembled_prompt, log_path, created_at)
+        VALUES ('a', 'a', 'ws', 'claude-code', '/tmp', 'edit', '1', '1', '/tmp/a.log', 1);
+      INSERT INTO run_context_item (run_id, item_type, item_id) VALUES ('a', 'issue', 'i1');
+    `)
+    seed.close()
+
+    openDb({ file, migrationsDir: full }).$client.close()
+
+    const check = new BetterSqlite3(file)
+    expect(check.prepare('SELECT id FROM run').all()).toEqual([{ id: 'a' }])
+    expect(check.prepare('SELECT run_id, item_id FROM run_context_item').all()).toEqual([{ run_id: 'a', item_id: 'i1' }])
+    expect(check.prepare('SELECT count(*) AS n FROM proposal').get()).toEqual({ n: 0 })
+    check.close()
+    rmSync(dir, { recursive: true, force: true })
+  })
 })

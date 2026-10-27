@@ -2,7 +2,7 @@
 
 workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 골라 CLI 코딩 agent(Claude Code, OpenCode)에게 넘겨 헤드리스로 실행한 뒤 결과를 앱에 기록하는 Electron 데스크톱 앱.
 
-**현재 상태:** 4단계 완료(MCP 서버 — 호스트/도구 아홉 개(지금은 열한 개)/권한별 등록/커맨드 배선), `main`에 병합됨(`a19b4fd`). 이슈·메모 본문 편집(설계 `2026-08-14-issue-memo-body-design.md`)도 `main`에 병합됨(`c91438e`) — 저장소의 `updateIfUnchanged`로 낙관적 잠금, 선택한 패널이 커지는 동적 3컬럼, 맥락 담기와 열기 분리, `IssueDetail`·`MemoDetail` 본문 편집기, 그리고 `e2e/body.e2e.ts`가 IPC 왕복(`client.issues.updateIfUnchanged` → preload → `ipcMain.handle` → 저장소)을 실제로 검증한다. **상태 편집은 상세에만 있다** — 목록의 상태 칩은 읽기 전용 배지다(§5·§9). 3b 리뷰가 4단계로 이월한 것 둘 다 해소됐다: `core/`의 `console.error`가 주입식 `onError`로 바뀌었고, `resume`의 catch는 DB 장애를 더 이상 뭉개지 않는다.
+**현재 상태:** 4단계 완료(MCP 서버 — 호스트/도구 아홉 개(지금은 열두 개 — 읽기 전용에도 `propose_issue`가 선다)/권한별 등록/커맨드 배선), `main`에 병합됨(`a19b4fd`). 이슈·메모 본문 편집(설계 `2026-08-14-issue-memo-body-design.md`)도 `main`에 병합됨(`c91438e`) — 저장소의 `updateIfUnchanged`로 낙관적 잠금, 선택한 패널이 커지는 동적 3컬럼, 맥락 담기와 열기 분리, `IssueDetail`·`MemoDetail` 본문 편집기, 그리고 `e2e/body.e2e.ts`가 IPC 왕복(`client.issues.updateIfUnchanged` → preload → `ipcMain.handle` → 저장소)을 실제로 검증한다. **상태 편집은 상세에만 있다** — 목록의 상태 칩은 읽기 전용 배지다(§5·§9). 3b 리뷰가 4단계로 이월한 것 둘 다 해소됐다: `core/`의 `console.error`가 주입식 `onError`로 바뀌었고, `resume`의 catch는 DB 장애를 더 이상 뭉개지 않는다.
 
 **릴리스 파이프라인**(설계 `2026-08-14-release-pipeline-design.md`)이 붙었다. `v*` 태그를 밀면 GitHub Actions가 빌드해 draft 릴리스에 산출물을 올린다. **지금 빌드하는 것은 Windows portable `.exe`(x64)와 Linux `AppImage`(x86_64) 둘이다** (2026-10-12, Linux를 더했다). release job이 `needs: build`라 한쪽이 깨지면 다른 쪽 산출물까지 못 올라간다 — macOS를 빼 둔 이유다(워크플로 matrix 주석에 되살리는 법이 적혀 있다). **AppImage의 배포판 하한은 RHEL 8(glibc 2.28)이다** (2026-10-14, `docs/sdlc/linux-glibc-floor/`) — 러너에서 컴파일한 node-pty와 better-sqlite3가 품은 사전 빌드는 `GLIBC_2.34`를 요구하므로, 리눅스 빌드가 `pnpm install` 직후 둘을 manylinux_2_28 컨테이너에서 다시 빌드하고(`build/linux/build-native.sh`) electron-builder 다음에 `build/linux/check-appimage.sh`로 산출물의 실행 껍데기·glibc 하한·네이티브 모듈을 확인한다(아래 함정 절). RHEL 7은 Electron 자신이 `GLIBC_2.25`를 요구해 안 된다(`docs/sdlc/linux-launch-env/` §4). **Windows 포터블 exe는 실행마다 새 임시 폴더에 앱을 푼다** (2026-10-15, `docs/sdlc/portable-unpack/` — 고정 이름이던 v0.26.2까지는 앱이 떠 있을 때 exe를 다시 실행하면 떠 있는 앱의 파일이 지워졌다, 아래 함정 절). macOS는 개발 장비에서 `pnpm run pack`으로 언제든 만든다. **네이티브 모듈 때문에 크로스 컴파일은 불가능하므로** 각 러너에서 빌드한다 — 리눅스의 node-pty는 사전 빌드가 없어 러너에서 컴파일한다(릴리스는 그것을 위 컨테이너에서 다시 빌드한다). better-sqlite3 13은 패키지에 든 N-API 사전 빌드(`prebuilds/<플랫폼>-<arch>.node`)를 `build/Release`보다 먼저 집으므로 postinstall의 electron-rebuild가 컴파일한 것은 쓰이지 않는다 — 리눅스 릴리스는 그 사전 빌드 자리를 컨테이너에서 빌드한 것으로 갈아 끼운다. Windows 러너는 `windows-2022`로 고정돼 있다(최신 이미지의 Visual Studio 18을 node-gyp가 못 읽는다). **태그를 밀기 전에 `docs/releases/<태그>.md`(예: `v0.17.0.md`)에 그 버전의 변경 내용을 커밋해야 한다** — release job이 그 파일 + `.github/release-install.md`(설치 안내)로 본문을 조립하고, 파일이 없으면 실패한다(v0.16.0까지는 본문이 설치 안내와 compare 링크뿐이었다). 이 장비에는 `gh`가 없어 draft 본문을 나중에 고칠 수 없으니, 노트는 태그 전에 쓴다.
 
@@ -443,6 +443,35 @@ repo → CLI → 첫 대화)이 그 자리에 서고, 단계마다 가는 곳은
 화면으로 데려간다. 홈 e2e(`e2e/home.e2e.ts`)는 가짜 CLI의 `ONE_DESK_FAKE_SCRIPT=home`(지시문에 `[질문]`·`[실패]`가 있으면 답변 필요·
 실패)과 `ONE_DESK_FAKE_AUTH=ok`(`auth status`에 로그인된 JSON — 기본은 init을 찍어 "인증 확인 불가", `agent-setup.e2e`가 그것에
 기댄다)를 쓴다. 오래 안 본 이슈는 UI로 못 만들어 main에서 SQL로 심는다.
+
+**agent가 대화를 이슈로 제안하고 사람은 한 번 누른다** (`docs/sdlc/agent-proposals/` 첫째 사이클, 2026-10-27). **첫 실행에 마이그레이션
+`0012`가 돈다** — `proposal` 테이블 하나(종류 · JSON payload · 상태 `pending`/`accepted`/`declined`/`superseded`, 백필 없음). 이슈 없는
+대화의 턴에 안내(`PROPOSE_ISSUE_GUIDE`, `core/proposals/guide.ts`)가 붙고, agent가 MCP `propose_issue`로 제안하면 대화 칸의 대화록과
+입력부 사이에 `이 대화를 이슈로 만들까요?`(새 이슈 — 제목만 고친다) 또는 `기존 이슈 「…」에 붙일까요?`가 선다. 버튼은 `이슈로 만들기` ·
+`기존 이슈에 붙이기` · `이슈로 만들지 않기`(영구 — 그 대화에는 안내도 도구도 다시 서지 않는다).
+- **읽기 전용의 뜻이 "앱 데이터(이슈·메모·대화)와 파일을 바꾸는 도구가 없다"로 바뀌었다** (spec FR-13). `propose_issue`는 `tools.ts`의
+  `read_only` 조기 반환 **앞에** 있고 제안 저장소에만 쓴다 — 받기는 사람이 누른 버튼이라 IPC(`proposals.accept`)로만 간다. MCP에 받는
+  도구를 만들지 말 것. 뒤로 옮기면 `tools.test`의 "읽기 전용에도 propose_issue가 있다"가 빨개진다.
+- **토큰이 대화를 안다** — `RunContext.rootRunId`(필수). 제안은 턴이 아니라 뿌리에 붙는다.
+- **안내의 판정은 `shouldProposeIssue` 한 자리**(MCP · 할당 · 기다리는 제안 · 거절)이고 `assemblePrompt`의 `proposeIssue`는 필수다.
+  새 대화는 자동 할당(`soleIssueOf`) **뒤의** 이슈를 본다. **OpenCode는 전체 허용에서만 붙는다** — 1.18.30의 읽기 전용·편집 허용에서는
+  `"*": "deny"`가 MCP 도구를 모델에게서 지운다(plan 0단계 실측, `core/mcp/realOpencode.test.ts`). 이 기능 이전부터 OpenCode의 그 두 권한은
+  `list_issues`조차 못 썼다는 뜻이다 — 권한 설정에 MCP 키를 열지는 사용자가 정한다(spec §8의 6).
+- **받기는 core의 한 트랜잭션이다** (`core/proposals/service.ts`) — 이슈 만들기/고르기 → 뿌리에 할당 → `accepted`. 저장소마다 제
+  `db.transaction`을 쓰지만 better-sqlite3가 안쪽을 savepoint로 바꿔 바깥 하나가 전부 되돌린다(실측). **서비스에는 감싸지 않은 저장소를
+  넘긴다** — 감싼 것이면 되돌린 쓰기를 알린다. 알림(`issue`·`proposal` 바뀜, 뿌리 `RUN_UPDATE`, `emitInbox`)은 `core.proposals.accept`가
+  끝난 뒤 한 번 낸다. MCP 쪽 저장은 `notifyingProposals`가 알린다(감싼 것을 MCP `deps`가 받는다 — 맨 것을 넘기면 `index.test`가 빨개진다).
+- **대화당 기다리는 이슈화 제안은 하나** — 부분 유니크 인덱스 `(root_run_id) WHERE status = 'pending' AND kind = 'conversation-issue'`. 새로
+  부르면 앞의 것이 `superseded`가 되고 **새 행**이 선다(배너의 제목 칸이 제안 id를 key로 잡는다). drizzle이 `WHERE`를 빼먹으면 superseded
+  행 하나가 다음 제안을 막는다 — 스키마를 고치면 생성된 SQL을 읽는다.
+- **도크가 기다리는 제안을 쥔다**(`useProposals` — 바뀜 알림 `proposal`에 다시 읽는다)**.** `ConversationPanel`의 `proposal`·
+  `onAcceptProposal`·`onDeclineProposal`은 필수이고 App을 거치지 않는다. 가짜 클라이언트에 `proposals`가 있어야 도크를 그리는 테스트가
+  제대로 돈다(`Dock.test`·`App.test`). 배너는 그 대화를 열었을 때만 보인다(목록·홈·인박스 표시 없음 — spec §6 우려 4).
+- 가짜 MCP CLI(`fake-claude-mcp.mjs`)는 `ONE_DESK_FAKE_MCP_CALL`(JSON `{ name, arguments }`, `existing: 'first'`면 `list_issues`의 첫 열린
+  이슈를 `existingIssueId`로)로 부를 도구를 받고 `ONE_DESK_PROMPT_CAPTURE`를 남긴다. **없으면 예전 `create_issue` 그대로다** — `mcp.e2e`가
+  기댄다. `e2e/proposal.e2e.ts`가 세 시나리오를 실제 앱으로 본다(셀렉터는 `{ name: '이슈로 만들기', exact: true }` — 인박스 실패 항목의
+  버튼과 이름이 같지만 한 화면에 서지 않는다). 다크 캡처는 `emulateMedia` 뒤에 버튼의 transition(.12s)을 기다려야 한다 — 바로 찍으면
+  버튼이 흰 채로 찍힌다.
 
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
@@ -1180,6 +1209,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/portable-unpack/` | Windows 포터블 exe를 한 번 더 실행하면 떠 있는 앱의 파일이 지워지던 결함(v0.26.2의 WSL `wsl-launcher.sh`) — spec. 래퍼가 고정 이름 폴더를 비우는 실측(§0), 사라지는 파일 셋과 증상(§1), 문서와 반대인 `unpackDirName: true`(FR-1), 남은 폴더를 지우는 판정(FR-2), `original-fs`(FR-3), 버린 안(NSIS 설치본 등), 패키징 앱을 CDP로 몬 실측(§4) |
 | `docs/sdlc/ux-polish/` | UI/UX 분석이 꼽은 여덟 가지 — intent·spec·plan. 상세가 열리면 도크가 하한(FR-1), 빈 상태 하나·리포트의 가까운 preset 제안(FR-2), 한국어 표와 `열림` 배지 생략(FR-3), 전역 단축키 표와 일회성 prop 배선(FR-8·9), 뒤집은 결정(intent), App 배선 변이 표(plan). 시안 비교 https://claude.ai/artifact/VQBSR9ruuhjttD6P9Choqn |
 | `docs/sdlc/home/` | 앱을 열면 "오늘 할 일"이 보이는 홈 — intent·spec·plan. 미해결 질문의 답(spec §0), 할 일 넷과 배지(FR-3·4), core 한 자리와 MCP 제외(FR-1), 렌더러가 넘기는 오늘의 경계(FR-5), 새 대화 카드를 App이 직접 보내는 이유(FR-11·plan 개정 1), 준비 단계와 CLI 칸(FR-14~16·plan 개정 8), 이름 충돌(NFR-3), 코드를 보고 spec을 고친 여덟(plan §0), 변이 표와 완료 증명(plan). 시안 https://claude.ai/artifact/ST6FQPHU8XPSKXTREZHPVN 셋째 줄 |
+| `docs/sdlc/agent-proposals/` | agent가 알아채 제안하고 사람은 한 번 누른다 — intent·spec·plan(첫째 사이클: 대화의 이슈화). 세 데이터 모양 비교(spec §2-1), 읽기 전용의 새 정의(FR-13), 안내의 조건(FR-15)과 문구(FR-16), 받기 트랜잭션(FR-17·18), 배너(FR-21~23), 사용자가 뒤집을 수 있는 결정(§8). plan에 0단계 실측(중첩 트랜잭션·OpenCode MCP 권한)·변이 표·진짜 claude 측정 |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |

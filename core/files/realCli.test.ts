@@ -45,7 +45,7 @@ describe.skipIf(!ENABLED)('진짜 claude — @ 중화', () => {
     writeFileSync(join(repo, 'inside.txt'), 'code PELICAN-1111')
     writeFileSync(join(root, 'outside.txt'), 'code CRANE-4444')
 
-    const prompt = assemblePrompt({
+    const prompt = assemblePrompt({ proposeIssue: false,
       repos: [], memos: [], assets: [],
       issues: [{
         id: 'i1', workspaceId: 'w1', title: '참고', body: '본문에서 @inside.txt 참고',

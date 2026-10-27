@@ -8,6 +8,7 @@ import { createWorkspaceRepository } from './db/repositories/workspace'
 import { createRepoRepository } from './db/repositories/repo'
 import { createIssueRepository } from './db/repositories/issue'
 import { createRunRepository, type RunRepository } from './db/repositories/run'
+import { createProposalRepository } from './db/repositories/proposal'
 import { createAssetRepository } from './db/repositories/asset'
 import { createRunManager, type RunManager, type RunOutcome, type StartSpec } from './runner/manager'
 import { createRunQueue } from './runner/queue'
@@ -1597,6 +1598,26 @@ describe('MCP 배선', () => {
     rmSync(ctx2.logDir, { recursive: true, force: true })
   })
 
+  it('이어 가는 턴의 토큰은 뿌리를 안다 — 첫 턴은 자기 id (agent-proposals FR-6)', async () => {
+    const fake = fakeHost()
+    const ctx2 = setup({ mcp: fake.host })
+    const first = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'read_only', userPrompt: 'x', context: []
+    })
+    await vi.waitFor(() => expect(ctx2.runs.get(first.id).status).toBe('succeeded'))
+    const second = await ctx2.service.resume({ conversationId: first.id, permission: 'read_only', userPrompt: 'y', context: [] })
+    await vi.waitFor(() => expect(ctx2.runs.get(second.id).endedAt).toBeTypeOf('number'))
+    const third = await ctx2.service.resume({ conversationId: second.id, permission: 'read_only', userPrompt: 'z', context: [] })
+    await vi.waitFor(() => expect(ctx2.runs.get(third.id).endedAt).toBeTypeOf('number'))
+    expect(fake.turns).toEqual([
+      { runId: first.id, rootRunId: first.id },
+      { runId: second.id, rootRunId: first.id },
+      { runId: third.id, rootRunId: first.id }
+    ])
+    rmSync(ctx2.logDir, { recursive: true, force: true })
+  })
+
   it('run이 끝나면 토큰을 폐기한다', async () => {
     const fake = fakeHost()
     const ctx2 = setup({ mcp: fake.host })
@@ -1700,13 +1721,16 @@ describe('MCP 배선', () => {
  */
 function fakeHost() {
   const prepared: string[] = []
+  /** prepare에 넘어온 (턴, 대화) — 토큰이 대화를 아는지 본다 (agent-proposals FR-6) */
+  const turns: { runId: string; rootRunId: string }[] = []
   const released: string[] = []
   let failing = false
   let failingRelease = false
   const host = {
-    async prepare(ctx: { runId: string }) {
+    async prepare(ctx: { runId: string; rootRunId: string }) {
       if (failing) throw new Error('포트를 열지 못했습니다')
       prepared.push(ctx.runId)
+      turns.push({ runId: ctx.runId, rootRunId: ctx.rootRunId })
       return { token: `tok-${ctx.runId}`, url: 'http://127.0.0.1:1/mcp', configFile: `/tmp/${ctx.runId}.json` }
     },
     release(runId: string) {
@@ -1722,6 +1746,7 @@ function fakeHost() {
   return {
     host: host as unknown as McpHost,
     prepared,
+    turns,
     released,
     fail: () => { failing = true },
     failRelease: () => { failingRelease = true }
@@ -2136,5 +2161,79 @@ describe('@ 파일 참조 (docs/sdlc/input-triggers/)', () => {
     } finally {
       rmSync(ctx.logDir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('이슈화 제안 안내 (docs/sdlc/agent-proposals/ FR-14·15)', () => {
+  const GUIDE_MARK = 'propose_issue 도구로'
+
+  async function startNew(ctx2: ReturnType<typeof setup>, over: Partial<Parameters<typeof ctx2.service.start>[0]> = {}) {
+    const run = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'read_only', userPrompt: '고쳐줘', context: [], ...over
+    })
+    await vi.waitFor(() => expect(ctx2.runs.get(run.id).endedAt).toBeTypeOf('number'))
+    return run
+  }
+  async function resumeOf(ctx2: ReturnType<typeof setup>, conversationId: string) {
+    const run = await ctx2.service.resume({ conversationId, permission: 'read_only', userPrompt: '이어서', context: [] })
+    await vi.waitFor(() => expect(ctx2.runs.get(run.id).endedAt).toBeTypeOf('number'))
+    return run
+  }
+  const guided = (ctx2: ReturnType<typeof setup>, id: string) => ctx2.runs.get(id).assembledPrompt.includes(GUIDE_MARK)
+  const propose = (ctx2: ReturnType<typeof setup>, rootRunId: string) => createProposalRepository(ctx2.db, () => {})
+    .createIssueProposal({
+      workspaceId: ctx2.workspaceId, rootRunId, runId: rootRunId,
+      payload: { title: 't', body: '', repoIds: [], source: null, kind: null, priority: null, existingIssueId: null }
+    })
+
+  let ctx2: ReturnType<typeof setup>
+  beforeEach(() => { ctx2 = setup({ mcp: fakeHost().host }) })
+  afterEach(() => { rmSync(ctx2.logDir, { recursive: true, force: true }) })
+
+  it('이슈 없는 새 대화와 그 다음 턴에는 붙는다', async () => {
+    const first = await startNew(ctx2)
+    expect(guided(ctx2, first.id)).toBe(true)
+    const second = await resumeOf(ctx2, first.id)
+    expect(guided(ctx2, second.id)).toBe(true)
+  })
+
+  it('이슈를 하나만 담아 시작한 대화에는 붙지 않는다 — 자동 할당 뒤의 이슈를 본다', async () => {
+    const run = await startNew(ctx2, { context: [{ type: 'issue', id: ctx2.issueId }] })
+    expect(ctx2.runs.get(run.id).issue?.id).toBe(ctx2.issueId)
+    expect(guided(ctx2, run.id)).toBe(false)
+  })
+
+  it('이슈에서 시작한 대화에는 붙지 않는다', async () => {
+    const run = await startNew(ctx2, { issueId: ctx2.issueId })
+    expect(guided(ctx2, run.id)).toBe(false)
+  })
+
+  it('할당된 대화의 다음 턴에는 붙지 않는다', async () => {
+    const first = await startNew(ctx2)
+    ctx2.runs.assignIssue(first.id, ctx2.issueId)
+    const second = await resumeOf(ctx2, first.id)
+    expect(guided(ctx2, second.id)).toBe(false)
+  })
+
+  it('거절한 대화에는 안내가 없다', async () => {
+    const first = await startNew(ctx2)
+    createProposalRepository(ctx2.db, () => {}).decide(propose(ctx2, first.id).id, 'declined')
+    const second = await resumeOf(ctx2, first.id)
+    expect(guided(ctx2, second.id)).toBe(false)
+  })
+
+  it('기다리는 제안이 있는 대화에는 안내가 없다', async () => {
+    const first = await startNew(ctx2)
+    propose(ctx2, first.id)
+    const second = await resumeOf(ctx2, first.id)
+    expect(guided(ctx2, second.id)).toBe(false)
+  })
+
+  it('MCP가 없으면 붙지 않는다', async () => {
+    const noMcp = setup()
+    const run = await startNew(noMcp)
+    expect(guided(noMcp, run.id)).toBe(false)
+    rmSync(noMcp.logDir, { recursive: true, force: true })
   })
 })

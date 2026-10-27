@@ -1,5 +1,6 @@
 import type { Repo, Issue, Memo, AssetKind } from '@shared/models'
 import { rewriteMentions } from '@shared/mentions'
+import { PROPOSE_ISSUE_GUIDE } from '../proposals/guide'
 
 /** 지시문의 `@경로`에서 해석해 읽은 파일 (docs/sdlc/input-triggers/ FR-14). 본문은 호출자가 읽는다 */
 export interface FileForPrompt {
@@ -30,6 +31,11 @@ export interface AssembleInput {
    */
   resolvedMentions?: number[]
   userPrompt: string
+  /**
+   * 이슈 없는 대화에 `propose_issue` 안내를 붙이는가 (`docs/sdlc/agent-proposals/` FR-14). **필수다** — 선택이면 호출 자리가
+   * 빠뜨려도 조용히 거짓으로 돈다(`resolveAgentPath`의 앱 기본값과 같은 이유). 판정은 `shouldProposeIssue`가 한다
+   */
+  proposeIssue: boolean
 }
 
 /**
@@ -49,6 +55,11 @@ function esc(text: string): string {
  */
 function attr(text: string): string {
   return esc(text).replace(/"/g, '&quot;')
+}
+
+/** 끝의 안내들 — NEEDS_ANSWER 바로 뒤에 제안 안내가 온다(FR-14). 슬래시 갈래와 보통 갈래가 같이 쓴다 */
+function guides(input: AssembleInput): string[] {
+  return input.proposeIssue ? [NEEDS_ANSWER_GUIDE, PROPOSE_ISSUE_GUIDE] : [NEEDS_ANSWER_GUIDE]
 }
 
 const NEEDS_ANSWER_GUIDE = `
@@ -128,7 +139,7 @@ export function assemblePrompt(input: AssembleInput): string {
   if (trimmedPrompt.startsWith('/')) {
     const slashParts = [trimmedPrompt]
     if (contextBlock) slashParts.push(contextBlock)
-    slashParts.push(NEEDS_ANSWER_GUIDE)
+    slashParts.push(...guides(input))
     return slashParts.join('\n\n')
   }
 
@@ -138,7 +149,7 @@ export function assemblePrompt(input: AssembleInput): string {
   // userPrompt는 이스케이프하지 않는다. 사용자가 직접 쓴 지시이므로 그대로 전달한다.
   // 맥락 데이터만 이스케이프한다 — 4단계에서 agent가 create_memo로 쓴 내용도 거기 들어온다.
   parts.push(`<task>\n${userPrompt}\n</task>`)
-  parts.push(NEEDS_ANSWER_GUIDE)
+  parts.push(...guides(input))
 
   return parts.join('\n\n')
 }

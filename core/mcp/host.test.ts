@@ -8,6 +8,7 @@ import { createRepoRepository } from '../db/repositories/repo'
 import { createIssueRepository } from '../db/repositories/issue'
 import { createMemoRepository } from '../db/repositories/memo'
 import { createRunRepository } from '../db/repositories/run'
+import { createProposalRepository } from '../db/repositories/proposal'
 import { createWorkspaceRepository } from '../db/repositories/workspace'
 import { claudeCodeAdapter } from '../runner/adapters/claudeCode'
 import { HOST_ENV } from '../wsl/env'
@@ -28,7 +29,8 @@ beforeEach(() => {
       repos: createRepoRepository(db),
       issues: createIssueRepository(db),
       memos: createMemoRepository(db),
-      runs: createRunRepository(db)
+      runs: createRunRepository(db),
+      proposals: createProposalRepository(db, () => {})
     },
     configDir: resolve(dir, 'mcp'),
     execPath: process.execPath,
@@ -46,49 +48,49 @@ const LIST = { jsonrpc: '2.0', id: 1, method: 'tools/list' }
 
 describe('McpHost', () => {
   it('유효한 토큰이면 tools/list에 응답한다', async () => {
-    const p = await host.prepare({ runId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
+    const p = await host.prepare({ runId: 'r1', rootRunId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
     const res = await rpc(p.url, p.token, LIST)
     expect(res.status).toBe(200)
     expect(res.json.result.tools).toBeInstanceOf(Array)
   })
 
   it('토큰이 없으면 401이다', async () => {
-    const p = await host.prepare({ runId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
+    const p = await host.prepare({ runId: 'r1', rootRunId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
     expect((await rpc(p.url, null, LIST)).status).toBe(401)
   })
 
   it('모르는 토큰이면 401이다', async () => {
     // 토큰은 Authorization 헤더 값으로 들어간다. fetch의 Headers는 ByteString만
     // 받으므로(WHATWG 명세) 비ASCII 문자를 쓰면 요청 자체가 만들어지지 못한다.
-    const p = await host.prepare({ runId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
+    const p = await host.prepare({ runId: 'r1', rootRunId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
     expect((await rpc(p.url, 'aaaa-unknown-token', LIST)).status).toBe(401)
   })
 
   it('release한 토큰은 더 이상 통하지 않는다', async () => {
     // 이 한 줄이 4단계 전체의 보안 경계다. 폐기를 빠뜨리면 끝난 run의 토큰으로
     // workspace를 계속 읽고 쓸 수 있다.
-    const p = await host.prepare({ runId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
+    const p = await host.prepare({ runId: 'r1', rootRunId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
     expect((await rpc(p.url, p.token, LIST)).status).toBe(200)
     host.release('r1')
     expect((await rpc(p.url, p.token, LIST)).status).toBe(401)
   })
 
   it('release가 설정 파일도 함께 지운다', async () => {
-    const p = await host.prepare({ runId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
+    const p = await host.prepare({ runId: 'r1', rootRunId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
     expect(existsSync(p.configFile)).toBe(true)
     host.release('r1')
     expect(existsSync(p.configFile)).toBe(false)
   })
 
   it('/mcp가 아닌 경로는 404다', async () => {
-    const p = await host.prepare({ runId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
+    const p = await host.prepare({ runId: 'r1', rootRunId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
     const root = p.url.replace('/mcp', '/')
     const res = await fetch(root, { method: 'POST', body: '{}' })
     expect(res.status).toBe(404)
   })
 
   it('127.0.0.1에만 바인딩한다', async () => {
-    const p = await host.prepare({ runId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
+    const p = await host.prepare({ runId: 'r1', rootRunId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
     expect(p.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/)
   })
 
@@ -96,8 +98,8 @@ describe('McpHost', () => {
     // 기동 프로미스를 캐시하지 않으면 두 서버가 뜨고, 한쪽 토큰만 아는 포트가
     // 생겨 절반의 agent가 조용히 연결에 실패한다.
     const [a, b] = await Promise.all([
-      host.prepare({ runId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV }),
-      host.prepare({ runId: 'r2', workspaceId, permission: 'read_only', agentKind: 'claude-code', env: HOST_ENV })
+      host.prepare({ runId: 'r1', rootRunId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV }),
+      host.prepare({ runId: 'r2', rootRunId: 'r2', workspaceId, permission: 'read_only', agentKind: 'claude-code', env: HOST_ENV })
     ])
     expect(new URL(a.url).port).toBe(new URL(b.url).port)
     // 두 토큰 모두 그 포트에서 통한다
@@ -106,7 +108,7 @@ describe('McpHost', () => {
   })
 
   it('close 후에는 아무 토큰도 통하지 않는다', async () => {
-    const p = await host.prepare({ runId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
+    const p = await host.prepare({ runId: 'r1', rootRunId: 'r1', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
     host.close()
     await expect(rpc(p.url, p.token, LIST)).rejects.toThrow()
   })
@@ -117,7 +119,7 @@ describe('McpHost', () => {
     // 나온다. 둘이 서로 다른 리터럴이면 한쪽만 바뀌었을 때 모든 MCP 호출이
     // 조용히 거부된다 — execution.ts가 실제로 하는 일(host.prepare가 쓴 설정
     // 파일 경로와 MCP_SERVER_NAME을 그대로 어댑터에 넘김)을 재현해 확인한다.
-    const p = await host.prepare({ runId: 'r-name', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
+    const p = await host.prepare({ runId: 'r-name', rootRunId: 'r-name', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
     const parsed = JSON.parse(readFileSync(p.configFile, 'utf8')) as { mcpServers: Record<string, unknown> }
     const configKey = Object.keys(parsed.mcpServers)[0]
 
@@ -143,12 +145,12 @@ describe('prepare — 브리지를 띄울 환경 (docs/sdlc/linux-launch-env/)',
     const db = makeTestDb()
     const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
     const host = createMcpHost({
-      deps: { repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db), runs: createRunRepository(db) },
+      deps: { repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db), runs: createRunRepository(db), proposals: createProposalRepository(db, () => {}) },
       configDir: resolve(dir, 'mcp'), execPath: '/app/one-desk.bin', bridgePath: '/app/resources/mcp-bridge.mjs',
       execEnv: { LD_LIBRARY_PATH: '/tmp/.mount_one-dAbC/usr/lib' }
     })
     try {
-      await host.prepare({ runId: 'r1', workspaceId, permission: 'edit', agentKind, env: HOST_ENV })
+      await host.prepare({ runId: 'r1', rootRunId: 'r1', workspaceId, permission: 'edit', agentKind, env: HOST_ENV })
       const body = JSON.parse(readFileSync(resolve(dir, 'mcp', 'r1.json'), 'utf8'))
       const env = agentKind === 'opencode' ? body.mcp[MCP_SERVER_NAME].environment : body.mcpServers[MCP_SERVER_NAME].env
       expect(env['LD_LIBRARY_PATH']).toBe('/tmp/.mount_one-dAbC/usr/lib')
@@ -167,14 +169,14 @@ describe('prepare — WSL run (docs/sdlc/wsl-support/ FR-21·23)', () => {
     const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
     const asked: string[] = []
     const host = createMcpHost({
-      deps: { repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db), runs: createRunRepository(db) },
+      deps: { repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db), runs: createRunRepository(db), proposals: createProposalRepository(db, () => {}) },
       configDir: resolve(dir, 'mcp'), execPath: 'C:\\app\\one-desk.exe', bridgePath: 'C:\\app\\resources\\mcp-bridge.mjs',
       // 리눅스 로더의 변수는 WSL 브리지(Windows 프로세스)에 싣지 않는다 — 아래 env 단언이 본다
       execEnv: { LD_LIBRARY_PATH: '/tmp/.mount_one-dAbC/usr/lib' },
       toLinux: async (distro, p) => { asked.push(`${distro}:${p}`); return `/mnt/host${p.replace(/\\/g, '/')}` }
     })
     try {
-      const p = await host.prepare({ runId: 'r-wsl', workspaceId, permission: 'edit', agentKind: 'claude-code', env: { kind: 'wsl', distro: 'Ubuntu' } })
+      const p = await host.prepare({ runId: 'r-wsl', rootRunId: 'r-wsl', workspaceId, permission: 'edit', agentKind: 'claude-code', env: { kind: 'wsl', distro: 'Ubuntu' } })
       expect(p.configFile).toBe(`/mnt/host${resolve(dir, 'mcp', 'r-wsl.json').replace(/\\/g, '/')}`)
       const server = JSON.parse(readFileSync(resolve(dir, 'mcp', 'r-wsl.json'), 'utf8')).mcpServers[MCP_SERVER_NAME]
       // claude가 interop으로 띄우는 것은 Electron 자신이다 — cmd.exe를 거치지 않는다 (§4-C)
@@ -197,12 +199,12 @@ describe('prepare — WSL run (docs/sdlc/wsl-support/ FR-21·23)', () => {
     const db = makeTestDb()
     const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
     const host = createMcpHost({
-      deps: { repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db), runs: createRunRepository(db) },
+      deps: { repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db), runs: createRunRepository(db), proposals: createProposalRepository(db, () => {}) },
       configDir: resolve(dir, 'mcp'), execPath: '/host/electron', execEnv: {}, bridgePath: '/host/bridge.mjs',
       toLinux: async () => { throw new Error('WSL 경로를 변환하지 못했습니다 (Ubuntu): x') }
     })
     try {
-      await expect(host.prepare({ runId: 'r-wsl', workspaceId, permission: 'edit', agentKind: 'claude-code', env: { kind: 'wsl', distro: 'Ubuntu' } }))
+      await expect(host.prepare({ runId: 'r-wsl', rootRunId: 'r-wsl', workspaceId, permission: 'edit', agentKind: 'claude-code', env: { kind: 'wsl', distro: 'Ubuntu' } }))
         .rejects.toThrow('WSL 경로를 변환하지 못했습니다')
       // 설정 파일이 없고, 어떤 토큰으로도 서버에 붙을 수 없다
       expect(existsSync(resolve(dir, 'mcp', 'r-wsl.json'))).toBe(false)
