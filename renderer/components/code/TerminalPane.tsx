@@ -83,7 +83,8 @@ export function TerminalPane({ workspaceId, repo, onClose, onSendSelection }: {
     try {
       const made = await client.terminal.create({ workspaceId, repoId: repo.id, shell, ...size.current })
       setError(null)
-      setTabs((list) => [...(list ?? []), made])
+      // 만드는 사이 목록을 다시 읽었으면 그 목록에 이미 있다 — 두 번 덧붙이면 같은 key의 탭이 둘이다
+      setTabs((list) => (list?.some((t) => t.tabId === made.tabId) ? list : [...(list ?? []), made]))
       setActive(made.tabId)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

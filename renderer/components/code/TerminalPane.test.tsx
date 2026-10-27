@@ -228,6 +228,28 @@ describe('TerminalPane — 새 터미널과 셸 고르기 (FR-3·7)', () => {
     expect(client.terminal.attach).toHaveBeenLastCalledWith({ workspaceId: 'w1', tabId: 'n1' })
   })
 
+  it('만드는 사이 목록을 다시 읽어도 새 탭은 하나다 — 이미 목록에 있으면 덧붙이지 않는다', async () => {
+    const { client } = setup()
+    await waitFor(() => expect(view.written).toEqual(['pwsh> ']))
+    let finish!: () => void
+    const made = vi.mocked(client.terminal.create).getMockImplementation()!
+    vi.mocked(client.terminal.create).mockImplementationOnce((input) => {
+      // core는 탭을 이미 쥐었고 응답만 늦다 — 그 사이의 목록 읽기가 새 탭을 본다
+      const result = made(input)
+      return new Promise((resolve) => { finish = () => { void result.then(resolve) } })
+    })
+    await userEvent.click(screen.getByRole('button', { name: '새 터미널' }))
+    // 다시 시작이 실패하면 칸이 목록을 다시 읽는다
+    vi.mocked(client.terminal.restart).mockRejectedValueOnce(new Error('셸을 띄우지 못했습니다: x'))
+    await userEvent.click(screen.getByRole('button', { name: '셸 다시 시작' }))
+    await userEvent.click(screen.getByRole('button', { name: /정말 다시 시작/ }))
+    await waitFor(() => expect(client.terminal.open).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getAllByRole('tab', { name: 'pwsh 2' })).toHaveLength(1))
+    await act(async () => { finish() })
+    expect(screen.getAllByRole('tab', { name: 'pwsh 2' })).toHaveLength(1)
+    expect(selectedTab()).toHaveTextContent('pwsh 2')
+  })
+
   it('셸 고르기 메뉴는 열 때마다 core에 묻고, 고른 줄의 키로 만든다 — 경로는 title, 기본 표식은 이름에 섞이지 않는다', async () => {
     const { client } = setup()
     await waitFor(() => expect(view.written).toEqual(['pwsh> ']))
