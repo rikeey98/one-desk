@@ -15,6 +15,7 @@ import type {
   FileRef, FileTreeInput, FileTreeResult, FileOpenResult, FileSaveInput, FileSaveResult, FileProbeResult,
   TerminalOpenInput, TerminalSession, TerminalData, TerminalExit, TerminalShellSetting, WslDistros, PickDirectoryOptions
 } from './models'
+import type { Proposal, AcceptIssueProposal } from './models'
 import type { RunEvent } from './events'
 import type { PanelScope } from './panelWindow'
 
@@ -121,6 +122,17 @@ export interface OneDeskClient {
     lastTarget(): Promise<HomeTarget | null>
     /** 전송에 성공했을 때만 부른다(FR-7) */
     setLastTarget(target: HomeTarget): Promise<HomeTarget>
+  }
+  /**
+   * agent의 제안 (`docs/sdlc/agent-proposals/` FR-20). 받기·거절은 사람이 누른 버튼만 이 길을 탄다 — MCP에는 받는 도구가 없다.
+   */
+  proposals: {
+    /** 그 workspace의 기다리는 제안, 오래된 순 */
+    pending(workspaceId: string): Promise<Proposal[]>
+    /** 한 트랜잭션에서 이슈를 만들거나 고르고 그 대화에 할당한다(FR-17) */
+    accept(id: string, choice: AcceptIssueProposal): Promise<{ issue: Issue; conversation: Run }>
+    /** 되돌리는 길이 없다(FR-19) */
+    decline(id: string): Promise<Proposal>
   }
   assets: {
     list(query: ListAssetQuery): Promise<Asset[]>

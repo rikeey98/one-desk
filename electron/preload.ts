@@ -3,6 +3,7 @@ import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { OneDeskClient, Unsubscribe } from '@shared/client'
 import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult, ReportData, HomeSummary, HomeTarget, FileTreeResult, FileOpenResult, FileSaveResult, FileProbeResult, TerminalSession, TerminalData, TerminalExit, TerminalShellSetting, WslDistros } from '@shared/models'
 import type { RunEvent } from '@shared/events'
+import type { Proposal } from '@shared/models'
 
 /**
  * ipcRenderer.invoke가 실패하면 Electron이 오류를
@@ -66,6 +67,11 @@ const client: OneDeskClient = {
     count: (input) => call<number>(CHANNELS.homeCount, input),
     lastTarget: () => call<HomeTarget | null>(CHANNELS.homeLastTarget),
     setLastTarget: (target) => call<HomeTarget>(CHANNELS.homeSetLastTarget, target)
+  },
+  proposals: {
+    pending: (workspaceId) => call<Proposal[]>(CHANNELS.proposalsPending, workspaceId),
+    accept: (id, choice) => call<{ issue: Issue; conversation: Run }>(CHANNELS.proposalsAccept, id, choice),
+    decline: (id) => call<Proposal>(CHANNELS.proposalsDecline, id)
   },
   assets: {
     list: (query) => call<Asset[]>(CHANNELS.assetsList, query),
