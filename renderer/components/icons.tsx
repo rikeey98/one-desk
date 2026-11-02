@@ -161,6 +161,11 @@ export function IconChat(props: SVGProps<SVGSVGElement>) {
 }
 
 /** 날짜 칸 */
+/** 정기 실행 (docs/sdlc/scheduled-runs/ FR-26) */
+export function IconClock(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><circle cx="8" cy="8" r="5.5" /><path d="M8 5v3.2l2.2 1.4" /></Icon>
+}
+
 export function IconCalendar(props: SVGProps<SVGSVGElement>) {
   return <Icon {...props}><rect x="2.5" y="3.5" width="11" height="10" rx="1.5" /><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" /></Icon>
 }

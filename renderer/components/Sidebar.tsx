@@ -5,14 +5,14 @@ import { activityView, AGENT_ACTIVITY_TRIGGER_ID } from '../agentActivity'
 import { RenameField } from './RenameField'
 import { DeleteByName } from './DeleteByName'
 import { useClient } from '../client/ClientProvider'
-import { IconChart, IconInbox, IconPencil, IconSettings, IconTrash, IconHome } from './icons'
+import { IconChart, IconClock, IconInbox, IconPencil, IconSettings, IconTrash, IconHome } from './icons'
 import type { InboxCounts, McpStatus, PlanUsage, QueueSnapshot, Workspace } from '@shared/models'
 
 /** workspace 목록은 App이 useWorkspaces()로 한 번만 조회해 내려준다 — 이 컴포넌트가
  * 자기 인스턴스를 따로 가지면 다른 인스턴스(App→InboxPanel 등)가 새 workspace를
  * 모르게 된다(App.tsx의 주석 참고). */
 export function Sidebar({
-  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectHome, homeCount, onSelectInbox, onSelectReport, onSelectSettings, counts, countsError, mcpStatus, planUsage, onDeleted, repoTree,
+  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectHome, homeCount, onSelectInbox, onSelectReport, onSelectSchedules, onSelectSettings, counts, countsError, mcpStatus, planUsage, onDeleted, repoTree,
   queue, activityOpen, onToggleActivity, collapsed, focusWorkspaceAdd, onFocusWorkspaceAddConsumed
 }: {
   workspaces: Workspace[]
@@ -27,7 +27,7 @@ export function Sidebar({
   refresh: () => Promise<void>
   selectedId: string | null
   onSelect: (id: string) => void
-  view: 'home' | 'workspace' | 'inbox' | 'report' | 'settings'
+  view: 'home' | 'workspace' | 'inbox' | 'report' | 'schedules' | 'settings'
   /** 홈 (docs/sdlc/home/ FR-12·FR-17). 인박스 위. **필수다** — 선택이면 App의 한 줄을 지워도 조용히 컴파일된다 */
   onSelectHome: () => void
   /** 홈 배지 — 오늘 할 일의 수(FR-4). 인박스 배지와 다른 수다 */
@@ -38,6 +38,8 @@ export function Sidebar({
   onSelectInbox: () => void
   /** 기간 리포트 (`docs/sdlc/period-report/` FR-13). **필수다** — 선택이면 App의 한 줄을 지워도 조용히 컴파일된다 */
   onSelectReport: () => void
+  /** 정기 실행 (`docs/sdlc/scheduled-runs/` FR-26). 리포트 아래. **필수다** — 선택이면 App의 한 줄을 지워도 조용히 컴파일된다 */
+  onSelectSchedules: () => void
   onSelectSettings: () => void
   /** 삭제한 workspace를 App이 알아야 고른 상태를 풀 수 있다. */
   onDeleted: (id: string) => void
@@ -124,6 +126,17 @@ export function Sidebar({
       >
         <span className="nav-icon"><IconChart /></span>
         <span className="nav-label">리포트</span>
+      </button>
+      {/* 리포트와 같은 줄 모양이다 — workspace를 가로지르는 화면이다. 배지는 없다(spec §8의 8) */}
+      <button
+        type="button"
+        className={view === 'schedules' ? 'inbox-link nav-item nav-item-selected inbox-link-selected' : 'inbox-link nav-item'}
+        aria-current={view === 'schedules' ? 'page' : undefined}
+        onClick={onSelectSchedules}
+        title={collapsed ? '정기 실행' : undefined}
+      >
+        <span className="nav-icon"><IconClock /></span>
+        <span className="nav-label">정기 실행</span>
       </button>
       </div>
       {/* 접힌 줄의 workspace 타일 (docs/sdlc/ux-polish/ FR-7) — 이니셜 한 글자, 고른 것은 채움, 전체 이름은 title. 둘 이상일 때만 그린다.

@@ -18,6 +18,11 @@ export interface ProposeIssueInput {
   assignedIssueId: string | null
   /** 그 대화의 이슈화 제안 — 새 대화는 늘 둘 다 거짓이다 */
   state: { pending: boolean; declined: boolean }
+  /**
+   * 정기 실행이 낸 턴인가 (`docs/sdlc/scheduled-runs/` spec FR-22). **필수다** — 매시간 새 대화를 만드는 정기 실행마다 배너가 서면 사람은
+   * 그것을 전부 눌러 치워야 한다. 사람이 그 대화에 직접 이어 보낸 턴은 거짓이다.
+   */
+  fromSchedule: boolean
 }
 
 /**
@@ -27,6 +32,7 @@ export interface ProposeIssueInput {
  */
 export function shouldProposeIssue(input: ProposeIssueInput): boolean {
   if (!input.mcp) return false
+  if (input.fromSchedule) return false
   if (input.assignedIssueId !== null) return false
   return !input.state.pending && !input.state.declined
 }

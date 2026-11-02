@@ -7,6 +7,7 @@ import { registerMemoHandlers } from './memos'
 import { registerReportHandlers } from './reports'
 import { registerHomeHandlers } from './home'
 import { registerProposalHandlers } from './proposals'
+import { registerScheduleHandlers } from './schedules'
 import { registerAssetHandlers } from './assets'
 import { registerCommandHandlers } from './commands'
 import { registerFileHandlers } from './files'
@@ -42,6 +43,7 @@ export function registerIpc(core: Core, windows: Windows) {
   registerReportHandlers(core)
   registerHomeHandlers(core)
   registerProposalHandlers(core)
+  registerScheduleHandlers(core)
   registerAssetHandlers(core)
   registerCommandHandlers(core)
   registerFileHandlers(core)

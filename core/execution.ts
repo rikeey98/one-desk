@@ -18,6 +18,17 @@ import { envOfRepo, HOST_ENV, type ProcessEnvSpec } from './wsl/env'
 import { shouldProposeIssue } from './proposals/guide'
 import { proposalStateOf } from './db/repositories/proposal'
 
+/**
+ * 렌더러가 넘기지 못하는 내부 인자 — 정기 실행이 쓴다(`docs/sdlc/scheduled-runs/` FR-18·22). IPC의 `runs.start`·`runs.resume`은 첫
+ * 인자만 넘긴다(`electron/ipc/runs.ts`).
+ */
+export interface InternalRunOptions {
+  /** 새 대화의 이름. 이어 가는 턴에는 받지 않는다 */
+  title?: string
+  /** 정기 실행이 낸 턴 — 이슈화 안내를 붙이지 않는다 */
+  fromSchedule?: boolean
+}
+
 /** 맥락에 그 이슈를 더한다 — 이미 있으면 그대로다(같은 항목이 run_context_item에 두 줄 생기면 안 된다, FR-11). */
 function withIssue(context: ContextItemRef[], issueId: string | null): ContextItemRef[] {
   if (issueId === null) return context
@@ -340,14 +351,17 @@ export function createExecutionService(opts: ExecutionOptions) {
     issueId: string | null
     /** 이 턴에 `propose_issue` 안내를 붙이는가 (agent-proposals FR-15) — `proposeIssueFor`가 정한다 */
     proposeIssue: boolean
+    /** 새 대화의 이름 (scheduled-runs FR-18). 이어 가는 턴은 늘 null이다 */
+    title: string | null
   }
 
   /**
    * 안내를 붙이는가 (agent-proposals FR-15) — start·resume이 같이 부르는 한 자리. `assignedIssueId`는 이 턴이 끝난 뒤의 할당이고
    * (새 대화면 자동 할당까지 거친 값), `rootId`가 null이면 새 대화라 기다림·거절이 없다.
    */
-  function proposeIssueFor(assignedIssueId: string | null, rootId: string | null): boolean {
+  function proposeIssueFor(assignedIssueId: string | null, rootId: string | null, fromSchedule: boolean): boolean {
     return shouldProposeIssue({
+      fromSchedule,
       mcp: opts.mcp !== undefined, assignedIssueId,
       state: rootId === null ? { pending: false, declined: false } : proposalStateOf(opts.db, rootId)
     })
@@ -414,7 +428,8 @@ export function createExecutionService(opts: ExecutionOptions) {
       context,
       ...(spec.parentRunId ? { parentRunId: spec.parentRunId } : {}),
       timeoutMs: spec.timeoutMs,
-      issueId: spec.issueId
+      issueId: spec.issueId,
+      title: spec.title
     })
     notify(created)
 
@@ -579,9 +594,12 @@ export function createExecutionService(opts: ExecutionOptions) {
    * 그동안 렌더러는 run의 id를 모르므로 도크에 탭을 만들 수도 취소 버튼을
    * 붙일 수도 없다(설계 §9). 완료는 onRunUpdate로 알린다.
    */
-  async function start(input: StartRunInput): Promise<Run> {
+  async function start(input: StartRunInput, internal: InternalRunOptions = {}): Promise<Run> {
     if (input.parentRunId && input.issueId) {
       throw new Error('이슈는 새 대화에만 할당할 수 있습니다')
+    }
+    if (input.parentRunId && internal.title) {
+      throw new Error('대화 이름은 새 대화에만 붙일 수 있습니다')
     }
     // 할당 (conversation-issue FR-5·FR-27): 요청한 이슈, 없으면 새 대화의 첫 턴에 담은 이슈가 정확히 하나일 때
     // 그것. 이어 가는 턴(parentRunId)에는 자동 할당을 하지 않는다. 할당한 이슈는 첫 턴에 실린다 — 맥락에 더하면
@@ -604,7 +622,8 @@ export function createExecutionService(opts: ExecutionOptions) {
       resumeFromRootRunId: null,
       timeoutMs: input.timeoutMs ?? null,
       issueId,
-      proposeIssue: proposeIssueFor(assignedAfter, parentRoot)
+      proposeIssue: proposeIssueFor(assignedAfter, parentRoot, internal.fromSchedule ?? false),
+      title: internal.title ?? null
     })
   }
 
@@ -621,7 +640,7 @@ export function createExecutionService(opts: ExecutionOptions) {
    * 것이라 다른 조합으로 이어받을 수 없다. 그 규칙이 여기 있어야 나중에
    * core를 별도 데몬으로 뗄 때 따라간다.
    */
-  async function resume(input: ResumeRunInput): Promise<Run> {
+  async function resume(input: ResumeRunInput, internal: Pick<InternalRunOptions, 'fromSchedule'> = {}): Promise<Run> {
     let root: Run
     try {
       root = opts.runs.get(input.conversationId)
@@ -661,7 +680,8 @@ export function createExecutionService(opts: ExecutionOptions) {
       // timeoutMs는 원본의 성질을 따른다 (설계 §6의 목록에 빠져 있던 자리다).
       timeoutMs: source.timeoutMs,
       issueId: null,
-      proposeIssue: proposeIssueFor(assigned, rootId)
+      proposeIssue: proposeIssueFor(assigned, rootId, internal.fromSchedule ?? false),
+      title: null
     })
   }
 

@@ -6,6 +6,7 @@ import type { AssetRepository } from './db/repositories/asset'
 import type { RepoRepository } from './db/repositories/repo'
 import type { WorkspaceRepository } from './db/repositories/workspace'
 import type { ProposalRepository } from './db/repositories/proposal'
+import type { ScheduleRepository } from './db/repositories/schedule'
 
 /**
  * 쓰기마다 바뀜 알림을 내는 저장소 래퍼 (docs/sdlc/item-windows/ spec FR-17).
@@ -198,6 +199,58 @@ export function notifyingProposals(repo: ProposalRepository, notify: Notify): Pr
       const decided = repo.decide(id, status)
       notify({ workspaceId: decided.workspaceId, kind: 'proposal' })
       return decided
+    }
+  }
+}
+
+/**
+ * 정기 실행 (`docs/sdlc/scheduled-runs/` spec FR-24). 사람의 쓰기(만들기·고치기·켜고 끄기·지우기)와 스케줄러의 쓰기 중 화면이 보는 것
+ * (기록 한 줄·저절로 끄기·이어 가는 대화)가 알린다. `markHandled`·`setFailures`는 늘 기록이나 끄기와 함께 오므로 따로 알리지 않는다.
+ */
+export function notifyingSchedules(repo: ScheduleRepository, notify: Notify): ScheduleRepository {
+  const of = (scheduleId: string) => workspaceOrNull(() => repo.get(scheduleId))
+  const announce = (workspaceId: string | null) => {
+    if (workspaceId !== null) notify({ workspaceId, kind: 'schedule' })
+  }
+  return {
+    ...repo,
+    create(input, now) {
+      const made = repo.create(input, now)
+      announce(made.workspaceId)
+      return made
+    },
+    update(id, input, now) {
+      const updated = repo.update(id, input, now)
+      announce(updated.workspaceId)
+      return updated
+    },
+    setEnabled(id, enabled, now) {
+      const changed = repo.setEnabled(id, enabled, now)
+      announce(changed.workspaceId)
+      return changed
+    },
+    remove(id) {
+      const workspaceId = of(id)
+      repo.remove(id)
+      announce(workspaceId)
+    },
+    setConversation(id, rootRunId) {
+      repo.setConversation(id, rootRunId)
+      announce(of(id))
+    },
+    disable(id, reason) {
+      repo.disable(id, reason)
+      announce(of(id))
+    },
+    disableMissingRepo(workspaceId) {
+      const ids = repo.disableMissingRepo(workspaceId)
+      if (ids.length > 0) announce(workspaceId)
+      return ids
+    },
+    recordFire(fire) {
+      const recorded = repo.recordFire(fire)
+      announce(of(fire.scheduleId))
+      return recorded
     }
   }
 }
