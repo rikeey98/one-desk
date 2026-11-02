@@ -1,18 +1,19 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { AddForm } from './AddForm'
 import { planUsageView } from '../planUsage'
+import { activityView, AGENT_ACTIVITY_TRIGGER_ID } from '../agentActivity'
 import { RenameField } from './RenameField'
 import { DeleteByName } from './DeleteByName'
 import { useClient } from '../client/ClientProvider'
-import { IconChart, IconInbox, IconPencil, IconSettings, IconTrash, IconHome } from './icons'
-import type { InboxCounts, McpStatus, PlanUsage, Workspace } from '@shared/models'
+import { IconChart, IconClock, IconInbox, IconPencil, IconSettings, IconTrash, IconHome } from './icons'
+import type { InboxCounts, McpStatus, PlanUsage, QueueSnapshot, Workspace } from '@shared/models'
 
 /** workspace 목록은 App이 useWorkspaces()로 한 번만 조회해 내려준다 — 이 컴포넌트가
  * 자기 인스턴스를 따로 가지면 다른 인스턴스(App→InboxPanel 등)가 새 workspace를
  * 모르게 된다(App.tsx의 주석 참고). */
 export function Sidebar({
-  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectHome, homeCount, onSelectInbox, onSelectReport, onSelectSettings, counts, countsError, mcpStatus, planUsage, onDeleted, repoTree,
-  collapsed, focusWorkspaceAdd, onFocusWorkspaceAddConsumed
+  workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectHome, homeCount, onSelectInbox, onSelectReport, onSelectSchedules, onSelectSettings, counts, countsError, mcpStatus, planUsage, onDeleted, repoTree,
+  queue, activityOpen, onToggleActivity, collapsed, focusWorkspaceAdd, onFocusWorkspaceAddConsumed
 }: {
   workspaces: Workspace[]
   /** 아이콘 줄로 접혔는가 — 제목 줄의 `사이드바 최소화`가 App에서 세운다. 접히면 화면 이동·설정·MCP 점만 남고
@@ -26,7 +27,7 @@ export function Sidebar({
   refresh: () => Promise<void>
   selectedId: string | null
   onSelect: (id: string) => void
-  view: 'home' | 'workspace' | 'inbox' | 'report' | 'settings'
+  view: 'home' | 'workspace' | 'inbox' | 'report' | 'schedules' | 'settings'
   /** 홈 (docs/sdlc/home/ FR-12·FR-17). 인박스 위. **필수다** — 선택이면 App의 한 줄을 지워도 조용히 컴파일된다 */
   onSelectHome: () => void
   /** 홈 배지 — 오늘 할 일의 수(FR-4). 인박스 배지와 다른 수다 */
@@ -37,6 +38,8 @@ export function Sidebar({
   onSelectInbox: () => void
   /** 기간 리포트 (`docs/sdlc/period-report/` FR-13). **필수다** — 선택이면 App의 한 줄을 지워도 조용히 컴파일된다 */
   onSelectReport: () => void
+  /** 정기 실행 (`docs/sdlc/scheduled-runs/` FR-26). 리포트 아래. **필수다** — 선택이면 App의 한 줄을 지워도 조용히 컴파일된다 */
+  onSelectSchedules: () => void
   onSelectSettings: () => void
   /** 삭제한 workspace를 App이 알아야 고른 상태를 풀 수 있다. */
   onDeleted: (id: string) => void
@@ -45,6 +48,14 @@ export function Sidebar({
   countsError: string | null
   /** MCP 서버의 기동 상태. 하단 줄이 이걸 보여준다. */
   mcpStatus: McpStatus
+  /**
+   * 전역 실행 슬롯 — 하단 줄의 `실행 1/3` (`docs/sdlc/agent-status/` FR-1). 도크·설정과 같은 App의 `useQueue` 스냅샷이다(따로
+   * 부르면 셋이 다른 수를 말한다). 아직 못 받았으면 null
+   */
+  queue: QueueSnapshot | null
+  /** 에이전트 현황 패널이 열려 있는가 — 패널은 App이 그린다(FR-3). **필수다** — 선택이면 App의 한 줄을 지워도 조용히 컴파일된다 */
+  activityOpen: boolean
+  onToggleActivity: () => void
   /** Claude 요금제 사용률. 없으면(null) 줄이 없다 — App의 usePlanUsage 하나를 받는다 */
   planUsage: PlanUsage | null
 }) {
@@ -115,6 +126,17 @@ export function Sidebar({
       >
         <span className="nav-icon"><IconChart /></span>
         <span className="nav-label">리포트</span>
+      </button>
+      {/* 리포트와 같은 줄 모양이다 — workspace를 가로지르는 화면이다. 배지는 없다(spec §8의 8) */}
+      <button
+        type="button"
+        className={view === 'schedules' ? 'inbox-link nav-item nav-item-selected inbox-link-selected' : 'inbox-link nav-item'}
+        aria-current={view === 'schedules' ? 'page' : undefined}
+        onClick={onSelectSchedules}
+        title={collapsed ? '정기 실행' : undefined}
+      >
+        <span className="nav-icon"><IconClock /></span>
+        <span className="nav-label">정기 실행</span>
       </button>
       </div>
       {/* 접힌 줄의 workspace 타일 (docs/sdlc/ux-polish/ FR-7) — 이니셜 한 글자, 고른 것은 채움, 전체 이름은 title. 둘 이상일 때만 그린다.
@@ -221,7 +243,7 @@ export function Sidebar({
         <span className="nav-icon"><IconSettings /></span>
         <span className="nav-label">설정</span>
       </button>
-      <McpStatusRow status={mcpStatus} compact={collapsed} />
+      <ActivityButton status={mcpStatus} queue={queue} open={activityOpen} onToggle={onToggleActivity} />
       {planUsage && !collapsed && <PlanUsageRow usage={planUsage} />}
     </nav>
   )
@@ -249,27 +271,46 @@ function PlanUsageRow({ usage }: { usage: PlanUsage }) {
 }
 
 /**
- * 사이드바 하단의 MCP 상태 줄.
+ * 사이드바 하단의 MCP · 에이전트 실행 줄 (`docs/sdlc/agent-status/` FR-1·FR-2). 누르면 에이전트 현황 패널을 연다 — 패널은 App이
+ * 그린다(사이드바 안에 두면 사이드바의 overflow에 잘린다. 최상위 레이어 popover다).
  *
- * 포트를 그대로 보여준다 — "서버가 정말 떴는가"와 "몇 번인가"를 눈으로 확인해야
- * 하는 상황이 실제로 있었다. 실패 사유는 길어질 수 있어 title에 넣는다.
+ * MCP 포트는 그대로 보인다 — "서버가 정말 떴는가"와 "몇 번인가"를 눈으로 확인해야 하는 상황이 실제로 있었다. 실패 사유는
+ * 길어질 수 있어 풍선에 넣는다.
+ *
+ * **버튼 이름은 `에이전트 현황` 하나로 고정이다.** 이름에 바뀌는 글자(포트·실행 수)가 들면 매번 다른 버튼이 되고, `상태`·`설정`·
+ * `agent`·`실행 슬롯`을 품으면 e2e의 부분 일치 셀렉터(`getByLabel('상태')`·`{ name: '설정' }` …)에 걸린다. 지금 값은
+ * `aria-describedby`가 가리키는 글자가 말하고, 그 글자가 `aria-live`다.
  */
-function McpStatusRow({ status, compact }: { status: McpStatus; compact: boolean }) {
-  const label =
-    status.state === 'listening' ? `MCP :${status.port}`
-    : status.state === 'starting' ? 'MCP 시작 중'
-    : 'MCP 연결 실패'
-
+function ActivityButton({ status, queue, open, onToggle }: {
+  status: McpStatus
+  queue: QueueSnapshot | null
+  open: boolean
+  onToggle: () => void
+}) {
+  const view = activityView(status, queue)
+  const classes = ['mcp-status', `mcp-status-${status.state}`, 'agent-activity-button']
+  if (view.busy) classes.push('agent-activity-busy')
+  if (open) classes.push('agent-activity-open')
   return (
-    <div
-      className={`mcp-status mcp-status-${status.state}`}
-      aria-live="polite"
-      {...(status.state === 'failed' ? { title: compact ? `${label}: ${status.message}` : status.message } : compact ? { title: label } : {})}
+    <button
+      id={AGENT_ACTIVITY_TRIGGER_ID}
+      type="button"
+      className={classes.join(' ')}
+      aria-label="에이전트 현황"
+      aria-describedby="agent-activity-text"
+      aria-expanded={open}
+      aria-haspopup="dialog"
+      title={view.title}
+      onClick={onToggle}
     >
       <span className="mcp-dot" aria-hidden="true" />
       {/* 접힌 사이드바에서는 점만 보인다 — 글자는 화면에서만 숨긴다 */}
-      <span className="mcp-label">{label}</span>
-    </div>
+      <span id="agent-activity-text" className="mcp-label" aria-live="polite">
+        <span className="agent-activity-mcp">{view.mcp}</span>
+        {view.activity && <span className="agent-activity-runs">{view.activity}</span>}
+        {view.waiting && <span className="agent-activity-waiting">{view.waiting}</span>}
+      </span>
+    </button>
   )
 }
 

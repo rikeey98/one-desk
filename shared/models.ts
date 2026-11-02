@@ -1,3 +1,4 @@
+import type { ScheduleTrigger } from './scheduleTrigger'
 import type { RunUsage } from './events'
 export type AgentKind = 'claude-code' | 'opencode'
 export type Permission = 'read_only' | 'edit' | 'full'
@@ -44,7 +45,7 @@ export interface PlanUsage {
  */
 export interface ItemChange {
   workspaceId: string
-  kind: 'issue' | 'memo' | 'asset' | 'repo' | 'workspace' | 'proposal' | 'drawing'
+  kind: 'issue' | 'memo' | 'asset' | 'repo' | 'workspace' | 'proposal' | 'drawing' | 'schedule'
 }
 
 /**
@@ -339,6 +340,27 @@ export interface AppInfo extends AppPaths {
 
 /** 정보 탭의 "폴더 열기"가 열 수 있는 대상. 경로가 아니라 이름이다 (spec NFR-3) */
 export type RevealTarget = 'data' | 'logs'
+
+/**
+ * 에이전트 현황 패널이 여는 설정 파일의 종류 (`docs/sdlc/agent-status/` FR-6). 앞의 셋은 이 장비의 것, `repo-*`는 repo 루트의
+ * 것, `wsl-*`는 WSL repo가 도는 배포판 홈의 것이다. **경로가 아니라 이 이름을 넘긴다** — 경로는 core가 정한다(`RevealTarget`과 같은 이유).
+ */
+export type ConfigFileKey =
+  | 'claude-settings' | 'claude-state' | 'opencode-config'
+  | 'repo-claude-settings' | 'repo-claude-local' | 'repo-mcp' | 'repo-opencode'
+  | 'wsl-claude-settings'
+
+/** 설정 파일 하나를 가리키는 것 — 장비의 것이면 `repoId`가 null, repo·WSL의 것이면 그 repo id */
+export interface ConfigFileRef {
+  key: ConfigFileKey
+  repoId: string | null
+}
+
+/** 설정 파일 하나. 없으면 `exists`가 false이고 `path`는 만들면 생길 자리다 */
+export interface ConfigFile extends ConfigFileRef {
+  path: string
+  exists: boolean
+}
 
 export interface UpdateRepoInput {
   id: string
@@ -1056,3 +1078,84 @@ export interface HomeTarget {
   workspaceId: string
   repoId: string
 }
+
+// ---- 정기 실행 (`docs/sdlc/scheduled-runs/`) ----
+
+/** 정기 실행이 대화를 어떻게 남기나 — 매번 새 대화 / 한 대화를 이어 감 (intent의 결정) */
+export type ScheduleConversationMode = 'new' | 'continue'
+/** 저절로 꺼진 이유. 사람이 끈 것이면 null (spec FR-1) */
+export type ScheduleDisabledReason = 'failures' | 'repo_missing'
+export type ScheduleFireCause = 'on_time' | 'missed' | 'manual'
+export type ScheduleFireOutcome = 'started' | 'skipped' | 'error'
+export type ScheduleSkipReason = 'busy' | 'needs_answer'
+
+/**
+ * 만들고 고칠 때 넘기는 정의 전부 (spec FR-4). **부분 갱신을 받지 않는다** — 무엇이 덮이는지 흐려지지 않게
+ * (`updateDefaults`와 같은 이유). `trigger`는 `@shared/scheduleTrigger`의 모양이고 core가 검증한다.
+ */
+export interface ScheduleInput {
+  workspaceId: string
+  repoId: string
+  name: string
+  trigger: ScheduleTrigger
+  /** IANA 이름 — 렌더러가 만들 때의 시간대. core는 장비의 시간대를 묻지 않는다 (FR-3·8) */
+  timeZone: string
+  conversationMode: ScheduleConversationMode
+  agentKind: AgentKind
+  model: string | null
+  effort: string | null
+  permission: Permission
+  prompt: string
+  /** `issue`·`memo`·`asset`만 (FR-4) */
+  context: ContextItemRef[]
+}
+
+export interface Schedule extends Omit<ScheduleInput, 'repoId'> {
+  id: string
+  /** null이면 repo가 지워졌다 (FR-2·21) */
+  repoId: string | null
+  enabled: boolean
+  disabledReason: ScheduleDisabledReason | null
+  /** 이어 가는 대화의 뿌리 id. `continue`의 첫 실행 전과 `new`에서는 null */
+  conversationId: string | null
+  /** 이 시각까지의 회차는 이미 처리했다 (FR-10·12) */
+  anchorAt: number
+  consecutiveFailures: number
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ScheduleFire {
+  id: string
+  scheduleId: string
+  cause: ScheduleFireCause
+  /** 그 회차의 정해진 시각. `manual`이면 null */
+  slotAt: number | null
+  firedAt: number
+  outcome: ScheduleFireOutcome
+  skipReason: ScheduleSkipReason | null
+  /** `error`의 이유 */
+  message: string | null
+  /** `started`일 때 그 턴 */
+  runId: string | null
+  /** 지워져서 뺀 맥락 수 (FR-17) */
+  droppedContext: number
+}
+
+/** 기록 + 그 run의 지금 상태 (FR-24·32). run이 없거나 못 찾으면 둘 다 null */
+export interface ScheduleFireView extends ScheduleFire {
+  runStatus: RunStatus | null
+  needsAnswer: boolean
+  /** 그 턴의 대화(뿌리) id — `대화 열기`가 연다 */
+  conversationId: string | null
+}
+
+export interface ScheduleView extends Schedule {
+  /** 다음 회차. 꺼져 있으면 null */
+  nextAt: number | null
+  lastFire: ScheduleFireView | null
+  /** 화면이 그대로 보이는 이름 — 지금 repo 이름. 지워졌으면 null */
+  repoName: string | null
+}
+
+export type SchedulePreview = { ok: true; next: number[] } | { ok: false; error: string }

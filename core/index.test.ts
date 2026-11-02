@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { createAdapters, createCore, type Core } from './index'
 import { DEFAULT_CONCURRENCY_LIMIT } from './db/repositories/setting'
-import type { InboxCounts, McpStatus, Run, TerminalData } from '@shared/models'
+import type { InboxCounts, ItemChange, McpStatus, Run, TerminalData } from '@shared/models'
 import type { PtyProcess, SpawnPty } from './terminal/service'
 import { INBOX_RULES, inboxCategory } from '@shared/inbox'
 import { ORIGINAL_LD_LIBRARY_PATH } from './runner/userEnv'
@@ -1426,6 +1426,36 @@ describe('paths — 정보 탭', () => {
   })
 })
 
+describe('설정 파일 — 에이전트 현황 패널 (docs/sdlc/agent-status/)', () => {
+  it('넘긴 homeDir과 그 workspace의 repo에서 찾고, 폴더는 파일로 치지 않는다', async () => {
+    // opts.homeDir이 설정 파일까지 닿는 한 줄과 isFile 배선을 지킨다 — 진짜 홈을 보면 개발자마다 결과가 달라진다.
+    const dataDir = makeDataDir()
+    const home = join(dataDir, 'home')
+    const repoDir = join(dataDir, 'api')
+    mkdirSync(join(home, '.claude'), { recursive: true })
+    writeFileSync(join(home, '.claude', 'settings.json'), '{}')
+    mkdirSync(join(home, '.claude.json'), { recursive: true })
+    mkdirSync(repoDir, { recursive: true })
+    writeFileSync(join(repoDir, '.mcp.json'), '{}')
+    const core = open(dataDir, home)
+    const ws = core.workspaces.create({ name: 'ws' })
+    const repo = await core.repos.create({ workspaceId: ws.id, name: 'api', path: repoDir })
+
+    const files = await core.configFiles.list(ws.id)
+    expect(files.find((f) => f.key === 'claude-settings')).toEqual({
+      key: 'claude-settings', repoId: null, path: join(home, '.claude', 'settings.json'), exists: true
+    })
+    expect(files.find((f) => f.key === 'claude-state')?.exists).toBe(false)
+    expect(files.find((f) => f.key === 'repo-mcp')).toEqual({
+      key: 'repo-mcp', repoId: repo.id, path: join(repoDir, '.mcp.json'), exists: true
+    })
+    expect(await core.configFiles.pathOf({ key: 'repo-mcp', repoId: repo.id })).toBe(join(repoDir, '.mcp.json'))
+    await expect(core.configFiles.pathOf({ key: 'claude-state', repoId: null })).rejects.toThrow('파일이 없습니다')
+    await expect(core.configFiles.pathOf(join(home, '.claude', 'settings.json'))).rejects.toThrow('열 수 없는 설정 파일')
+    close(core)
+  })
+})
+
 describe('바뀜 알림과 패널 창 범위 (docs/sdlc/item-windows/)', () => {
   /** 부팅 스캔은 기다리지 않는다 — 그것이 끝나며 내는 asset 알림이 단언에 섞이지 않게 잠깐 둔다(빈 임시 홈이라 빠르다). */
   const settleBootScan = () => new Promise((r) => setTimeout(r, 150))
@@ -1815,4 +1845,187 @@ describe('agent의 제안 (docs/sdlc/agent-proposals/)', () => {
     expect(core.proposals.pending(workspaceId)).toEqual([])
     close(core)
   }, 40_000)
+})
+
+describe('정기 실행 (docs/sdlc/scheduled-runs/)', () => {
+  const DAY = 24 * 60 * 60_000
+
+  /**
+   * 한 시간 전의 UTC HH:MM — 매일 그 시각이면 가장 늦은 회차가 늘 한 시간 전이라 "놓쳐서"가 결정적이다. 고정 시각이면 그 시각 직후 2분
+   * 안에 돈 테스트만 "정시"가 된다(e2e가 실제로 그렇게 깨졌다).
+   */
+  function hourAgoUtc(): string {
+    const d = new Date(Date.now() - 60 * 60_000)
+    return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+  }
+
+  async function withAgentPath(path: string, fn: () => Promise<void>): Promise<void> {
+    const previous = process.env['ONE_DESK_AGENT_PATH']
+    process.env['ONE_DESK_AGENT_PATH'] = path
+    try {
+      await fn()
+    } finally {
+      if (previous === undefined) delete process.env['ONE_DESK_AGENT_PATH']
+      else process.env['ONE_DESK_AGENT_PATH'] = previous
+    }
+  }
+
+  async function seed(core: Core, dataDir: string, prompt = '훑어 줘') {
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    const repoPath = join(dataDir, 'api')
+    mkdirSync(repoPath, { recursive: true })
+    const repoId = (await core.repos.create({ workspaceId, name: 'api', path: repoPath })).id
+    const schedule = core.schedules.create({
+      workspaceId, repoId, name: '아침', trigger: { kind: 'daily', time: hourAgoUtc() }, timeZone: 'UTC',
+      conversationMode: 'new', agentKind: 'claude-code', model: null, effort: null, permission: 'read_only',
+      prompt, context: []
+    })
+    return { workspaceId, repoId, repoPath, schedule }
+  }
+
+  /** 앱을 끈 동안 시간이 흐른 것처럼 — 닫힌 파일 DB를 직접 연다 */
+  async function sql(dataDir: string, statement: string, params: unknown[]): Promise<void> {
+    const { default: Database } = await import('better-sqlite3')
+    const db = new Database(join(dataDir, 'one-desk.db'))
+    try { db.prepare(statement).run(...params) } finally { db.close() }
+  }
+
+  it('만들면 목록에 다음 회차·repo 이름과 함께 서고 바뀜 알림 schedule을 낸다', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const changes: ItemChange[] = []
+    core.onItemChanged((c) => changes.push(c))
+    const { schedule, workspaceId } = await seed(core, dataDir)
+    expect(changes).toContainEqual({ workspaceId, kind: 'schedule' })
+    const [view] = core.schedules.list()
+    expect(view).toMatchObject({ id: schedule.id, repoName: 'api', lastFire: null, enabled: true })
+    expect(view!.nextAt).toBeGreaterThan(Date.now())
+    close(core)
+  })
+
+  it('검증은 core가 한다 — 화면이 보낸 값을 믿지 않는다', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const { schedule } = await seed(core, dataDir)
+    expect(() => core.schedules.update(schedule.id, { ...schedule, repoId: schedule.repoId!, trigger: { kind: 'cron', expr: '*/5 * * * *' } }))
+      .toThrow(/10분/)
+    expect(core.schedules.preview({ kind: 'cron', expr: '0 25 * * *' }, 'Asia/Seoul')).toMatchObject({ ok: false })
+    const preview = core.schedules.preview({ kind: 'weekdays', time: '09:00' }, 'Asia/Seoul')
+    expect(preview.ok && preview.next).toHaveLength(3)
+    close(core)
+  })
+
+  it('지금 실행은 제목이 붙은 새 대화를 띄우고 기록한다 — 마지막으로 보낸 곳은 그대로다 (FR-16·18·23)', async () => {
+    await withAgentPath(FAKE_AGENT, async () => {
+      const dataDir = makeDataDir()
+      const core = open(dataDir)
+      const { schedule } = await seed(core, dataDir)
+      const run = await core.schedules.runNow(schedule.id)
+      expect(run.title).toMatch(/^아침 · \d+\/\d+ \d\d:\d\d$/)
+      expect(run.permission).toBe('read_only')
+      expect(core.schedules.fires(schedule.id)).toMatchObject([{ cause: 'manual', outcome: 'started', runId: run.id, conversationId: run.id }])
+      await vi.waitFor(() => expect(core.runs.get(run.id).endedAt).toBeTypeOf('number'))
+      expect(core.schedules.list()[0]!.lastFire).toMatchObject({ runId: run.id, runStatus: core.runs.get(run.id).status })
+      expect(core.home.lastTarget()).toBeNull()
+      close(core)
+    })
+  })
+
+  it('앱을 끈 동안 놓친 회차는 켤 때 한 번 돈다 (FR-11·14)', async () => {
+    await withAgentPath(FAKE_AGENT, async () => {
+      const dataDir = makeDataDir()
+      const first = open(dataDir)
+      const { schedule } = await seed(first, dataDir)
+      close(first)
+      await sql(dataDir, 'UPDATE schedule SET anchor_at = ? WHERE id = ?', [Date.now() - 3 * DAY, schedule.id])
+
+      const core = open(dataDir)
+      await vi.waitFor(() => expect(core.schedules.fires(schedule.id)).toHaveLength(1))
+      expect(core.schedules.fires(schedule.id)[0]).toMatchObject({ cause: 'missed', outcome: 'started' })
+      await core.schedules.wake()
+      expect(core.schedules.fires(schedule.id)).toHaveLength(1)
+      await vi.waitFor(() => expect(core.runs.get(core.schedules.fires(schedule.id)[0]!.runId!).endedAt).toBeTypeOf('number'))
+      close(core)
+    })
+  })
+
+  it('reapStale 뒤에 돈다 — 지난 실행의 running 행이 겹침으로 잡히지 않는다 (FR-14)', async () => {
+    await withAgentPath(FAKE_AGENT, async () => {
+      const dataDir = makeDataDir()
+      const first = open(dataDir)
+      const { schedule } = await seed(first, dataDir)
+      const run = await first.schedules.runNow(schedule.id)
+      await vi.waitFor(() => expect(first.runs.get(run.id).endedAt).toBeTypeOf('number'))
+      close(first)
+      // 앱이 비정상 종료돼 running으로 남은 행 + 그 사이 지나간 회차
+      await sql(dataDir, "UPDATE run SET status = 'running', ended_at = NULL WHERE id = ?", [run.id])
+      await sql(dataDir, 'UPDATE schedule SET anchor_at = ? WHERE id = ?', [Date.now() - 2 * DAY, schedule.id])
+
+      const core = open(dataDir)
+      await vi.waitFor(() => expect(core.schedules.fires(schedule.id)).toHaveLength(2))
+      expect(core.schedules.fires(schedule.id)[0]).toMatchObject({ cause: 'missed', outcome: 'started' })
+      expect(core.runs.get(run.id).status).toBe('interrupted')
+      await vi.waitFor(() => expect(core.runs.get(core.schedules.fires(schedule.id)[0]!.runId!).endedAt).toBeTypeOf('number'))
+      close(core)
+    })
+  })
+
+  it('정기 실행이 낸 run이 돌다 실패로 끝나면 연속 실패를 센다 — onRunUpdate 배선 (FR-20)', async () => {
+    // 가짜 CLI의 home 시나리오: 지시에 [실패]가 있으면 is_error + exit 1 — runNow가 돌아온 뒤에 끝난다
+    const previous = process.env['ONE_DESK_FAKE_SCRIPT']
+    process.env['ONE_DESK_FAKE_SCRIPT'] = 'home'
+    try {
+      await withAgentPath(FAKE_AGENT, async () => {
+        const dataDir = makeDataDir()
+        const core = open(dataDir)
+        const { schedule } = await seed(core, dataDir, '[실패] 훑어 줘')
+        const run = await core.schedules.runNow(schedule.id)
+        expect(run.endedAt).toBeNull()
+        await vi.waitFor(() => expect(core.runs.get(run.id).status).toBe('failed'))
+        await vi.waitFor(() => expect(core.schedules.list()[0]!.consecutiveFailures).toBe(1))
+        close(core)
+      })
+    } finally {
+      if (previous === undefined) delete process.env['ONE_DESK_FAKE_SCRIPT']
+      else process.env['ONE_DESK_FAKE_SCRIPT'] = previous
+    }
+  })
+
+  it('시작 전에 실패한 run도 센다 — start가 돌아오기 전에 끝난다 (FR-20)', async () => {
+    // 없는 경로 — preflight가 실패해 run이 failed로 끝난다(시작 전 실패도 onRunUpdate를 지난다)
+    await withAgentPath(join(tmpdir(), 'no-such-agent-for-schedule-test'), async () => {
+      const dataDir = makeDataDir()
+      const core = open(dataDir)
+      const { schedule } = await seed(core, dataDir)
+      const run = await core.schedules.runNow(schedule.id)
+      await vi.waitFor(() => expect(core.runs.get(run.id).status).toBe('failed'))
+      await vi.waitFor(() => expect(core.schedules.list()[0]!.consecutiveFailures).toBe(1))
+      close(core)
+    })
+  })
+
+  it('repo를 지우면 그 repo를 쓰던 정기 실행을 끈다 — 지우지 않는다 (FR-21)', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const { schedule, repoId } = await seed(core, dataDir)
+    core.repos.remove(repoId)
+    expect(core.schedules.list()).toMatchObject([{ id: schedule.id, enabled: false, disabledReason: 'repo_missing', repoId: null, repoName: null }])
+    close(core)
+  })
+
+  it('shutdown 뒤에는 tick이 아무것도 하지 않는다 — 스케줄러가 맨 먼저 멈춘다 (FR-14)', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    await seed(core, dataDir)
+    close(core)
+    // 멈추지 않았다면 닫힌 DB를 읽다 던진다
+    await expect(core.schedules.wake()).resolves.toBeUndefined()
+  })
+
+  it('정기 실행은 MCP deps에 없다 — workspace를 넘는 목록이다 (FR-25)', () => {
+    const source = readFileSync(resolve(__dirname, 'index.ts'), 'utf8')
+    const deps = source.match(/createMcpHost\(\{\s*deps: \{([^}]*)\}/)
+    expect(deps).not.toBeNull()
+    expect(deps![1]).not.toMatch(/schedule/i)
+  })
 })

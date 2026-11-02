@@ -35,6 +35,11 @@ export interface CreateRunInput {
   timeoutMs?: number | null
   /** 할당할 이슈. 뿌리에만 찍힌다 — parentRunId와 함께 오면 던진다 (conversation-issue FR-5) */
   issueId?: string | null
+  /**
+   * 대화의 이름 — 정기 실행이 새 대화에 붙인다(`docs/sdlc/scheduled-runs/` FR-18). 뿌리에만 있는 칸이라 parentRunId와 함께 오면
+   * 던진다(`issueId`와 같은 규칙).
+   */
+  title?: string | null
 }
 
 export interface FinishRunInput {
@@ -375,6 +380,9 @@ export function createRunRepository(db: Database) {
       if (input.parentRunId && input.issueId) {
         throw new Error('이슈는 새 대화에만 할당할 수 있습니다 — 이어 가는 대화는 assignIssue를 쓰세요')
       }
+      if (input.parentRunId && input.title) {
+        throw new Error('대화 이름은 새 대화에만 붙일 수 있습니다 — 이어 가는 대화는 rename을 쓰세요')
+      }
       const id = input.id ?? randomUUID()
       const rootRunId = rootFor(input.parentRunId ?? null, id)
       db.transaction((tx: Runner) => {
@@ -392,6 +400,7 @@ export function createRunRepository(db: Database) {
           parentRunId: input.parentRunId ?? null,
           rootRunId,
           issueId: input.issueId ?? null,
+          title: input.title ?? null,
           timeoutMs: input.timeoutMs ?? null,
           createdAt: Date.now()
         }).run()

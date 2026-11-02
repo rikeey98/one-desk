@@ -1,4 +1,6 @@
+import type { ScheduleTrigger } from './scheduleTrigger'
 import type {
+  ScheduleFireView, ScheduleInput, SchedulePreview, ScheduleView,
   Workspace, Repo, Issue, Memo, Run,
   CreateWorkspaceInput, CreateRepoInput,
   CreateIssueInput, UpdateIssueInput,
@@ -11,7 +13,7 @@ import type {
   McpStatus, PlanUsage, ResumeRunInput, ItemChange,
   Asset, CreateAuthoredAssetInput, GuardedUpdateAssetInput, AssetUpdateResult, ListAssetQuery,
   GlobalRoots, AgentPaths, CommandTarget, CommandListResult,
-  UpdateRepoInput, AppInfo, RevealTarget, AssetBody, FileSearchInput, FileSearchResult,
+  UpdateRepoInput, AppInfo, RevealTarget, ConfigFile, ConfigFileRef, AssetBody, FileSearchInput, FileSearchResult,
   FileRef, FileTreeInput, FileTreeResult, FileOpenResult, FileSaveInput, FileSaveResult, FileProbeResult,
   TerminalOpenInput, TerminalSession, TerminalData, TerminalExit, TerminalShellSetting, WslDistros, PickDirectoryOptions,
   TerminalTab, TerminalShellOption, TerminalCreateInput, TerminalTabInput, TerminalTabRef
@@ -153,6 +155,23 @@ export interface OneDeskClient {
     /** 되돌리는 길이 없다(FR-19) */
     decline(id: string): Promise<Proposal>
   }
+  /**
+   * 정기 실행 (`docs/sdlc/scheduled-runs/` FR-24). workspace를 넘는 목록이고 화면 전용이다 — MCP에는 없다(FR-25). 검증은 core가 한다.
+   */
+  schedules: {
+    list(): Promise<ScheduleView[]>
+    create(input: ScheduleInput): Promise<ScheduleView>
+    /** 정의 전부를 받는다 — 부분 갱신 없음 */
+    update(id: string, input: ScheduleInput): Promise<ScheduleView>
+    setEnabled(id: string, enabled: boolean): Promise<ScheduleView>
+    remove(id: string): Promise<void>
+    /** 꺼져 있어도 돈다. 앞 실행이 돌면 던진다(FR-23) */
+    runNow(id: string): Promise<Run>
+    /** 최신 순, 최근 50줄 */
+    fires(id: string): Promise<ScheduleFireView[]>
+    /** 다음 세 시각 또는 저장할 때와 같은 오류(FR-9). 렌더러는 계산하지 않는다 */
+    preview(trigger: ScheduleTrigger, timeZone: string): Promise<SchedulePreview>
+  }
   assets: {
     list(query: ListAssetQuery): Promise<Asset[]>
     createAuthored(input: CreateAuthoredAssetInput): Promise<Asset>
@@ -290,6 +309,13 @@ export interface OneDeskClient {
     info(): Promise<AppInfo>
     /** 정해진 두 위치만 파일 탐색기로 연다. 경로가 아니라 이름을 받는다 (spec NFR-3) */
     reveal(target: RevealTarget): Promise<void>
+    /**
+     * 에이전트 현황 패널의 설정 파일 (`docs/sdlc/agent-status/` FR-6) — 이 장비의 것, 그리고 workspace를 주면 그 repo의 것과
+     * WSL 배포판의 것. 없는 파일도 자리와 함께 온다(`exists: false`)
+     */
+    configFiles(workspaceId: string | null): Promise<ConfigFile[]>
+    /** OS 기본 앱으로 연다. **(종류, repo id)만 받는다** — 경로는 core가 정한다(FR-7). 없는 파일이면 던진다 */
+    openConfigFile(ref: ConfigFileRef): Promise<void>
     /**
      * 폴더 선택 대화상자. 고른 절대 경로를, 취소하면 null을 돌려준다. `{ start: 'wsl' }`이면 기본 WSL 배포판의 홈에서 연다 —
      * 그 폴더는 core가 정한다(docs/sdlc/wsl-repo-setup/ FR-2·13)

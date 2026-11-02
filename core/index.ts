@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { spawn } from 'node:child_process'
 import { mkdirSync, rmSync, statSync } from 'node:fs'
-import { access } from 'node:fs/promises'
+import { access, stat } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,7 +20,7 @@ import { probeCommands } from './commands/probe'
 import { describeCommands } from './commands/describe'
 import type { GlobalRoots } from './db/repositories/setting'
 import type {
-  UpdateRepoInput, AppPaths, FileSearchInput, BuildReportInput, ReportData, FileTreeInput, FileRef, FileSaveInput
+  UpdateRepoInput, AppPaths, ConfigFile, FileSearchInput, BuildReportInput, ReportData, FileTreeInput, FileRef, FileSaveInput
 , AgentEnv, WslDistros, HomeSummary, HomeSummaryInput, HomeTarget } from '@shared/models'
 import { PANEL_KINDS, type PanelScope } from '@shared/panelWindow'
 import { createFileService } from './files/service'
@@ -47,6 +47,7 @@ import { envOfRepo, HOST_ENV, type ProcessEnvSpec } from './wsl/env'
 import { createWslPreflight } from './wsl/preflight'
 import { createWslPaths } from './wsl/paths'
 import { createWslHome, expandWslRoots } from './wsl/home'
+import { createConfigFiles } from './app/configFiles'
 import { listDistros } from './wsl/distros'
 import { folderStartOf } from './wsl/folderStart'
 import { parseWslPath } from '@shared/wslPath'
@@ -62,13 +63,18 @@ import { createRunQueue } from './runner/queue'
 import { createMcpHost } from './mcp/host'
 import {
   notifyingIssues, notifyingMemos, notifyingAssets, notifyingRepos, notifyingWorkspaces,
-  announcingAssignedConversations, notifyingProposals, notifyingDrawings, type Notify
+  announcingAssignedConversations, notifyingProposals, notifyingDrawings, notifyingSchedules, type Notify
 } from './changes'
+import { createScheduleRepository } from './db/repositories/schedule'
+import { createScheduler } from './schedules/scheduler'
+import { presentContext, validateScheduleInput } from './schedules/input'
+import { nextSlots, validateTrigger } from './schedules/clock'
 import { consoleErrorSink, NotFoundError, type ErrorSink } from './errors'
 import type { AgentAdapter } from './runner/types'
 import type { RunEvent } from '@shared/events'
 import type {
   AcceptIssueProposal, AgentKind, AgentPaths, Drawing, InboxCounts, Issue, ItemChange, Proposal, McpStatus, PlanUsage, QueueSnapshot, Repo, Run,
+  Schedule, ScheduleFire, ScheduleFireView, ScheduleInput, SchedulePreview, ScheduleView,
   TerminalCreateInput, TerminalData, TerminalExit, TerminalOpenInput, TerminalTabInput, TerminalTabRef,
   TerminalShellSetting, Workspace
 } from '@shared/models'
@@ -124,6 +130,11 @@ export interface CoreOptions {
    * `process.platform`. 테스트가 `win32`를 넘겨 개발 장비에서 WSL repo를 둔다. 터미널·취소의 플랫폼 갈래는 이 값을 보지 않는다.
    */
   platform?: NodeJS.Platform
+  /**
+   * 정기 실행의 확인 간격 (docs/sdlc/scheduled-runs/ FR-13). 기본 30초. e2e는 main이 `ONE_DESK_SCHEDULE_TICK_MS`를 읽어 길게 넘겨 부팅 때의
+   * 한 번만 돌게 한다(놓친 실행을 결정적으로 본다).
+   */
+  scheduleTickMs?: number
   /** core가 삼킨 오류를 흘려보낼 곳. 기본은 stderr */
   onError?: ErrorSink
 }
@@ -182,6 +193,9 @@ export function createCore(opts: CoreOptions) {
     db, runs, issues: createIssueRepository(db), proposals: proposalRows, repos: createRepoRepository(db)
   })
   const repos = notifyingRepos(createRepoRepository(db), notify)
+  // 정기 실행 (docs/sdlc/scheduled-runs/). 감싼 것을 스케줄러와 IPC 표면이 같이 받는다 — 스케줄러의 기록·끄기도 화면에 닿는다.
+  // **MCP deps에는 넘기지 않는다**(FR-25) — workspace를 넘는 목록이다.
+  const schedules = notifyingSchedules(createScheduleRepository(db, onError), notify)
   const assetRows = notifyingAssets(createAssetRepository(db), notify)
   const settings = createSettingRepository(db, opts.homeDir)
   /**
@@ -282,6 +296,15 @@ export function createCore(opts: CoreOptions) {
   const launcherPath = opts.launcherPath ?? LAUNCHER_FILE
   // 홈은 passwd가 정한다 — `~/.profile`과 무관한데 프로필이 찍는 글자에 깨지기만 하므로 로그인 셸 밖이다(`runQueryIn`, §4-C)
   const wslHome = createWslHome({ run: (env, executable, args) => runQueryIn(env)({ executable, args }) })
+  // 에이전트 현황 패널의 설정 파일 (docs/sdlc/agent-status/ FR-6~9). 배포판 홈은 글로벌 skill 경로와 같은 캐시다
+  const configFiles = createConfigFiles({
+    homeDir: opts.homeDir,
+    repos,
+    wslHome: (distro) => wslHome.of(distro),
+    isFile: async (path) => {
+      try { return (await stat(path)).isFile() } catch { return false }
+    }
+  })
   /** run·터미널이 같이 쓰는 런처 경로 (FR-10·11) — 런처 스크립트와 pidfile의 Linux 경로, pidfile의 Windows 경로 */
   const wslLauncherFor = async (distro: string, id: string) => {
     mkdirSync(wslDir, { recursive: true })
@@ -493,11 +516,54 @@ export function createCore(opts: CoreOptions) {
       if (run.endedAt !== null) {
         // 결과 없이 죽은 run(실패·취소)의 스냅샷도 여기서 지운다 — result 이벤트는 성공한 run만 낸다
         dropRun(live, run.id)
+        // 정기 실행이 낸 run이면 연속 실패를 판정한다 (scheduled-runs FR-20). 던져도 run의 알림은 계속한다
+        try { scheduler.onRunFinished(run) } catch (err) { onError('정기 실행의 결과 판정 실패', err) }
         void assetService.scanWorkspace(run.workspaceId)
           .catch((err: unknown) => onError('run 후 asset 재스캔 실패', err))
       }
     }
   })
+
+  /**
+   * 정기 실행의 타이머 (docs/sdlc/scheduled-runs/ FR-13·14). **`runs.reapStale()` 뒤에** 만들고 곧바로 돌린다 — 앞이면 지난 실행의 running
+   * 행 때문에 "앞 실행이 돌고 있다"로 건너뛴다. 사람의 실행과 같은 `execution`을 탄다(NFR-2). `shutdown()`이 맨 먼저 멈춘다.
+   */
+  const scheduler = createScheduler({
+    schedules,
+    runs,
+    repos,
+    presentContext: (workspaceId, context) => presentContext(db, workspaceId, context),
+    execution,
+    now: () => Date.now(),
+    ...(opts.scheduleTickMs !== undefined ? { tickMs: opts.scheduleTickMs } : {}),
+    onError
+  })
+  scheduler.start()
+
+  /** 정기 실행 + 화면이 보일 것 (FR-24) */
+  function scheduleView(s: Schedule): ScheduleView {
+    let nextAt: number | null = null
+    if (s.enabled) {
+      try { nextAt = nextSlots(s.trigger, s.timeZone, s.anchorAt, 1)[0] ?? null } catch (err) { onError('정기 실행의 다음 시각 계산 실패', err) }
+    }
+    let repoName: string | null = null
+    if (s.repoId !== null) {
+      try { repoName = repos.get(s.repoId).name } catch (err) { if (!(err instanceof NotFoundError)) throw err }
+    }
+    const last = schedules.lastFire(s.id)
+    return { ...s, nextAt, repoName, lastFire: last ? fireView(last) : null }
+  }
+
+  function fireView(fire: ScheduleFire): ScheduleFireView {
+    if (fire.runId === null) return { ...fire, runStatus: null, needsAnswer: false, conversationId: null }
+    try {
+      const run = runs.get(fire.runId)
+      return { ...fire, runStatus: run.status, needsAnswer: run.needsAnswer, conversationId: run.rootRunId ?? run.id }
+    } catch (err) {
+      if (!(err instanceof NotFoundError)) throw err
+      return { ...fire, runStatus: null, needsAnswer: false, conversationId: null }
+    }
+  }
 
   /**
    * 인박스 소속이 바뀔 수 있는 쓰기 뒤마다 부른다.
@@ -627,8 +693,12 @@ export function createCore(opts: CoreOptions) {
 
       /** 지운 repo의 셸을 끝낸다 (terminal-spec FR-10) */
       remove(id: string) {
+        let workspaceId: string | null = null
+        try { workspaceId = repos.get(id).workspaceId } catch (err) { if (!(err instanceof NotFoundError)) throw err }
         const result = repos.remove(id)
         terminal.killRepo(id)
+        // 그 repo를 쓰던 정기 실행을 끈다 — 지우지 않는다 (scheduled-runs FR-21). 외래키가 repo_id를 null로 만들었다
+        if (workspaceId !== null) schedules.disableMissingRepo(workspaceId)
         return result
       },
 
@@ -853,6 +923,15 @@ export function createCore(opts: CoreOptions) {
     paths: (): AppPaths => ({ dataDir: opts.dataDir, dbFile, logDir }),
 
     /**
+     * 에이전트 현황 패널의 설정 파일 (docs/sdlc/agent-status/ FR-6~9). 렌더러는 (종류, repo id)만 넘긴다 — `pathOf`가 그것을
+     * 검증해 경로로 바꾸고, 여는 것은 electron이다(`paths`·`reveal.ts`와 같은 구조).
+     */
+    configFiles: {
+      list: (workspaceId: string | null): Promise<ConfigFile[]> => configFiles.list(workspaceId),
+      pathOf: (ref: unknown): Promise<string> => configFiles.pathOf(ref)
+    },
+
+    /**
      * 패널 창을 열어도 되는 범위인가 (docs/sdlc/item-windows/ FR-12). 렌더러가 보낸 값을 그대로 믿지 않는다 —
      * workspace가 있고, repo가 있으면 그 workspace 소속이어야 한다. 정규화한 범위를 돌려주고, 아니면 던진다.
      * 창을 만드는 것은 electron의 일이라 판정만 여기 둔다(`reveal.ts`와 같은 구조).
@@ -1025,6 +1104,47 @@ export function createCore(opts: CoreOptions) {
       return () => { emitter.off(TERMINAL_EXIT, cb) }
     },
 
+    /**
+     * 정기 실행 (docs/sdlc/scheduled-runs/ FR-24). workspace를 넘는 목록이다 — 화면 전용이고 MCP `deps`에는 넘기지 않는다(FR-25).
+     * 검증은 `validateScheduleInput` 한 자리이고 만들기·고치기가 같이 탄다.
+     */
+    schedules: {
+      list(): ScheduleView[] {
+        return schedules.list().map(scheduleView)
+      },
+      create(input: ScheduleInput): ScheduleView {
+        const now = Date.now()
+        return scheduleView(schedules.create(validateScheduleInput(db, input, now), now))
+      },
+      update(id: string, input: ScheduleInput): ScheduleView {
+        const now = Date.now()
+        return scheduleView(schedules.update(id, validateScheduleInput(db, input, now), now))
+      },
+      setEnabled(id: string, enabled: boolean): ScheduleView {
+        return scheduleView(schedules.setEnabled(id, enabled, Date.now()))
+      },
+      remove(id: string): void {
+        schedules.remove(id)
+      },
+      runNow(id: string): Promise<Run> {
+        return scheduler.runNow(id)
+      },
+      fires(id: string): ScheduleFireView[] {
+        return schedules.fires(id).map(fireView)
+      },
+      /** 편집 칸의 미리보기 — 판정은 저장과 같은 `validateTrigger`다(FR-9) */
+      preview(trigger: unknown, timeZone: unknown): SchedulePreview {
+        const now = Date.now()
+        const checked = validateTrigger(trigger, timeZone, now)
+        if (!checked.ok) return { ok: false, error: checked.error }
+        return { ok: true, next: nextSlots(checked.trigger, timeZone as string, now, 3) }
+      },
+      /** 절전에서 깼다 — main의 powerMonitor가 부른다(FR-14) */
+      wake(): Promise<void> {
+        return scheduler.wake()
+      }
+    },
+
     onItemChanged(cb: (change: ItemChange) => void): () => void {
       emitter.on(ITEM_CHANGED, cb)
       return () => { emitter.off(ITEM_CHANGED, cb) }
@@ -1049,6 +1169,8 @@ export function createCore(opts: CoreOptions) {
      * 백업(openDb의 backupIfNeeded)이 온전한 상태를 복사하게 된다.
      */
     shutdown(): void {
+      // 맨 먼저 — 종료 중에 새 run을 띄우지 않는다 (scheduled-runs FR-14)
+      scheduler.stop()
       manager.cancelAll()
       // 셸과 셸이 띄운 프로세스(dev 서버)도 트리째, 기다려서 끝낸다 (terminal-spec FR-9)
       terminal.killAll()

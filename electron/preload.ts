@@ -1,9 +1,9 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { OneDeskClient, Unsubscribe } from '@shared/client'
-import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult, ReportData, HomeSummary, HomeTarget, FileTreeResult, FileOpenResult, FileSaveResult, FileProbeResult, TerminalSession, TerminalTab, TerminalShellOption, TerminalData, TerminalExit, TerminalShellSetting, WslDistros } from '@shared/models'
+import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, ConfigFile, AssetBody, FileSearchResult, ReportData, HomeSummary, HomeTarget, FileTreeResult, FileOpenResult, FileSaveResult, FileProbeResult, TerminalSession, TerminalTab, TerminalShellOption, TerminalData, TerminalExit, TerminalShellSetting, WslDistros } from '@shared/models'
 import type { RunEvent } from '@shared/events'
-import type { Proposal, Drawing, DrawingSummary, SaveSceneResult } from '@shared/models'
+import type { Proposal, Drawing, DrawingSummary, SaveSceneResult, ScheduleFireView, SchedulePreview, ScheduleView } from '@shared/models'
 
 /**
  * ipcRenderer.invoke가 실패하면 Electron이 오류를
@@ -81,6 +81,16 @@ const client: OneDeskClient = {
     accept: (id, choice) => call<{ issue: Issue; conversation: Run }>(CHANNELS.proposalsAccept, id, choice),
     decline: (id) => call<Proposal>(CHANNELS.proposalsDecline, id)
   },
+  schedules: {
+    list: () => call<ScheduleView[]>(CHANNELS.schedulesList),
+    create: (input) => call<ScheduleView>(CHANNELS.schedulesCreate, input),
+    update: (id, input) => call<ScheduleView>(CHANNELS.schedulesUpdate, id, input),
+    setEnabled: (id, enabled) => call<ScheduleView>(CHANNELS.schedulesSetEnabled, id, enabled),
+    remove: (id) => call<void>(CHANNELS.schedulesRemove, id),
+    runNow: (id) => call<Run>(CHANNELS.schedulesRunNow, id),
+    fires: (id) => call<ScheduleFireView[]>(CHANNELS.schedulesFires, id),
+    preview: (trigger, timeZone) => call<SchedulePreview>(CHANNELS.schedulesPreview, trigger, timeZone)
+  },
   assets: {
     list: (query) => call<Asset[]>(CHANNELS.assetsList, query),
     createAuthored: (input) => call<Asset>(CHANNELS.assetsCreateAuthored, input),
@@ -150,6 +160,8 @@ const client: OneDeskClient = {
   app: {
     info: () => call<AppInfo>(CHANNELS.appInfo),
     reveal: (target) => call<void>(CHANNELS.appReveal, target),
+    configFiles: (workspaceId) => call<ConfigFile[]>(CHANNELS.appConfigFiles, workspaceId),
+    openConfigFile: (ref) => call<void>(CHANNELS.appOpenConfigFile, ref),
     pickDirectory: (options) => call<string | null>(CHANNELS.appPickDirectory, options),
     openPanelWindow: (scope) => call<void>(CHANNELS.appOpenPanelWindow, scope),
     openDrawingWindow: (drawingId) => call<void>(CHANNELS.appOpenDrawingWindow, drawingId)

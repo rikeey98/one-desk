@@ -1,9 +1,10 @@
-import { app, dialog, session } from 'electron'
+import { app, dialog, powerMonitor, session } from 'electron'
 import { createRequire } from 'node:module'
 import { isAbsolute, join } from 'node:path'
 import { spawn as spawnPty } from 'node-pty'
 import { createCore, type Core } from '@core/index'
 import { portableUnpackOf, removePortableLeftovers } from '@core/app/portableUnpack'
+import { scheduleTickMsFromEnv } from '@core/schedules/scheduler'
 import { registerIpc } from './ipc'
 import { createMainWindow, getAllWindows, getMainWindow, openDrawingWindow, openPanelWindow } from './windows'
 
@@ -82,6 +83,11 @@ if (dataDirError) {
         launcherPath: resolveLauncherPath(),
         // 코드 칸 터미널의 pty — 네이티브 모듈이라 core가 직접 import하지 않고 받는다 (docs/sdlc/code-editor/terminal-spec.md FR-21)
         spawnPty: (file, args, options) => spawnPty(file, args, options),
+        // 정기 실행의 확인 간격 — e2e만 늘린다(docs/sdlc/scheduled-runs/ FR-13). 없으면 core의 기본 30초
+        ...(() => {
+          const tickMs = scheduleTickMsFromEnv(process.env)
+          return tickMs === undefined ? {} : { scheduleTickMs: tickMs }
+        })(),
         // core는 목적지를 모른다. main이 정한다.
         onError: (message, err) => { console.error(message, err) }
       })
@@ -93,6 +99,9 @@ if (dataDirError) {
     }
 
     registerIpc(core, { getMainWindow, getAllWindows, openPanelWindow, openDrawingWindow })
+    // 절전에서 깨면 곧바로 정기 실행을 확인한다 (docs/sdlc/scheduled-runs/ FR-14) — 30초를 기다리지 않는다. 판정은 평소의 tick과 같다
+    const awake = core
+    powerMonitor.on('resume', () => { void awake.schedules.wake() })
     // 다운로드는 막는다 (docs/sdlc/conversation-timeline/ spec FR-24 다듬음 — 리뷰가 찾은 것).
     // Chromium은 Windows·Linux에서 Alt+클릭한 링크를 새 창도 탐색도 아닌 **다운로드**로 처리하고,
     // 그 요청은 아래 창의 setWindowOpenHandler·will-navigate 어디에도 걸리지 않고 여기로 온다 —

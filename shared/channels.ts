@@ -27,6 +27,14 @@ export const CHANNELS = {
   proposalsPending: 'proposals:pending',
   proposalsAccept: 'proposals:accept',
   proposalsDecline: 'proposals:decline',
+  schedulesList: 'schedules:list',
+  schedulesCreate: 'schedules:create',
+  schedulesUpdate: 'schedules:update',
+  schedulesSetEnabled: 'schedules:setEnabled',
+  schedulesRemove: 'schedules:remove',
+  schedulesRunNow: 'schedules:runNow',
+  schedulesFires: 'schedules:fires',
+  schedulesPreview: 'schedules:preview',
   memosList: 'memos:list',
   memosCreate: 'memos:create',
   memosUpdate: 'memos:update',
@@ -88,6 +96,10 @@ export const CHANNELS = {
   appInfo: 'app:info',
   /** 정해진 두 위치(data·logs)만 파일 탐색기로 연다 */
   appReveal: 'app:reveal',
+  /** 에이전트 현황 패널의 설정 파일 목록 (docs/sdlc/agent-status/) */
+  appConfigFiles: 'app:configFiles',
+  /** 설정 파일 하나를 OS 기본 앱으로 연다 — (종류, repo id)만 받는다 */
+  appOpenConfigFile: 'app:openConfigFile',
   /** repo 등록 — OS의 폴더 선택 대화상자를 띄운다 */
   appPickDirectory: 'app:pickDirectory',
   /** 이슈·메모·asset 패널을 repo마다 별도 창으로 연다 (docs/sdlc/item-windows/) */

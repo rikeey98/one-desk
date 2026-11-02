@@ -23,7 +23,7 @@
    `ItemChange['kind']`에 `'drawing'`. `shared/drawingWindow.ts`(해시 셋) + `shared/drawingWindow.test.ts`(core 프로젝트가 `shared/**`를 잡는다).
    - 확인: 그 테스트 초록.
 
-2. **저장소** — `core/db/schema.ts`의 `drawing`, `pnpm db:generate`로 `drizzle/0013_*.sql`(생성된 SQL을 읽는다 — 외래키 둘 · cascade · 인덱스),
+2. **저장소** — `core/db/schema.ts`의 `drawing`, `pnpm db:generate`로 `drizzle/0014_*.sql`(처음엔 `0013` — 병합하며 옮겼다)(생성된 SQL을 읽는다 — 외래키 둘 · cascade · 인덱스),
    `core/drawings/scene.ts`(`assertScene`·`EMPTY_SCENE`·`MAX_SCENE_CHARS`), `core/drawings/title.ts`(`nextDrawingTitle`),
    `core/db/repositories/drawing.ts`. 테스트는 spec §11의 core 목록(cascade는 repo · workspace를 실제로 지워 본다).
    - 확인: `pnpm test core/drawings core/db` 초록, `core/db/migrations.test` 초록.

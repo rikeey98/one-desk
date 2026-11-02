@@ -15,12 +15,13 @@ import { conversationIdOf } from './conversation'
 import App from './App'
 import { POLISH_PROMPT } from './components/ReportPanel'
 import type { OneDeskClient } from '@shared/client'
+import type { ScheduleFireView, ScheduleView } from '@shared/models'
 import type {
   CreateIssueInput, CreateMemoInput, CreateRepoInput, CreateWorkspaceInput,
   GuardedUpdateIssueInput, GuardedUpdateMemoInput, InboxCounts, Issue, IssueUpdateResult,
   McpStatus, Memo, MemoUpdateResult, Repo, Run, UpdateIssueInput, UpdateMemoInput, Workspace,
   UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses, AgentProbes, Asset, UpdateRepoInput,
-  HomeSummary, HomeTarget, HomeTodo, StartRunInput
+  HomeSummary, HomeTarget, HomeTodo, StartRunInput, ConfigFile
 } from '@shared/models'
 
 const workspace: Workspace = {
@@ -83,6 +84,9 @@ interface Seed {
   homeTarget?: HomeTarget | null
   /** CLI probe — 기본은 로그인된 claude. 실행 파일 칸(checkAgents)은 claudePath가 있거나 이것이 true일 때 초록이다 */
   cliReady?: boolean
+  /** 정기 실행 (docs/sdlc/scheduled-runs/) — 목록과 그 기록. 배선만 본다 */
+  schedules?: ScheduleView[]
+  scheduleFires?: ScheduleFireView[]
   /** 준비 단계 ④ — 기본은 inbox 시드에 run이 있는가 */
   firstRun?: boolean
 }
@@ -267,6 +271,11 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
       // 검증하지 않으므로 목만 채워 둔다.
       markSeen: vi.fn(async () => {})
     },
+    schedules: {
+      list: vi.fn(async () => seed.schedules ?? []),
+      fires: vi.fn(async () => seed.scheduleFires ?? []),
+      preview: vi.fn(async () => ({ ok: true, next: [Date.now() + 60_000, Date.now() + 120_000, Date.now() + 180_000] }))
+    },
     // 기간 리포트 (docs/sdlc/period-report/) — 배선만 본다: 고른 workspace의 이슈를 기간과 무관하게 싣는다
     reports: {
       build: vi.fn(async (input: { workspaceIds: string[]; since: number; until: number }) => ({
@@ -394,7 +403,11 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
     },
     app: {
       info: vi.fn(async () => ({ version: '0.0.0-test', dataDir: '/data', dbFile: '/data/one-desk.db', logDir: '/data/logs' })),
-      reveal: vi.fn(async () => {})
+      reveal: vi.fn(async () => {}),
+      configFiles: vi.fn(async (): Promise<ConfigFile[]> => [
+        { key: 'claude-settings', repoId: null, path: '/home/me/.claude/settings.json', exists: true }
+      ]),
+      openConfigFile: vi.fn(async () => {})
     },
     events: {
       onItemChanged: vi.fn(() => () => {}),
@@ -1803,6 +1816,41 @@ describe('App — 메모 repo 배선', () => {
   })
 })
 
+describe('정기 실행 배선 (docs/sdlc/scheduled-runs/ FR-26·32)', () => {
+  const SCHEDULE: ScheduleView = {
+    id: 's1', workspaceId: 'w1', repoId: 'r1', name: '아침 훑기', trigger: { kind: 'weekdays', time: '09:00' },
+    timeZone: 'Asia/Seoul', conversationMode: 'new', conversationId: null, agentKind: 'claude-code', model: null, effort: null,
+    permission: 'read_only', prompt: '훑어 줘', context: [], enabled: true, disabledReason: null, anchorAt: 1,
+    consecutiveFailures: 0, createdAt: 1, updatedAt: 1, nextAt: Date.now() + 3_600_000, repoName: 'api', lastFire: null
+  }
+
+  it('사이드바의 정기 실행이 그 화면을 열고 제목 줄이 그것을 말한다', async () => {
+    renderApp(makeClient({}, { schedules: [SCHEDULE], repos: [makeRepo('r1', 'api', '/tmp/api')] }))
+    await userEvent.click(screen.getByRole('button', { name: '정기 실행' }))
+    expect(await screen.findByRole('region', { name: '정기 실행' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '아침 훑기 정기 실행 편집' })).toBeInTheDocument()
+    expect(document.title).toBe('정기 실행 — one-desk')
+  })
+
+  it('실행 기록의 대화 열기가 그 workspace의 그 대화를 도크에 연다', async () => {
+    const run = makeRun({ id: 'conv-s', userPrompt: '정기 실행이 낸 대화' })
+    const fire: ScheduleFireView = {
+      id: 'f1', scheduleId: 's1', cause: 'manual', slotAt: null, firedAt: Date.now(), outcome: 'started', skipReason: null,
+      message: null, runId: run.id, droppedContext: 0, runStatus: 'succeeded', needsAnswer: false, conversationId: run.id
+    }
+    const client = makeClient({}, {
+      schedules: [{ ...SCHEDULE, lastFire: fire }], scheduleFires: [fire], repos: [makeRepo('r1', 'api', '/tmp/api')], inbox: [run]
+    })
+    renderApp(client)
+    await userEvent.click(screen.getByRole('button', { name: '정기 실행' }))
+    await userEvent.click(await screen.findByRole('button', { name: '아침 훑기 정기 실행 편집' }))
+    const fires = await screen.findByRole('region', { name: '실행 기록' })
+    await userEvent.click(await within(fires).findByRole('button', { name: '대화 열기' }))
+    expect(screen.queryByRole('region', { name: '정기 실행' })).toBeNull()
+    expect(await screen.findByText('정기 실행이 낸 대화', { selector: '.turn-user' })).toBeInTheDocument()
+  })
+})
+
 describe('기간 리포트 배선 (docs/sdlc/period-report/ FR-19·FR-24·FR-25)', () => {
   it('사이드바의 리포트가 리포트 화면을 열고, 이슈 줄을 누르면 그 workspace에서 그 이슈가 열린다', async () => {
     const client = makeClient({}, { issues: [makeIssue({ id: 'i1', title: '리포트의 이슈' })] })
@@ -2152,5 +2200,68 @@ describe('홈 배선 (docs/sdlc/home/)', () => {
     const input = (client.runs.start as ReturnType<typeof vi.fn>).mock.calls[0]![0] as StartRunInput
     expect(input).toMatchObject({ workspaceId: 'w1', cwd: '/tmp/api', userPrompt: '로그인 고쳐줘', context: [] })
     expect(await screen.findByPlaceholderText('새 이슈 (첫 줄이 제목)')).toBeInTheDocument()
+  })
+})
+
+describe('에이전트 현황 배선 (docs/sdlc/agent-status/)', () => {
+  it('하단 줄이 App의 실행 스냅샷을 보인다 — 도크와 같은 useQueue다', async () => {
+    // App.tsx의 `queue={queue}` 한 줄을 지킨다. 기본값과 다른 수를 준다.
+    renderApp(makeClient({ queueSnapshot: vi.fn().mockResolvedValue({ running: 2, limit: 5, waiting: 1 }) }))
+    const row = screen.getByRole('button', { name: '에이전트 현황' })
+    await waitFor(() => expect(row).toHaveTextContent('실행 2/5'))
+    expect(row).toHaveTextContent('+1 대기')
+  })
+
+  it('하단 줄을 누르면 패널이 열리고, 다시 누르면 닫힌다', async () => {
+    renderApp(makeClient())
+    const row = screen.getByRole('button', { name: '에이전트 현황' })
+    expect(screen.queryByRole('dialog', { name: '에이전트 현황' })).toBeNull()
+    await userEvent.click(row)
+    expect(await screen.findByRole('dialog', { name: '에이전트 현황' })).toBeInTheDocument()
+    expect(row).toHaveAttribute('aria-expanded', 'true')
+    await userEvent.click(row)
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '에이전트 현황' })).toBeNull())
+  })
+
+  it('패널이 App의 MCP 상태·실행 스냅샷·workspace를 본다', async () => {
+    renderApp(makeClient({ queueSnapshot: vi.fn().mockResolvedValue({ running: 2, limit: 5, waiting: 0 }) }, {
+      mcpStatus: { state: 'listening', port: 61234 },
+      workspaces: [{ ...workspace, defaultModelClaude: 'opus-배선' }]
+    }))
+    await userEvent.click(screen.getByRole('button', { name: '에이전트 현황' }))
+    const dialog = await screen.findByRole('dialog', { name: '에이전트 현황' })
+    expect(dialog).toHaveTextContent('포트 61234에서 받는 중')
+    expect(dialog).toHaveTextContent('2/5 사용')
+    expect(within(dialog).getByRole('region', { name: '실행 환경' })).toHaveTextContent('opus-배선')
+  })
+
+  it('`설정 열기`는 패널을 닫고 설정 화면으로 간다', async () => {
+    renderApp(makeClient())
+    await userEvent.click(screen.getByRole('button', { name: '에이전트 현황' }))
+    await userEvent.click(await screen.findByRole('button', { name: '설정 열기' }))
+    expect(await screen.findByRole('tab', { name: '실행' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '에이전트 현황' })).toBeNull()
+  })
+
+  it('도는 대화의 `열기`는 그 대화를 도크에 연다', async () => {
+    const turns = [makeRun({ id: 'a1', rootRunId: 'a1', status: 'running', userPrompt: '도는 지시' })]
+    renderApp(makeClient({ list: async () => turns }, {
+      homeRunning: [{
+        workspaceId: 'w1', workspaceName: 'ws1', repoId: null, repoName: null, conversationId: 'a1', runId: 'a1',
+        title: '도는 대화', turns: 1, startedAt: 1, currentTool: null, lastText: null
+      }]
+    }))
+    await userEvent.click(screen.getByRole('button', { name: '에이전트 현황' }))
+    await userEvent.click(await screen.findByRole('button', { name: '도는 대화 대화로 가기' }))
+    expect(await screen.findByText('도는 지시', { selector: '.turn-user' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '에이전트 현황' })).toBeNull()
+  })
+
+  it('설정 파일의 열기는 (종류, repo id)만 넘긴다', async () => {
+    const client = makeClient()
+    renderApp(client)
+    await userEvent.click(screen.getByRole('button', { name: '에이전트 현황' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Claude Code 사용자 설정 파일 열기' }))
+    expect(client.app.openConfigFile).toHaveBeenCalledWith({ key: 'claude-settings', repoId: null })
   })
 })
