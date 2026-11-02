@@ -474,6 +474,18 @@ repo → CLI → 첫 대화)이 그 자리에 서고, 단계마다 가는 곳은
   버튼과 이름이 같지만 한 화면에 서지 않는다). 다크 캡처는 `emulateMedia` 뒤에 버튼의 transition(.12s)을 기다려야 한다 — 바로 찍으면
   버튼이 흰 채로 찍힌다.
 
+**repo마다 Excalidraw로 그림을 그린다** (`docs/sdlc/drawings/`, 2026-11-02 — `docs/ideas.md`의 "무한 캔버스"를 꺼내 썼다). **첫 실행에
+마이그레이션 `0014`가 돈다** (정기 실행의 `0013`과 같이 병합하며 번호를 옮겼다) — `drawing` 테이블 하나(repo · workspace cascade, 장면은 JSON text, 백필 없음). 제목 줄 `그림`(터미널 왼쪽)이
+코드 칸을 셋째 종류(`PaneKind` `'drawing'`)로 바꾼다 — 그 대화 repo의 그림을 `그림 고르기` 메뉴로 고르고 `새 그림`(이름 `그림 N`)·`그림 이름
+바꾸기`·`그림 삭제`(두 번)·`그림 새 창으로 열기`. 별도 창은 **그림 하나 = 창 하나**(`#drawing/<id>`, `shared/drawingWindow.ts` — 패널 창의
+`PanelKind`에 끼우지 않았다)이고 이름 바꾸기 · 지우기는 칸에만 있다. **저장은 자동이고(600ms) 칸과 창이 같은 그림을 같이 고칠 수 있다** —
+낙관적 잠금(`saveScene`) 충돌이나 바뀜 알림(`drawing`)이 오면 Excalidraw의 `reconcileElements`로 요소 단위로 합친다. 규칙은
+`renderer/drawing/sync.ts`의 순수 함수다. 사용자가 정한 것: 저장은 **앱 DB**(repo 파일이 아니다 — agent는 그림을 못 본다, MCP `deps`에도
+없다), 이미지 · 내보내기 · 라이브러리 · 끼워 넣기 없음, **repo를 지우면 그 그림도 지워진다**(이슈 · 메모와 다르다 — 사이드바의 삭제 확인 글이
+`그림 N개도 지워집니다 · 정말 삭제?`다, `정말 삭제?`를 품는다). `@excalidraw/excalidraw` 0.18.1(MIT, devDependencies, 정확한 판)이고 mermaid
+밑의 2주가 안 된 판 둘을 `pnpm.overrides`로 묶었다. 앱 시작 청크는 19 KB만 늘었다 — Excalidraw는 칸을 처음 열 때 불린다(아래 함정 절).
+`e2e/drawing.e2e.ts`가 진짜 Excalidraw로 저장 · 창 사이 합치기 · 묘비 · 창 닫기 흘려보내기 · 끌어 놓기 막기 · 한글 글꼴 · CSP · 재기동 ·
+repo 삭제를 본다(요소는 main에서 DB를 읽어 센다).
 **사이드바 하단 줄이 에이전트 현황이다** (`docs/sdlc/agent-status/`, 2026-11-02). 마이그레이션 없음. MCP 줄이 버튼(이름 `에이전트 현황` —
 바뀌는 글자를 이름에 넣지 않는다, 부분 일치 셀렉터 `상태`·`설정`·`agent`·`실행 슬롯`과 부딪힌다)이 되어 `MCP :53021 … 실행 1/3 +2 대기`를
 보이고(대기는 `대기 N`이 아니다 — `queue.e2e`의 `getByText('대기 1')`), 누르면 App이 그리는 popover `AgentActivityPanel`이 뜬다: 지금 동작(홈 요약의
@@ -1070,6 +1082,26 @@ hover하고 바로 누르면 가끔 깨진다 — 눌리지 않은 click이 스�
 `@lezer/highlight`와, 2주가 안 된 판을 끌어오던 `@lezer/lr`·`css`·`markdown`·`javascript`를 묶는다. 올린 뒤에는
 `pnpm why @codemirror/state`로 한 벌인지 본다.
 
+**Excalidraw를 import하는 것은 `renderer/components/drawing/DrawingCanvas.tsx` 하나이고, 부르는 쪽은 `lazy`다** (`docs/sdlc/drawings/` FR-20).
+Excalidraw는 JS만 수 MB다 — 다른 파일이 값 하나라도 import하면(합치기 함수 `reconcileElements`까지) 앱 시작 청크에 통째로 든다. 그래서
+`sync.ts`는 합치기를 인자로 받는다. 타입 import(`import type`)는 괜찮다. 조용히 깨지는 넷:
+(1) **`excalidrawSetup.ts`가 그 파일의 첫 import여야 한다** — Excalidraw는 모듈을 불러오는 순간 글꼴을 등록하며 주소를 만든다. 모듈 본문에서
+`window.EXCALIDRAW_ASSET_PATH`를 세우면 늦어 글꼴이 esm.sh로 간다(CSP가 막는다 — 손글씨가 시스템 글꼴로 그려진다). 그 값은 **문서 주소 기준의
+절대 URL**이다 — `./`로 시작하면 Excalidraw가 `location.origin`으로 푸는데 file:의 origin은 `"null"`이다. 글꼴(14 MB, 한글은 Xiaolai)은
+`build/viteExcalidrawAssets.ts`가 `out/renderer/excalidraw-assets/fonts`로 복사한다(`cpSync`가 아니다). 같은 모듈이 `window.FontFace`를 감싸
+원본 목록에서 `https://esm.sh/@excalidraw/excalidraw@`만 걷는다 — Excalidraw는 글꼴마다 원격 대체 원본을 붙이고 Chromium은 그것을 등록할 때마다
+CSP 위반을 찍는다(칸을 열 때마다 231줄). (2) **장면은 지운 요소(`isDeleted`)를 묘비로 남겨 저장한다 — `serializeAsJSON`을 쓰지 말 것.** 그것은
+지운 요소를 거르고, 묘비가 없으면 아직 그 요소를 가진 다른 창의 합치기가 그것을 되살린다(`sync.test`의 "지운 요소를 남겨 저장한다", e2e의
+"창에서 전부 지우고 칸에서 하나 그린다"). (3) **Excalidraw는 다시 그려질 때마다 onChange를 부른다** — 넘기는 속성(`UIOptions`·`onPaste`·
+`excalidrawAPI`·메뉴 자식)이 렌더마다 새것이면 부모의 "저장 중" 표시 한 번이 onChange를 부른다. `sync`가 날아가는 저장의 열쇠(`saving`)를
+같이 보지 않으면 같은 장면의 저장이 늘 대기로 남아 **창 닫기(`guardUnload`)가 끝나지 않았다**(e2e에서 앱 종료가 멈췄다 — 단위 테스트는 초록이었다).
+(4) **라이브러리 버튼 숨김은 `.drawing-canvas .excalidraw .sidebar-trigger__label-element`다** — Excalidraw의 CSS가 지연 청크로 뒤에 불려
+같은 구체성이면 그것이 이긴다. 키: 캔버스 안의 Esc · Ctrl+Z는 Excalidraw가 전파를 막고(그래도 감싸는 요소가 Esc를 막는다), `?`는
+`isEditableTarget`이 `.excalidraw`를 글 받는 자리로 봐 앱 도움말이 같이 열리지 않는다. 이미지 파일 붙여넣기 · 끌어 놓기는 `tools.image: false`가
+막고, 끌어 놓은 `.excalidraw` 파일(장면을 통째로 바꾼다)은 감싸는 요소가 capture에서 막는다. **jsdom은 Excalidraw를 그리지 못한다** — `DrawingPane`·
+`DrawingWindow` 테스트는 `./DrawingCanvas`를 `vi.mock`으로, `Dock.test`는 `./drawing/DrawingPane`째 바꾼다. 사이드바 `RepoStrip`이 그림 개수를
+읽으므로(`useDrawings`) 그것을 그리는 테스트의 가짜 클라이언트에 `drawings.list`와 `events.onItemChanged`가 있어야 한다.
+
 **jsdom에서는 CodeMirror를 그릴 수 없다 — 코드 칸이 파일을 여는 단위 테스트는 `CodeEditor`를 `vi.mock`으로 바꾼다.** 측정 API
 (`getClientRects`)가 없어 "처리되지 않은 오류"로 테스트 파일이 실패한다(`FilePane.test`·`Dock.test`가 대역을 둔다). 그래서
 Ctrl+S·바깥 글 교체·처음 갈 줄·언어 조각 불러오기는 `e2e/code-pane.e2e.ts`만 본다 — `CodeEditor`에 판정을 두지 말 것.
@@ -1254,6 +1286,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/ux-polish/` | UI/UX 분석이 꼽은 여덟 가지 — intent·spec·plan. 상세가 열리면 도크가 하한(FR-1), 빈 상태 하나·리포트의 가까운 preset 제안(FR-2), 한국어 표와 `열림` 배지 생략(FR-3), 전역 단축키 표와 일회성 prop 배선(FR-8·9), 뒤집은 결정(intent), App 배선 변이 표(plan). 시안 비교 https://claude.ai/artifact/VQBSR9ruuhjttD6P9Choqn |
 | `docs/sdlc/home/` | 앱을 열면 "오늘 할 일"이 보이는 홈 — intent·spec·plan. 미해결 질문의 답(spec §0), 할 일 넷과 배지(FR-3·4), core 한 자리와 MCP 제외(FR-1), 렌더러가 넘기는 오늘의 경계(FR-5), 새 대화 카드를 App이 직접 보내는 이유(FR-11·plan 개정 1), 준비 단계와 CLI 칸(FR-14~16·plan 개정 8), 이름 충돌(NFR-3), 코드를 보고 spec을 고친 여덟(plan §0), 변이 표와 완료 증명(plan). 시안 https://claude.ai/artifact/ST6FQPHU8XPSKXTREZHPVN 셋째 줄 |
 | `docs/sdlc/agent-proposals/` | agent가 알아채 제안하고 사람은 한 번 누른다 — intent·spec·plan(첫째 사이클: 대화의 이슈화). 세 데이터 모양 비교(spec §2-1), 읽기 전용의 새 정의(FR-13), 안내의 조건(FR-15)과 문구(FR-16), 받기 트랜잭션(FR-17·18), 배너(FR-21~23), 사용자가 뒤집을 수 있는 결정(§8). plan에 0단계 실측(중첩 트랜잭션·OpenCode MCP 권한)·변이 표·진짜 claude 측정 |
+| `docs/sdlc/drawings/` | repo마다 Excalidraw 그림 — intent·spec·plan. tldraw를 뺀 근거(intent), 패키지를 풀어 읽은 실측(spec §0 — 합치기·직렬화·글꼴·한글), 데이터 모양과 묘비(§2), 낙관적 잠금 저장(FR-1·2), 그림 하나 = 창 하나(FR-8~10), 동기화 규칙 일곱(FR-21), 끄는 것과 막는 길(FR-25~28), 글꼴과 원격 대체 원본 걷기(FR-29·30), 뒤집을 수 있는 결정(§12). plan에 0단계 실측(Electron 하네스)·변이 표·완료 증명 |
 | `docs/sdlc/agent-status/` | 사이드바 하단의 에이전트 현황 — spec. 하단 줄의 이름과 글자 규칙(FR-1·2), 패널의 넷(FR-3~5), 설정 파일을 (종류, repo id)로만 여는 이유(FR-7), 뒤집을 수 있는 결정(§4) |
 | `docs/sdlc/scheduled-runs/` | 정기 실행 — intent·spec·plan. 대화를 어디에 매다는지 비교(spec §2-1 — run 컬럼이 아니라 실행 기록 테이블), anchor 하나로 정시·놓침·절전을 한 판정에(FR-10~12), start 전에 anchor를 쓰는 이유(FR-12), 겹침·답 기다림 건너뛰기(FR-15), 한 run은 한 번 세기(FR-20 개정), 이슈화 안내를 빼는 이유(FR-22), 뒤집을 수 있는 결정 아홉(§8). plan에 croner 실측·변이 표·완료 증명 |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |

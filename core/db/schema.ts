@@ -250,6 +250,23 @@ export const proposal = sqliteTable('proposal', {
 ])
 
 /**
+ * repo의 그림 (`docs/sdlc/drawings/` spec §2). **그림은 repo 하나에 속한다** — 이슈·메모의 태그와 달리 repo를 지우면 같이
+ * 지워진다(사이드바의 삭제 확인이 개수를 말한다). `workspace_id`는 바뀜 알림과 소속 검증을 위해 둔다.
+ * `scene`은 요소 배열만 싣는 JSON이고 지운 요소를 묘비로 남긴다(창 사이 합치기). `updated_at`은 낙관적 잠금의 버전이다.
+ */
+export const drawing = sqliteTable('drawing', {
+  id: text('id').primaryKey(),
+  workspaceId: text('workspace_id').notNull()
+    .references(() => workspace.id, { onDelete: 'cascade' }),
+  repoId: text('repo_id').notNull()
+    .references(() => repo.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  scene: text('scene').notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull()
+}, (t) => [index('drawing_repo_idx').on(t.repoId, t.createdAt)])
+
+/**
  * 정기 실행 (`docs/sdlc/scheduled-runs/` spec FR-1). 정의 컬럼은 사람이 저장소의 `update`로, 상태 컬럼(`anchor_at`·
  * `consecutive_failures`·`conversation_id`·저절로 끄기)은 스케줄러가 따로 쓴다 — 서로의 컬럼을 덮지 않는다(FR-4).
  *

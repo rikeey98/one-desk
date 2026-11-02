@@ -34,6 +34,7 @@ import { buildHomeSummary, homeCount, type HomeSources } from './home/summary'
 import { applyRunEvent, dropRun, type LiveMap } from './home/live'
 import { createIssueRepository } from './db/repositories/issue'
 import { createMemoRepository } from './db/repositories/memo'
+import { createDrawingRepository } from './db/repositories/drawing'
 import { createRunRepository } from './db/repositories/run'
 import { createProposalRepository } from './db/repositories/proposal'
 import { createProposalService } from './proposals/service'
@@ -62,7 +63,7 @@ import { createRunQueue } from './runner/queue'
 import { createMcpHost } from './mcp/host'
 import {
   notifyingIssues, notifyingMemos, notifyingAssets, notifyingRepos, notifyingWorkspaces,
-  announcingAssignedConversations, notifyingProposals, notifyingSchedules, type Notify
+  announcingAssignedConversations, notifyingProposals, notifyingDrawings, notifyingSchedules, type Notify
 } from './changes'
 import { createScheduleRepository } from './db/repositories/schedule'
 import { createScheduler } from './schedules/scheduler'
@@ -72,7 +73,7 @@ import { consoleErrorSink, NotFoundError, type ErrorSink } from './errors'
 import type { AgentAdapter } from './runner/types'
 import type { RunEvent } from '@shared/events'
 import type {
-  AcceptIssueProposal, AgentKind, AgentPaths, InboxCounts, Issue, ItemChange, Proposal, McpStatus, PlanUsage, QueueSnapshot, Repo, Run,
+  AcceptIssueProposal, AgentKind, AgentPaths, Drawing, InboxCounts, Issue, ItemChange, Proposal, McpStatus, PlanUsage, QueueSnapshot, Repo, Run,
   Schedule, ScheduleFire, ScheduleFireView, ScheduleInput, SchedulePreview, ScheduleView,
   TerminalCreateInput, TerminalData, TerminalExit, TerminalOpenInput, TerminalTabInput, TerminalTabRef,
   TerminalShellSetting, Workspace
@@ -183,6 +184,8 @@ export function createCore(opts: CoreOptions) {
     }
   )
   const memos = notifyingMemos(createMemoRepository(db), notify)
+  // repo의 그림 (docs/sdlc/drawings/ FR-4·FR-6). IPC 표면만 받는다 — MCP deps에는 넘기지 않는다: agent는 그림을 못 본다(intent 결정 4)
+  const drawings = notifyingDrawings(createDrawingRepository(db), notify)
   // agent의 제안 (docs/sdlc/agent-proposals/ FR-12) — 감싼 것을 MCP deps와 IPC 표면이 같이 받는다. 받기는 맨 저장소로(FR-18)
   const proposalRows = createProposalRepository(db, onError)
   const proposals = notifyingProposals(proposalRows, notify)
@@ -854,8 +857,29 @@ export function createCore(opts: CoreOptions) {
 
     issues,
     memos,
+    drawings: {
+      ...drawings,
+      /** IPC의 `get` — 없으면 null이다. 렌더러는 오류의 클래스를 볼 수 없어 "지워졌다"를 값으로 받는다 */
+      find(id: string): Drawing | null {
+        try {
+          return drawings.get(id)
+        } catch (err) {
+          if (err instanceof NotFoundError) return null
+          throw err
+        }
+      }
+    },
     runs,
     execution,
+
+    /**
+     * 그림 창을 열어도 되는 그림인가 (docs/sdlc/drawings/ FR-9). 렌더러가 보낸 값을 믿지 않는다 — 문자열이고 있는 그림이어야 한다.
+     * 창을 만드는 것은 electron의 일이라 판정만 여기 둔다(`panelScope`와 같은 구조). 그림 id를 돌려준다.
+     */
+    drawingWindowTarget(input: unknown): string {
+      if (typeof input !== 'string' || input === '') throw new Error('열 수 없는 그림입니다')
+      return drawings.get(input).id
+    },
 
     /**
      * 기간 리포트 (`docs/sdlc/period-report/` FR-1). workspace를 넘어 읽는 유일한 길이고, MCP `deps`에는

@@ -1518,6 +1518,57 @@ describe('바뀜 알림과 패널 창 범위 (docs/sdlc/item-windows/)', () => {
   })
 })
 
+describe('그림 배선 (docs/sdlc/drawings/)', () => {
+  it('그림 쓰기가 알린다 — 충돌로 끝난 저장은 알리지 않는다 (FR-4)', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    const repo = await core.repos.create({ workspaceId, name: 'api', path: dataDir })
+    const seen: string[] = []
+    core.onItemChanged((c) => { if (c.kind === 'drawing') seen.push(`${c.kind}:${c.workspaceId === workspaceId}`) })
+
+    const made = core.drawings.create({ workspaceId, repoId: repo.id })
+    core.drawings.saveScene({ id: made.id, scene: '{"elements":[]}', expectedUpdatedAt: made.updatedAt })
+    core.drawings.saveScene({ id: made.id, scene: '{"elements":[]}', expectedUpdatedAt: made.updatedAt })
+    expect(seen).toEqual(['drawing:true', 'drawing:true'])
+  })
+
+  it('그림 창은 있는 그림만 연다 (FR-9)', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    const repo = await core.repos.create({ workspaceId, name: 'api', path: dataDir })
+    const made = core.drawings.create({ workspaceId, repoId: repo.id })
+    expect(core.drawingWindowTarget(made.id)).toBe(made.id)
+    // IPC의 get은 없으면 null이다 — 렌더러가 "지워졌다"를 값으로 안다
+    expect(core.drawings.find(made.id)?.id).toBe(made.id)
+    expect(core.drawings.find('nope')).toBeNull()
+    expect(() => core.drawingWindowTarget('nope')).toThrow('그림을 찾을 수 없습니다')
+    expect(() => core.drawingWindowTarget('')).toThrow('열 수 없는 그림')
+    expect(() => core.drawingWindowTarget({ id: made.id })).toThrow('열 수 없는 그림')
+  })
+
+  it('repo를 지우면 그 repo의 그림이 지워진다 (FR-7)', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const workspaceId = core.workspaces.create({ name: 'ws' }).id
+    const api = await core.repos.create({ workspaceId, name: 'api', path: dataDir })
+    const web = await core.repos.create({ workspaceId, name: 'web', path: dataDir })
+    core.drawings.create({ workspaceId, repoId: api.id })
+    const kept = core.drawings.create({ workspaceId, repoId: web.id })
+    core.repos.remove(api.id)
+    expect(core.drawings.list({ workspaceId }).map((d) => d.id)).toEqual([kept.id])
+  })
+
+  it('그림은 MCP deps에 없다 — agent는 그림을 못 본다 (FR-6)', () => {
+    // 홈·리포트와 같은 방식이다. 실행 중에 잡을 수 없어 소스로 본다.
+    const source = readFileSync(resolve(__dirname, 'index.ts'), 'utf8')
+    const deps = source.match(/createMcpHost\(\{\s*deps: \{([^}]*)\}/)
+    expect(deps).not.toBeNull()
+    expect(deps![1]).not.toMatch(/drawing/i)
+  })
+})
+
 describe('기간 리포트 배선 (docs/sdlc/period-report/)', () => {
   it('core.reports.build가 실제 DB에서 workspace 둘을 넘어 기간 안의 것만 고른다', () => {
     const dataDir = makeDataDir()

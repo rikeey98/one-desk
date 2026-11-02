@@ -19,6 +19,9 @@ import type {
   TerminalTab, TerminalShellOption, TerminalCreateInput, TerminalTabInput, TerminalTabRef
 } from './models'
 import type { Proposal, AcceptIssueProposal } from './models'
+import type {
+  Drawing, DrawingSummary, DrawingListQuery, CreateDrawingInput, SaveSceneInput, SaveSceneResult
+} from './models'
 import type { RunEvent } from './events'
 import type { PanelScope } from './panelWindow'
 
@@ -104,6 +107,21 @@ export interface OneDeskClient {
      * preload가 IPC 오류의 클래스를 벗겨내 메시지만 남기므로 예외로는 가려낼 수 없다.
      */
     updateIfUnchanged(input: GuardedUpdateMemoInput): Promise<MemoUpdateResult>
+    remove(id: string): Promise<void>
+  }
+  /** repo의 그림 (docs/sdlc/drawings/). MCP에는 없다 — 사람이 그리는 것이다 */
+  drawings: {
+    /** 장면 없이. repoId가 없으면 그 workspace 전부 */
+    list(query: DrawingListQuery): Promise<DrawingSummary[]>
+    /**
+     * 없으면 null — 지워진 그림을 오류 문구로 가려내지 않게(preload가 오류의 클래스를 벗긴다). 열린 칸·창이 이것으로 "지워졌다"를
+     * 안다 (spec FR-10·FR-21의 6).
+     */
+    get(id: string): Promise<Drawing | null>
+    create(input: CreateDrawingInput): Promise<Drawing>
+    rename(id: string, title: string): Promise<DrawingSummary>
+    /** 낙관적 잠금 저장. 충돌은 `{ ok: false, current }`로 온다 — 화면이 합쳐 다시 저장한다 (spec FR-21) */
+    saveScene(input: SaveSceneInput): Promise<SaveSceneResult>
     remove(id: string): Promise<void>
   }
   reports: {
@@ -308,6 +326,8 @@ export interface OneDeskClient {
      * **범위만 받는다** — URL·경로를 넘기는 통로가 아니다 (docs/sdlc/item-windows/ FR-12).
      */
     openPanelWindow(scope: PanelScope): Promise<void>
+    /** 그림 하나를 별도 창으로 연다. 이미 열려 있으면 앞으로 가져온다 — 그림 id만 받는다 (docs/sdlc/drawings/ FR-9) */
+    openDrawingWindow(drawingId: string): Promise<void>
   }
   events: {
     onRunEvent(cb: (event: RunEvent) => void): Unsubscribe

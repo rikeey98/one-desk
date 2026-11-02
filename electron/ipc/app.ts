@@ -38,6 +38,10 @@ export function registerAppHandlers(core: Core, windows: Windows) {
   ipcMain.handle(CHANNELS.appOpenPanelWindow, (_e, scope: unknown) => {
     windows.openPanelWindow(core.panelScope(scope))
   })
+  // 있는 그림인지는 core가 본다(문자열이 아니거나 없으면 던진다). 여기는 창을 여는 것뿐이다 (docs/sdlc/drawings/ FR-9).
+  ipcMain.handle(CHANNELS.appOpenDrawingWindow, (_e, drawingId: unknown) => {
+    windows.openDrawingWindow(core.drawingWindowTarget(drawingId))
+  })
   // 바뀜 알림은 모든 창으로 간다 (docs/sdlc/item-windows/ FR-17·19).
   core.onItemChanged((change) => {
     for (const win of windows.getAllWindows()) win.webContents.send(EVENT_CHANNELS.itemChanged, change)

@@ -12,9 +12,10 @@ import { draftKeyOf } from '../store/drafts'
 import { useDraftFilled, useDraftStore } from '../store/DraftContext'
 import { terminalSelectionBlock } from '../code/terminalSelection'
 import { SlotIndicator } from './SlotIndicator'
-import { IconChevronDown, IconCollapse, IconFolder, IconMaximize, IconTerminal } from './icons'
+import { IconChevronDown, IconCollapse, IconDraw, IconFolder, IconMaximize, IconTerminal } from './icons'
 import { FilePane, type OpenRequest } from './code/FilePane'
 import { TerminalPane } from './code/TerminalPane'
+import { DrawingPane } from './drawing/DrawingPane'
 import { CodePaneContext, useCodePaneSlot, useTitleBarSlot, type CodePaneOpener } from './code/CodePaneContext'
 import { paneTarget } from '../code/target'
 import {
@@ -561,6 +562,8 @@ export function Dock({
   )
   const paneButtons = (
     <>
+      {/* 그림 (docs/sdlc/drawings/ FR-11) — 켜지는 조건은 파일·터미널과 같다(대상 repo) */}
+      {paneButton('drawing', '그림', <IconDraw width="15" height="15" />)}
       {paneButton('terminal', '터미널', <IconTerminal width="15" height="15" />)}
       {paneButton('files', '파일', <IconFolder width="15" height="15" />)}
     </>
@@ -757,6 +760,15 @@ export function Dock({
                 repo={targetRepo}
                 onClose={() => setPane(null)}
                 onSendSelection={sendToConversation}
+              />
+            )}
+            {/* repo가 바뀌면 그 repo의 그림으로 새로 시작한다 — 앞 그림의 대기 중인 저장은 언마운트가 흘려보낸다 (FR-18) */}
+            {targetRepo && paneKind === 'drawing' && (
+              <DrawingPane
+                key={targetRepo.id}
+                workspaceId={workspaceId}
+                repo={targetRepo}
+                onClose={() => setPane(null)}
               />
             )}
             {!targetRepo && (

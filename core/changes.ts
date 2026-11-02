@@ -6,6 +6,7 @@ import type { AssetRepository } from './db/repositories/asset'
 import type { RepoRepository } from './db/repositories/repo'
 import type { WorkspaceRepository } from './db/repositories/workspace'
 import type { ProposalRepository } from './db/repositories/proposal'
+import type { DrawingRepository } from './db/repositories/drawing'
 import type { ScheduleRepository } from './db/repositories/schedule'
 
 /**
@@ -109,6 +110,36 @@ export function notifyingMemos(repo: MemoRepository, notify: Notify): MemoReposi
       const ws = workspaceOrNull(() => repo.get(id))
       repo.remove(id)
       if (ws !== null) notify({ workspaceId: ws, kind: 'memo' })
+    }
+  }
+}
+
+/**
+ * repo의 그림 (`docs/sdlc/drawings/` spec FR-4). 코드 칸과 별도 창이 같은 그림을 열고 있으면 서로의 저장을 이것으로 안다 — 받는 쪽이
+ * 그 그림을 다시 읽어 합친다(FR-21). 충돌로 끝난 저장은 아무것도 바꾸지 않아 알리지 않는다.
+ */
+export function notifyingDrawings(repo: DrawingRepository, notify: Notify): DrawingRepository {
+  return {
+    ...repo,
+    create(input) {
+      const made = repo.create(input)
+      notify({ workspaceId: made.workspaceId, kind: 'drawing' })
+      return made
+    },
+    rename(id, title) {
+      const renamed = repo.rename(id, title)
+      notify({ workspaceId: renamed.workspaceId, kind: 'drawing' })
+      return renamed
+    },
+    saveScene(input) {
+      const result = repo.saveScene(input)
+      if (result.ok) notify({ workspaceId: result.drawing.workspaceId, kind: 'drawing' })
+      return result
+    },
+    remove(id) {
+      const ws = workspaceOrNull(() => repo.get(id))
+      repo.remove(id)
+      if (ws !== null) notify({ workspaceId: ws, kind: 'drawing' })
     }
   }
 }

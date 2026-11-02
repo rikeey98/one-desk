@@ -3,7 +3,7 @@ import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { OneDeskClient, Unsubscribe } from '@shared/client'
 import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, ConfigFile, AssetBody, FileSearchResult, ReportData, HomeSummary, HomeTarget, FileTreeResult, FileOpenResult, FileSaveResult, FileProbeResult, TerminalSession, TerminalTab, TerminalShellOption, TerminalData, TerminalExit, TerminalShellSetting, WslDistros } from '@shared/models'
 import type { RunEvent } from '@shared/events'
-import type { Proposal, ScheduleFireView, SchedulePreview, ScheduleView } from '@shared/models'
+import type { Proposal, Drawing, DrawingSummary, SaveSceneResult, ScheduleFireView, SchedulePreview, ScheduleView } from '@shared/models'
 
 /**
  * ipcRenderer.invoke가 실패하면 Electron이 오류를
@@ -58,6 +58,14 @@ const client: OneDeskClient = {
     updateIfUnchanged: (input) =>
       call<MemoUpdateResult>(CHANNELS.memosUpdateIfUnchanged, input),
     remove: (id) => call<void>(CHANNELS.memosRemove, id)
+  },
+  drawings: {
+    list: (query) => call<DrawingSummary[]>(CHANNELS.drawingsList, query),
+    get: (id) => call<Drawing | null>(CHANNELS.drawingsGet, id),
+    create: (input) => call<Drawing>(CHANNELS.drawingsCreate, input),
+    rename: (id, title) => call<DrawingSummary>(CHANNELS.drawingsRename, id, title),
+    saveScene: (input) => call<SaveSceneResult>(CHANNELS.drawingsSaveScene, input),
+    remove: (id) => call<void>(CHANNELS.drawingsRemove, id)
   },
   reports: {
     build: (input) => call<ReportData>(CHANNELS.reportsBuild, input)
@@ -155,7 +163,8 @@ const client: OneDeskClient = {
     configFiles: (workspaceId) => call<ConfigFile[]>(CHANNELS.appConfigFiles, workspaceId),
     openConfigFile: (ref) => call<void>(CHANNELS.appOpenConfigFile, ref),
     pickDirectory: (options) => call<string | null>(CHANNELS.appPickDirectory, options),
-    openPanelWindow: (scope) => call<void>(CHANNELS.appOpenPanelWindow, scope)
+    openPanelWindow: (scope) => call<void>(CHANNELS.appOpenPanelWindow, scope),
+    openDrawingWindow: (drawingId) => call<void>(CHANNELS.appOpenDrawingWindow, drawingId)
   },
   events: {
     // contextBridge는 함수를 프록시로 넘기므로 이 클로저가 렌더러에서 호출 가능하다.

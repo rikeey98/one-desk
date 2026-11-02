@@ -6,7 +6,7 @@ import { createCore, type Core } from '@core/index'
 import { portableUnpackOf, removePortableLeftovers } from '@core/app/portableUnpack'
 import { scheduleTickMsFromEnv } from '@core/schedules/scheduler'
 import { registerIpc } from './ipc'
-import { createMainWindow, getAllWindows, getMainWindow, openPanelWindow } from './windows'
+import { createMainWindow, getAllWindows, getMainWindow, openDrawingWindow, openPanelWindow } from './windows'
 
 let core: Core | null = null
 
@@ -98,7 +98,7 @@ if (dataDirError) {
       return
     }
 
-    registerIpc(core, { getMainWindow, getAllWindows, openPanelWindow })
+    registerIpc(core, { getMainWindow, getAllWindows, openPanelWindow, openDrawingWindow })
     // 절전에서 깨면 곧바로 정기 실행을 확인한다 (docs/sdlc/scheduled-runs/ FR-14) — 30초를 기다리지 않는다. 판정은 평소의 tick과 같다
     const awake = core
     powerMonitor.on('resume', () => { void awake.schedules.wake() })

@@ -45,7 +45,7 @@ export interface PlanUsage {
  */
 export interface ItemChange {
   workspaceId: string
-  kind: 'issue' | 'memo' | 'asset' | 'repo' | 'workspace' | 'proposal' | 'schedule'
+  kind: 'issue' | 'memo' | 'asset' | 'repo' | 'workspace' | 'proposal' | 'drawing' | 'schedule'
 }
 
 /**
@@ -426,6 +426,52 @@ export interface GuardedUpdateMemoInput extends UpdateMemoInput {
 export type MemoUpdateResult =
   | { ok: true; memo: Memo }
   | { ok: false; current: Memo }
+
+/**
+ * repo의 그림 (docs/sdlc/drawings/ spec §2). 그림은 repo 하나에 속하고 repo를 지우면 같이 지워진다.
+ * 목록은 장면 없이(`DrawingSummary`), 하나를 열 때만 장면을 싣는다 — 목록마다 모든 장면을 나르지 않게.
+ */
+export interface DrawingSummary {
+  id: string
+  workspaceId: string
+  repoId: string
+  title: string
+  createdAt: number
+  /** 낙관적 잠금의 버전이기도 하다 — 장면 저장·이름 바꾸기가 올린다 */
+  updatedAt: number
+}
+
+export interface Drawing extends DrawingSummary {
+  /**
+   * Excalidraw 파일과 같은 머리에 요소 배열만 싣는 JSON(`{ type, version, source, elements }`). **지운 요소를 묘비로 남긴다** —
+   * 창 둘이 합칠 때 그것이 없으면 다른 창이 지운 요소를 되살린다(spec §0). core는 모양만 본다.
+   */
+  scene: string
+}
+
+/** repoId가 없으면 그 workspace의 그림 전부 — repo 삭제의 개수 경고가 쓴다 (spec FR-19) */
+export interface DrawingListQuery {
+  workspaceId: string
+  repoId?: string
+}
+
+export interface CreateDrawingInput {
+  workspaceId: string
+  repoId: string
+  /** 없으면 core가 `그림 N`을 붙인다 (spec FR-5) */
+  title?: string
+}
+
+export interface SaveSceneInput {
+  id: string
+  scene: string
+  expectedUpdatedAt: number
+}
+
+/** 메모의 `updateIfUnchanged`와 같은 모양 — 충돌은 오류가 아니라 결과다 */
+export type SaveSceneResult =
+  | { ok: true; drawing: DrawingSummary }
+  | { ok: false; current: Drawing }
 
 /** repoId가 주어지면 그 repo에 태그된 항목 + 태그가 없는 공통 항목을 함께 반환한다 (설계 §9). */
 export interface ListQuery {

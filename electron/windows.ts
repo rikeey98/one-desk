@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { externalLinkOf, isAppNavigation } from '@shared/links'
 import { panelHash, panelScopeKey, type PanelScope } from '@shared/panelWindow'
+import { drawingHash } from '@shared/drawingWindow'
 import { TITLEBAR_COLORS, TITLEBAR_HEIGHT } from '@shared/titleBar'
 
 /**
@@ -97,6 +98,8 @@ function createWindow(opts: {
 
 let mainWindow: BrowserWindow | null = null
 const panelWindows = new Map<string, BrowserWindow>()
+/** 그림 창 — 그림 id마다 하나 (docs/sdlc/drawings/ FR-9) */
+const drawingWindows = new Map<string, BrowserWindow>()
 
 /** 실행 중인 앱 창. 닫혔으면 null — 호출자는 항상 존재 여부를 확인한다. */
 export function getMainWindow(): BrowserWindow | null {
@@ -122,8 +125,27 @@ export function createMainWindow(): BrowserWindow {
     // 패널 창만 남은 앱은 만들지 않는다 (FR-16). close()라서 각 창의 beforeunload — 대기 중인
     // 저장을 흘려보내는 것(FR-15) — 을 탄다.
     for (const panel of panelWindows.values()) if (!panel.isDestroyed()) panel.close()
+    for (const drawing of drawingWindows.values()) if (!drawing.isDestroyed()) drawing.close()
   })
   return win
+}
+
+/**
+ * 그림 하나의 창 (docs/sdlc/drawings/ FR-9). 있으면 앞으로 가져오고, 없으면 만든다 — 패널 창과 같은 규칙이다. 있는 그림인지는 core가
+ * 이미 봤다. 창 제목은 렌더러가 `document.title`로 정한다.
+ */
+export function openDrawingWindow(drawingId: string): void {
+  const existing = drawingWindows.get(drawingId)
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore()
+    existing.focus()
+    return
+  }
+  const win = createWindow({ width: 1280, height: 860, hash: drawingHash(drawingId) })
+  drawingWindows.set(drawingId, win)
+  win.on('closed', () => {
+    if (drawingWindows.get(drawingId) === win) drawingWindows.delete(drawingId)
+  })
 }
 
 /**

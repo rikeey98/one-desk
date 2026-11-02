@@ -4,6 +4,7 @@ import { registerWorkspaceHandlers } from './workspaces'
 import { registerRepoHandlers } from './repos'
 import { registerIssueHandlers } from './issues'
 import { registerMemoHandlers } from './memos'
+import { registerDrawingHandlers } from './drawings'
 import { registerReportHandlers } from './reports'
 import { registerHomeHandlers } from './home'
 import { registerProposalHandlers } from './proposals'
@@ -33,6 +34,8 @@ export interface Windows {
   getMainWindow: GetWindow
   getAllWindows: () => BrowserWindow[]
   openPanelWindow: (scope: PanelScope) => void
+  /** 그림 하나의 창 (docs/sdlc/drawings/ FR-9) — id는 core가 이미 검증했다 */
+  openDrawingWindow: (drawingId: string) => void
 }
 
 export function registerIpc(core: Core, windows: Windows) {
@@ -40,6 +43,7 @@ export function registerIpc(core: Core, windows: Windows) {
   registerRepoHandlers(core)
   registerIssueHandlers(core)
   registerMemoHandlers(core)
+  registerDrawingHandlers(core)
   registerReportHandlers(core)
   registerHomeHandlers(core)
   registerProposalHandlers(core)

@@ -5,6 +5,7 @@ import { RenameField } from './RenameField'
 import { ConfirmButton } from './ConfirmButton'
 import { chipKey, type ContextChip } from '../context'
 import { repoTitleOf } from '../agentEnv'
+import { useDrawings } from '../hooks/useDrawings'
 import { IconExternalLink, IconFolder, IconPencil, IconPlus, IconTrash } from './icons'
 import type { Repo } from '@shared/models'
 
@@ -24,6 +25,8 @@ export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, 
   onOpenConsumed: () => void
 }) {
   const client = useClient()
+  // repo를 지우면 그 repo의 그림도 지워진다 — 확인 글이 개수를 말한다 (docs/sdlc/drawings/ FR-19)
+  const { drawings } = useDrawings(workspaceId)
   const [editing, setEditing] = useState<string | null>(null)
   // 열기 실패는 부모가 주는 `error`와 다른 출처다 — 목록을 읽다 난 오류가
   // 이 버튼 때문에 지워지면 안 된다.
@@ -130,11 +133,12 @@ export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, 
                     <IconPencil />
                   </button>
                   {/* repo 삭제는 이슈·메모에 붙은 태그만 떼고 본문은 남긴다 —
-                      workspace 삭제와 달리 두 번 누르기로 무게가 맞는다. */}
+                      workspace 삭제와 달리 두 번 누르기로 무게가 맞는다. 그림은 repo에 속해 같이 지워지므로
+                      있으면 확인 글이 개수를 말한다(docs/sdlc/drawings/ FR-19 — "정말 삭제?"는 남긴다, e2e가 그 이름에 기댄다). */}
                   <ConfirmButton
                     label={<IconTrash />}
                     className="row-action row-action-danger"
-                    confirmLabel="정말 삭제?"
+                    confirmLabel={deleteConfirmLabel(drawings.filter((d) => d.repoId === r.id).length)}
                     ariaLabel={`${r.name} 삭제`}
                     onConfirm={() => void removeRepo(r.id)}
                   />
@@ -165,4 +169,9 @@ export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, 
       )}
     </div>
   )
+}
+
+/** repo 삭제의 확인 글 — 그 repo의 그림이 같이 지워지면 개수를 말한다 (docs/sdlc/drawings/ FR-19) */
+export function deleteConfirmLabel(drawingCount: number): string {
+  return drawingCount > 0 ? `그림 ${drawingCount}개도 지워집니다 · 정말 삭제?` : '정말 삭제?'
 }

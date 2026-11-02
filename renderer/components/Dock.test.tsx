@@ -31,6 +31,11 @@ vi.mock('./code/TerminalPane', () => ({
   )
 }))
 
+// 그림 칸은 Excalidraw·IPC를 품는다 — 도크 테스트는 어느 repo로 칸이 서는지만 본다(DrawingPane.test가 칸을 본다)
+vi.mock('./drawing/DrawingPane', () => ({
+  DrawingPane: ({ repo }: { repo: Repo }) => <section aria-label="그림 칸">{repo.name}의 그림</section>
+}))
+
 const repos: Repo[] = [
   { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 }
 ]
@@ -1616,7 +1621,7 @@ describe('코드 칸 (docs/sdlc/code-editor/ FR-1~FR-7·FR-23)', () => {
     await pickConv('web 대화')
 
     const names = [...buttonSlot.querySelectorAll('button')].map((b) => b.getAttribute('aria-label'))
-    expect(names).toEqual(['터미널', '파일'])
+    expect(names).toEqual(['그림', '터미널', '파일'])
     const terminal = screen.getByRole('button', { name: '터미널' })
     expect(terminal).toHaveAttribute('title', '터미널 — web')
     await userEvent.click(terminal)
@@ -1643,6 +1648,27 @@ describe('코드 칸 (docs/sdlc/code-editor/ FR-1~FR-7·FR-23)', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '터미널' }))
     expect(screen.queryByRole('region', { name: '터미널 칸' })).not.toBeInTheDocument()
+  })
+
+  it('그림 버튼은 칸을 그 대화 repo의 그림 칸으로 바꾼다 — 다시 누르면 닫힌다 (docs/sdlc/drawings/ FR-11)', async () => {
+    const { client } = paneClient()
+    renderPaneDock([webConv], client)
+    await pickConv('web 대화')
+
+    const drawing = screen.getByRole('button', { name: '그림' })
+    expect(drawing).toHaveAttribute('title', '그림 — web')
+    await userEvent.click(drawing)
+    expect(drawing).toHaveAttribute('aria-pressed', 'true')
+    const region = screen.getByRole('region', { name: '그림 칸' })
+    expect(slot).toContainElement(region)
+    expect(region).toHaveTextContent('web의 그림')
+    expect(localStorage.getItem('one-desk.codePane.kind')).toBe('drawing')
+
+    await userEvent.click(screen.getByRole('button', { name: '터미널' }))
+    expect(screen.queryByRole('region', { name: '그림 칸' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '그림' }))
+    await userEvent.click(screen.getByRole('button', { name: '그림' }))
+    expect(screen.queryByRole('region', { name: '그림 칸' })).not.toBeInTheDocument()
   })
 
   it('터미널의 `대화에 붙이기`는 고른 글을 코드 블록으로 보는 대화의 입력칸 끝에 붙이고 그리로 간다', async () => {
