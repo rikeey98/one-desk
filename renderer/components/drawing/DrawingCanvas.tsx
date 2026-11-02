@@ -24,6 +24,34 @@ import type { Drawing } from '@shared/models'
  */
 export type SaveStatus = { kind: 'saving' } | { kind: 'saved' } | { kind: 'failed'; message: string }
 
+/*
+ * Excalidraw에 넘기는 것은 렌더마다 같은 값이어야 한다. Excalidraw는 memo된 컴포넌트이고, 다시 그려질 때마다 onChange를 부른다 —
+ * 부모의 "저장 중" 표시 한 번이 onChange를 부르고, 그것이 저장을 또 걸던 고리였다(창 닫기가 끝나지 않았다).
+ */
+const UI_OPTIONS = {
+  canvasActions: {
+    loadScene: false,
+    saveToActiveFile: false,
+    export: false as const,
+    saveAsImage: false,
+    changeViewBackgroundColor: false,
+    toggleTheme: false
+  },
+  tools: { image: false }
+}
+/** 끼워 넣기는 전부 거부하고 그리지 않는다 (FR-26) */
+const rejectEmbeddable = () => false
+const renderNoEmbeddable = () => null
+const onPaste = (data: Parameters<typeof blocksPaste>[0]) => !blocksPaste(data)
+/** 주 메뉴는 고른 것만 — 소셜 링크·Excalidraw+·불러오기가 없다 (FR-25). 자식을 넘기면 환영 화면도 서지 않는다 */
+const MENU = (
+  <MainMenu>
+    <MainMenu.DefaultItems.SearchMenu />
+    <MainMenu.DefaultItems.Help />
+    <MainMenu.DefaultItems.ClearCanvas />
+  </MainMenu>
+)
+
 function usePrefersDark(): boolean {
   const query = '(prefers-color-scheme: dark)'
   const [dark, setDark] = useState(() => window.matchMedia?.(query).matches ?? false)
@@ -96,6 +124,8 @@ export default function DrawingCanvas({ drawing, onStatus, onDeleted }: {
   // 다른 창(또는 같은 그림을 연 다른 칸)이 저장했다 — 다시 읽어 합친다 (FR-21의 5)
   useItemChanged(drawing.workspaceId, 'drawing', () => sync.remoteChanged().catch(() => { /* 다음 알림이나 저장이 다시 본다 */ }))
 
+  const setApi = useCallback((instance: ExcalidrawImperativeAPI) => { api.current = instance }, [])
+
   const onChange = useCallback((elements: readonly OrderedExcalidrawElement[]) => {
     if (sync.needsSave(elements as unknown as SceneElement[])) schedule('')
   }, [sync, schedule])
@@ -115,33 +145,18 @@ export default function DrawingCanvas({ drawing, onStatus, onDeleted }: {
   return (
     <div className="drawing-canvas" onKeyDown={onKeyDown} onDropCapture={onDropCapture}>
       <Excalidraw
-        excalidrawAPI={(instance) => { api.current = instance }}
+        excalidrawAPI={setApi}
         initialData={initialData}
         onChange={onChange}
         langCode="ko-KR"
         theme={dark ? 'dark' : 'light'}
         aiEnabled={false}
-        validateEmbeddable={() => false}
-        renderEmbeddable={() => null}
-        onPaste={(data) => !blocksPaste(data)}
-        UIOptions={{
-          canvasActions: {
-            loadScene: false,
-            saveToActiveFile: false,
-            export: false,
-            saveAsImage: false,
-            changeViewBackgroundColor: false,
-            toggleTheme: false
-          },
-          tools: { image: false }
-        }}
+        validateEmbeddable={rejectEmbeddable}
+        renderEmbeddable={renderNoEmbeddable}
+        onPaste={onPaste}
+        UIOptions={UI_OPTIONS}
       >
-        {/* 주 메뉴는 고른 것만 — 소셜 링크·Excalidraw+·불러오기가 없다 (FR-25). 자식을 넘기면 환영 화면도 서지 않는다 */}
-        <MainMenu>
-          <MainMenu.DefaultItems.SearchMenu />
-          <MainMenu.DefaultItems.Help />
-          <MainMenu.DefaultItems.ClearCanvas />
-        </MainMenu>
+        {MENU}
       </Excalidraw>
     </div>
   )

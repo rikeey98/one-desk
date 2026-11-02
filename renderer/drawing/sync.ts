@@ -85,6 +85,11 @@ export function createDrawingSync(deps: SyncDeps, initial: Drawing): DrawingSync
   let synced = sceneKey(parseSceneElements(initial.scene))
   /** 내가 보냈거나 보내는 중인 장면의 열쇠 — 알림이 응답보다 먼저 와도 내 메아리를 알아본다 */
   const mine = new Set<string>()
+  /**
+   * 지금 날아가는 저장의 열쇠. Excalidraw는 부모가 다시 그릴 때마다 같은 요소로 onChange를 부른다 — "저장 중" 표시가 그 계기다.
+   * 이것을 보지 않으면 날아가는 장면을 또 걸어 대기 중인 저장이 늘 남고, 창 닫기(`guardUnload`)가 그것을 흘려보내느라 닫히지 않는다.
+   */
+  let saving: string | null = null
   let deleted = false
 
   function markDeleted() {
@@ -103,7 +108,9 @@ export function createDrawingSync(deps: SyncDeps, initial: Drawing): DrawingSync
 
   return {
     needsSave(elements) {
-      return !deleted && sceneKey(elements) !== synced
+      if (deleted) return false
+      const key = sceneKey(elements)
+      return key !== synced && key !== saving
     },
 
     async save() {
@@ -114,7 +121,13 @@ export function createDrawingSync(deps: SyncDeps, initial: Drawing): DrawingSync
           const key = sceneKey(elements)
           if (key === synced) return true
           mine.add(key)
-          const result = await deps.save({ id: deps.drawingId, scene: sceneText(elements), expectedUpdatedAt: expected })
+          saving = key
+          let result: SaveSceneResult
+          try {
+            result = await deps.save({ id: deps.drawingId, scene: sceneText(elements), expectedUpdatedAt: expected })
+          } finally {
+            saving = null
+          }
           if (result.ok) {
             // 응답보다 늦게 온 남의 판이 이미 기대값을 올렸으면 내리지 않는다
             if (result.drawing.updatedAt > expected) {

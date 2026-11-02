@@ -1435,11 +1435,13 @@ button.report-flow-line:hover { background: var(--bg-muted); }
 .drawing-delete.confirm-armed.row-action { width: auto; padding: 0 7px; white-space: nowrap; }
 .drawing-body { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .drawing-canvas { flex: 1 1 auto; position: relative; min-height: 0; }
-/* 라이브러리 버튼은 세우지 않는다 — 저장할 자리가 없고 가져오기가 외부 사이트로 간다 (FR-25, plan 0단계 5) */
-.drawing-canvas .default-sidebar-trigger { display: none; }
+/* 라이브러리 버튼은 세우지 않는다 — 저장할 자리가 없고 가져오기가 외부 사이트로 간다 (FR-25, plan 0단계 5). 버튼은
+   `label.sidebar-trigger__label-element`(그 안에 체크박스와 `.default-sidebar-trigger`)이고, Excalidraw의 CSS가 뒤에 불려 같은
+   구체성이면 그것이 이긴다 — `.excalidraw`를 끼워 한 단 높인다. 좁은 칸(모바일 배치)과 창(데스크톱 배치) 둘 다 같은 요소다. */
+.drawing-canvas .excalidraw .sidebar-trigger__label-element { display: none; }
 
 /* 그림 창 (FR-10) — 머리 한 줄과 캔버스뿐이다 */
-.drawing-window-root { display: flex; flex-direction: column; height: 100vh; background: var(--bg); color: var(--text); }
+.drawing-window-root { display: flex; flex-direction: column; height: 100vh; font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); }
 .drawing-window-head { flex: 0 0 auto; display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 8px 14px; border-bottom: 1px solid var(--border-faint); font-size: .8125rem; }
 .drawing-window-head h1 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .875rem; font-weight: 600; }
 .drawing-window-repo { flex: 0 0 auto; color: var(--text-secondary); }

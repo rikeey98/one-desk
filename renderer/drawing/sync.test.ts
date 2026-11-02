@@ -92,6 +92,22 @@ describe('그림 동기화 (docs/sdlc/drawings/ spec FR-21)', () => {
     expect(h.saves[1]!.expectedUpdatedAt).toBe(11)
   })
 
+  it('저장이 날아가는 사이 같은 장면의 onChange는 저장을 다시 걸지 않는다 — Excalidraw는 다시 그릴 때마다 onChange를 부른다', async () => {
+    let release: (r: SaveSceneResult) => void = () => {}
+    const h = harness(drawing([el('a')], 10), {
+      save: vi.fn((): Promise<SaveSceneResult> => new Promise((r) => { release = r }))
+    })
+    h.draw([el('a', 2)])
+    const pending = h.sync.save()
+    // 저장 중이라는 표시가 화면을 다시 그리고, 그것이 같은 요소로 onChange를 부른다
+    expect(h.sync.needsSave(h.canvas())).toBe(false)
+    // 그 사이 정말로 고치면 저장할 것이 있다
+    expect(h.sync.needsSave([el('a', 3)])).toBe(true)
+    release({ ok: true, drawing: drawing([el('a', 2)], 11) })
+    expect(await pending).toBe(true)
+    expect(h.sync.needsSave(h.canvas())).toBe(false)
+  })
+
   it('충돌하면 합쳐서 캔버스에 넣고 그 위에서 다시 저장한다', async () => {
     const theirs = drawing([el('a', 5), el('b', 1)], 20)
     let first = true
