@@ -248,3 +248,56 @@ export const proposal = sqliteTable('proposal', {
   uniqueIndex('proposal_pending_issue_idx').on(t.rootRunId)
     .where(sql`status = 'pending' AND kind = 'conversation-issue'`)
 ])
+
+/**
+ * 정기 실행 (`docs/sdlc/scheduled-runs/` spec FR-1). 정의 컬럼은 사람이 저장소의 `update`로, 상태 컬럼(`anchor_at`·
+ * `consecutive_failures`·`conversation_id`·저절로 끄기)은 스케줄러가 따로 쓴다 — 서로의 컬럼을 덮지 않는다(FR-4).
+ *
+ * `repo_id`는 **set null**이다 — repo를 지우면 정기 실행을 지우지 않고 끈다(FR-21). `conversation_id`에 외래키가 없는 것은
+ * `run.parent_run_id`와 같은 판단이다. `trigger`·`context`는 JSON이고 쓰고 읽을 때 같은 검증을 탄다.
+ */
+export const schedule = sqliteTable('schedule', {
+  id: text('id').primaryKey(),
+  workspaceId: text('workspace_id').notNull()
+    .references(() => workspace.id, { onDelete: 'cascade' }),
+  repoId: text('repo_id').references(() => repo.id, { onDelete: 'set null' }),
+  name: text('name').notNull(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  disabledReason: text('disabled_reason').$type<'failures' | 'repo_missing'>(),
+  trigger: text('trigger').notNull(),
+  timeZone: text('time_zone').notNull(),
+  conversationMode: text('conversation_mode').$type<'new' | 'continue'>().notNull(),
+  conversationId: text('conversation_id'),
+  agentKind: text('agent_kind', { enum: ['claude-code', 'opencode'] }).notNull(),
+  model: text('model'),
+  effort: text('effort'),
+  permission: text('permission', { enum: ['read_only', 'edit', 'full'] }).notNull(),
+  prompt: text('prompt').notNull(),
+  context: text('context').notNull().default('[]'),
+  /** 이 시각까지의 회차는 이미 처리했다 (FR-10·12) */
+  anchorAt: integer('anchor_at').notNull(),
+  consecutiveFailures: integer('consecutive_failures').notNull().default(0),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull()
+}, (t) => [
+  index('schedule_workspace_idx').on(t.workspaceId)
+])
+
+/** 정기 실행의 실행 기록 (FR-3). 정기 실행마다 최근 50줄만 남는다(FR-5). `run_id`는 기록일 뿐이라 외래키가 없다 */
+export const scheduleFire = sqliteTable('schedule_fire', {
+  id: text('id').primaryKey(),
+  scheduleId: text('schedule_id').notNull()
+    .references(() => schedule.id, { onDelete: 'cascade' }),
+  cause: text('cause').$type<'on_time' | 'missed' | 'manual'>().notNull(),
+  slotAt: integer('slot_at'),
+  firedAt: integer('fired_at').notNull(),
+  outcome: text('outcome').$type<'started' | 'skipped' | 'error'>().notNull(),
+  skipReason: text('skip_reason').$type<'busy' | 'needs_answer'>(),
+  message: text('message'),
+  runId: text('run_id'),
+  droppedContext: integer('dropped_context').notNull().default(0)
+}, (t) => [
+  index('schedule_fire_schedule_idx').on(t.scheduleId, t.firedAt),
+  // run이 끝날 때 그 run을 낸 기록을 찾는다 (FR-20)
+  index('schedule_fire_run_idx').on(t.runId)
+])
