@@ -72,7 +72,7 @@ export function ScheduleForm(props: {
 
       <div className="settings-grid">
         <label className="settings-field">
-          workspace
+          워크스페이스
           <select
             aria-label="정기 실행 workspace" value={d.workspaceId} disabled={props.editing}
             onChange={(e) => props.onWorkspace(e.target.value)}
@@ -98,7 +98,7 @@ export function ScheduleForm(props: {
             ))}
           </select>
         </label>
-        <ModelField agentKind={d.agentKind} label="정기 실행 모델" value={d.model} onChange={(model) => onChange({ model })} />
+        <ModelField agentKind={d.agentKind} label="모델" value={d.model} onChange={(model) => onChange({ model })} />
       </div>
 
       <div className="settings-grid">

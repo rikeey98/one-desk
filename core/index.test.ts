@@ -1769,6 +1769,15 @@ describe('agent의 제안 (docs/sdlc/agent-proposals/)', () => {
 describe('정기 실행 (docs/sdlc/scheduled-runs/)', () => {
   const DAY = 24 * 60 * 60_000
 
+  /**
+   * 한 시간 전의 UTC HH:MM — 매일 그 시각이면 가장 늦은 회차가 늘 한 시간 전이라 "놓쳐서"가 결정적이다. 고정 시각이면 그 시각 직후 2분
+   * 안에 돈 테스트만 "정시"가 된다(e2e가 실제로 그렇게 깨졌다).
+   */
+  function hourAgoUtc(): string {
+    const d = new Date(Date.now() - 60 * 60_000)
+    return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+  }
+
   async function withAgentPath(path: string, fn: () => Promise<void>): Promise<void> {
     const previous = process.env['ONE_DESK_AGENT_PATH']
     process.env['ONE_DESK_AGENT_PATH'] = path
@@ -1786,7 +1795,7 @@ describe('정기 실행 (docs/sdlc/scheduled-runs/)', () => {
     mkdirSync(repoPath, { recursive: true })
     const repoId = (await core.repos.create({ workspaceId, name: 'api', path: repoPath })).id
     const schedule = core.schedules.create({
-      workspaceId, repoId, name: '아침', trigger: { kind: 'daily', time: '09:00' }, timeZone: 'Asia/Seoul',
+      workspaceId, repoId, name: '아침', trigger: { kind: 'daily', time: hourAgoUtc() }, timeZone: 'UTC',
       conversationMode: 'new', agentKind: 'claude-code', model: null, effort: null, permission: 'read_only',
       prompt, context: []
     })

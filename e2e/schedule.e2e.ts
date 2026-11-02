@@ -15,6 +15,15 @@ import { launchApp, type AppSession } from './driver'
 const TICK_ENV = { ONE_DESK_SCHEDULE_TICK_MS: '3600000' }
 const DAY = 24 * 60 * 60_000
 
+/**
+ * 한 시간 전의 로컬 HH:MM — 매일 그 시각이면 가장 늦은 회차가 늘 한 시간 전이다. **고정 시각(09:00)을 쓰지 말 것** — 09:00 직후 2분 안에
+ * 돌면 다시 켤 때의 회차가 "정시"로 기록돼 "놓쳐서 실행"을 못 본다(실제로 한 번 그렇게 깨졌다, 컨테이너 시각 UTC 09:01).
+ */
+function hourAgo(): string {
+  const d = new Date(Date.now() - 60 * 60_000)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 /** 앱의 main 프로세스에서 SQL 하나를 돌린다 — home.e2e.ts의 것과 같다(e2e 프로세스의 better-sqlite3는 Electron ABI다) */
 async function runSql(app: AppSession, sql: string, params: unknown[]): Promise<void> {
   const modulePath = createRequire(import.meta.url).resolve('better-sqlite3')
@@ -54,12 +63,12 @@ async function openSchedules(page: Page): Promise<void> {
   await page.getByRole('region', { name: '정기 실행' }).waitFor({ state: 'visible', timeout: 10_000 })
 }
 
-async function fillNew(page: Page, name: string): Promise<void> {
+async function fillNew(page: Page, name: string, time: string): Promise<void> {
   await page.getByRole('button', { name: '새 정기 실행' }).click()
   await page.getByLabel('정기 실행 이름').fill(name)
   await page.getByLabel('정기 실행 지시').fill('열린 이슈를 요약해 줘')
   await page.getByRole('radio', { name: '매일' }).check()
-  await page.getByLabel('정기 실행 시각').fill('09:00')
+  await page.getByLabel('정기 실행 시각').fill(time)
 }
 
 describe('정기 실행 (docs/sdlc/scheduled-runs/)', () => {
@@ -69,7 +78,8 @@ describe('정기 실행 (docs/sdlc/scheduled-runs/)', () => {
     await setup(page, app.repoDir)
     await openSchedules(page)
 
-    await fillNew(page, '아침 훑기')
+    const time = hourAgo()
+    await fillNew(page, '아침 훑기', time)
     await page.getByRole('checkbox', { name: /환불 웹훅/ }).check()
     // 미리보기는 core가 계산한 세 시각이다 (FR-9)
     const preview = page.locator('.schedule-preview')
@@ -78,7 +88,7 @@ describe('정기 실행 (docs/sdlc/scheduled-runs/)', () => {
 
     const row = page.getByRole('button', { name: '아침 훑기 정기 실행 편집' })
     await row.waitFor({ state: 'visible', timeout: 10_000 })
-    expect(await row.textContent()).toContain('api · 매일 09:00')
+    expect(await row.textContent()).toContain(`api · 매일 ${time}`)
 
     // 지금 실행 → 기록 한 줄 → 끝나면 완료
     await page.getByRole('button', { name: '지금 실행' }).click()
@@ -112,7 +122,7 @@ describe('정기 실행 (docs/sdlc/scheduled-runs/)', () => {
     await setup(page, app.repoDir)
     await openSchedules(page)
 
-    await fillNew(page, '위험한 정리')
+    await fillNew(page, '위험한 정리', '09:00')
     await page.getByLabel('정기 실행 권한').selectOption('full')
     await page.getByText(/사람이 보지 않는 시각에/).waitFor({ state: 'visible', timeout: 5_000 })
     const form = page.getByRole('form', { name: '정기 실행 편집' })
