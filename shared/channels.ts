@@ -32,6 +32,12 @@ export const CHANNELS = {
   memosUpdate: 'memos:update',
   memosUpdateIfUnchanged: 'memos:updateIfUnchanged',
   memosRemove: 'memos:remove',
+  drawingsList: 'drawings:list',
+  drawingsGet: 'drawings:get',
+  drawingsCreate: 'drawings:create',
+  drawingsRename: 'drawings:rename',
+  drawingsSaveScene: 'drawings:saveScene',
+  drawingsRemove: 'drawings:remove',
   commandsList: 'commands:list',
   commandsRefresh: 'commands:refresh',
   assetsList: 'assets:list',
@@ -86,6 +92,8 @@ export const CHANNELS = {
   appPickDirectory: 'app:pickDirectory',
   /** 이슈·메모·asset 패널을 repo마다 별도 창으로 연다 (docs/sdlc/item-windows/) */
   appOpenPanelWindow: 'app:openPanelWindow',
+  /** 그림 하나를 별도 창으로 연다 (docs/sdlc/drawings/ FR-9) */
+  appOpenDrawingWindow: 'app:openDrawingWindow',
   runsMarkReviewed: 'runs:markReviewed',
   runsResume: 'runs:resume',
   runsClose: 'runs:close',

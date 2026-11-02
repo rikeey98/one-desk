@@ -5,7 +5,7 @@ import { spawn as spawnPty } from 'node-pty'
 import { createCore, type Core } from '@core/index'
 import { portableUnpackOf, removePortableLeftovers } from '@core/app/portableUnpack'
 import { registerIpc } from './ipc'
-import { createMainWindow, getAllWindows, getMainWindow, openPanelWindow } from './windows'
+import { createMainWindow, getAllWindows, getMainWindow, openDrawingWindow, openPanelWindow } from './windows'
 
 let core: Core | null = null
 
@@ -92,7 +92,7 @@ if (dataDirError) {
       return
     }
 
-    registerIpc(core, { getMainWindow, getAllWindows, openPanelWindow })
+    registerIpc(core, { getMainWindow, getAllWindows, openPanelWindow, openDrawingWindow })
     // 다운로드는 막는다 (docs/sdlc/conversation-timeline/ spec FR-24 다듬음 — 리뷰가 찾은 것).
     // Chromium은 Windows·Linux에서 Alt+클릭한 링크를 새 창도 탐색도 아닌 **다운로드**로 처리하고,
     // 그 요청은 아래 창의 setWindowOpenHandler·will-navigate 어디에도 걸리지 않고 여기로 온다 —

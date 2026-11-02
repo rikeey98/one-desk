@@ -5,8 +5,9 @@ import { createRepoRepository } from './db/repositories/repo'
 import { createIssueRepository } from './db/repositories/issue'
 import { createMemoRepository } from './db/repositories/memo'
 import { createAssetRepository } from './db/repositories/asset'
+import { createDrawingRepository } from './db/repositories/drawing'
 import {
-  notifyingIssues, notifyingMemos, notifyingAssets, notifyingRepos, notifyingWorkspaces
+  notifyingIssues, notifyingMemos, notifyingAssets, notifyingRepos, notifyingWorkspaces, notifyingDrawings
 } from './changes'
 import type { ItemChange } from '@shared/models'
 import type { Database } from './db/open'
@@ -56,6 +57,19 @@ describe('바뀜 알림 래퍼 (item-windows FR-17)', () => {
     memos.remove(made.id)
     memos.remove('없는 id')
     expect(seen).toEqual(Array(4).fill({ workspaceId, kind: 'memo' }))
+  })
+
+  it('그림: 만들기·이름·저장·지우기가 알리고, 충돌로 끝난 저장과 읽기는 알리지 않는다 (drawings FR-4)', () => {
+    const drawings = notifyingDrawings(createDrawingRepository(db), notify)
+    const made = drawings.create({ workspaceId, repoId })
+    const renamed = drawings.rename(made.id, '구조도')
+    drawings.saveScene({ id: made.id, scene: '{"elements":[]}', expectedUpdatedAt: renamed.updatedAt })
+    expect(drawings.saveScene({ id: made.id, scene: '{"elements":[]}', expectedUpdatedAt: 0 }).ok).toBe(false)
+    drawings.list({ workspaceId })
+    drawings.get(made.id)
+    drawings.remove(made.id)
+    drawings.remove('없는 id')
+    expect(seen).toEqual(Array(4).fill({ workspaceId, kind: 'drawing' }))
   })
 
   it('asset: 앱에서 쓴 것만 알린다', () => {

@@ -248,3 +248,20 @@ export const proposal = sqliteTable('proposal', {
   uniqueIndex('proposal_pending_issue_idx').on(t.rootRunId)
     .where(sql`status = 'pending' AND kind = 'conversation-issue'`)
 ])
+
+/**
+ * repo의 그림 (`docs/sdlc/drawings/` spec §2). **그림은 repo 하나에 속한다** — 이슈·메모의 태그와 달리 repo를 지우면 같이
+ * 지워진다(사이드바의 삭제 확인이 개수를 말한다). `workspace_id`는 바뀜 알림과 소속 검증을 위해 둔다.
+ * `scene`은 요소 배열만 싣는 JSON이고 지운 요소를 묘비로 남긴다(창 사이 합치기). `updated_at`은 낙관적 잠금의 버전이다.
+ */
+export const drawing = sqliteTable('drawing', {
+  id: text('id').primaryKey(),
+  workspaceId: text('workspace_id').notNull()
+    .references(() => workspace.id, { onDelete: 'cascade' }),
+  repoId: text('repo_id').notNull()
+    .references(() => repo.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  scene: text('scene').notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull()
+}, (t) => [index('drawing_repo_idx').on(t.repoId, t.createdAt)])
