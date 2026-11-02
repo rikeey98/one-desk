@@ -144,3 +144,16 @@ file:에서 띄우고 Playwright로 몰았다(xvfb). 처음에 일반 Chromium�
 | `find`의 null | core "그림 창은 있는 그림만 연다" |
 | 원격 대체 글꼴 걷기 | guards "esm.sh의 Excalidraw 원본만 걷는다" |
 | 붙여넣기의 이미지 요소 | guards "붙일 데이터에 파일이 있거나 이미지 요소가 섞였으면 막는다" |
+
+e2e 변이 여섯(줄마다 다시 빌드해 `e2e/drawing.e2e.ts`)도 전부 빨개졌다:
+
+| 되돌린 줄 | 빨개진 자리 |
+|---|---|
+| `sceneText`가 지운 요소를 거른다 | 창에서 지운 것이 칸의 저장으로 되살아나 장면이 바뀐다 |
+| `EXCALIDRAW_ASSET_PATH` 한 줄 | Xiaolai가 `loaded`가 되지 않는다 |
+| `FontFace` 감싸기 | CSP 위반 230줄 |
+| `main.tsx`의 그림 해시 분기 | 새 창에 캔버스가 서지 않는다(앱 창이 그려진다) |
+| 그림 창의 `guardUnload` | 그리자마자 닫은 창의 도형이 저장되지 않는다 |
+| 끌어 놓기 막기 | 끌어 놓은 `.excalidraw`가 장면을 바꾼다 |
+
+- e2e 전체: `pnpm test:e2e` 33 파일 · 69 테스트 통과, 3 파일 건너뜀(진짜 CLI · WSL · opencode — 이 환경에 없다). 300초.
