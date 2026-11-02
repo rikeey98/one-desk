@@ -474,6 +474,13 @@ repo → CLI → 첫 대화)이 그 자리에 서고, 단계마다 가는 곳은
   버튼과 이름이 같지만 한 화면에 서지 않는다). 다크 캡처는 `emulateMedia` 뒤에 버튼의 transition(.12s)을 기다려야 한다 — 바로 찍으면
   버튼이 흰 채로 찍힌다.
 
+**사이드바 하단 줄이 에이전트 현황이다** (`docs/sdlc/agent-status/`, 2026-11-02). 마이그레이션 없음. MCP 줄이 버튼(이름 `에이전트 현황` —
+바뀌는 글자를 이름에 넣지 않는다, 부분 일치 셀렉터 `상태`·`설정`·`agent`·`실행 슬롯`과 부딪힌다)이 되어 `MCP :53021 … 실행 1/3 +2 대기`를
+보이고(대기는 `대기 N`이 아니다 — `queue.e2e`의 `getByText('대기 1')`), 누르면 App이 그리는 popover `AgentActivityPanel`이 뜬다: 지금 동작(홈 요약의
+`running`) · 에이전트 설치(설정 실행 탭과 같은 `useCliReadiness`·`AgentStatusRow`) · 실행 환경(workspace 기본값) · 설정 파일. **설정 파일은
+(종류, repo id)로만 연다** — `core/app/configFiles.ts`가 종류·repoId 모양을 검증해 경로를 정하고 없는 파일은 던지며, electron은 `shell.openPath`만
+한다(`reveal`과 같은 원칙). 파일 확인은 비동기 stat이다(`\\wsl$` UNC). Sidebar의 `queue`·`activityOpen`·`onToggleActivity`는 필수다.
+
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
 한동안 "5단계 착수 전에 정할 것"으로 잡아두고 **평문 SQLite에 자격 증명을 넣을지**를 막힌 결정으로 남겼던 항목이다. 대상 환경을 실측해 보니 **배관 자체가 불필요했다.**
@@ -1211,6 +1218,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/ux-polish/` | UI/UX 분석이 꼽은 여덟 가지 — intent·spec·plan. 상세가 열리면 도크가 하한(FR-1), 빈 상태 하나·리포트의 가까운 preset 제안(FR-2), 한국어 표와 `열림` 배지 생략(FR-3), 전역 단축키 표와 일회성 prop 배선(FR-8·9), 뒤집은 결정(intent), App 배선 변이 표(plan). 시안 비교 https://claude.ai/artifact/VQBSR9ruuhjttD6P9Choqn |
 | `docs/sdlc/home/` | 앱을 열면 "오늘 할 일"이 보이는 홈 — intent·spec·plan. 미해결 질문의 답(spec §0), 할 일 넷과 배지(FR-3·4), core 한 자리와 MCP 제외(FR-1), 렌더러가 넘기는 오늘의 경계(FR-5), 새 대화 카드를 App이 직접 보내는 이유(FR-11·plan 개정 1), 준비 단계와 CLI 칸(FR-14~16·plan 개정 8), 이름 충돌(NFR-3), 코드를 보고 spec을 고친 여덟(plan §0), 변이 표와 완료 증명(plan). 시안 https://claude.ai/artifact/ST6FQPHU8XPSKXTREZHPVN 셋째 줄 |
 | `docs/sdlc/agent-proposals/` | agent가 알아채 제안하고 사람은 한 번 누른다 — intent·spec·plan(첫째 사이클: 대화의 이슈화). 세 데이터 모양 비교(spec §2-1), 읽기 전용의 새 정의(FR-13), 안내의 조건(FR-15)과 문구(FR-16), 받기 트랜잭션(FR-17·18), 배너(FR-21~23), 사용자가 뒤집을 수 있는 결정(§8). plan에 0단계 실측(중첩 트랜잭션·OpenCode MCP 권한)·변이 표·진짜 claude 측정 |
+| `docs/sdlc/agent-status/` | 사이드바 하단의 에이전트 현황 — spec. 하단 줄의 이름과 글자 규칙(FR-1·2), 패널의 넷(FR-3~5), 설정 파일을 (종류, repo id)로만 여는 이유(FR-7), 뒤집을 수 있는 결정(§4) |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |

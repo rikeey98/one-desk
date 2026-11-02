@@ -5,6 +5,7 @@ import { IssuePanel } from './components/IssuePanel'
 import { MemoPanel } from './components/MemoPanel'
 import { AssetPanel } from './components/AssetPanel'
 import { SettingsPanel } from './components/SettingsPanel'
+import { AgentActivityPanel } from './components/AgentActivityPanel'
 import { Dock } from './components/Dock'
 import { InboxPanel } from './components/InboxPanel'
 import { useRuns } from './hooks/useRuns'
@@ -61,6 +62,8 @@ export default function App() {
   const [openItem, setOpenItem] = useState<{ panel: 'issue' | 'memo' | 'asset'; id: string } | null>(null)
   // `?` 단축키 목록 (docs/sdlc/ux-polish/ FR-8)
   const [helpOpen, setHelpOpen] = useState(false)
+  // 에이전트 현황 패널 (docs/sdlc/agent-status/ FR-3) — 사이드바 하단 줄이 열고 닫는다
+  const [activityOpen, setActivityOpen] = useState(false)
   // 단축키의 일회성 지시 둘 — 받는 쪽이 치운다 (`focusConversationId`와 같은 모양)
   const [dockToggle, setDockToggle] = useState(false)
   const [addFocus, setAddFocus] = useState<'issue' | 'memo' | null>(null)
@@ -485,6 +488,20 @@ export default function App() {
         <div className="titlebar-actions" ref={setTitleSlot} />
       </header>
       {helpOpen && <ShortcutHelp onClose={() => setHelpOpen(false)} />}
+      {/* 에이전트 현황 (docs/sdlc/agent-status/ FR-3) — 사이드바 하단 줄이 연다. 최상위 레이어 popover라 DOM 자리는 상관없다 */}
+      {activityOpen && (
+        <AgentActivityPanel
+          // 사이드바·설정과 같은 인스턴스들이다 — 패널이 다른 말을 하면 어느 쪽을 믿을지 모른다
+          workspaces={workspaces}
+          workspaceId={workspaceId}
+          mcpStatus={mcpStatus}
+          queue={queue}
+          planUsage={planUsage}
+          onOpenConversation={openReportConversation}
+          onOpenSettings={() => setView('settings')}
+          onClose={() => setActivityOpen(false)}
+        />
+      )}
       <div className="app">
         <Sidebar
           workspaces={workspaces}
@@ -505,6 +522,10 @@ export default function App() {
           countsError={inboxError}
           mcpStatus={mcpStatus}
           planUsage={planUsage}
+          // 하단 줄의 실행 현황 — 도크·설정과 같은 스냅샷이다(docs/sdlc/agent-status/ FR-1)
+          queue={queue}
+          activityOpen={activityOpen}
+          onToggleActivity={() => setActivityOpen((open) => !open)}
           onDeleted={forgetWorkspace}
           collapsed={sidebarCollapsed}
           // repo 목록은 사이드바의 고른 workspace 아래에 붙는다 (2026-09-22). 본문 상단에
