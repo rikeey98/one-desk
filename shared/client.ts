@@ -1,4 +1,6 @@
+import type { ScheduleTrigger } from './scheduleTrigger'
 import type {
+  ScheduleFireView, ScheduleInput, SchedulePreview, ScheduleView,
   Workspace, Repo, Issue, Memo, Run,
   CreateWorkspaceInput, CreateRepoInput,
   CreateIssueInput, UpdateIssueInput,
@@ -134,6 +136,23 @@ export interface OneDeskClient {
     accept(id: string, choice: AcceptIssueProposal): Promise<{ issue: Issue; conversation: Run }>
     /** 되돌리는 길이 없다(FR-19) */
     decline(id: string): Promise<Proposal>
+  }
+  /**
+   * 정기 실행 (`docs/sdlc/scheduled-runs/` FR-24). workspace를 넘는 목록이고 화면 전용이다 — MCP에는 없다(FR-25). 검증은 core가 한다.
+   */
+  schedules: {
+    list(): Promise<ScheduleView[]>
+    create(input: ScheduleInput): Promise<ScheduleView>
+    /** 정의 전부를 받는다 — 부분 갱신 없음 */
+    update(id: string, input: ScheduleInput): Promise<ScheduleView>
+    setEnabled(id: string, enabled: boolean): Promise<ScheduleView>
+    remove(id: string): Promise<void>
+    /** 꺼져 있어도 돈다. 앞 실행이 돌면 던진다(FR-23) */
+    runNow(id: string): Promise<Run>
+    /** 최신 순, 최근 50줄 */
+    fires(id: string): Promise<ScheduleFireView[]>
+    /** 다음 세 시각 또는 저장할 때와 같은 오류(FR-9). 렌더러는 계산하지 않는다 */
+    preview(trigger: ScheduleTrigger, timeZone: string): Promise<SchedulePreview>
   }
   assets: {
     list(query: ListAssetQuery): Promise<Asset[]>

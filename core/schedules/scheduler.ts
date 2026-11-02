@@ -16,6 +16,17 @@ export const SCHEDULE_TIMEOUT_MS = 60 * 60_000
 /** 이만큼 연속 실패하면 저절로 끈다 (FR-20, §8의 6) */
 export const MAX_CONSECUTIVE_FAILURES = 3
 export const DEFAULT_TICK_MS = 30_000
+
+/**
+ * e2e가 간격을 늘리는 통로 (FR-13) — main이 `ONE_DESK_SCHEDULE_TICK_MS`를 읽는다. 1초 미만·숫자가 아니면 무시한다(기본 30초).
+ * main에는 단위 테스트가 없어 판정을 여기 둔다(`core/app/reveal.ts`와 같은 구조).
+ */
+export function scheduleTickMsFromEnv(env: Record<string, string | undefined>): number | undefined {
+  const raw = env['ONE_DESK_SCHEDULE_TICK_MS']
+  if (raw === undefined || raw.trim() === '') return undefined
+  const ms = Number(raw)
+  return Number.isInteger(ms) && ms >= 1000 ? ms : undefined
+}
 /** 기록에 남기는 오류 글의 상한 */
 const MESSAGE_MAX = 2000
 

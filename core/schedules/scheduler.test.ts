@@ -6,10 +6,10 @@ import { createIssueRepository } from '../db/repositories/issue'
 import { createRunRepository, type RunRepository } from '../db/repositories/run'
 import { createScheduleRepository } from '../db/repositories/schedule'
 import { presentContext } from './input'
-import { createScheduler, SCHEDULE_TIMEOUT_MS, MAX_CONSECUTIVE_FAILURES, type SchedulerExecution } from './scheduler'
+import { createScheduler, scheduleTickMsFromEnv, SCHEDULE_TIMEOUT_MS, MAX_CONSECUTIVE_FAILURES, type SchedulerExecution } from './scheduler'
 import type { Database } from '../db/open'
 import type { ErrorSink } from '../errors'
-import type { ResumeRunInput, Run, ScheduleInput, StartRunInput } from '@shared/models'
+import type { ResumeRunInput, ScheduleInput, StartRunInput } from '@shared/models'
 import type { InternalRunOptions } from '../execution'
 
 const MON_9 = Date.parse('2026-11-02T00:00:00Z') // 월 09:00 KST
@@ -381,6 +381,15 @@ describe('scheduler (spec FR-11~23)', () => {
       expect(exec.calls).toHaveLength(2)
     } finally {
       vi.useRealTimers()
+    }
+  })
+})
+
+describe('scheduleTickMsFromEnv (spec FR-13 — e2e만 쓴다)', () => {
+  it('1초 이상의 정수만 받고 나머지는 기본값(undefined)이다', () => {
+    expect(scheduleTickMsFromEnv({ ONE_DESK_SCHEDULE_TICK_MS: '3600000' })).toBe(3_600_000)
+    for (const raw of [undefined, '', ' ', 'abc', '999', '1.5', '-5000']) {
+      expect(scheduleTickMsFromEnv({ ONE_DESK_SCHEDULE_TICK_MS: raw })).toBeUndefined()
     }
   })
 })
