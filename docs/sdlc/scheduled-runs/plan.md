@@ -2,7 +2,7 @@
 
 - 출처: `spec.md` (승인됨 2026-11-02)
 - 작성자: 권용현 (초안: Claude)
-- 상태: **초안 — 승인 대기**. 뒤집을 수 있는 결정은 spec §8이다. 0단계의 확인이 spec과 다르게 나오면 구현을 멈추고 spec을 먼저 고친다.
+- 상태: **구현됨** (2026-11-02). 승인 2026-11-02(사용자 "승인, 구현 시작해줘"). 뒤집을 수 있는 결정은 spec §8이다.
 - 작성일: 2026-11-02
 - 작업 자리: worktree `.claude/worktrees/scheduled-runs` (브랜치 `claude/confident-sagan-j55gsg`)
 
@@ -121,7 +121,21 @@
 
 ## 구현하며 달라진 것
 
-(구현 때 채운다)
+1. **한 run은 한 번만 센다 — `schedule_fire.judged_at`** (spec FR-3·FR-20 개정). 6단계의 core 테스트가 찾았다: 시작 전에 실패한 run(실행
+   파일 없음)은 `start`가 돌아오기 **전에** 끝나 `onRunFinished`가 기록을 못 찾아 세지 않았고, 거꾸로 core의 `onRunUpdate`는 확인함·보관
+   같은 후속 갱신에도 끝난 run으로 불러 인박스에서 그 대화를 열기만 해도 같은 실패를 또 셌다. 조건부 UPDATE(`judged_at IS NULL`)로 처음일
+   때만 세고, 기록 직후 이미 끝난 run은 스케줄러가 다시 판정한다(`judgeIfEnded`). 마이그레이션 `0013`은 릴리스 전이라 지우고 다시 만들었다.
+2. **`latestSlot`은 `previousRuns(2, until + 1초)`다** — croner가 초 단위로 봐 `until + 1ms`로 물으면 until과 같은 회차가 빠졌다(테스트가
+   찾았다). 1초 뒤로 둘을 묻고 until 이하의 첫 것을 고른다(spec FR-8의 뜻은 그대로).
+3. **`permissionRaise.ts`를 `renderer/schedules/form.ts`의 `raisesToFull`로 합쳤다** — 함수 하나라 파일을 따로 두지 않았다. `conversationBreaks`
+   도 같은 파일이다.
+4. **고친 것을 버리고 옮기는 확인은 한 단계다** (spec FR-31 개정) — 다른 줄을 누른 것이 첫 누름이라 `ConfirmButton`을 겹치지 않았다.
+5. **목록의 view에 `repoName`, 기록의 view에 `conversationId`·`needsAnswer`를 붙였다** — 화면이 repo·run을 따로 읽지 않게. `runNow`는 기록
+   뒤에 run을 다시 읽어 돌려준다(시작 전 실패면 이미 끝난 상태가 간다).
+6. **e2e의 주기는 `매일`이다** — `평일`이면 주말을 낀 이틀 동안 회차가 없어 "놓쳐서 실행"이 결정적이지 않다.
+7. **이 컨테이너에서 돌린 방법** — Electron 바이너리 내려받기(`www.electronjs.org`의 헤더·`@electron/get`)가 프록시에 막혀 GitHub 릴리스의
+   zip을 받아 `SHASUMS256.txt`와 대조한 뒤(일치) 풀었다. postinstall의 electron-rebuild는 헤더를 못 받아 실패하지만 better-sqlite3는 N-API
+   사전 빌드를 먼저 집으므로 영향이 없다. root로 도는 컨테이너라 e2e는 `ELECTRON_DISABLE_SANDBOX=1 xvfb-run -a`로 돌렸다(드라이버는 그대로).
 
 ## 완료 증명
 

@@ -474,6 +474,32 @@ repo → CLI → 첫 대화)이 그 자리에 서고, 단계마다 가는 곳은
   버튼과 이름이 같지만 한 화면에 서지 않는다). 다크 캡처는 `emulateMedia` 뒤에 버튼의 transition(.12s)을 기다려야 한다 — 바로 찍으면
   버튼이 흰 채로 찍힌다.
 
+**지시를 등록해 두면 정해진 주기마다 agent가 저절로 돈다 — 정기 실행** (`docs/sdlc/scheduled-runs/`, 2026-11-02). **첫 실행에 마이그레이션
+`0013`이 돈다** — 테이블 둘(`schedule` · `schedule_fire`, 백필 없음). 사이드바의 리포트 아래 `정기 실행`이 workspace를 넘는 목록(workspace로
+묶음)과 편집 칸·실행 기록을 보인다. 등록은 실행 패널이 받는 것(workspace · repo · agent · 모델 · effort · 권한 · 지시 · 맥락)에 주기(프리셋
+`평일`·`매일`·`매주`·`N시간마다` + 5필드 cron, 등록마다 IANA 시간대)와 대화 방식(`매번 새 대화` / `한 대화를 이어 감`)을 더한 것이다.
+**앱이 떠 있을 때만 돈다** — 데몬·트레이는 없고(전체 설계 §14의 데몬은 하지 않았다), 꺼져 있던 동안 놓친 회차는 **몇 개든 켤 때 한 번**이다.
+- **시각 계산은 `core/schedules/clock.ts` 한 자리이고 croner(10.0.1)를 import하는 유일한 파일이다** — 렌더러는 IPC `schedules.preview`로
+  묻는다(판정이 두 곳이면 화면이 받는 cron과 core가 받는 cron이 갈린다). 최소 간격 10분, 5필드만(croner는 초 필드·`@daily`도 받는다).
+- **판정은 `anchor_at` 하나다** — "이 시각까지의 회차는 처리했다". `dueOf`가 `anchor < s ≤ now`인 가장 늦은 회차 하나를 주고, 처리하면
+  anchor가 그 회차가 된다. 앱을 켠 순간·절전에서 깬 뒤(main의 `powerMonitor` `resume` → `core.schedules.wake`)·30초 타이머가 같은 함수다.
+  만들 때·켤 때·주기나 시간대를 고칠 때 anchor가 그 순간이 된다(고치기 전 주기의 지난 회차가 돌지 않게). **anchor는 `start`를 부르기 전에
+  쓴다** — 많아야 한 번(`scheduler.test`의 "start가 던져도 같은 회차를 다시 돌리지 않는다").
+- **스케줄러는 `runs.reapStale()` 뒤에 시작하고 `shutdown()`이 맨 먼저 멈춘다** — 앞이면 지난 실행의 running 행 때문에 "앞 실행이 돌고
+  있다"로 건너뛴다. 사람의 실행과 **같은 `execution.start`/`resume`**을 탄다(큐 상한·권한·MCP 경계 그대로). 렌더러가 넘기지 못하는 내부
+  인자(`InternalRunOptions` — `title`·`fromSchedule`)가 둘째 인자로 붙고 IPC 핸들러는 첫 인자만 넘긴다. **정기 실행 턴에는 이슈화 안내가
+  붙지 않는다**(`shouldProposeIssue`의 필수 `fromSchedule`). `home.lastTarget`은 찍지 않는다(App의 전송만 찍는다).
+- 겹치면 건너뛴다(앞 실행이 pending·running이거나, 이어 감의 대화에 사람이 보낸 턴이 돈다), 이어 감의 대화가 답변을 기다리면 건너뛴다,
+  지워진 맥락은 빼고 수를 기록한다(`execution.start`는 없는 항목을 받으면 던진다), 턴은 60분이 지나면 끝난다, **연속 3번 실패하면 끈다**,
+  repo를 지우면(`repo_id`는 set null) 끈다. 저장소의 `update`(정의)와 스케줄러의 쓰기(`markHandled`·`setFailures`·…)는 **서로의 컬럼을
+  쓰지 않는다**.
+- **workspace를 넘는 목록이라 MCP `deps`에 넘기지 않는다**(`reports`·`home`과 같은 규칙, `index.test`가 소스를 읽어 지킨다).
+- 전체 허용은 **올릴 때만** 경고 + 두 번 누르기(`raisesToFull`), 이어 감에서 agent·repo를 바꾸면 이어 가던 대화가 끊긴다고 말한다
+  (`conversationBreaks` — core의 `update`가 `conversation_id`를 지운다). 편집 칸(`ScheduleForm`)은 state 없이 그리기만 하고 초안은
+  `SchedulePanel`이 쥔다. `Sidebar`의 필수 prop `onSelectSchedules`, 기록의 `대화 열기`는 App의 `openReportConversation`(리포트와 같은 길).
+- `e2e/schedule.e2e.ts`는 `ONE_DESK_SCHEDULE_TICK_MS`(main이 `scheduleTickMsFromEnv`로 읽는다)로 간격을 한 시간으로 늘려 **부팅 tick만**
+  돌게 하고, main의 SQL로 anchor를 이틀 전으로 돌린 뒤 `relaunch()`해 "놓쳐서 실행" 한 줄을 본다.
+
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
 한동안 "5단계 착수 전에 정할 것"으로 잡아두고 **평문 SQLite에 자격 증명을 넣을지**를 막힌 결정으로 남겼던 항목이다. 대상 환경을 실측해 보니 **배관 자체가 불필요했다.**
@@ -541,6 +567,16 @@ grep -rn "window.oneDesk" renderer/ | grep -v main.tsx  # 출력 없어야 함
 ## 밟으면 조용히 깨지는 것들
 
 전부 실제로 겪은 것들이다.
+
+**정기 실행이 낸 run의 판정은 "한 run은 한 번"이어야 한다 — `schedule_fire.judged_at`을 지우지 말 것** (`docs/sdlc/scheduled-runs/` FR-20
+개정). core의 `onRunUpdate`는 끝난 run의 **후속 갱신**(확인함·보관 — 인박스에서 대화를 열기만 해도 자동 확인된다)에도 `endedAt`이 있는
+run으로 부른다. 그것을 그대로 세면 같은 실패가 열 때마다 또 세어져 멀쩡한 정기 실행이 꺼진다. 반대로 **시작 전에 실패한 run은 `start`가
+돌아오기 전에 끝나** 그때는 실행 기록이 아직 없다 — 스케줄러가 기록을 쓴 직후 이미 끝났는지 다시 본다(`judgeIfEnded`). 둘 다 `scheduler.test`
+("한 run은 한 번만 센다"·"start가 돌아오기 전에 끝난 run도 센다")와 `index.test`("돌다 실패로 끝나면"·"시작 전에 실패한 run도")가 지킨다.
+
+**root로 도는 리눅스 컨테이너에서 e2e를 돌리려면 `ELECTRON_DISABLE_SANDBOX=1 xvfb-run -a pnpm test:e2e`다** — Chromium은 root에서
+샌드박스 없이는 뜨지 않고, 드라이버는 `--no-sandbox`를 넘기지 않는다(환경변수는 그대로 물려받는다). 표시 장치가 없으면 `xvfb-run`이다.
+샌드박스를 못 켜고 돌면 창이 뜨지 않아 모든 e2e가 60초 타임아웃으로 하나씩 죽는다 — 결함처럼 보인다.
 
 **홈이 보이는 동안 workspace 이름과 같은 버튼을 두 개 만들지 말 것** (`docs/sdlc/home/` NFR-3). 사이드바의 workspace 버튼 이름이
 곧 workspace 이름이라(`{ name: 'e2e-ws', exact: true }`), 홈의 카드 버튼은 `<이름> 워크스페이스 열기`이고 준비 단계의 버튼은 `repo 등록`·
@@ -1211,6 +1247,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/ux-polish/` | UI/UX 분석이 꼽은 여덟 가지 — intent·spec·plan. 상세가 열리면 도크가 하한(FR-1), 빈 상태 하나·리포트의 가까운 preset 제안(FR-2), 한국어 표와 `열림` 배지 생략(FR-3), 전역 단축키 표와 일회성 prop 배선(FR-8·9), 뒤집은 결정(intent), App 배선 변이 표(plan). 시안 비교 https://claude.ai/artifact/VQBSR9ruuhjttD6P9Choqn |
 | `docs/sdlc/home/` | 앱을 열면 "오늘 할 일"이 보이는 홈 — intent·spec·plan. 미해결 질문의 답(spec §0), 할 일 넷과 배지(FR-3·4), core 한 자리와 MCP 제외(FR-1), 렌더러가 넘기는 오늘의 경계(FR-5), 새 대화 카드를 App이 직접 보내는 이유(FR-11·plan 개정 1), 준비 단계와 CLI 칸(FR-14~16·plan 개정 8), 이름 충돌(NFR-3), 코드를 보고 spec을 고친 여덟(plan §0), 변이 표와 완료 증명(plan). 시안 https://claude.ai/artifact/ST6FQPHU8XPSKXTREZHPVN 셋째 줄 |
 | `docs/sdlc/agent-proposals/` | agent가 알아채 제안하고 사람은 한 번 누른다 — intent·spec·plan(첫째 사이클: 대화의 이슈화). 세 데이터 모양 비교(spec §2-1), 읽기 전용의 새 정의(FR-13), 안내의 조건(FR-15)과 문구(FR-16), 받기 트랜잭션(FR-17·18), 배너(FR-21~23), 사용자가 뒤집을 수 있는 결정(§8). plan에 0단계 실측(중첩 트랜잭션·OpenCode MCP 권한)·변이 표·진짜 claude 측정 |
+| `docs/sdlc/scheduled-runs/` | 정기 실행 — intent·spec·plan. 대화를 어디에 매다는지 비교(spec §2-1 — run 컬럼이 아니라 실행 기록 테이블), anchor 하나로 정시·놓침·절전을 한 판정에(FR-10~12), start 전에 anchor를 쓰는 이유(FR-12), 겹침·답 기다림 건너뛰기(FR-15), 한 run은 한 번 세기(FR-20 개정), 이슈화 안내를 빼는 이유(FR-22), 뒤집을 수 있는 결정 아홉(§8). plan에 croner 실측·변이 표·완료 증명 |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |

@@ -2,7 +2,7 @@
 
 - 출처: `intent.md` (2026-11-02 승인)
 - 작성자: 권용현 (초안: Claude)
-- 상태: **승인됨** (2026-11-02, 사용자 "승인, plan 작성해줘"). FR-8·FR-13은 plan 0단계 사전 확인으로 고쳤다(각 항목의 개정 표시). 사용자가 뒤집을 수 있는 결정은 §8에 모았다.
+- 상태: **구현됨** (2026-11-02). 승인 2026-11-02(사용자 "승인, plan 작성해줘"). FR-8·FR-13은 plan 0단계 사전 확인으로, FR-3·FR-20·FR-31은 구현 중에 고쳤다(각 항목의 개정 표시). 사용자가 뒤집을 수 있는 결정은 §8에 모았다.
 - 작성일: 2026-11-02
 
 ## 0. intent의 미해결 질문에 대한 답
@@ -92,6 +92,7 @@
   | `message` | text | `'error'`의 이유(`start`가 던진 글, 앞 2,000자) |
   | `run_id` | text | `'started'`일 때 그 턴. 외래키 없음 |
   | `dropped_context` | integer NOT NULL default 0 | 지워져서 뺀 맥락 수(FR-17) |
+  | `judged_at` | integer | 그 run의 결과로 연속 실패를 판정한 때(FR-20). **한 run은 한 번만 센다** *(2026-11-02 구현 중 개정)* |
 
   인덱스: `(schedule_id, fired_at)`, `(run_id)`(run이 끝날 때 찾는다, FR-20).
 - **FR-4.** 저장소 `core/db/repositories/schedule.ts`. 쓰기는 트랜잭션. 정의를 고치는 `update(id, definition)`과 스케줄러의 상태를 쓰는 `markHandled`·`recordFire`·`setFailures`·`disable`은 **서로의 컬럼을 쓰지 않는다** — 사람이 저장하는 순간 스케줄러가 회차를 처리해도 한쪽이 다른 쪽을 덮지 않는다. `update`는 **부분 갱신을 받지 않는다**(정의 전부를 받는다 — `updateDefaults`와 같은 이유). 검증은 저장소가 아니라 core의 `validateScheduleInput`(순수 함수) 한 자리이고 만들기·고치기가 같이 탄다: 이름 · 지시 · 주기(FR-7) · 시간대(`Intl.DateTimeFormat`이 받는가) · repo가 그 workspace 소속 · 맥락이 그 workspace에 있고 종류가 `issue`·`memo`·`asset`(지시 파일 제외) · OpenCode + WSL repo 거부(wsl-support의 규칙과 같은 문구).
@@ -142,7 +143,7 @@
 - **FR-17.** 맥락은 **실행하는 그 시각의 것**이다. `execution.start`는 없는 항목을 받으면 던지므로(`collectContext`의 `assertFound`) 스케줄러가 미리 그 workspace에 남아 있는 것만 넘기고, 뺀 수를 `dropped_context`에 남긴다. 정의의 `context`는 고치지 않는다(사람이 열어 보고 정리한다 — 편집 칸이 지워진 항목을 `(지워짐)`으로 보인다).
 - **FR-18.** 대화의 제목: `'new'`면 `<이름> · M/D HH:mm`(그 정기 실행의 시간대로, `'manual'`이면 실행한 시각), `'continue'`의 첫 실행이면 `<이름>`. 뿌리 행의 `title`(사용자가 붙인 이름 칸)에 쓴다 — 실행 서비스의 **내부** 인자 `start(input, { title })`이고 IPC의 `runs.start`는 그 인자를 받지 않는다. 사람이 이름을 바꾸면 그 이름이 이긴다.
 - **FR-19.** 정기 실행의 턴은 **60분이 지나면 끝난다**(`SCHEDULE_TIMEOUT_MS`, 기존 `timeoutMs` 통로 — 타임아웃은 `failed`다). 사람 없이 매달린 run이 실행 슬롯을 영영 쥐면 사람의 실행까지 막힌다. `'continue'`의 다음 턴은 `resume`이 뿌리의 값을 이어받는다(execution.ts의 기존 규칙).
-- **FR-20.** 연속 실패: core의 `onRunUpdate`가 끝난 run마다 `scheduler.onRunFinished(run)`을 부르고, 그 run을 `run_id`로 가진 기록이 있으면 판정한다 — `failed` → +1, `succeeded`(답변 필요 포함) → 0, `canceled`·`interrupted` → 그대로(사람이 멈췄거나 앱이 꺼졌다). 기록 `error`도 +1. **3이 되면 끈다**(`disabled_reason = 'failures'`). 다시 켜면 0과 null로 돌아간다.
+- **FR-20.** 연속 실패: core의 `onRunUpdate`가 끝난 run마다 `scheduler.onRunFinished(run)`을 부르고, 그 run을 `run_id`로 가진 기록이 있으면 판정한다 — `failed` → +1, `succeeded`(답변 필요 포함) → 0, `canceled`·`interrupted` → 그대로(사람이 멈췄거나 앱이 꺼졌다). 기록 `error`도 +1. **3이 되면 끈다**(`disabled_reason = 'failures'`). 다시 켜면 0과 null로 돌아간다. *(2026-11-02 구현 중 개정 — 처음 쓴 대로면 두 방향으로 틀렸다:)* **한 run은 한 번만 센다** — core는 확인함·보관 같은 후속 갱신에도 끝난 run으로 부르므로, 인박스에서 실패한 정기 실행 대화를 열기만 해도 같은 실패가 또 셌다. 판정할 때 `schedule_fire.judged_at`을 조건부 UPDATE로 찍고 처음일 때만 센다. 그리고 **시작 전에 실패한 run(실행 파일 없음 등)은 `start`가 돌아오기 전에 끝나** 그때의 `onRunFinished`는 기록을 못 찾는다 — 스케줄러가 기록을 쓴 직후 그 run이 이미 끝났으면 다시 판정한다(`judgeIfEnded`).
 - **FR-21.** repo가 지워지면 core의 repo 지우기 경로가 그 workspace에서 repo가 null인 켜진 정기 실행을 끈다(`repo_missing`). 다음 회차의 FR-15-2도 같은 일을 한다 — 두 자리지만 판정은 "repo가 null"로 같다.
 - **FR-22.** 정기 실행이 낸 턴에는 **이슈화 안내(`PROPOSE_ISSUE_GUIDE`)를 붙이지 않는다.** 판정 한 자리인 `shouldProposeIssue`에 조건 하나("정기 실행이 낸 턴")를 더하고, 실행 서비스의 내부 인자로 넘긴다. 매시간 새 대화를 만드는 정기 실행마다 배너가 서면 사람은 그 배너를 전부 눌러 치워야 한다(§8의 3). 사람이 그 대화에 직접 이어 보낸 턴은 평소대로다.
 - **FR-23.** `지금 실행`은 `fire(schedule, 'manual', null)`이다 — `anchor_at`을 건드리지 않고(다음 정해진 회차는 그대로 돈다), 꺼져 있어도 돈다(시험용). 겹침·답 기다림이면 건너뛰는 대신 **오류로 돌려준다**(`앞 실행이 아직 돌고 있습니다`) — 사람이 누른 버튼이 말없이 아무것도 안 하면 안 된다. 기록에는 남기지 않는다.
@@ -171,7 +172,7 @@
 - **FR-28.** 편집 칸은 위에서 아래로: 이름 · workspace · 작업 디렉토리 · agent · 모델(`ModelField`) · effort/variant · 권한 · 지시(여러 줄) · 맥락(그 workspace의 이슈·메모·asset을 고르는 목록, 지시 파일 제외) · 주기(프리셋 라디오 다섯 + 그에 맞는 칸 + 미리보기 `다음: 11/3 09:00 · 11/4 09:00 · 11/5 09:00`) · 대화 방식(`매번 새 대화` / `한 대화를 이어 감`). 새 정기 실행의 기본값은 실행 패널과 같은 함수(`renderer/runDefaults.ts`)가 그 workspace의 기본값에서 만든다. 권한 이름은 `renderer/permission.ts`, agent 이름은 `renderer/agents.ts`의 표다.
 - **FR-29.** **전체 허용으로 "올릴 때"만** 경고 문장과 `ConfirmButton`(두 번 누르기)을 거쳐 저장한다 — workspace 실행 기본값 절과 같은 규칙과 같은 문구 결. 이미 전체 허용인 정기 실행에서 다른 것만 고칠 때는 묻지 않는다. 경고는 "사람이 보지 않는 시각에 셸 명령을 제한 없이 실행합니다"를 말한다.
 - **FR-30.** `'continue'`에서 agent나 작업 디렉토리를 바꿔 저장하면 이어 가던 대화가 끊긴다 — 세션은 그 CLI·그 디렉토리의 것이라 이을 수 없다(execution.ts의 잠긴 값). 저장 전에 `다음 실행부터 새 대화로 시작합니다`를 보이고, core의 `update`가 `conversation_id`를 null로 만든다. 대화 방식을 `new`로 바꿔도 null이다.
-- **FR-31.** 저장 버튼은 바뀐 것이 있을 때만 활성이다(ux-polish의 규칙). 초안은 `SchedulePanel`이 쥔다 — 목록에서 다른 것을 고르면 버린다(고친 것이 있으면 `ConfirmButton`으로 `버리고 이동`). 편집 칸 아래에 `지금 실행`과 `삭제`(두 번 누르기).
+- **FR-31.** 저장 버튼은 바뀐 것이 있을 때만 활성이다(ux-polish의 규칙). 초안은 `SchedulePanel`이 쥔다 — 목록에서 다른 것을 고르면 버린다(고친 것이 있으면 편집 칸 위에 `고친 것이 저장되지 않았습니다` 줄이 서고 `버리고 이동` · `계속 고치기` — 다른 줄을 누른 것이 첫 누름이라 `ConfirmButton`을 겹치지 않았다, 2026-11-02 구현). 편집 칸 아래에 `지금 실행`과 `삭제`(두 번 누르기).
 - **FR-32.** 실행 기록: 최신 순으로 시각 · 사유(`정시` · `놓쳐서 실행` · `지금 실행`) · 결과 — `started`면 run 상태 알약과 `대화 열기`(App의 `openConversation`과 같은 길 — workspace 화면으로 가서 그 대화를 연다), `skipped`면 `앞 실행이 돌고 있어 건너뜀` / `답변을 기다리고 있어 건너뜀`, `error`면 이유. 뺀 맥락이 있으면 `지워진 맥락 N개는 빠졌습니다`.
 - **FR-33.** 화면은 바뀜 알림 `schedule`(모든 workspace)과 run push(`onRunUpdate` — 마지막 결과의 점이 바뀐다)에 다시 읽는다. 다음 실행 시각의 상대 표현은 1분마다 다시 그린다(`useNow`).
 
