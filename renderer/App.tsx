@@ -21,6 +21,7 @@ import { conversationIdOf, groupConversations, type IssueConversations } from '.
 import { confirmSeen } from './conversationSeen'
 import type { AssignedIssue, HomeTarget, Memo, Run, StartRunInput } from '@shared/models'
 import { ReportPanel, initialReportQuery, POLISH_PROMPT, type ReportQuery } from './components/ReportPanel'
+import { SchedulePanel } from './components/SchedulePanel'
 import { CloseConfirm } from './components/code/CloseConfirm'
 import { CodePaneSlotContext, TitleBarSlotContext } from './components/code/CodePaneContext'
 import { IconSidebar } from './components/icons'
@@ -39,7 +40,7 @@ export default function App() {
   const [repoId, setRepoId] = useState<string | null>(null)
   const [chips, setChips] = useState<ContextChip[]>([])
   // 앱을 열면 홈이다 (docs/sdlc/home/ spec §0·FR-17) — 마지막 화면을 기억하지 않는다
-  const [view, setView] = useState<'home' | 'workspace' | 'inbox' | 'report' | 'settings'>('home')
+  const [view, setView] = useState<'home' | 'workspace' | 'inbox' | 'report' | 'schedules' | 'settings'>('home')
   // 리포트의 조건 (docs/sdlc/period-report/ FR-19) — 리포트에서 이슈를 열러 갔다 돌아와도 그대로다
   const [reportQuery, setReportQuery] = useState<ReportQuery>(() => initialReportQuery(Date.now()))
   // 인박스의 "대화 열기"·"다시 실행"이 세운다. Dock은 화면 전환 때 다시 마운트돼
@@ -234,6 +235,7 @@ export default function App() {
   const scopeLabel = view === 'home' ? '홈'
     : view === 'inbox' ? '인박스'
     : view === 'report' ? '리포트'
+    : view === 'schedules' ? '정기 실행'
     : view === 'settings' ? '설정'
     : (() => {
         const ws = workspaces.find((w) => w.id === workspaceId)
@@ -500,6 +502,7 @@ export default function App() {
           onFocusWorkspaceAddConsumed={() => setWsAddFocus(false)}
           onSelectInbox={() => setView('inbox')}
           onSelectReport={() => setView('report')}
+          onSelectSchedules={() => setView('schedules')}
           onSelectSettings={() => setView('settings')}
           counts={inboxCounts}
           countsError={inboxError}
@@ -585,6 +588,14 @@ export default function App() {
               onOpenConversation={openReportConversation}
               onOpenMemo={openFromReport('memo')}
               onPolish={polishReport}
+            />
+          )}
+          {view === 'schedules' && (
+            <SchedulePanel
+              // 사이드바·리포트와 같은 useWorkspaces 인스턴스다
+              workspaces={workspaces}
+              // 기록의 "대화 열기" — 리포트의 줄과 같은 길(workspace 화면으로 가서 그 대화를 연다)
+              onOpenConversation={openReportConversation}
             />
           )}
           {view === 'inbox' && (

@@ -44,7 +44,7 @@ function renderSidebar(over: {
   refresh?: () => Promise<void>
   selectedId?: string | null
   onSelect?: (id: string) => void
-  view?: 'home' | 'workspace' | 'inbox' | 'report' | 'settings'
+  view?: 'home' | 'workspace' | 'inbox' | 'report' | 'schedules' | 'settings'
   onSelectHome?: () => void
   homeCount?: number
   focusWorkspaceAdd?: boolean
@@ -57,6 +57,7 @@ function renderSidebar(over: {
   planUsage?: PlanUsage | null
   onDeleted?: (id: string) => void
   onSelectReport?: () => void
+  onSelectSchedules?: () => void
   collapsed?: boolean
   client?: OneDeskClient
 } = {}) {
@@ -72,6 +73,7 @@ function renderSidebar(over: {
         view={over.view ?? 'workspace'}
         onSelectInbox={over.onSelectInbox ?? vi.fn()}
         onSelectReport={over.onSelectReport ?? vi.fn()}
+        onSelectSchedules={over.onSelectSchedules ?? vi.fn()}
         onSelectSettings={over.onSelectSettings ?? vi.fn()}
         counts={over.counts ?? { total: 0, byWorkspace: {} }}
         countsError={over.countsError ?? null}
@@ -158,6 +160,7 @@ function renderSidebarRaw(mcpStatus: McpStatus) {
           view="workspace"
           onSelectInbox={vi.fn()}
           onSelectReport={vi.fn()}
+          onSelectSchedules={vi.fn()}
       onSelectSettings={vi.fn()}
           onDeleted={vi.fn()}
           counts={{ total: 0, byWorkspace: {} }}
@@ -305,6 +308,23 @@ describe('Sidebar — 설정 링크', () => {
   it('설정 화면일 때 링크가 선택 표시된다', () => {
     renderSidebar({ view: 'settings' })
     expect(screen.getByRole('button', { name: '설정' }).className).toContain('selected')
+  })
+})
+
+describe('정기 실행 진입점 (docs/sdlc/scheduled-runs/ FR-26)', () => {
+  it('리포트 바로 아래 줄이고, 누르면 onSelectSchedules를 부른다', async () => {
+    const onSelectSchedules = vi.fn()
+    renderSidebar({ onSelectSchedules })
+    const links = screen.getAllByRole('button').map((b) => b.textContent)
+    expect(links.indexOf('정기 실행')).toBe(links.indexOf('리포트') + 1)
+    await userEvent.click(screen.getByRole('button', { name: '정기 실행' }))
+    expect(onSelectSchedules).toHaveBeenCalledOnce()
+  })
+
+  it('정기 실행 화면이면 선택된 모양이다', () => {
+    renderSidebar({ view: 'schedules' })
+    expect(screen.getByRole('button', { name: '정기 실행' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('button', { name: '리포트' })).not.toHaveAttribute('aria-current')
   })
 })
 

@@ -15,6 +15,7 @@ import { conversationIdOf } from './conversation'
 import App from './App'
 import { POLISH_PROMPT } from './components/ReportPanel'
 import type { OneDeskClient } from '@shared/client'
+import type { ScheduleFireView, ScheduleView } from '@shared/models'
 import type {
   CreateIssueInput, CreateMemoInput, CreateRepoInput, CreateWorkspaceInput,
   GuardedUpdateIssueInput, GuardedUpdateMemoInput, InboxCounts, Issue, IssueUpdateResult,
@@ -83,6 +84,9 @@ interface Seed {
   homeTarget?: HomeTarget | null
   /** CLI probe — 기본은 로그인된 claude. 실행 파일 칸(checkAgents)은 claudePath가 있거나 이것이 true일 때 초록이다 */
   cliReady?: boolean
+  /** 정기 실행 (docs/sdlc/scheduled-runs/) — 목록과 그 기록. 배선만 본다 */
+  schedules?: ScheduleView[]
+  scheduleFires?: ScheduleFireView[]
   /** 준비 단계 ④ — 기본은 inbox 시드에 run이 있는가 */
   firstRun?: boolean
 }
@@ -266,6 +270,11 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
       // IssueDetail이 마운트 때마다 부른다 (Task 8). 여기서는 열람 기록 자체를
       // 검증하지 않으므로 목만 채워 둔다.
       markSeen: vi.fn(async () => {})
+    },
+    schedules: {
+      list: vi.fn(async () => seed.schedules ?? []),
+      fires: vi.fn(async () => seed.scheduleFires ?? []),
+      preview: vi.fn(async () => ({ ok: true, next: [Date.now() + 60_000, Date.now() + 120_000, Date.now() + 180_000] }))
     },
     // 기간 리포트 (docs/sdlc/period-report/) — 배선만 본다: 고른 workspace의 이슈를 기간과 무관하게 싣는다
     reports: {
@@ -1800,6 +1809,41 @@ describe('App — 메모 repo 배선', () => {
     await waitFor(() => expect(client.memos.updateIfUnchanged).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'm1', repoIds: ['r1'] })
     ))
+  })
+})
+
+describe('정기 실행 배선 (docs/sdlc/scheduled-runs/ FR-26·32)', () => {
+  const SCHEDULE: ScheduleView = {
+    id: 's1', workspaceId: 'w1', repoId: 'r1', name: '아침 훑기', trigger: { kind: 'weekdays', time: '09:00' },
+    timeZone: 'Asia/Seoul', conversationMode: 'new', conversationId: null, agentKind: 'claude-code', model: null, effort: null,
+    permission: 'read_only', prompt: '훑어 줘', context: [], enabled: true, disabledReason: null, anchorAt: 1,
+    consecutiveFailures: 0, createdAt: 1, updatedAt: 1, nextAt: Date.now() + 3_600_000, repoName: 'api', lastFire: null
+  }
+
+  it('사이드바의 정기 실행이 그 화면을 열고 제목 줄이 그것을 말한다', async () => {
+    renderApp(makeClient({}, { schedules: [SCHEDULE], repos: [makeRepo('r1', 'api', '/tmp/api')] }))
+    await userEvent.click(screen.getByRole('button', { name: '정기 실행' }))
+    expect(await screen.findByRole('region', { name: '정기 실행' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '아침 훑기 정기 실행 편집' })).toBeInTheDocument()
+    expect(document.title).toBe('정기 실행 — one-desk')
+  })
+
+  it('실행 기록의 대화 열기가 그 workspace의 그 대화를 도크에 연다', async () => {
+    const run = makeRun({ id: 'conv-s', userPrompt: '정기 실행이 낸 대화' })
+    const fire: ScheduleFireView = {
+      id: 'f1', scheduleId: 's1', cause: 'manual', slotAt: null, firedAt: Date.now(), outcome: 'started', skipReason: null,
+      message: null, runId: run.id, droppedContext: 0, runStatus: 'succeeded', needsAnswer: false, conversationId: run.id
+    }
+    const client = makeClient({}, {
+      schedules: [{ ...SCHEDULE, lastFire: fire }], scheduleFires: [fire], repos: [makeRepo('r1', 'api', '/tmp/api')], inbox: [run]
+    })
+    renderApp(client)
+    await userEvent.click(screen.getByRole('button', { name: '정기 실행' }))
+    await userEvent.click(await screen.findByRole('button', { name: '아침 훑기 정기 실행 편집' }))
+    const fires = await screen.findByRole('region', { name: '실행 기록' })
+    await userEvent.click(await within(fires).findByRole('button', { name: '대화 열기' }))
+    expect(screen.queryByRole('region', { name: '정기 실행' })).toBeNull()
+    expect(await screen.findByText('정기 실행이 낸 대화', { selector: '.turn-user' })).toBeInTheDocument()
   })
 })
 
