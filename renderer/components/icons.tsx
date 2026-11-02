@@ -70,6 +70,11 @@ export function IconTerminal(props: SVGProps<SVGSVGElement>) {
   return <Icon {...props}><path d="M2.5 3.5h11a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1zM4.5 6.5 6.5 8l-2 1.5M8 10h3" /></Icon>
 }
 
+/** 그림 — 상자 둘과 그 사이를 잇는 화살표 (docs/sdlc/drawings/ FR-11) */
+export function IconDraw(props: SVGProps<SVGSVGElement>) {
+  return <Icon {...props}><path d="M2 3h5v3.5H2zM9 9.5h5V13H9zM4.5 6.5v4.75H9M7 9.75l2 1.5-2 1.5" /></Icon>
+}
+
 export function IconFolder(props: SVGProps<SVGSVGElement>) {
   return <Icon {...props}><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 1.5h4.5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z" /></Icon>
 }

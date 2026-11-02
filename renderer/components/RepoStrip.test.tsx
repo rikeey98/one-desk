@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
-import { RepoStrip } from './RepoStrip'
+import { RepoStrip, deleteConfirmLabel } from './RepoStrip'
 import type { OneDeskClient } from '@shared/client'
 import type { Repo } from '@shared/models'
 
@@ -11,7 +11,14 @@ const repos: Repo[] = [
   { id: 'r2', workspaceId: 'w1', name: 'web-client', path: '/tmp/web', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 }
 ]
 
+// 그림 개수 경고(docs/sdlc/drawings/ FR-19)가 그림 목록을 읽고 바뀜 알림을 듣는다 — 가짜 클라이언트마다 얹는다
+const drawingStubs = {
+  drawings: { list: vi.fn(async () => []) },
+  events: { onItemChanged: () => () => {} }
+}
+
 const client = {
+  ...drawingStubs,
   repos: { list: vi.fn().mockResolvedValue(repos), create: vi.fn(), remove: vi.fn() }
 } as unknown as OneDeskClient
 
@@ -188,8 +195,10 @@ describe('RepoStrip 세로 목록', () => {
 })
 
 describe('RepoStrip repo 관리', () => {
-  function renderWith(over: { rename?: unknown; remove?: unknown; refresh?: () => Promise<void>; onDeleted?: (id: string) => void } = {}) {
+  function renderWith(over: { rename?: unknown; remove?: unknown; refresh?: () => Promise<void>; onDeleted?: (id: string) => void; drawings?: unknown } = {}) {
     const c = {
+      ...drawingStubs,
+      ...(over.drawings ? { drawings: { list: over.drawings } } : {}),
       repos: {
         list: vi.fn().mockResolvedValue(repos),
         create: vi.fn(),
@@ -249,6 +258,27 @@ describe('RepoStrip repo 관리', () => {
     await waitFor(() => expect(remove).toHaveBeenCalledWith('r1'))
     await waitFor(() => expect(onDeleted).toHaveBeenCalledWith('r1'))
   })
+
+  it('그 repo에 그림이 있으면 확인 글이 개수를 말한다 — 다른 repo의 그림은 세지 않는다 (docs/sdlc/drawings/ FR-19)', async () => {
+    const remove = vi.fn().mockResolvedValue(undefined)
+    const list = vi.fn(async () => [
+      { id: 'd1', workspaceId: 'w1', repoId: 'r1', title: '그림 1', createdAt: 1, updatedAt: 1 },
+      { id: 'd2', workspaceId: 'w1', repoId: 'r1', title: '그림 2', createdAt: 2, updatedAt: 2 },
+      { id: 'd3', workspaceId: 'w1', repoId: 'r2', title: '그림 1', createdAt: 3, updatedAt: 3 }
+    ])
+    renderWith({ remove, drawings: list })
+    await waitFor(() => expect(list).toHaveBeenCalledWith({ workspaceId: 'w1' }))
+
+    await userEvent.click(screen.getByRole('button', { name: 'api-server 삭제' }))
+    expect(await screen.findByRole('button', { name: '그림 2개도 지워집니다 · 정말 삭제?' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '그림 2개도 지워집니다 · 정말 삭제?' }))
+    await waitFor(() => expect(remove).toHaveBeenCalledWith('r1'))
+  })
+
+  it('그림이 없으면 확인 글은 그대로다', () => {
+    expect(deleteConfirmLabel(0)).toBe('정말 삭제?')
+    expect(deleteConfirmLabel(1)).toBe('그림 1개도 지워집니다 · 정말 삭제?')
+  })
 })
 
 describe('RepoStrip VS Code로 열기', () => {
@@ -274,7 +304,7 @@ describe('RepoStrip VS Code로 열기', () => {
 
   it('버튼을 누르면 그 repo의 id로 연다', async () => {
     const openInEditor = vi.fn().mockResolvedValue(undefined)
-    renderStrip({ repos: { ...client.repos, openInEditor } } as unknown as OneDeskClient)
+    renderStrip({ ...drawingStubs, repos: { ...client.repos, openInEditor } } as unknown as OneDeskClient)
 
     await userEvent.click(await screen.findByLabelText('web-client VS Code로 열기'))
 
@@ -284,7 +314,7 @@ describe('RepoStrip VS Code로 열기', () => {
   it('열기에 실패하면 이유를 보여준다', async () => {
     // 조용히 아무 일도 안 일어나면 VS Code가 없는 것인지 버튼이 죽은 것인지 모른다.
     const openInEditor = vi.fn().mockRejectedValue(new Error('VS Code가 설치돼 있지 않습니다'))
-    renderStrip({ repos: { ...client.repos, openInEditor } } as unknown as OneDeskClient)
+    renderStrip({ ...drawingStubs, repos: { ...client.repos, openInEditor } } as unknown as OneDeskClient)
 
     await userEvent.click(await screen.findByLabelText('api-server VS Code로 열기'))
 
@@ -296,6 +326,7 @@ describe('홈 준비 단계 ② — openRequested (docs/sdlc/home/ FR-16)', () =
   it('등록 폼을 펼쳐 이름 칸에 포커스하고 요청을 치운다', async () => {
     const consumed = vi.fn()
     const client = {
+      ...drawingStubs,
       repos: { list: vi.fn(async () => []), create: vi.fn(), remove: vi.fn(), rename: vi.fn(), openInEditor: vi.fn() },
       wsl: { listDistros: vi.fn(async () => ({ supported: false, distros: [], reason: 'x' })) },
       app: { pickDirectory: vi.fn() }

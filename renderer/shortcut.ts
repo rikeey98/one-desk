@@ -76,7 +76,8 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   if (target.isContentEditable) return true
   const tag = target.tagName
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
-    || target.closest('.cm-editor, .xterm') !== null
+    // 그림 칸(Excalidraw)도 — 거기서 `?`는 Excalidraw의 도움말이다(docs/sdlc/drawings/ FR-28)
+    || target.closest('.cm-editor, .xterm, .excalidraw') !== null
 }
 
 /**

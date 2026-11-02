@@ -13,7 +13,9 @@ import { CodeBufferProvider } from './store/CodeBufferContext'
 import { createCodeBufferStore } from './store/codeBuffers'
 import { createCloseGuard } from './store/closeGuard'
 import { isPanelHash, parsePanelHash } from '@shared/panelWindow'
+import { isDrawingHash, parseDrawingHash } from '@shared/drawingWindow'
 import { PanelWindow } from './components/PanelWindow'
+import { DrawingWindow } from './components/drawing/DrawingWindow'
 import App from './App'
 
 // window.oneDesk를 참조하는 곳은 이 파일 하나뿐이어야 한다 (설계 §4 규칙 2).
@@ -27,8 +29,21 @@ const saves = createPendingSaves()
 
 const root = createRoot(document.getElementById('root')!)
 
-// 패널 창이면 해시가 범위를 말한다 (FR-13). 모양이 틀린 패널 해시도 앱 창을 그리지 않는다 — 앱 창이 둘이 된다.
-if (isPanelHash(window.location.hash)) {
+// 그림 창이면 해시가 그림을 말한다 (docs/sdlc/drawings/ FR-10). 패널 창과 같은 결 — 닫기 전에 대기 중인 자동 저장을 흘려보낸다.
+// 이 분기는 단위 테스트가 못 잡는다 — e2e의 "새 창에서 그린 것이 칸에 합쳐진다"가 맡는다.
+if (isDrawingHash(window.location.hash)) {
+  window.addEventListener('beforeunload', guardUnload(saves, () => window.close()))
+  root.render(
+    <StrictMode>
+      <ClientProvider client={window.oneDesk}>
+        <PendingSavesProvider saves={saves}>
+          <DrawingWindow drawingId={parseDrawingHash(window.location.hash)} />
+        </PendingSavesProvider>
+      </ClientProvider>
+    </StrictMode>
+  )
+} else if (isPanelHash(window.location.hash)) {
+  // 패널 창이면 해시가 범위를 말한다 (FR-13). 모양이 틀린 패널 해시도 앱 창을 그리지 않는다 — 앱 창이 둘이 된다.
   window.addEventListener('beforeunload', guardUnload(saves, () => window.close()))
   root.render(
     <StrictMode>

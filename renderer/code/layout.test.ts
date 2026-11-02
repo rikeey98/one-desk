@@ -42,6 +42,11 @@ describe('칸 열림과 폭의 기억', () => {
     expect(readPaneWidth()).toBeNull()
   })
 
+  it('그림 칸도 열린 채로 남는다 (docs/sdlc/drawings/ FR-11)', () => {
+    writePaneKind('drawing')
+    expect(readPaneKind()).toBe('drawing')
+  })
+
   it('모르는 값은 닫힘이다', () => {
     localStorage.setItem('one-desk.codePane.kind', 'browser')
     expect(readPaneKind()).toBeNull()

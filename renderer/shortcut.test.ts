@@ -56,6 +56,15 @@ describe('전역 단축키 표 (docs/sdlc/ux-polish/ FR-8)', () => {
     expect(isEditableTarget(null)).toBe(false)
   })
 
+  it('그림 칸(Excalidraw) 안은 글 받는 자리다 — `?`가 앱과 Excalidraw의 도움말을 같이 열지 않게 (docs/sdlc/drawings/ FR-28)', () => {
+    const canvas = document.createElement('div')
+    canvas.className = 'excalidraw excalidraw-container'
+    const inner = document.createElement('canvas')
+    canvas.appendChild(inner)
+    expect(isEditableTarget(inner)).toBe(true)
+    expect(isEditableTarget(canvas)).toBe(true)
+  })
+
   it('화면 표기는 플랫폼의 수정키 이름을 따른다', () => {
     const inbox = SHORTCUTS.find((s) => s.action === 'inbox')!
     expect(shortcutLabel(inbox, 'Win32')).toBe('Ctrl+Shift+I')

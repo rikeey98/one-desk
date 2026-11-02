@@ -3,9 +3,9 @@
  * (`listWidth.ts`·`dockHeight.ts`와 같은 방식). 경계값을 렌더링 없이 고정하려고 순수 함수로 뗀다.
  */
 
-/** 칸의 종류 — 한 번에 하나만 보인다(spec FR-3). 변경사항은 셋째 사이클에서 더한다 */
-export type PaneKind = 'files' | 'terminal'
-const PANE_KINDS: readonly PaneKind[] = ['files', 'terminal']
+/** 칸의 종류 — 한 번에 하나만 보인다(spec FR-3). 그림은 docs/sdlc/drawings/ FR-11. 변경사항은 셋째 사이클에서 더한다 */
+export type PaneKind = 'files' | 'terminal' | 'drawing'
+const PANE_KINDS: readonly PaneKind[] = ['files', 'terminal', 'drawing']
 
 export const MIN_PANE_PX = 320
 /**
