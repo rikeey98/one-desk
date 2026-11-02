@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { spawn } from 'node:child_process'
 import { mkdirSync, rmSync, statSync } from 'node:fs'
-import { access } from 'node:fs/promises'
+import { access, stat } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,7 +20,7 @@ import { probeCommands } from './commands/probe'
 import { describeCommands } from './commands/describe'
 import type { GlobalRoots } from './db/repositories/setting'
 import type {
-  UpdateRepoInput, AppPaths, FileSearchInput, BuildReportInput, ReportData, FileTreeInput, FileRef, FileSaveInput
+  UpdateRepoInput, AppPaths, ConfigFile, FileSearchInput, BuildReportInput, ReportData, FileTreeInput, FileRef, FileSaveInput
 , AgentEnv, WslDistros, HomeSummary, HomeSummaryInput, HomeTarget } from '@shared/models'
 import { PANEL_KINDS, type PanelScope } from '@shared/panelWindow'
 import { createFileService } from './files/service'
@@ -46,6 +46,7 @@ import { envOfRepo, HOST_ENV, type ProcessEnvSpec } from './wsl/env'
 import { createWslPreflight } from './wsl/preflight'
 import { createWslPaths } from './wsl/paths'
 import { createWslHome, expandWslRoots } from './wsl/home'
+import { createConfigFiles } from './app/configFiles'
 import { listDistros } from './wsl/distros'
 import { folderStartOf } from './wsl/folderStart'
 import { parseWslPath } from '@shared/wslPath'
@@ -279,6 +280,15 @@ export function createCore(opts: CoreOptions) {
   const launcherPath = opts.launcherPath ?? LAUNCHER_FILE
   // 홈은 passwd가 정한다 — `~/.profile`과 무관한데 프로필이 찍는 글자에 깨지기만 하므로 로그인 셸 밖이다(`runQueryIn`, §4-C)
   const wslHome = createWslHome({ run: (env, executable, args) => runQueryIn(env)({ executable, args }) })
+  // 에이전트 현황 패널의 설정 파일 (docs/sdlc/agent-status/ FR-6~9). 배포판 홈은 글로벌 skill 경로와 같은 캐시다
+  const configFiles = createConfigFiles({
+    homeDir: opts.homeDir,
+    repos,
+    wslHome: (distro) => wslHome.of(distro),
+    isFile: async (path) => {
+      try { return (await stat(path)).isFile() } catch { return false }
+    }
+  })
   /** run·터미널이 같이 쓰는 런처 경로 (FR-10·11) — 런처 스크립트와 pidfile의 Linux 경로, pidfile의 Windows 경로 */
   const wslLauncherFor = async (distro: string, id: string) => {
     mkdirSync(wslDir, { recursive: true })
@@ -827,6 +837,15 @@ export function createCore(opts: CoreOptions) {
      * 이 값에 버전을 더해 돌려준다(경계 규칙 1).
      */
     paths: (): AppPaths => ({ dataDir: opts.dataDir, dbFile, logDir }),
+
+    /**
+     * 에이전트 현황 패널의 설정 파일 (docs/sdlc/agent-status/ FR-6~9). 렌더러는 (종류, repo id)만 넘긴다 — `pathOf`가 그것을
+     * 검증해 경로로 바꾸고, 여는 것은 electron이다(`paths`·`reveal.ts`와 같은 구조).
+     */
+    configFiles: {
+      list: (workspaceId: string | null): Promise<ConfigFile[]> => configFiles.list(workspaceId),
+      pathOf: (ref: unknown): Promise<string> => configFiles.pathOf(ref)
+    },
 
     /**
      * 패널 창을 열어도 되는 범위인가 (docs/sdlc/item-windows/ FR-12). 렌더러가 보낸 값을 그대로 믿지 않는다 —

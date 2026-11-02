@@ -17,6 +17,13 @@ export function registerAppHandlers(core: Core, windows: Windows) {
     const failure = await shell.openPath(revealDir(target, core.paths()))
     if (failure) throw new Error(failure)
   })
+  // 설정 파일 (docs/sdlc/agent-status/ FR-7) — 렌더러가 보낸 (종류, repo id)를 경로로 바꾸는 것도, 없는 파일을 거부하는 것도
+  // core다. 여기는 OS 기본 앱으로 여는 것뿐이다.
+  ipcMain.handle(CHANNELS.appConfigFiles, (_e, workspaceId: string | null) => core.configFiles.list(workspaceId))
+  ipcMain.handle(CHANNELS.appOpenConfigFile, async (_e, ref: unknown) => {
+    const failure = await shell.openPath(await core.configFiles.pathOf(ref))
+    if (failure) throw new Error(failure)
+  })
   // 경로를 고르는 것은 사람이고, 고른 경로의 검증은 여느 때처럼 repos.create가 한다.
   // 부모 창을 주어야 대화상자가 앱 창 뒤로 숨지 않는다(모달).
   // 시작 폴더는 렌더러가 아니라 core가 정한다 — 렌더러는 "WSL에서"라는 뜻만 넘긴다(docs/sdlc/wsl-repo-setup/ FR-13).
