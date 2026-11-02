@@ -148,24 +148,30 @@
 - **FR-24 테마 · 언어** — `langCode="ko-KR"`, `theme`는 `prefers-color-scheme`를 따라간다(바뀌면 그 자리에서).
 - **FR-25 끄는 것** — `UIOptions.canvasActions`: `loadScene`·`saveToActiveFile`·`export`·`saveAsImage`·`changeViewBackgroundColor` false,
   `toggleTheme` 숨김. `UIOptions.tools.image` false. `aiEnabled` false. 주 메뉴는 앱이 고른 항목만(찾기 · 도움말 · 캔버스 지우기 — 소셜
-  링크 · Excalidraw+ · 불러오기가 없다). 환영 화면(외부 링크 · 불러오기)과 라이브러리 버튼(저장할 자리가 없고 가져오기가 외부 사이트로
-  간다)은 세우지 않는다 — 막는 길은 plan 0단계가 정한다.
+  링크 · Excalidraw+ · 불러오기가 없다). 환영 화면(외부 링크 · 불러오기)은 자식을 넘기면 서지 않고, 라이브러리 버튼(저장할 자리가 없고
+  가져오기가 외부 사이트로 간다)은 CSS로 숨긴다(plan 0단계 5).
 - **FR-26 끼워 넣기** — `validateEmbeddable`은 늘 false를 돌려주는 함수, `renderEmbeddable`은 늘 null이다. 요소의 링크는 Excalidraw의
   기본 동작대로 열리고, 새 창 요청은 main의 가드(http(s)만 OS 브라우저, 나머지 거부)를 탄다.
-- **FR-27 이미지 · 파일이 들어오는 길을 막는다** — 붙여넣기(`onPaste`)는 클립보드에 파일이 있거나 붙일 데이터에 `files`가 있으면 거부하고,
-  캔버스에 끌어 놓은 파일(이미지 · `.excalidraw` 장면 — 놓으면 지금 그림을 통째로 바꾼다)은 감싸는 요소가 capture 단계에서 막는다.
+- **FR-27 이미지 · 파일이 들어오는 길을 막는다** — 이미지 파일의 붙여넣기 · 끌어 놓기는 `tools.image: false`가 막는다(plan 0단계 4).
+  붙여넣기(`onPaste`)는 붙일 데이터에 `files`가 있거나 `image` 요소가 섞였으면 거부하고, 캔버스에 끌어 놓은 파일(`.excalidraw` · 장면이 든
+  PNG — 놓으면 지금 그림을 통째로 바꾼다)은 감싸는 요소가 capture 단계에서 막는다. 판정은 `renderer/drawing/guards.ts`의 순수 함수다.
 - **FR-28 키** — 그림 칸 안의 Esc는 Excalidraw의 것이다: 감싸는 요소가 전파를 막는다(도크 최대화 · App의 "열린 항목 닫기"로 새지 않게 —
   칸은 도크가 포털로 그려 React 이벤트가 도크로 올라간다, 터미널과 같은 규칙). `isEditableTarget`이 `.excalidraw` 안을 글 받는 자리로 본다
-  (수정키 없는 `?`가 앱 도움말과 Excalidraw 도움말을 같이 열지 않게). 수정키 단축키(Ctrl+N 등)는 Excalidraw가 처리한(`defaultPrevented`)
-  키만 감싸는 요소가 막는다 — 나머지는 앱의 것 그대로다.
+  (수정키 없는 `?`가 앱 도움말과 Excalidraw 도움말을 같이 열지 않게). 앱의 수정키 단축키 여섯은 Excalidraw가 쓰지 않아 캔버스 안에서도
+  앱의 것이다(plan 0단계 6 — Excalidraw가 쓰는 Ctrl+Z 등은 Excalidraw가 전파를 막는다).
 
 ## 9. 빌드 — 글꼴
 
 - **FR-29** 렌더러 빌드가 `node_modules/@excalidraw/excalidraw/dist/prod/fonts`를 `out/renderer/excalidraw-assets/fonts`로 복사하고, 개발 서버는
   같은 경로를 node_modules에서 바로 준다 — `electron.vite.config.ts`의 작은 플러그인 하나. 복사는 `readdirSync` + `copyFileSync`다
-  (`cpSync`는 Windows Node 22에서 한글 경로에 프로세스째 죽는다 — CLAUDE.md). `DrawingCanvas`가 Excalidraw를 그리기 전에
-  `window.EXCALIDRAW_ASSET_PATH = new URL('excalidraw-assets/', document.baseURI).href`를 세운다(§0의 origin 문제 — 해시는 버려진다).
-  CSP는 plan 0단계가 막히는 것을 볼 때만, 그 하나만 넓힌다.
+  (`cpSync`는 Windows Node 22에서 한글 경로에 프로세스째 죽는다 — CLAUDE.md). 자산 경로는
+  `window.EXCALIDRAW_ASSET_PATH = new URL('excalidraw-assets/', document.baseURI).href`(§0의 origin 문제 — 해시는 버려진다)이고, **Excalidraw를
+  import하기 전에** 세운다 — 대입만 하는 모듈(`renderer/components/drawing/excalidrawSetup.ts`)을 Excalidraw보다 먼저 import한다. Excalidraw는
+  모듈을 불러오는 순간 글꼴 주소를 만든다(plan 0단계 1).
+- **FR-30 원격 대체 글꼴을 걷는다** — 같은 모듈이 `FontFace`의 원본 목록에서 `https://esm.sh/@excalidraw/excalidraw@`로 시작하는 원본만
+  걷는다. Excalidraw는 글꼴마다 로컬 다음에 esm.sh를 원본으로 붙이고, Chromium은 그것을 등록할 때마다 CSP 위반으로 알린다(실제로 내려받지는
+  않는다 — 그림 칸을 열 때마다 콘솔 오류 231줄, plan 0단계 3). CSP는 넓히지 않는다. 걷는 판정은 `stripRemoteFontSources(source)`
+  순수 함수이고 그 접두사 밖의 원본은 건드리지 않는다.
 
 ## 10. NFR
 
@@ -187,8 +193,8 @@
 - renderer: `sync.ts`(저장 거르기 · 충돌 합치기 · 세 번 · 메아리 · 남의 바뀜 · 지워짐), `PaneKind`, `isEditableTarget`, 그림 칸(가짜 캔버스 —
   jsdom은 Excalidraw를 못 그린다: 비었을 때 · 새 그림 · 고르기 메뉴 · 이름 · 지우기 · 새 창 버튼), repo 삭제의 확인 글, `Dock`의 `그림` 버튼.
 - e2e `e2e/drawing.e2e.ts` — 진짜 Excalidraw: 그림 칸을 열고 새 그림에 사각형을 그리면 DB에 요소 하나가 남는다 · 앱을 다시 켜도 남는다 ·
-  새 창에서 그린 것이 칸에 합쳐진다(둘 다 남는다) · 한글 글자가 손글씨 글꼴로 그려진다(`document.fonts`) · 콘솔에 CSP 위반이 없다 · repo
-  삭제의 확인 글. 요소 수는 main에서 DB를 읽어 센다(`home.e2e`의 `runSql`과 같은 방식).
+  새 창에서 그린 것이 칸에 합쳐진다(둘 다 남는다) · 다른 창에서 지운 것이 되살아나지 않는다 · 끌어 놓은 장면 파일이 그림을 바꾸지 않는다 ·
+  한글 글자가 손글씨 글꼴로 그려진다(`document.fonts`) · CSP 위반이 하나도 없다(FR-30) · repo 삭제의 확인 글. 요소 수는 main에서 DB를 읽어 센다(`home.e2e`의 `runSql`과 같은 방식).
 
 ## 12. 뒤집을 수 있는 결정
 
