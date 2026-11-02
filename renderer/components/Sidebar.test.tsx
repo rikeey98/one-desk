@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { Sidebar } from './Sidebar'
 import type { OneDeskClient } from '@shared/client'
-import type { InboxCounts, McpStatus, PlanUsage, Workspace } from '@shared/models'
+import type { InboxCounts, McpStatus, PlanUsage, QueueSnapshot, Workspace } from '@shared/models'
 
 function makeWorkspace(name: string, id: string): Workspace {
   return {
@@ -59,6 +59,9 @@ function renderSidebar(over: {
   onSelectReport?: () => void
   onSelectSchedules?: () => void
   collapsed?: boolean
+  queue?: QueueSnapshot | null
+  activityOpen?: boolean
+  onToggleActivity?: () => void
   client?: OneDeskClient
 } = {}) {
   render(
@@ -81,6 +84,9 @@ function renderSidebar(over: {
         planUsage={over.planUsage ?? null}
         onDeleted={over.onDeleted ?? vi.fn()}
         collapsed={over.collapsed ?? false}
+        queue={over.queue === undefined ? null : over.queue}
+        activityOpen={over.activityOpen ?? false}
+        onToggleActivity={over.onToggleActivity ?? vi.fn()}
         onSelectHome={over.onSelectHome ?? vi.fn()}
         homeCount={over.homeCount ?? 0}
         focusWorkspaceAdd={over.focusWorkspaceAdd ?? false}
@@ -168,6 +174,9 @@ function renderSidebarRaw(mcpStatus: McpStatus) {
           mcpStatus={status}
           planUsage={null}
           collapsed={false}
+          queue={null}
+          activityOpen={false}
+          onToggleActivity={vi.fn()}
         onSelectHome={vi.fn()}
         homeCount={0}
         focusWorkspaceAdd={false}
@@ -197,7 +206,7 @@ describe('MCP 상태 줄', () => {
     renderSidebar({ mcpStatus: { state: 'failed', message: 'EADDRINUSE' } })
     const row = screen.getByText(/MCP 연결 실패/).closest('.mcp-status')
     expect(row).toBeInTheDocument()
-    expect(row).toHaveAttribute('title', 'EADDRINUSE')
+    expect(row).toHaveAttribute('title', expect.stringContaining('MCP 연결 실패: EADDRINUSE'))
   })
 
   it('상태가 바뀌면 화면도 바뀐다 — prop을 실제로 읽는다', () => {
@@ -208,6 +217,42 @@ describe('MCP 상태 줄', () => {
     rerender({ state: 'listening', port: 999 })
     expect(screen.queryByText(/MCP 시작 중/)).not.toBeInTheDocument()
     expect(screen.getByText(/MCP :999/)).toBeInTheDocument()
+  })
+})
+
+describe('에이전트 실행 현황 (docs/sdlc/agent-status/ FR-1·FR-2)', () => {
+  it('MCP 곁에 실행 슬롯을, 대기가 있으면 `+N 대기`를 보인다', () => {
+    renderSidebar({ queue: { running: 1, limit: 3, waiting: 2 } })
+    const row = screen.getByRole('button', { name: '에이전트 현황' })
+    expect(row).toHaveTextContent('MCP :12345')
+    expect(row).toHaveTextContent('실행 1/3')
+    expect(row).toHaveTextContent('+2 대기')
+    // 도크의 슬롯 표시기(`· 대기 N`)를 화면 전체에서 잡는 e2e와 부딪히지 않는다
+    expect(row.textContent).not.toMatch(/대기 \d/)
+    expect(row).toHaveClass('agent-activity-busy')
+    expect(row).toHaveAttribute('title', 'MCP :12345 · 실행 1/3 · +2 대기 — 눌러서 에이전트 현황 보기')
+  })
+
+  it('도는 것이 없으면 점이 쉬고 대기 글자가 없다', () => {
+    renderSidebar({ queue: { running: 0, limit: 3, waiting: 0 } })
+    const row = screen.getByRole('button', { name: '에이전트 현황' })
+    expect(row).toHaveTextContent('실행 0/3')
+    expect(row).not.toHaveTextContent('대기')
+    expect(row).not.toHaveClass('agent-activity-busy')
+  })
+
+  it('누르면 onToggleActivity를 부르고, 열림을 aria-expanded로 말한다', async () => {
+    const onToggleActivity = vi.fn()
+    renderSidebar({ onToggleActivity, activityOpen: true })
+    const row = screen.getByRole('button', { name: '에이전트 현황' })
+    expect(row).toHaveAttribute('aria-expanded', 'true')
+    await userEvent.click(row)
+    expect(onToggleActivity).toHaveBeenCalledTimes(1)
+  })
+
+  it('접혀도 버튼은 남고 이름이 같다', () => {
+    renderSidebar({ collapsed: true, queue: { running: 2, limit: 3, waiting: 0 } })
+    expect(screen.getByRole('button', { name: '에이전트 현황' })).toHaveAttribute('title', expect.stringContaining('실행 2/3'))
   })
 })
 
@@ -360,7 +405,7 @@ describe('리포트 진입점 (docs/sdlc/period-report/ FR-13)', () => {
     expect(inbox).toHaveAttribute('title', '인박스')
     expect(screen.getByRole('button', { name: '설정' })).toHaveAttribute('title', '설정')
     // MCP는 점만 보이므로 상태를 풍선이 말한다
-    expect(document.querySelector('.mcp-status')).toHaveAttribute('title', 'MCP :12345')
+    expect(document.querySelector('.mcp-status')).toHaveAttribute('title', 'MCP :12345 — 눌러서 에이전트 현황 보기')
   })
 })
 

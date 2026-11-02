@@ -613,6 +613,62 @@ select.pill { padding-right: 4px; cursor: pointer; text-overflow: ellipsis; }
 .plan-usage { padding: 4px 9px 0 22px; font-size: .6875rem; color: var(--text-muted); cursor: help; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .plan-usage-warn { color: var(--warn); }
 
+/* MCP 줄이 버튼이 됐다 — 실행 현황을 함께 보이고 누르면 에이전트 현황 패널이 뜬다 (docs/sdlc/agent-status/ FR-1~3).
+   모양은 예전 줄 그대로(구분선·작은 글자)이고 버튼 기본 모양만 걷는다. 도는 agent가 있으면 점이 숨쉰다. */
+.agent-activity-button { anchor-name: --agent-activity; width: 100%; border: 0; border-top: 1px solid var(--border); background: transparent; font: inherit; font-size: .6875rem; text-align: left; cursor: pointer; padding-bottom: 4px; transition: color .12s; }
+.agent-activity-button:hover, .agent-activity-open { color: var(--text-secondary); }
+.agent-activity-button.mcp-status-failed { cursor: pointer; }
+.agent-activity-button .mcp-label { display: flex; align-items: baseline; gap: 6px; flex: 1 1 auto; min-width: 0; white-space: nowrap; }
+.agent-activity-mcp { overflow: hidden; text-overflow: ellipsis; }
+.agent-activity-runs { margin-left: auto; font-variant-numeric: tabular-nums; }
+.agent-activity-waiting { color: var(--warn-text); font-variant-numeric: tabular-nums; }
+.agent-activity-busy .mcp-dot { animation: activity-pulse 1.4s ease-in-out infinite; }
+@keyframes activity-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 55%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) { .agent-activity-busy .mcp-dot { animation: none; outline: 2px solid var(--success); outline-offset: 1px; } }
+.sidebar-collapsed .agent-activity-button { cursor: pointer; padding-bottom: 4px; }
+
+/* 에이전트 현황 패널 — 최상위 레이어 popover가 하단 줄의 오른쪽에 바닥을 맞춰 뜬다. 넘치면 패널 안만 스크롤한다. */
+.agent-activity-panel { position: fixed; position-anchor: --agent-activity; inset: auto; left: anchor(right); bottom: anchor(bottom); position-try-fallbacks: flip-block; margin: 0 0 0 14px; width: 420px; max-width: calc(100vw - 80px); max-height: calc(100vh - 56px); padding: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); box-shadow: var(--shadow-panel), var(--shadow-overlay); font-family: inherit; overflow: hidden; }
+.agent-activity-panel:popover-open { display: flex; flex-direction: column; }
+.agent-activity-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--border-faint); font-size: .75rem; font-weight: 700; letter-spacing: .04em; color: var(--text-secondary); }
+.agent-activity-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 14px 14px; font-size: .75rem; }
+.agent-activity-body section { padding-top: 10px; }
+.agent-activity-body section + section { margin-top: 10px; border-top: 1px solid var(--border-faint); }
+.agent-activity-body h3 { margin: 0 0 6px; font-size: .6875rem; letter-spacing: .07em; text-transform: uppercase; color: var(--text-muted); font-weight: 700; }
+.activity-section-head { display: flex; align-items: baseline; gap: 8px; }
+.activity-section-head h3 { margin-right: auto; }
+.activity-link { border: 0; background: transparent; padding: 0; color: var(--accent-text); cursor: pointer; font: inherit; font-size: .6875rem; }
+.activity-link:hover { text-decoration: underline; }
+.activity-link:disabled { color: var(--text-muted); cursor: default; text-decoration: none; }
+.activity-facts { margin: 0; display: flex; flex-direction: column; gap: 3px; }
+.activity-facts > div { display: flex; gap: 10px; align-items: baseline; }
+.activity-facts dt { flex: 0 0 76px; color: var(--text-muted); }
+.activity-facts dd { margin: 0; min-width: 0; color: var(--text); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.activity-mcp-listening { color: var(--text); }
+.activity-mcp-failed { color: var(--danger-text); }
+.activity-empty { margin: 6px 0 0; color: var(--text-muted); }
+.activity-runs, .activity-files { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.activity-run { display: flex; align-items: center; gap: 8px; }
+.activity-run-body { flex: 1 1 auto; min-width: 0; }
+.activity-run-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.activity-run-sub { display: flex; gap: 6px; align-items: baseline; color: var(--text-muted); font-size: .6875rem; white-space: nowrap; overflow: hidden; }
+.activity-run-sub .path-text { font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; }
+.agent-activity-body button:not(.activity-link):not(.row-action) { flex: 0 0 auto; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text); cursor: pointer; font: inherit; font-size: .6875rem; padding: 2px 8px; transition: background .12s; }
+.agent-activity-body button:not(.activity-link):not(.row-action):hover { background: var(--bg-hover); }
+.agent-activity-body .settings-status { margin: 4px 0 0; }
+.activity-files-group + .activity-files-group { margin-top: 10px; }
+.activity-files-title { font-weight: 600; color: var(--text-secondary); }
+.activity-files { margin-top: 4px; }
+.activity-file { display: flex; align-items: center; gap: 8px; }
+.activity-file-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.activity-file-path { font-family: var(--font-mono); font-size: .6875rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.activity-file-missing .activity-file-label { color: var(--text-muted); }
+.activity-file-none { flex: 0 0 auto; font-size: .6875rem; color: var(--text-muted); }
+.activity-folder-actions { display: flex; gap: 6px; margin-top: 4px; }
+
 /* 대화록 — 턴 (설계 §4-1, docs/sdlc/conversation-timeline/ spec FR-12·FR-13, 치수는 §4).
    접힌 턴은 버블 · 상태 줄 · 활동 요약 · 답 칸 · 오류 카드 · 끝줄이고, 펼치면 요약 대신 활동이
    온다. 흐림은 opacity가 아니라 --text-muted/--text-secondary다(DESIGN.md). */

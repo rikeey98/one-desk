@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { OneDeskClient, Unsubscribe } from '@shared/client'
-import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, AssetBody, FileSearchResult, ReportData, HomeSummary, HomeTarget, FileTreeResult, FileOpenResult, FileSaveResult, FileProbeResult, TerminalSession, TerminalTab, TerminalShellOption, TerminalData, TerminalExit, TerminalShellSetting, WslDistros } from '@shared/models'
+import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, ConfigFile, AssetBody, FileSearchResult, ReportData, HomeSummary, HomeTarget, FileTreeResult, FileOpenResult, FileSaveResult, FileProbeResult, TerminalSession, TerminalTab, TerminalShellOption, TerminalData, TerminalExit, TerminalShellSetting, WslDistros } from '@shared/models'
 import type { RunEvent } from '@shared/events'
 import type { Proposal, ScheduleFireView, SchedulePreview, ScheduleView } from '@shared/models'
 
@@ -152,6 +152,8 @@ const client: OneDeskClient = {
   app: {
     info: () => call<AppInfo>(CHANNELS.appInfo),
     reveal: (target) => call<void>(CHANNELS.appReveal, target),
+    configFiles: (workspaceId) => call<ConfigFile[]>(CHANNELS.appConfigFiles, workspaceId),
+    openConfigFile: (ref) => call<void>(CHANNELS.appOpenConfigFile, ref),
     pickDirectory: (options) => call<string | null>(CHANNELS.appPickDirectory, options),
     openPanelWindow: (scope) => call<void>(CHANNELS.appOpenPanelWindow, scope)
   },

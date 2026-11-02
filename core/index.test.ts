@@ -1426,6 +1426,36 @@ describe('paths — 정보 탭', () => {
   })
 })
 
+describe('설정 파일 — 에이전트 현황 패널 (docs/sdlc/agent-status/)', () => {
+  it('넘긴 homeDir과 그 workspace의 repo에서 찾고, 폴더는 파일로 치지 않는다', async () => {
+    // opts.homeDir이 설정 파일까지 닿는 한 줄과 isFile 배선을 지킨다 — 진짜 홈을 보면 개발자마다 결과가 달라진다.
+    const dataDir = makeDataDir()
+    const home = join(dataDir, 'home')
+    const repoDir = join(dataDir, 'api')
+    mkdirSync(join(home, '.claude'), { recursive: true })
+    writeFileSync(join(home, '.claude', 'settings.json'), '{}')
+    mkdirSync(join(home, '.claude.json'), { recursive: true })
+    mkdirSync(repoDir, { recursive: true })
+    writeFileSync(join(repoDir, '.mcp.json'), '{}')
+    const core = open(dataDir, home)
+    const ws = core.workspaces.create({ name: 'ws' })
+    const repo = await core.repos.create({ workspaceId: ws.id, name: 'api', path: repoDir })
+
+    const files = await core.configFiles.list(ws.id)
+    expect(files.find((f) => f.key === 'claude-settings')).toEqual({
+      key: 'claude-settings', repoId: null, path: join(home, '.claude', 'settings.json'), exists: true
+    })
+    expect(files.find((f) => f.key === 'claude-state')?.exists).toBe(false)
+    expect(files.find((f) => f.key === 'repo-mcp')).toEqual({
+      key: 'repo-mcp', repoId: repo.id, path: join(repoDir, '.mcp.json'), exists: true
+    })
+    expect(await core.configFiles.pathOf({ key: 'repo-mcp', repoId: repo.id })).toBe(join(repoDir, '.mcp.json'))
+    await expect(core.configFiles.pathOf({ key: 'claude-state', repoId: null })).rejects.toThrow('파일이 없습니다')
+    await expect(core.configFiles.pathOf(join(home, '.claude', 'settings.json'))).rejects.toThrow('열 수 없는 설정 파일')
+    close(core)
+  })
+})
+
 describe('바뀜 알림과 패널 창 범위 (docs/sdlc/item-windows/)', () => {
   /** 부팅 스캔은 기다리지 않는다 — 그것이 끝나며 내는 asset 알림이 단언에 섞이지 않게 잠깐 둔다(빈 임시 홈이라 빠르다). */
   const settleBootScan = () => new Promise((r) => setTimeout(r, 150))

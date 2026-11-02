@@ -341,6 +341,27 @@ export interface AppInfo extends AppPaths {
 /** 정보 탭의 "폴더 열기"가 열 수 있는 대상. 경로가 아니라 이름이다 (spec NFR-3) */
 export type RevealTarget = 'data' | 'logs'
 
+/**
+ * 에이전트 현황 패널이 여는 설정 파일의 종류 (`docs/sdlc/agent-status/` FR-6). 앞의 셋은 이 장비의 것, `repo-*`는 repo 루트의
+ * 것, `wsl-*`는 WSL repo가 도는 배포판 홈의 것이다. **경로가 아니라 이 이름을 넘긴다** — 경로는 core가 정한다(`RevealTarget`과 같은 이유).
+ */
+export type ConfigFileKey =
+  | 'claude-settings' | 'claude-state' | 'opencode-config'
+  | 'repo-claude-settings' | 'repo-claude-local' | 'repo-mcp' | 'repo-opencode'
+  | 'wsl-claude-settings'
+
+/** 설정 파일 하나를 가리키는 것 — 장비의 것이면 `repoId`가 null, repo·WSL의 것이면 그 repo id */
+export interface ConfigFileRef {
+  key: ConfigFileKey
+  repoId: string | null
+}
+
+/** 설정 파일 하나. 없으면 `exists`가 false이고 `path`는 만들면 생길 자리다 */
+export interface ConfigFile extends ConfigFileRef {
+  path: string
+  exists: boolean
+}
+
 export interface UpdateRepoInput {
   id: string
   name?: string

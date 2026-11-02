@@ -13,7 +13,7 @@ import type {
   McpStatus, PlanUsage, ResumeRunInput, ItemChange,
   Asset, CreateAuthoredAssetInput, GuardedUpdateAssetInput, AssetUpdateResult, ListAssetQuery,
   GlobalRoots, AgentPaths, CommandTarget, CommandListResult,
-  UpdateRepoInput, AppInfo, RevealTarget, AssetBody, FileSearchInput, FileSearchResult,
+  UpdateRepoInput, AppInfo, RevealTarget, ConfigFile, ConfigFileRef, AssetBody, FileSearchInput, FileSearchResult,
   FileRef, FileTreeInput, FileTreeResult, FileOpenResult, FileSaveInput, FileSaveResult, FileProbeResult,
   TerminalOpenInput, TerminalSession, TerminalData, TerminalExit, TerminalShellSetting, WslDistros, PickDirectoryOptions,
   TerminalTab, TerminalShellOption, TerminalCreateInput, TerminalTabInput, TerminalTabRef
@@ -291,6 +291,13 @@ export interface OneDeskClient {
     info(): Promise<AppInfo>
     /** 정해진 두 위치만 파일 탐색기로 연다. 경로가 아니라 이름을 받는다 (spec NFR-3) */
     reveal(target: RevealTarget): Promise<void>
+    /**
+     * 에이전트 현황 패널의 설정 파일 (`docs/sdlc/agent-status/` FR-6) — 이 장비의 것, 그리고 workspace를 주면 그 repo의 것과
+     * WSL 배포판의 것. 없는 파일도 자리와 함께 온다(`exists: false`)
+     */
+    configFiles(workspaceId: string | null): Promise<ConfigFile[]>
+    /** OS 기본 앱으로 연다. **(종류, repo id)만 받는다** — 경로는 core가 정한다(FR-7). 없는 파일이면 던진다 */
+    openConfigFile(ref: ConfigFileRef): Promise<void>
     /**
      * 폴더 선택 대화상자. 고른 절대 경로를, 취소하면 null을 돌려준다. `{ start: 'wsl' }`이면 기본 WSL 배포판의 홈에서 연다 —
      * 그 폴더는 core가 정한다(docs/sdlc/wsl-repo-setup/ FR-2·13)

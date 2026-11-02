@@ -21,7 +21,7 @@ import type {
   GuardedUpdateIssueInput, GuardedUpdateMemoInput, InboxCounts, Issue, IssueUpdateResult,
   McpStatus, Memo, MemoUpdateResult, Repo, Run, UpdateIssueInput, UpdateMemoInput, Workspace,
   UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses, AgentProbes, Asset, UpdateRepoInput,
-  HomeSummary, HomeTarget, HomeTodo, StartRunInput
+  HomeSummary, HomeTarget, HomeTodo, StartRunInput, ConfigFile
 } from '@shared/models'
 
 const workspace: Workspace = {
@@ -403,7 +403,11 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
     },
     app: {
       info: vi.fn(async () => ({ version: '0.0.0-test', dataDir: '/data', dbFile: '/data/one-desk.db', logDir: '/data/logs' })),
-      reveal: vi.fn(async () => {})
+      reveal: vi.fn(async () => {}),
+      configFiles: vi.fn(async (): Promise<ConfigFile[]> => [
+        { key: 'claude-settings', repoId: null, path: '/home/me/.claude/settings.json', exists: true }
+      ]),
+      openConfigFile: vi.fn(async () => {})
     },
     events: {
       onItemChanged: vi.fn(() => () => {}),
@@ -2196,5 +2200,68 @@ describe('홈 배선 (docs/sdlc/home/)', () => {
     const input = (client.runs.start as ReturnType<typeof vi.fn>).mock.calls[0]![0] as StartRunInput
     expect(input).toMatchObject({ workspaceId: 'w1', cwd: '/tmp/api', userPrompt: '로그인 고쳐줘', context: [] })
     expect(await screen.findByPlaceholderText('새 이슈 (첫 줄이 제목)')).toBeInTheDocument()
+  })
+})
+
+describe('에이전트 현황 배선 (docs/sdlc/agent-status/)', () => {
+  it('하단 줄이 App의 실행 스냅샷을 보인다 — 도크와 같은 useQueue다', async () => {
+    // App.tsx의 `queue={queue}` 한 줄을 지킨다. 기본값과 다른 수를 준다.
+    renderApp(makeClient({ queueSnapshot: vi.fn().mockResolvedValue({ running: 2, limit: 5, waiting: 1 }) }))
+    const row = screen.getByRole('button', { name: '에이전트 현황' })
+    await waitFor(() => expect(row).toHaveTextContent('실행 2/5'))
+    expect(row).toHaveTextContent('+1 대기')
+  })
+
+  it('하단 줄을 누르면 패널이 열리고, 다시 누르면 닫힌다', async () => {
+    renderApp(makeClient())
+    const row = screen.getByRole('button', { name: '에이전트 현황' })
+    expect(screen.queryByRole('dialog', { name: '에이전트 현황' })).toBeNull()
+    await userEvent.click(row)
+    expect(await screen.findByRole('dialog', { name: '에이전트 현황' })).toBeInTheDocument()
+    expect(row).toHaveAttribute('aria-expanded', 'true')
+    await userEvent.click(row)
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '에이전트 현황' })).toBeNull())
+  })
+
+  it('패널이 App의 MCP 상태·실행 스냅샷·workspace를 본다', async () => {
+    renderApp(makeClient({ queueSnapshot: vi.fn().mockResolvedValue({ running: 2, limit: 5, waiting: 0 }) }, {
+      mcpStatus: { state: 'listening', port: 61234 },
+      workspaces: [{ ...workspace, defaultModelClaude: 'opus-배선' }]
+    }))
+    await userEvent.click(screen.getByRole('button', { name: '에이전트 현황' }))
+    const dialog = await screen.findByRole('dialog', { name: '에이전트 현황' })
+    expect(dialog).toHaveTextContent('포트 61234에서 받는 중')
+    expect(dialog).toHaveTextContent('2/5 사용')
+    expect(within(dialog).getByRole('region', { name: '실행 환경' })).toHaveTextContent('opus-배선')
+  })
+
+  it('`설정 열기`는 패널을 닫고 설정 화면으로 간다', async () => {
+    renderApp(makeClient())
+    await userEvent.click(screen.getByRole('button', { name: '에이전트 현황' }))
+    await userEvent.click(await screen.findByRole('button', { name: '설정 열기' }))
+    expect(await screen.findByRole('tab', { name: '실행' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '에이전트 현황' })).toBeNull()
+  })
+
+  it('도는 대화의 `열기`는 그 대화를 도크에 연다', async () => {
+    const turns = [makeRun({ id: 'a1', rootRunId: 'a1', status: 'running', userPrompt: '도는 지시' })]
+    renderApp(makeClient({ list: async () => turns }, {
+      homeRunning: [{
+        workspaceId: 'w1', workspaceName: 'ws1', repoId: null, repoName: null, conversationId: 'a1', runId: 'a1',
+        title: '도는 대화', turns: 1, startedAt: 1, currentTool: null, lastText: null
+      }]
+    }))
+    await userEvent.click(screen.getByRole('button', { name: '에이전트 현황' }))
+    await userEvent.click(await screen.findByRole('button', { name: '도는 대화 대화로 가기' }))
+    expect(await screen.findByText('도는 지시', { selector: '.turn-user' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '에이전트 현황' })).toBeNull()
+  })
+
+  it('설정 파일의 열기는 (종류, repo id)만 넘긴다', async () => {
+    const client = makeClient()
+    renderApp(client)
+    await userEvent.click(screen.getByRole('button', { name: '에이전트 현황' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Claude Code 사용자 설정 파일 열기' }))
+    expect(client.app.openConfigFile).toHaveBeenCalledWith({ key: 'claude-settings', repoId: null })
   })
 })
