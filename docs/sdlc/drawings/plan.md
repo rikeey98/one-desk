@@ -105,6 +105,42 @@ file:에서 띄우고 Playwright로 몰았다(xvfb). 처음에 일반 Chromium�
 7. **합치기** — `reconcileElements`가 버전이 큰 remote를 고른다(묘비 포함 2개 → 2개). 지운 요소는 `version`이 오르고 `isDeleted: true`로
    `getSceneElementsIncludingDeleted()`에 남는다.
 
+## 달라진 것 (구현 중)
+
+1. **빈 칸의 버튼은 `첫 그림 만들기`다** — 머리의 `새 그림`과 이름이 같으면 한 화면에 같은 이름의 버튼이 둘이다(spec FR-14 고침).
+2. **IPC의 `get`은 없는 그림에 null이다**(`core.drawings.find`) — preload가 오류의 클래스를 벗겨 렌더러가 `NotFoundError`를 가려낼 수 없다.
+   저장소의 `get`은 그대로 던진다(spec FR-21의 6 고침).
+3. **동기화 규칙이 일곱이 됐다 — 날아가는 저장과 같은 장면은 다시 걸지 않는다**(spec FR-21의 7). 첫 e2e가 본문은 초록인데 앱 종료가 멈춰
+   찾았다: Excalidraw가 다시 그려질 때마다 onChange를 불러(넘기는 속성이 렌더마다 새것이었다) 같은 장면의 저장이 늘 대기로 남았고, 창 닫기가
+   그것을 흘려보내느라 닫히지 않았다. 열쇠 하나와 속성 고정 둘 다 했다 — 열쇠만으로도 끝나지만 속성이 새것이면 저장마다 캔버스가 다시 그려진다.
+4. **라이브러리 숨김의 선택자** — 처음 쓴 `.default-sidebar-trigger`는 Excalidraw의 CSS(뒤에 불린다)에 졌고, 실제로 보이는 것은 그것을 감싼
+   `label.sidebar-trigger__label-element`였다(캡처로 찾았다).
+5. **그림 창의 글꼴** — 창 뿌리에 `font-family`가 없어 머리가 serif로 그려졌다(캡처). 패널 창 뿌리와 같게 고쳤다.
+6. **지운 뒤 고른 것을 비우는 줄을 지웠다** — 변이가 살아남아 읽어 보니 쓸데없었다(지운 id는 `pickOpenDrawing`이 무시한다).
+
 ## 완료 증명
 
-(구현하며 채운다)
+- 단위: `pnpm test` 3,397 통과(기준선 3,318 + 79) · 1 실패 — 기준선의 그것(root라 읽기 전용 파일을 쓴다). `pnpm typecheck`·`pnpm lint` 초록.
+  경계 grep 둘(`from 'electron'` in core, `window.oneDesk` outside main.tsx) 출력 없음.
+- 앱 시작 청크: 1,490,643 B → 1,509,681 B(+19,038 B — 그림 칸·창·동기화 코드, Excalidraw 없음). Excalidraw는 지연 청크(`percentages-*` 1.7 MB ·
+  `index-*` 1.36 MB · `subset-shared` 1.8 MB, mermaid 청크들)로 나간다. 렌더러 산출물 28 MB(글꼴 14 MB 포함).
+- 변이(11단계): 아래 표의 단위 열여섯은 전부 빨개졌다. 살아남은 하나(`setChosen(null)`)는 쓸데없는 줄이라 지웠다(달라진 것 6).
+
+| 되돌린 줄 | 빨개진 테스트 |
+|---|---|
+| `sceneText`가 지운 요소를 거른다 | sync "지운 요소를 남겨 저장한다" |
+| 저장소 `create`의 소속 검증 | "다른 workspace의 repo에는 만들 수 없다" |
+| `updated_at`의 `+1` | "같은 밀리초의 두 저장도 충돌을 잡는다" |
+| `notifyingDrawings`가 충돌에도 알린다 | changes "그림: … 충돌로 끝난 저장과 읽기는 알리지 않는다" |
+| MCP `deps`에 그림 | "그림은 MCP deps에 없다" |
+| sync의 메아리 판정 | "내 저장의 메아리는 캔버스를 건드리지 않는다" |
+| sync의 다시 시도(3 → 1) | 충돌 테스트 셋 |
+| sync의 날아가는 저장 판정 | "저장이 날아가는 사이 같은 장면의 onChange는 저장을 다시 걸지 않는다" |
+| Dock의 `그림` 버튼 | Dock "그림 버튼은 칸을 그 대화 repo의 그림 칸으로 바꾼다" |
+| `isEditableTarget`의 `.excalidraw` | shortcut "그림 칸(Excalidraw) 안은 글 받는 자리다" |
+| RepoStrip의 확인 글 | RepoStrip "그 repo에 그림이 있으면 확인 글이 개수를 말한다" |
+| `pickOpenDrawing`의 가장 최근 | openDrawing·DrawingPane 셋 |
+| 그림 창이 이름을 따라간다 | DrawingWindow "코드 칸에서 바꾼 이름을 따라가고…" |
+| `find`의 null | core "그림 창은 있는 그림만 연다" |
+| 원격 대체 글꼴 걷기 | guards "esm.sh의 Excalidraw 원본만 걷는다" |
+| 붙여넣기의 이미지 요소 | guards "붙일 데이터에 파일이 있거나 이미지 요소가 섞였으면 막는다" |

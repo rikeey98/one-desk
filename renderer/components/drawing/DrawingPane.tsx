@@ -98,8 +98,7 @@ export function DrawingPane({ workspaceId, repo, onClose }: {
     if (!current) return
     try {
       await client.drawings.remove(current.id)
-      // 남은 것 중 가장 최근에 고친 것을 연다 (FR-16)
-      setChosen(null)
+      // 남은 것 중 가장 최근에 고친 것을 연다 (FR-16) — 고른 id가 목록에서 사라지면 `pickOpenDrawing`이 그것을 고른다
       await refresh()
     } catch (err) {
       setError(message(err))
