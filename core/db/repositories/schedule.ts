@@ -211,6 +211,15 @@ export function createScheduleRepository(db: Database, onError: ErrorSink) {
       return row ? toFire(row) : null
     },
 
+    /**
+     * 그 기록의 run을 판정했다고 찍는다 — 처음이면 true (FR-20). **한 run은 한 번만 센다**: 확인함·보관 같은 후속 갱신도 끝난 run으로
+     * 오므로, 찍힌 적 있는지를 같은 UPDATE의 조건으로 본다.
+     */
+    markJudged(fireId: string, now: number): boolean {
+      return db.update(scheduleFire).set({ judgedAt: now })
+        .where(and(eq(scheduleFire.id, fireId), isNull(scheduleFire.judgedAt))).run().changes === 1
+    },
+
     /** 그 run을 낸 기록 — run이 끝날 때 연속 실패를 판정한다 (FR-20) */
     fireByRun(runId: string): ScheduleFire | null {
       const row = db.select().from(scheduleFire).where(eq(scheduleFire.runId, runId)).limit(1).get()

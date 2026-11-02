@@ -35,6 +35,7 @@ CREATE TABLE `schedule_fire` (
 	`message` text,
 	`run_id` text,
 	`dropped_context` integer DEFAULT 0 NOT NULL,
+	`judged_at` integer,
 	FOREIGN KEY (`schedule_id`) REFERENCES `schedule`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint

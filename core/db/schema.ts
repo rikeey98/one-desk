@@ -295,7 +295,12 @@ export const scheduleFire = sqliteTable('schedule_fire', {
   skipReason: text('skip_reason').$type<'busy' | 'needs_answer'>(),
   message: text('message'),
   runId: text('run_id'),
-  droppedContext: integer('dropped_context').notNull().default(0)
+  droppedContext: integer('dropped_context').notNull().default(0),
+  /**
+   * 그 run의 결과로 연속 실패를 판정한 때 (FR-20). **한 run은 한 번만 센다** — 확인함·보관 같은 후속 갱신도 끝난 run으로 오고,
+   * 시작 전에 실패한 run은 기록보다 먼저 끝나 스케줄러가 기록 뒤에 다시 본다.
+   */
+  judgedAt: integer('judged_at')
 }, (t) => [
   index('schedule_fire_schedule_idx').on(t.scheduleId, t.firedAt),
   // run이 끝날 때 그 run을 낸 기록을 찾는다 (FR-20)

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8b0d74ba-72ee-4ad8-b4c9-2ecf0b85acac",
+  "id": "7235933a-8405-4720-80c1-a15b5428a810",
   "prevId": "57bb5860-ef84-44b5-8db7-426c3debd0aa",
   "tables": {
     "app_setting": {
@@ -1361,6 +1361,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": 0
+        },
+        "judged_at": {
+          "name": "judged_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {

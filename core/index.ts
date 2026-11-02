@@ -61,13 +61,18 @@ import { createRunQueue } from './runner/queue'
 import { createMcpHost } from './mcp/host'
 import {
   notifyingIssues, notifyingMemos, notifyingAssets, notifyingRepos, notifyingWorkspaces,
-  announcingAssignedConversations, notifyingProposals, type Notify
+  announcingAssignedConversations, notifyingProposals, notifyingSchedules, type Notify
 } from './changes'
-import { consoleErrorSink, type ErrorSink } from './errors'
+import { createScheduleRepository } from './db/repositories/schedule'
+import { createScheduler } from './schedules/scheduler'
+import { presentContext, validateScheduleInput } from './schedules/input'
+import { nextSlots, validateTrigger } from './schedules/clock'
+import { consoleErrorSink, NotFoundError, type ErrorSink } from './errors'
 import type { AgentAdapter } from './runner/types'
 import type { RunEvent } from '@shared/events'
 import type {
   AcceptIssueProposal, AgentKind, AgentPaths, InboxCounts, Issue, ItemChange, Proposal, McpStatus, PlanUsage, QueueSnapshot, Repo, Run,
+  Schedule, ScheduleFire, ScheduleFireView, ScheduleInput, SchedulePreview, ScheduleView,
   TerminalCreateInput, TerminalData, TerminalExit, TerminalOpenInput, TerminalTabInput, TerminalTabRef,
   TerminalShellSetting, Workspace
 } from '@shared/models'
@@ -123,6 +128,11 @@ export interface CoreOptions {
    * `process.platform`. 테스트가 `win32`를 넘겨 개발 장비에서 WSL repo를 둔다. 터미널·취소의 플랫폼 갈래는 이 값을 보지 않는다.
    */
   platform?: NodeJS.Platform
+  /**
+   * 정기 실행의 확인 간격 (docs/sdlc/scheduled-runs/ FR-13). 기본 30초. e2e는 main이 `ONE_DESK_SCHEDULE_TICK_MS`를 읽어 길게 넘겨 부팅 때의
+   * 한 번만 돌게 한다(놓친 실행을 결정적으로 본다).
+   */
+  scheduleTickMs?: number
   /** core가 삼킨 오류를 흘려보낼 곳. 기본은 stderr */
   onError?: ErrorSink
 }
@@ -179,6 +189,9 @@ export function createCore(opts: CoreOptions) {
     db, runs, issues: createIssueRepository(db), proposals: proposalRows, repos: createRepoRepository(db)
   })
   const repos = notifyingRepos(createRepoRepository(db), notify)
+  // 정기 실행 (docs/sdlc/scheduled-runs/). 감싼 것을 스케줄러와 IPC 표면이 같이 받는다 — 스케줄러의 기록·끄기도 화면에 닿는다.
+  // **MCP deps에는 넘기지 않는다**(FR-25) — workspace를 넘는 목록이다.
+  const schedules = notifyingSchedules(createScheduleRepository(db, onError), notify)
   const assetRows = notifyingAssets(createAssetRepository(db), notify)
   const settings = createSettingRepository(db, opts.homeDir)
   /**
@@ -490,11 +503,54 @@ export function createCore(opts: CoreOptions) {
       if (run.endedAt !== null) {
         // 결과 없이 죽은 run(실패·취소)의 스냅샷도 여기서 지운다 — result 이벤트는 성공한 run만 낸다
         dropRun(live, run.id)
+        // 정기 실행이 낸 run이면 연속 실패를 판정한다 (scheduled-runs FR-20). 던져도 run의 알림은 계속한다
+        try { scheduler.onRunFinished(run) } catch (err) { onError('정기 실행의 결과 판정 실패', err) }
         void assetService.scanWorkspace(run.workspaceId)
           .catch((err: unknown) => onError('run 후 asset 재스캔 실패', err))
       }
     }
   })
+
+  /**
+   * 정기 실행의 타이머 (docs/sdlc/scheduled-runs/ FR-13·14). **`runs.reapStale()` 뒤에** 만들고 곧바로 돌린다 — 앞이면 지난 실행의 running
+   * 행 때문에 "앞 실행이 돌고 있다"로 건너뛴다. 사람의 실행과 같은 `execution`을 탄다(NFR-2). `shutdown()`이 맨 먼저 멈춘다.
+   */
+  const scheduler = createScheduler({
+    schedules,
+    runs,
+    repos,
+    presentContext: (workspaceId, context) => presentContext(db, workspaceId, context),
+    execution,
+    now: () => Date.now(),
+    ...(opts.scheduleTickMs !== undefined ? { tickMs: opts.scheduleTickMs } : {}),
+    onError
+  })
+  scheduler.start()
+
+  /** 정기 실행 + 화면이 보일 것 (FR-24) */
+  function scheduleView(s: Schedule): ScheduleView {
+    let nextAt: number | null = null
+    if (s.enabled) {
+      try { nextAt = nextSlots(s.trigger, s.timeZone, s.anchorAt, 1)[0] ?? null } catch (err) { onError('정기 실행의 다음 시각 계산 실패', err) }
+    }
+    let repoName: string | null = null
+    if (s.repoId !== null) {
+      try { repoName = repos.get(s.repoId).name } catch (err) { if (!(err instanceof NotFoundError)) throw err }
+    }
+    const last = schedules.lastFire(s.id)
+    return { ...s, nextAt, repoName, lastFire: last ? fireView(last) : null }
+  }
+
+  function fireView(fire: ScheduleFire): ScheduleFireView {
+    if (fire.runId === null) return { ...fire, runStatus: null, needsAnswer: false, conversationId: null }
+    try {
+      const run = runs.get(fire.runId)
+      return { ...fire, runStatus: run.status, needsAnswer: run.needsAnswer, conversationId: run.rootRunId ?? run.id }
+    } catch (err) {
+      if (!(err instanceof NotFoundError)) throw err
+      return { ...fire, runStatus: null, needsAnswer: false, conversationId: null }
+    }
+  }
 
   /**
    * 인박스 소속이 바뀔 수 있는 쓰기 뒤마다 부른다.
@@ -624,8 +680,12 @@ export function createCore(opts: CoreOptions) {
 
       /** 지운 repo의 셸을 끝낸다 (terminal-spec FR-10) */
       remove(id: string) {
+        let workspaceId: string | null = null
+        try { workspaceId = repos.get(id).workspaceId } catch (err) { if (!(err instanceof NotFoundError)) throw err }
         const result = repos.remove(id)
         terminal.killRepo(id)
+        // 그 repo를 쓰던 정기 실행을 끈다 — 지우지 않는다 (scheduled-runs FR-21). 외래키가 repo_id를 null로 만들었다
+        if (workspaceId !== null) schedules.disableMissingRepo(workspaceId)
         return result
       },
 
@@ -1001,6 +1061,47 @@ export function createCore(opts: CoreOptions) {
       return () => { emitter.off(TERMINAL_EXIT, cb) }
     },
 
+    /**
+     * 정기 실행 (docs/sdlc/scheduled-runs/ FR-24). workspace를 넘는 목록이다 — 화면 전용이고 MCP `deps`에는 넘기지 않는다(FR-25).
+     * 검증은 `validateScheduleInput` 한 자리이고 만들기·고치기가 같이 탄다.
+     */
+    schedules: {
+      list(): ScheduleView[] {
+        return schedules.list().map(scheduleView)
+      },
+      create(input: ScheduleInput): ScheduleView {
+        const now = Date.now()
+        return scheduleView(schedules.create(validateScheduleInput(db, input, now), now))
+      },
+      update(id: string, input: ScheduleInput): ScheduleView {
+        const now = Date.now()
+        return scheduleView(schedules.update(id, validateScheduleInput(db, input, now), now))
+      },
+      setEnabled(id: string, enabled: boolean): ScheduleView {
+        return scheduleView(schedules.setEnabled(id, enabled, Date.now()))
+      },
+      remove(id: string): void {
+        schedules.remove(id)
+      },
+      runNow(id: string): Promise<Run> {
+        return scheduler.runNow(id)
+      },
+      fires(id: string): ScheduleFireView[] {
+        return schedules.fires(id).map(fireView)
+      },
+      /** 편집 칸의 미리보기 — 판정은 저장과 같은 `validateTrigger`다(FR-9) */
+      preview(trigger: unknown, timeZone: unknown): SchedulePreview {
+        const now = Date.now()
+        const checked = validateTrigger(trigger, timeZone, now)
+        if (!checked.ok) return { ok: false, error: checked.error }
+        return { ok: true, next: nextSlots(checked.trigger, timeZone as string, now, 3) }
+      },
+      /** 절전에서 깼다 — main의 powerMonitor가 부른다(FR-14) */
+      wake(): Promise<void> {
+        return scheduler.wake()
+      }
+    },
+
     onItemChanged(cb: (change: ItemChange) => void): () => void {
       emitter.on(ITEM_CHANGED, cb)
       return () => { emitter.off(ITEM_CHANGED, cb) }
@@ -1025,6 +1126,8 @@ export function createCore(opts: CoreOptions) {
      * 백업(openDb의 backupIfNeeded)이 온전한 상태를 복사하게 된다.
      */
     shutdown(): void {
+      // 맨 먼저 — 종료 중에 새 run을 띄우지 않는다 (scheduled-runs FR-14)
+      scheduler.stop()
       manager.cancelAll()
       // 셸과 셸이 띄운 프로세스(dev 서버)도 트리째, 기다려서 끝낸다 (terminal-spec FR-9)
       terminal.killAll()

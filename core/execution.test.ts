@@ -2241,4 +2241,46 @@ describe('이슈화 제안 안내 (docs/sdlc/agent-proposals/ FR-14·15)', () =>
     expect(guided(noMcp, run.id)).toBe(false)
     rmSync(noMcp.logDir, { recursive: true, force: true })
   })
+
+  it('정기 실행이 낸 턴에는 붙지 않는다 — 새 대화도 이어 가는 턴도 (scheduled-runs FR-22)', async () => {
+    const run = await ctx2.service.start({
+      workspaceId: ctx2.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'read_only', userPrompt: '훑어 줘', context: []
+    }, { fromSchedule: true })
+    await vi.waitFor(() => expect(ctx2.runs.get(run.id).endedAt).toBeTypeOf('number'))
+    expect(guided(ctx2, run.id)).toBe(false)
+    const next = await ctx2.service.resume({ conversationId: run.id, permission: 'read_only', userPrompt: '또', context: [] }, { fromSchedule: true })
+    await vi.waitFor(() => expect(ctx2.runs.get(next.id).endedAt).toBeTypeOf('number'))
+    expect(guided(ctx2, next.id)).toBe(false)
+    // 사람이 그 대화에 직접 이어 보낸 턴은 평소대로다
+    const human = await resumeOf(ctx2, run.id)
+    expect(guided(ctx2, human.id)).toBe(true)
+  })
+})
+
+describe('정기 실행의 내부 인자 (docs/sdlc/scheduled-runs/ FR-18)', () => {
+  let ctx3: ReturnType<typeof setup>
+  beforeEach(() => { ctx3 = setup() })
+  afterEach(() => { rmSync(ctx3.logDir, { recursive: true, force: true }) })
+
+  it('title이 새 대화의 뿌리 행에 쓰인다', async () => {
+    const run = await ctx3.service.start({
+      workspaceId: ctx3.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'read_only', userPrompt: '훑어 줘', context: []
+    }, { title: '아침 · 11/2 09:00' })
+    expect(ctx3.runs.get(run.id).title).toBe('아침 · 11/2 09:00')
+    await vi.waitFor(() => expect(ctx3.runs.get(run.id).endedAt).toBeTypeOf('number'))
+  })
+
+  it('이어 가는 턴에는 title을 받지 않는다 — 이름은 뿌리에만 있다', async () => {
+    const first = await ctx3.service.start({
+      workspaceId: ctx3.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'read_only', userPrompt: '훑어 줘', context: []
+    })
+    await vi.waitFor(() => expect(ctx3.runs.get(first.id).endedAt).toBeTypeOf('number'))
+    await expect(ctx3.service.start({
+      workspaceId: ctx3.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'read_only', userPrompt: '또', context: [], parentRunId: first.id
+    }, { title: 'x' })).rejects.toThrow(/새 대화/)
+  })
 })
