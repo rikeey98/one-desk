@@ -2,7 +2,7 @@
 
 - 출처: `intent.md` (2026-11-02 승인)
 - 작성자: 권용현 (초안: Claude)
-- 상태: **초안 — 승인 대기**. 사용자가 뒤집을 수 있는 결정은 §8에 모았다.
+- 상태: **승인됨** (2026-11-02, 사용자 "승인, plan 작성해줘"). FR-8·FR-13은 plan 0단계 사전 확인으로 고쳤다(각 항목의 개정 표시). 사용자가 뒤집을 수 있는 결정은 §8에 모았다.
 - 작성일: 2026-11-02
 
 ## 0. intent의 미해결 질문에 대한 답
@@ -11,7 +11,7 @@
 |---|---|---|
 | 이름 | 사이드바·화면 제목 **`정기 실행`**, 하나는 "정기 실행 하나". 버튼 이름은 NFR-4의 표 | NFR-4 |
 | 시간대 | **등록마다 IANA 시간대를 저장한다** — 렌더러가 만들 때의 시간대. core는 그 값으로 계산하고 **장비의 시간대를 묻지 않는다** | FR-3·FR-8 |
-| cron 해석 | **의존성 `croner` 10.0.1**(MIT, 의존성 없음, 시간대·DST 지원). 프리셋도 cron으로 바꿔 한 길로 계산한다. 5필드만 받는다 | FR-6~8 |
+| cron 해석 | **의존성 `croner` 10.0.1**(MIT, 의존성 없음, 시간대·DST 지원, `previousRuns`). 프리셋도 cron으로 바꿔 한 길로 계산한다. 5필드만 받는다 | FR-6~8 |
 | 깨어나는 방식 | **30초마다 확인하는 타이머 하나** + 절전에서 깨면(main의 `powerMonitor` `resume`) 즉시 확인. 앱을 켠 순간, 절전 뒤, 평소가 **같은 판정 하나**다 | FR-10~12 |
 | 맥락은 언제 읽나 | **실행하는 그 시각에** 다시 읽는다. 지워진 항목은 빼고 실행 기록에 개수를 남긴다 | FR-17 |
 | 이어 감에서 앞 턴이 답변 필요 | **건너뛴다** — 실행 기록에 `답변 기다리는 중`. 세션이 없으면 평소처럼 실패로 남는다 | FR-15 |
@@ -114,7 +114,7 @@
 
   `toCron(trigger)`가 프리셋을 cron으로 바꾼다(`평일 09:00` → `0 9 * * 1-5`, `3시간마다 :15` → `15 */3 * * *`). **N시간마다는 24의 약수만이다** — `*/5`는 자정에 끊겨 마지막 간격이 4시간이 되므로 "5시간마다"라는 말이 거짓이 된다. `describeTrigger(trigger)`가 사람 말을 만든다(`평일 09:00`, `매주 월·수 09:00`, `3시간마다 :15`, cron은 식 그대로).
 - **FR-7.** 검증 `validateTrigger(trigger, timeZone)`: 시각 `HH:MM`(00~23, 00~59) · 요일 0~6 중복 없음 · cron은 **공백으로 가른 필드가 정확히 5개**(croner는 초 필드 6개도 받지만 막는다 — 화면이 초를 말하지 않는다) · croner가 파싱하는가 · **최소 간격 10분** — 다음 20회차의 간격이 하나라도 10분보다 짧으면 거부한다(`*/5 * * * *`는 "5분마다 agent를 돌린다"이고 그것은 사용량 사고다, §8의 4). 오류는 한국어 한 문장이고 화면의 미리보기가 그대로 보인다.
-- **FR-8.** 계산은 `core/schedules/clock.ts` 한 자리이고 croner를 아는 유일한 파일이다: `nextSlots(trigger, timeZone, after, count)` · `latestSlot(trigger, timeZone, after, until)`(after < s ≤ until인 가장 늦은 회차, 없으면 null). **cron의 일·요일은 표준(vixie) 뜻이다** — 둘 다 지정하면 OR. croner의 그 옵션 이름은 plan 0단계가 10.0.1에서 확인해 고정한다. `latestSlot`은 다음 회차를 차례로 넘겨 찾고 **10,000번에서 멈춘다**(최소 간격 10분이면 69일이다 — 그보다 오래 꺼 두었으면 "놓친 것"은 어차피 한 번이다, FR-11).
+- **FR-8.** 계산은 `core/schedules/clock.ts` 한 자리이고 croner를 아는 유일한 파일이다: `nextSlots(trigger, timeZone, after, count)` · `latestSlot(trigger, timeZone, after, until)`(after < s ≤ until인 가장 늦은 회차, 없으면 null). **cron의 일·요일은 표준(vixie) 뜻이다** — 둘 다 지정하면 OR(croner 10.0.1의 `domAndDow: false`, 기본값이지만 명시한다). `latestSlot`은 croner의 `previousRuns(1, until + 1ms)`(기준 시각 **미만**을 준다)가 준 회차가 `after`보다 클 때 그것이다 — 차례로 넘기지 않으므로 얼마나 오래 꺼 두었든 한 번의 계산이다. *(2026-11-02 개정 — 처음에는 다음 회차를 차례로 넘기고 10,000번에서 멈추게 썼다. plan 0단계 사전 확인이 `previousRuns`를 찾았다.)*
 - **FR-9.** 렌더러는 계산하지 않는다. 편집 칸의 미리보기는 IPC `schedules.preview(trigger, timeZone)`가 `{ ok: true, next: number[3] } | { ok: false, error }`로 돌려준다 — 판정이 두 곳이면 화면이 받는 cron과 core가 받는 cron이 갈린다.
 
 ### (C) 스케줄러
@@ -128,7 +128,7 @@
   - 만들 때 · **켤 때** · **주기나 시간대를 고칠 때** → 그 순간의 `now`. 꺼 둔 동안이나 고치기 전의 주기로 지나간 회차가 켜자마자 돌면 안 된다.
   - 회차를 처리할 때(돌았든 건너뛰었든 실패했든) → `slotAt`. **`start`를 부르기 전에** 쓴다 — 실행 도중 앱이 죽어도 같은 회차를 다시 돌리지 않는다(많아야 한 번).
   - 이름·지시·맥락·조건만 고칠 때는 그대로다.
-- **FR-13.** 타이머 (`core/schedules/scheduler.ts`): `createScheduler({ schedules, runs, execution, now, onError })`가 `tick()`·`start()`·`stop()`을 준다. `start()`는 30초 간격 타이머를 걸고(`unref`) **곧바로 한 번** `tick()`한다. `tick()`은 재진입하지 않는다(앞 tick이 `start`를 기다리는 중이면 이번 것은 건너뛴다). 정기 실행 하나의 처리가 던져도 나머지는 계속하고 오류는 `onError`로 간다. `now`는 주입한다 — 테스트가 시계를 돌린다.
+- **FR-13.** 타이머 (`core/schedules/scheduler.ts`): `createScheduler({ schedules, runs, execution, now, onError })`가 `tick()`·`start()`·`stop()`을 준다. `start()`는 30초 간격 타이머를 걸고(`unref`) **곧바로 한 번** `tick()`한다. `tick()`은 재진입하지 않는다(앞 tick이 `start`를 기다리는 중이면 이번 것은 건너뛴다). 정기 실행 하나의 처리가 던져도 나머지는 계속하고 오류는 `onError`로 간다. `now`와 간격(`tickMs`, 기본 30초)은 주입한다 — 단위 테스트는 시계를 돌리고, e2e는 main이 `ONE_DESK_SCHEDULE_TICK_MS`를 읽어 `CoreOptions.scheduleTickMs`로 넘겨 간격을 길게 해 **부팅 때의 한 번만** 돌게 한다(놓친 실행을 결정적으로 본다). *(2026-11-02 개정 — plan 0단계.)*
 - **FR-14.** core 배선: `createCore`가 `runs.reapStale()` **뒤에** 스케줄러를 만들고 `start()`한다 — 앞이면 지난 실행의 running 행 때문에 "앞 실행이 돌고 있다"로 건너뛴다. `shutdown()`은 **맨 먼저** `stop()`한다 — 종료 중에 새 run을 띄우지 않는다. main은 `powerMonitor`의 `resume`에 `core.schedules.wake()`(= `tick()`)를 건다. IPC가 아니라 main의 이벤트이므로 핸들러 규칙과 무관하고, core는 electron을 모른다.
 - **FR-15.** 회차 하나의 처리 (`fire(schedule, cause, slotAt)`), 순서가 곧 규칙이다:
   1. `slotAt`이 있으면 `anchor_at = slotAt` (FR-12).
@@ -233,7 +233,7 @@
 
 - **단위**
   - `shared/scheduleTrigger.test.ts` — 프리셋 다섯의 `toCron`·`describeTrigger`, N시간이 24의 약수가 아니면 거부, 요일 빈 목록·중복 거부. (core 프로젝트가 `shared/**/*.test.ts`를 잡는다 — `vitest.config.ts` 19)
-  - `core/schedules/clock.test.ts` — 5필드만 · 최소 간격 10분 · `Asia/Seoul`과 DST가 있는 `America/New_York`에서 `nextSlots` · 일·요일 OR · `latestSlot`이 여러 회차 중 가장 늦은 것 하나 · 10,000번 상한.
+  - `core/schedules/clock.test.ts` — 5필드만(`@daily`·초 필드 거부) · 최소 간격 10분 · `Asia/Seoul`과 DST가 있는 `America/New_York`에서 `nextSlots` · 일·요일 OR · `latestSlot`이 여러 회차 중 가장 늦은 것 하나 · 정확히 회차 시각인 `until`을 포함한다 · 100일 꺼 둔 뒤에도 한 번의 계산.
   - `core/schedules/due.test.ts` — 꺼짐 · 회차 없음 · 정시 · 2분 넘으면 놓침 · 이틀 꺼 두어도 한 번.
   - `core/db/repositories/schedule.test.ts` — 만들기·고치기 검증 · `update`가 스케줄러 컬럼을 안 덮는다 · repo를 지우면 `repo_id`가 null(외래키) · workspace를 지우면 둘 다 사라진다 · 기록 50줄 상한 · 주기를 고치면 `anchor_at`이 그 순간 · agent·repo를 바꾸면(`continue`) `conversation_id`가 null.
   - `core/schedules/scheduler.test.ts` (가짜 시계, 가짜 execution) — FR-15의 순서 각각 · **`anchor_at`을 `start` 전에 쓴다**(start가 던져도 같은 회차를 다시 안 돈다) · 겹침 건너뛰기(`new`·`continue` 둘 다, 사람이 보낸 턴 포함) · 답 기다림 건너뛰기 · 지워진 맥락을 빼고 수를 남긴다 · `continue` 첫 실행이 `conversation_id`를 쓰고 둘째가 `resume` · 연속 실패 3번에 끈다 · `canceled`·`interrupted`는 세지 않는다 · 다시 켜면 0 · tick 재진입 없음 · 하나가 던져도 나머지는 돈다 · `지금 실행`이 anchor를 안 건드리고 겹침이면 던진다.
