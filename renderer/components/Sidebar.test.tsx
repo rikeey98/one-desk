@@ -13,7 +13,7 @@ function makeWorkspace(name: string, id: string): Workspace {
     defaultModelClaude: null, defaultModelOpencode: null,
   defaultEffortClaude: null, defaultVariantOpencode: null,
     defaultPermission: 'edit',
-    claudePath: null, opencodePath: null,
+    claudePath: null, opencodePath: null, kind: 'normal',
     createdAt: 0, updatedAt: 0
   }
 }

@@ -35,7 +35,7 @@ export interface HomeActions {
  * 준비 단계다(FR-14). 폭은 `ResizeObserver`로 재서 `HomeBody`에 넘긴다 — jsdom에는 그것이 없어 테스트는 `HomeBody`를 폭과 함께 본다.
  */
 export function HomePanel({
-  summary, error, lastTarget, setup, workspaces, cli, now, platform, actions
+  summary, error, lastTarget, setup, workspaces, cli, now, composerHidden, platform, actions
 }: {
   summary: HomeSummary | null
   error: string | null
@@ -45,6 +45,11 @@ export function HomePanel({
   workspaces: Workspace[]
   cli: { statuses: AgentStatuses | null; probes: AgentProbes | null; probing: boolean }
   now: number
+  /**
+   * 새 대화 카드를 숨기는가 — 홈 대화를 펼친 동안이다 (`docs/sdlc/home-conversation/` FR-13). 언마운트하지 않고 `hidden`이라 쓰던 글이
+   * 남는다(plan §0-4). **필수다** — 선택이면 App의 한 줄을 지워도 조용히 컴파일되고 두 입력칸이 같이 선다.
+   */
+  composerHidden: boolean
   platform: string
   actions: HomeActions
 }) {
@@ -80,20 +85,21 @@ export function HomePanel({
               onStartFirstConversation={actions.onStartFirstConversation}
             />
           )
-          : <HomeBody summary={summary} lastTarget={lastTarget} workspaces={workspaces} now={now} width={width ?? HOME_WIDE_PX} actions={actions} />}
+          : <HomeBody summary={summary} lastTarget={lastTarget} workspaces={workspaces} now={now} width={width ?? HOME_WIDE_PX} composerHidden={composerHidden} actions={actions} />}
     </section>
   )
 }
 
 /** 본문 — 폭을 prop으로 받는다(테스트가 경계 아래를 본다). 좁으면(창 1280px 아래) 타임라인을 그리지 않는다(FR-13) */
 export function HomeBody({
-  summary, lastTarget, workspaces, now, width, actions
+  summary, lastTarget, workspaces, now, width, composerHidden, actions
 }: {
   summary: HomeSummary
   lastTarget: HomeTarget | null
   workspaces: Workspace[]
   now: number
   width: number
+  composerHidden: boolean
   actions: HomeActions
 }) {
   const wide = width >= HOME_WIDE_PX
@@ -113,7 +119,9 @@ export function HomeBody({
         onOpenIssues={actions.onOpenIssues}
       />
       <HomeWorkspaces workspaces={summary.workspaces} doneToday={summary.doneToday} now={now} onOpenWorkspace={actions.onOpenWorkspace} />
-      <HomeComposer workspaces={workspaces} rows={summary.workspaces} lastTarget={lastTarget} onStartConversation={actions.onStartConversation} />
+      <div className="home-composer-box" hidden={composerHidden}>
+        <HomeComposer workspaces={workspaces} rows={summary.workspaces} lastTarget={lastTarget} onStartConversation={actions.onStartConversation} />
+      </div>
     </div>
   )
 }

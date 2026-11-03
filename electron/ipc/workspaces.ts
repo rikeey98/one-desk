@@ -26,4 +26,5 @@ export function registerWorkspaceHandlers(core: Core) {
     core.workspaces.probeAgents(workspaceId, refresh)
   )
   ipcMain.handle(CHANNELS.workspacesRemove, (_e, id: string) => core.workspaces.remove(id))
+  ipcMain.handle(CHANNELS.workspacesHome, () => core.workspaces.home())
 }

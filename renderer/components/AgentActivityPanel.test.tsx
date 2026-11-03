@@ -10,7 +10,7 @@ import type { AgentProbes, AgentStatuses, ConfigFile, HomeSummary, Repo, Workspa
 function ws(id: string, name: string, over: Partial<Workspace> = {}): Workspace {
   return {
     id, name, description: null, defaultAgentKind: 'claude-code', defaultModelClaude: null, defaultModelOpencode: null,
-    defaultEffortClaude: null, defaultVariantOpencode: null, defaultPermission: 'edit', claudePath: null, opencodePath: null,
+    defaultEffortClaude: null, defaultVariantOpencode: null, defaultPermission: 'edit', claudePath: null, opencodePath: null, kind: 'normal',
     createdAt: 1, updatedAt: 1, ...over
   }
 }

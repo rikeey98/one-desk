@@ -1,5 +1,6 @@
 import type { ScheduleTrigger } from './scheduleTrigger'
 import type {
+  HomeConversationPlace,
   ScheduleFireView, ScheduleInput, SchedulePreview, ScheduleView,
   Workspace, Repo, Issue, Memo, Run,
   CreateWorkspaceInput, CreateRepoInput,
@@ -59,6 +60,11 @@ export interface OneDeskClient {
      */
     probeAgents(workspaceId: string, refresh?: boolean): Promise<AgentProbes>
     remove(id: string): Promise<void>
+    /**
+     * 홈 대화의 자리 (docs/sdlc/home-conversation/ FR-6) — 사이드바에 없는 숨은 workspace와 그 대화가 뜨는 빈 폴더. 홈 run은 이 cwd와
+     * 읽기 전용으로만 시작한다(FR-5).
+     */
+    home(): Promise<HomeConversationPlace>
   }
   repos: {
     list(workspaceId: string): Promise<Repo[]>

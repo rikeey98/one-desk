@@ -55,7 +55,7 @@ beforeEach(() => {
     memoA: memos.create({ workspaceId: wsA, title: 'A의 메모', body: '메모 A' }).id,
     memoB: memos.create({ workspaceId: wsB, title: 'B의 메모', body: '메모 B' }).id,
     host: createMcpHost({
-      deps: { repos, issues, memos, runs, proposals },
+      deps: { repos, issues, memos, runs, proposals, workspaces },
       configDir: resolve(dir, 'mcp'),
     execPath: process.execPath,
     execEnv: {},
@@ -267,6 +267,16 @@ describe('권한이 도구 등록을 통제한다', () => {
     expect(isError).toBe(true)
     expect(text).toContain('not found')
     expect(createIssueRepository(f.db).get(f.issueA).status).toBe('open')
+  })
+
+  it('workspace 범위 서버의 tools/list는 홈 대화 이전과 바이트로 같다 (docs/sdlc/home-conversation/ NFR-1)', async () => {
+    for (const permission of ['read_only', 'edit', 'full'] as const) {
+      const p = await f.host.prepare({
+        runId: `snap-${permission}`, rootRunId: `snap-${permission}`, workspaceId: f.wsA, permission, agentKind: 'claude-code', env: HOST_ENV
+      })
+      const res = await rpc(p.url, p.token, { jsonrpc: '2.0', id: 1, method: 'tools/list' })
+      expect(JSON.stringify(res.json.result.tools, null, 2)).toMatchSnapshot(permission)
+    }
   })
 })
 

@@ -49,6 +49,8 @@ function renderHeader(
     onClose: vi.fn(),
     onCancel: vi.fn(),
     hasDraft: false,
+    canAssignIssue: true,
+    showRepo: true,
     ...over
   }
   const view = render(<ConversationHeader {...props} />)
@@ -238,6 +240,8 @@ describe('ConversationHeader — ⋯ 메뉴 (spec FR-35)', () => {
             onClose={vi.fn()}
             onCancel={vi.fn()}
             hasDraft={false}
+            canAssignIssue
+            showRepo
           />
         </div>
       )
@@ -426,6 +430,8 @@ describe('ConversationHeader — 컨텍스트 링과 사용량 (spec FR-36)', ()
           onClose={vi.fn()}
           onCancel={vi.fn()}
           hasDraft={false}
+          canAssignIssue
+          showRepo
         />
       </div>
     )

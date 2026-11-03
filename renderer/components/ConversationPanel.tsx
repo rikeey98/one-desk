@@ -22,7 +22,7 @@ import type { AcceptIssueProposal, AssignedIssue, Repo, Run, Workspace } from '@
  */
 export function ConversationPanel({
   conversation, workspaceId, workspaces, repos, reposError, chips, onRemoveChip,
-  onStarted, onCancel, draftPrompt, draftCwd, selectedRepoId, onCwdChange, pendingIssue = null,
+  onStarted, onCancel, draftPrompt, draftCwd, selectedRepoId, onCwdChange, homeCwd, pendingIssue = null,
   focusInput = false, onFocusInputConsumed = () => {}, proposal, onAcceptProposal, onDeclineProposal
 }: {
   conversation: Conversation | null
@@ -41,6 +41,8 @@ export function ConversationPanel({
   selectedRepoId: string | null
   /** 입력부의 작업 디렉토리 — 새 대화 칸의 코드 칸이 따른다 (`docs/sdlc/code-editor/` FR-6). 그대로 흘려 보낸다 */
   onCwdChange: (cwd: string) => void
+  /** 홈 대화면 그 폴더 — 입력부가 이 cwd·읽기 전용에 고정된다 (home-conversation FR-12). 그대로 흘려 보낸다 */
+  homeCwd: string | null
   /** 홈의 `답하기`(docs/sdlc/home/ FR-9) — 대화록의 답하기(FR-44)와 같은 칸에 포커스를 주고 치운다. 일회성 지시 */
   focusInput?: boolean
   onFocusInputConsumed?: () => void
@@ -147,6 +149,7 @@ export function ConversationPanel({
         inputRef={inputRef}
         carriedIssue={carriedIssue}
         onCwdChange={onCwdChange}
+        homeCwd={homeCwd}
       />
     </div>
   )

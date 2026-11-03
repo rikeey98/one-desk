@@ -20,7 +20,7 @@ const repos: Repo[] = [
 const workspace: Workspace = {
   id: 'w1', name: 'ws', description: null, defaultAgentKind: 'claude-code',
   defaultModelClaude: null, defaultModelOpencode: null, defaultEffortClaude: null, defaultVariantOpencode: null, defaultPermission: 'edit',
-  claudePath: null, opencodePath: null, createdAt: 0, updatedAt: 0
+  claudePath: null, opencodePath: null, kind: 'normal', createdAt: 0, updatedAt: 0
 }
 
 function makeRun(over: Partial<Run> & { id: string }): Run {
@@ -82,6 +82,7 @@ function renderPanel(
         {/* 입력부의 초안은 스토어가 쥔다 (spec FR-31) — main.tsx와 같은 한 겹이다. */}
         <DraftProvider store={createDraftStore()}>
           <ConversationPanel
+            homeCwd={null}
             conversation={conversation}
             workspaceId="w1"
             workspaces={[workspace]}

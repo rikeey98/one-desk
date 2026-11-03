@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { makeTestDb } from './testing'
 import { createWorkspaceRepository } from './workspace'
+import { eq } from 'drizzle-orm'
+import { workspace } from '../schema'
 import type { Database } from '../open'
 
 describe('WorkspaceRepository', () => {
@@ -396,5 +398,45 @@ describe('WorkspaceRepository.updatePaths', () => {
     expect(() => createWorkspaceRepository(db).updatePaths({
       id: '없음', claudePath: null, opencodePath: null
     })).toThrow('workspace를 찾을 수 없습니다')
+  })
+})
+
+describe('홈 workspace (docs/sdlc/home-conversation/ FR-2·FR-3)', () => {
+  let db: Database
+  let repo: ReturnType<typeof createWorkspaceRepository>
+
+  beforeEach(() => {
+    db = makeTestDb()
+    repo = createWorkspaceRepository(db)
+  })
+
+  it('홈 행은 list에 없고 home()으로만 닿는다', () => {
+    const normal = repo.create({ name: '회사' })
+    const home = repo.ensureHome()
+    expect(home.kind).toBe('home')
+    expect(home.name).toBe('홈')
+    expect(home.defaultPermission).toBe('read_only')
+    expect(repo.list().map((w) => w.id)).toEqual([normal.id])
+    expect(repo.home()?.id).toBe(home.id)
+    expect(normal.kind).toBe('normal')
+  })
+
+  it('두 번 불러도 홈은 하나다', () => {
+    const first = repo.ensureHome()
+    const second = repo.ensureHome()
+    expect(second.id).toBe(first.id)
+    expect(db.select().from(workspace).where(eq(workspace.kind, 'home')).all()).toHaveLength(1)
+  })
+
+  it('이미 둘이면 가장 오래된 것을 쓴다', () => {
+    db.insert(workspace).values({ id: 'new', name: '홈', kind: 'home', createdAt: 2000, updatedAt: 2000 }).run()
+    db.insert(workspace).values({ id: 'old', name: '홈', kind: 'home', createdAt: 1000, updatedAt: 1000 }).run()
+    expect(repo.home()?.id).toBe('old')
+    expect(repo.ensureHome().id).toBe('old')
+  })
+
+  it('홈이 없으면 home()은 null이다', () => {
+    repo.create({ name: '회사' })
+    expect(repo.home()).toBeNull()
   })
 })

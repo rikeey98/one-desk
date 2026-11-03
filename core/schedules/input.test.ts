@@ -44,6 +44,11 @@ describe('validateScheduleInput (spec FR-4)', () => {
     expect(invalid({ name: 'x'.repeat(61) })).toThrow(/이름/)
   })
 
+  it('홈 workspace로는 만들 수 없다 — 없는 workspace와 같은 말이다 (home-conversation plan §0-8)', () => {
+    const homeId = createWorkspaceRepository(db).ensureHome().id
+    expect(invalid({ workspaceId: homeId })).toThrow('workspace를 찾을 수 없습니다')
+  })
+
   it('지시는 비울 수 없다', () => {
     expect(invalid({ prompt: '  \n ' })).toThrow(/지시/)
   })

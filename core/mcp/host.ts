@@ -3,7 +3,8 @@ import { join } from 'node:path'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import { buildServer, type McpHostDeps } from './tools'
+import { buildWorkspaceServer, type McpHostDeps } from './tools'
+import { buildAllServer } from './allTools'
 import { clearMcpConfigs, MCP_SERVER_NAME, removeMcpConfig, writeMcpConfig } from './configFile'
 import type { ProcessEnvSpec } from '../wsl/env'
 import { consoleErrorSink, type ErrorSink } from '../errors'
@@ -27,6 +28,16 @@ export interface RunContext {
   agentKind: AgentKind
   /** 어디서 뜨나 — wsl이면 설정 파일의 경로가 전부 Linux 경로다 (wsl-support FR-21). 필수다 */
   env: ProcessEnvSpec
+}
+
+/**
+ * 토큰이 읽는 범위 (docs/sdlc/home-conversation/ FR-8). **`prepare`가 run의 workspace 행에서 정한다** — `RunContext`에 넣지 않은 것은
+ * 호출자(실행 서비스·렌더러)가 범위를 넘길 길이 아예 없게 하려는 것이다. `all`은 홈 workspace의 run뿐이다.
+ */
+export type McpScope = 'workspace' | 'all'
+
+interface TokenContext extends RunContext {
+  scope: McpScope
 }
 
 export interface PreparedMcp {
@@ -63,7 +74,7 @@ export interface McpHostOptions {
 
 export function createMcpHost(opts: McpHostOptions) {
   const onError = opts.onError ?? consoleErrorSink
-  const tokens = new Map<string, RunContext>()
+  const tokens = new Map<string, TokenContext>()
   let server: Server | null = null
   let starting: Promise<number> | null = null
   let status: McpStatus = { state: 'starting' }
@@ -131,7 +142,7 @@ export function createMcpHost(opts: McpHostOptions) {
 
       // 요청마다 새로 만든다. 도구 등록은 객체 몇 개를 만드는 일이고,
       // 얻는 것은 "권한이 절대 섞이지 않는다"는 보장이다 (실측 노트 Q28).
-      const mcp = buildServer(ctx, opts.deps)
+      const mcp = ctx.scope === 'all' ? buildAllServer(opts.deps) : buildWorkspaceServer(ctx, opts.deps)
       // stateless — 토큰이 이미 세션 역할을 하므로 세션 id는 중복이다.
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
       res.on('close', () => {
@@ -161,7 +172,8 @@ export function createMcpHost(opts: McpHostOptions) {
       const port = await ensureListening()
       // 32바이트 = 256비트. 무차별 대입이 불가능하다.
       const token = randomBytes(32).toString('base64url')
-      tokens.set(token, ctx)
+      const scope: McpScope = opts.deps.workspaces.home()?.id === ctx.workspaceId ? 'all' : 'workspace'
+      tokens.set(token, { ...ctx, scope })
       const url = `http://127.0.0.1:${port}/mcp`
       const target = { execPath: opts.execPath, execEnv: opts.execEnv, bridgePath: opts.bridgePath, url, token }
       if (ctx.env.kind === 'wsl') {

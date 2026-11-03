@@ -24,10 +24,13 @@ import type {
   HomeSummary, HomeTarget, HomeTodo, StartRunInput, ConfigFile
 } from '@shared/models'
 
+const HOME_ID = 'home'
+const HOME_CWD = '/data/home-conversation'
+
 const workspace: Workspace = {
   id: 'w1', name: 'ws1', description: null, defaultAgentKind: 'claude-code',
   defaultModelClaude: null, defaultModelOpencode: null, defaultEffortClaude: null, defaultVariantOpencode: null, defaultPermission: 'edit',
-  claudePath: null, opencodePath: null, createdAt: 0, updatedAt: 0
+  claudePath: null, opencodePath: null, kind: 'normal', createdAt: 0, updatedAt: 0
 }
 
 function makeRepo(id: string, name: string, path: string, workspaceId = 'w1'): Repo {
@@ -172,6 +175,11 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
   return {
     workspaces: {
       list: vi.fn(async () => workspaces),
+      // 홈 대화의 숨은 workspace (home-conversation) — App이 마운트하며 한 번 읽는다
+      home: vi.fn(async () => ({
+        workspace: { ...workspace, id: HOME_ID, name: '홈', kind: 'home' as const, defaultPermission: 'read_only' as const },
+        cwd: HOME_CWD
+      })),
       create: vi.fn(async (input: CreateWorkspaceInput) => {
         const created: Workspace = { ...workspace, id: `w${workspaces.length + 1}`, name: input.name }
         workspaces = [...workspaces, created]
@@ -2263,5 +2271,86 @@ describe('에이전트 현황 배선 (docs/sdlc/agent-status/)', () => {
     await userEvent.click(screen.getByRole('button', { name: '에이전트 현황' }))
     await userEvent.click(await screen.findByRole('button', { name: 'Claude Code 사용자 설정 파일 열기' }))
     expect(client.app.openConfigFile).toHaveBeenCalledWith({ key: 'claude-settings', repoId: null })
+  })
+})
+
+describe('홈 대화 배선 (docs/sdlc/home-conversation/)', () => {
+  const api = makeRepo('r1', 'api', '/tmp/api')
+  beforeEach(() => { localStorage.clear() })
+  afterEach(() => { localStorage.clear() })
+
+  function homeRun(over: Partial<Run> = {}): Run {
+    return makeRun({ id: 'h-1', workspaceId: HOME_ID, cwd: HOME_CWD, permission: 'read_only', userPrompt: '내가 뭐 하고 있었지', ...over })
+  }
+
+  it('홈 대화는 접힌 채 시작하고, 펼치면 새 대화 카드가 숨으며 입력부는 홈 폴더 · 읽기 전용으로 보낸다 (FR-12·13·13a)', async () => {
+    const client = makeClient({}, { repos: [api], firstRun: true, cliReady: true })
+    renderApp(client)
+    await screen.findByRole('heading', { name: '오늘 할 일' })
+    expect(await screen.findByText('모든 workspace를 읽습니다')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '새 대화 지시' })).toBeVisible()
+    expect(screen.queryByRole('textbox', { name: '지시' })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '대화창 보이기' }))
+    expect(screen.queryByRole('textbox', { name: '새 대화 지시' })).not.toBeInTheDocument()
+    const permission = screen.getByRole('textbox', { name: '권한' })
+    expect(permission).toHaveValue('읽기 전용')
+    expect(permission).toHaveAttribute('readonly')
+    expect(screen.queryByLabelText('작업 디렉토리')).not.toBeInTheDocument()
+    // 코드 칸 자리 밖이다 — 제목 줄에 파일·터미널·그림이 서지 않는다
+    expect(screen.queryByRole('button', { name: '파일' })).not.toBeInTheDocument()
+
+    await userEvent.type(screen.getByRole('textbox', { name: '지시' }), '내가 뭐 하고 있었지')
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
+    await waitFor(() => expect(client.runs.start).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: HOME_ID, cwd: HOME_CWD, permission: 'read_only' })
+    ))
+    expect(client.home.setLastTarget).not.toHaveBeenCalled()
+  })
+
+  it('펼침은 이 장비에 남는다', async () => {
+    renderApp(makeClient({}, { repos: [api], firstRun: true, cliReady: true }))
+    await userEvent.click(await screen.findByRole('button', { name: '대화창 보이기' }))
+    cleanup()
+    renderApp(makeClient({}, { repos: [api], firstRun: true, cliReady: true }))
+    expect(await screen.findByRole('button', { name: '대화창 숨기기' })).toBeInTheDocument()
+  })
+
+  it('인박스의 홈 대화는 홈으로 뜨고, 대화 열기는 홈 화면의 도크로 연다 (FR-14)', async () => {
+    const run = homeRun({ needsAnswer: true })
+    renderApp(makeClient({}, { repos: [api], inbox: [run], firstRun: true, cliReady: true }))
+    await screen.findByRole('heading', { name: '오늘 할 일' })
+    await openInbox()
+    const item = (await screen.findByText('내가 뭐 하고 있었지')).closest('li')!
+    expect(within(item).getByText('홈')).toBeInTheDocument()
+    expect(within(item).queryByText('(사라진 workspace)')).not.toBeInTheDocument()
+    await userEvent.click(within(item).getByRole('button', { name: '대화 열기' }))
+    expect(await screen.findByRole('heading', { name: '오늘 할 일' })).toBeInTheDocument()
+    expect(await screen.findByText('내가 뭐 하고 있었지', { selector: '.turn-user' })).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('새 이슈 (첫 줄이 제목)')).not.toBeInTheDocument()
+  })
+
+  it('홈 할 일의 답하기는 홈 도크로 열고 입력칸에 포커스한다', async () => {
+    const run = homeRun({ needsAnswer: true })
+    const todo: HomeTodo = {
+      kind: 'needs-answer', workspaceId: HOME_ID, workspaceName: '홈', repoId: null, repoName: null,
+      conversationId: run.id, runId: run.id, title: run.userPrompt, detail: '어느 쪽부터?', at: 2
+    }
+    renderApp(makeClient({}, { repos: [api], inbox: [run], cliReady: true, homeTodos: [todo] }))
+    await userEvent.click(await screen.findByRole('button', { name: '답하기' }))
+    expect(await screen.findByText('내가 뭐 하고 있었지', { selector: '.turn-user' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('textbox', { name: '지시' })).toHaveFocus())
+    expect(screen.getByRole('heading', { name: '오늘 할 일' })).toBeInTheDocument()
+  })
+
+  it('인박스의 다시 실행은 홈 대화면 홈 도크의 새 대화 칸에 그 지시를 채운다', async () => {
+    const run = homeRun({ status: 'failed', errorMessage: '시간 초과' })
+    renderApp(makeClient({}, { repos: [api], inbox: [run], firstRun: true, cliReady: true }))
+    await screen.findByRole('heading', { name: '오늘 할 일' })
+    await openInbox()
+    const item = (await screen.findByText('내가 뭐 하고 있었지')).closest('li')!
+    await userEvent.click(within(item).getByRole('button', { name: '다시 실행' }))
+    expect(await screen.findByRole('heading', { name: '오늘 할 일' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('textbox', { name: '지시' })).toHaveValue('내가 뭐 하고 있었지'))
   })
 })

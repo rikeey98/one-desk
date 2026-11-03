@@ -442,6 +442,8 @@ runner는 `result_text`의 첫 줄이 `[NEEDS_ANSWER]`인지 검사해 `run.need
 
 서버는 토큰으로부터 "이 호출은 workspace 3의 run 87"임을 알아낸다. 따라서 agent는 자신의 workspace 밖 데이터를 읽을 수도 수정할 수도 없다. 다른 로컬 프로세스가 포트에 접근해도 토큰 없이는 거부된다.
 
+**예외 하나 (2026-11-03, 사용자 결정):** 홈 화면의 "홈 대화"는 숨은 홈 workspace의 run이고, 그 토큰은 홈을 뺀 **모든 workspace를 읽기만** 한다 — 쓰기 도구도 `propose_issue`도 없고 run은 읽기 전용으로만 뜬다. 근거와 경계는 `docs/sdlc/home-conversation/` spec FR-1·FR-8·FR-9. MCP 상시 기동이 §14를 뒤집은 것과 같은 방식이다.
+
 ### 도구 목록
 
 ```

@@ -29,7 +29,7 @@ function makeWorkspace(
     defaultEffortClaude: efforts.claude ?? null,
     defaultVariantOpencode: efforts.opencode ?? null,
     defaultPermission,
-    claudePath: null, opencodePath: null, createdAt: 0, updatedAt: 0
+    claudePath: null, opencodePath: null, kind: 'normal', createdAt: 0, updatedAt: 0
   }
 }
 
@@ -120,6 +120,7 @@ function panel(
     <ClientProvider client={client}>
       <DraftProvider store={resumeOpts.drafts ?? drafts}>
         <RunPanel
+          homeCwd={null}
           workspaceId={workspaceId}
           workspaces={workspaces}
           repos={panelRepos}
@@ -550,7 +551,7 @@ describe('RunPanel — 접근성', () => {
     render(
       <ClientProvider client={makeClient()}>
         <DraftProvider store={drafts}>
-          <RunPanel workspaceId="w1" workspaces={[makeWorkspace('edit')]} repos={repos} reposError={null}
+          <RunPanel homeCwd={null} workspaceId="w1" workspaces={[makeWorkspace('edit')]} repos={repos} reposError={null}
             chips={chips} onRemoveChip={onRemoveChip} onStarted={vi.fn()}
             conversation={null} draftPrompt="" draftCwd={null} selectedRepoId={null} reserved={false}
             running={null} reservation={null} waitingFirst={false} onCancel={vi.fn()}
@@ -612,7 +613,7 @@ describe('RunPanel — 접근성', () => {
     render(
       <ClientProvider client={makeClient()}>
         <DraftProvider store={drafts}>
-          <RunPanel workspaceId="w1" workspaces={[makeWorkspace('edit')]} repos={repos} reposError={null}
+          <RunPanel homeCwd={null} workspaceId="w1" workspaces={[makeWorkspace('edit')]} repos={repos} reposError={null}
             chips={chips} onRemoveChip={onRemoveChip} onStarted={vi.fn()}
             conversation={null} draftPrompt="" draftCwd={null} selectedRepoId={null} reserved={false}
             running={null} reservation={null} waitingFirst={false} onCancel={vi.fn()}
@@ -1606,5 +1607,29 @@ describe('RunPanel — WSL repo에서는 OpenCode를 고를 수 없다 (docs/sdl
     await userEvent.selectOptions(screen.getByLabelText('작업 디렉토리'), '/tmp/api')
     // 돌아와도 되살리지 않는다 — 사용자가 고른 값이 아니라 떨어진 값이다
     expect(screen.getByLabelText('agent')).toHaveValue('claude-code')
+  })
+})
+
+describe('홈 대화의 입력부 (docs/sdlc/home-conversation/ FR-5·FR-6·FR-12)', () => {
+  it('repo가 없어도 홈 폴더 · 읽기 전용으로 보내고, repo 등록 안내와 작업 디렉토리 알약이 없다', async () => {
+    const start = vi.fn(async () => ({ id: 'r1' }) as Run)
+    render(
+      <ClientProvider client={makeClient({ start })}>
+        <DraftProvider store={createDraftStore()}>
+          <RunPanel homeCwd="/data/home-conversation" workspaceId="w1" workspaces={[makeWorkspace('edit')]} repos={[]} reposError={null}
+            chips={[]} onRemoveChip={vi.fn()} onStarted={vi.fn()}
+            conversation={null} draftPrompt="" draftCwd={null} selectedRepoId={null} reserved={false}
+            running={null} reservation={null} waitingFirst={false} onCancel={vi.fn()}
+            inputRef={createRef<HTMLTextAreaElement>()} onCwdChange={vi.fn()} />
+        </DraftProvider>
+      </ClientProvider>
+    )
+    expect(screen.queryByText('작업 디렉토리로 쓸 repo를 먼저 등록하세요')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('작업 디렉토리')).not.toBeInTheDocument()
+    // workspace 기본값이 편집 허용이어도 잠긴 알약은 읽기 전용이다
+    expect(screen.getByRole('textbox', { name: '권한' })).toHaveValue('읽기 전용')
+    await userEvent.type(screen.getByRole('textbox', { name: '지시' }), '정리해줘')
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/data/home-conversation', permission: 'read_only' }))
   })
 })

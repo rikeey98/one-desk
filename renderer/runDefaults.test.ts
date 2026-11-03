@@ -7,7 +7,7 @@ function ws(over: Partial<Workspace> = {}): Workspace {
     id: 'w1', name: '회사', description: null, defaultAgentKind: 'claude-code',
     defaultModelClaude: 'sonnet', defaultModelOpencode: 'openai/gpt-5',
     defaultEffortClaude: 'high', defaultVariantOpencode: null,
-    defaultPermission: 'edit', claudePath: null, opencodePath: null, createdAt: 1, updatedAt: 1,
+    defaultPermission: 'edit', claudePath: null, opencodePath: null, kind: 'normal', createdAt: 1, updatedAt: 1,
     ...over
   }
 }

@@ -57,7 +57,7 @@ beforeEach(async () => {
   host = createMcpHost({
     deps: {
       repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db),
-      runs: createRunRepository(db), proposals: createProposalRepository(db, () => {})
+      runs: createRunRepository(db), proposals: createProposalRepository(db, () => {}), workspaces: createWorkspaceRepository(db)
     },
     configDir: resolve(dir, 'mcp'),
     execPath: process.execPath,

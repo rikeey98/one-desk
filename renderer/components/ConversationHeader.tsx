@@ -53,8 +53,10 @@ function useDismissOnOutside(
  * 도크 최대화(Dock의 onKeyDown, FR-39)나 열린 항목 닫기(App의 document 리스너)까지 풀리면
  * 안 된다. 메뉴가 닫혀 있으면 아무것도 삼키지 않는다.
  */
-function ConversationMenu({ canClose, onRename, onClose, assigned, onPickIssue, onUnassign }: {
+function ConversationMenu({ canClose, canAssignIssue, onRename, onClose, assigned, onPickIssue, onUnassign }: {
   canClose: boolean
+  /** 홈 대화에는 이슈 할당이 없다 — 홈 workspace에는 이슈가 없다 (home-conversation plan §0-11) */
+  canAssignIssue: boolean
   onRename: () => void
   onClose: () => void
   /** 할당된 이슈가 있는가 — `이슈 할당`이 `이슈 바꾸기`가 되고 `이슈 할당 해제`가 선다 (conversation-issue FR-21) */
@@ -131,10 +133,12 @@ function ConversationMenu({ canClose, onRename, onClose, assigned, onPickIssue, 
             이름 바꾸기
           </button>
           {/* 할당 (conversation-issue FR-21). 확인 단계가 없다 — 지우는 것이 없고 되돌리기가 한 번이다. */}
-          <button type="button" role="menuitem" tabIndex={-1} onClick={() => pick(onPickIssue)}>
-            {assigned ? '이슈 바꾸기' : '이슈 할당'}
-          </button>
-          {assigned && (
+          {canAssignIssue && (
+            <button type="button" role="menuitem" tabIndex={-1} onClick={() => pick(onPickIssue)}>
+              {assigned ? '이슈 바꾸기' : '이슈 할당'}
+            </button>
+          )}
+          {canAssignIssue && assigned && (
             <button type="button" role="menuitem" tabIndex={-1} onClick={() => pick(onUnassign)}>
               이슈 할당 해제
             </button>
@@ -290,7 +294,7 @@ function UsageButton({ usage }: { usage: ConversationUsage }) {
  * 편집과 **한 state**라 두 자리에서 같은 대화를 동시에 고치는 상태가 생기지 않는다(FR-34).
  */
 export function ConversationHeader({
-  conversation, repos, renaming, onStartRename, onRename, onCancelRename, onClose, onCancel, hasDraft,
+  conversation, repos, renaming, onStartRename, onRename, onCancelRename, onClose, onCancel, hasDraft, canAssignIssue, showRepo,
   // 개발 버전: 선택 prop이다 — plan에서 필수로 올린다 (conversation-issue spec §7).
   workspaceId = '', pendingIssue = null, onClearPendingIssue = () => {}, onOpenIssue = () => {},
   onAssignIssue = () => {}
@@ -313,6 +317,13 @@ export function ConversationHeader({
    * 인자면 도크의 배선 한 줄을 빠뜨려도 조용히 컴파일되고, 멈추기가 영영 안 서거나 늘 선다.
    */
   hasDraft: boolean
+  /**
+   * `⋯`의 이슈 할당·바꾸기·해제를 세우는가 — 홈 대화면 거짓이다 (home-conversation plan §0-11). **필수다** — 선택이면 도크의 한 줄을
+   * 빠뜨려도 조용히 컴파일되고 홈 도크에 늘 빈 이슈 고르기가 선다.
+   */
+  canAssignIssue: boolean
+  /** 부제에 repo 이름을 쓰는가 — 홈 대화면 거짓이다(앱의 홈 폴더라 이름이 없다, home-conversation FR-12). **필수다** */
+  showRepo: boolean
   /** 이슈 고르기가 읽을 workspace (conversation-issue FR-21) */
   workspaceId?: string
   /** 새 대화 칸에 걸린 할당 예정 이슈 (FR-20). 새 대화일 때만 의미가 있다 */
@@ -373,7 +384,7 @@ export function ConversationHeader({
   // exact로 찾는 셀렉터(목록 카드·옵션)와 부딪힌다.
   const sub = [
     AGENT_LABELS[conversation.last.agentKind],
-    repoLabel(conversation, repos),
+    ...(showRepo ? [repoLabel(conversation, repos)] : []),
     ...(conversation.closedAt !== null ? ['끝낸 대화'] : [])
   ].join(' · ')
 
@@ -403,6 +414,7 @@ export function ConversationHeader({
               )}
             <ConversationMenu
               canClose={conversation.closedAt === null}
+              canAssignIssue={canAssignIssue}
               onRename={onStartRename}
               onClose={onClose}
               assigned={issue !== null}

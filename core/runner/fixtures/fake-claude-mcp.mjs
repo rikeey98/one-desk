@@ -6,6 +6,8 @@
 // (mcp.e2e가 기댄다). `{ "name": "propose_issue", "existing": "first", ... }`이면 list_issues를 먼저 불러 첫 열린 이슈를
 // existingIssueId로 준다(e2e가 이슈 id를 환경변수로 미리 넣을 수 없다 — docs/sdlc/agent-proposals/ plan 9단계).
 // `ONE_DESK_PROMPT_CAPTURE`가 있으면 받은 프롬프트를 남긴다(fake-claude.mjs와 같다).
+// `ONE_DESK_FAKE_MCP_CAPTURE`가 있으면 `{ cwd, argv, result }`(result는 마지막 도구 결과의 text)를 남긴다 — 실제 프로세스의 작업 디렉토리와
+// 권한 인자, 그리고 도구가 돌려준 것을 e2e가 본다(docs/sdlc/home-conversation/ plan 12단계). 없으면 아무것도 쓰지 않는다.
 import { readFileSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 
@@ -81,6 +83,11 @@ async function main() {
   }
 
   const ok = Boolean(message.result) && message.result.isError !== true
+  if (process.env.ONE_DESK_FAKE_MCP_CAPTURE) {
+    writeFileSync(process.env.ONE_DESK_FAKE_MCP_CAPTURE, JSON.stringify({
+      cwd: process.cwd(), argv: process.argv.slice(2), result: message.result?.content?.[0]?.text ?? null
+    }))
+  }
 
   emit({
     type: 'result', subtype: ok ? 'success' : 'error', is_error: !ok,

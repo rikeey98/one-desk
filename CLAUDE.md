@@ -519,6 +519,37 @@ repo 삭제를 본다(요소는 main에서 DB를 읽어 센다).
 - `e2e/schedule.e2e.ts`는 `ONE_DESK_SCHEDULE_TICK_MS`(main이 `scheduleTickMsFromEnv`로 읽는다)로 간격을 한 시간으로 늘려 **부팅 tick만**
   돌게 하고, main의 SQL로 anchor를 이틀 전으로 돌린 뒤 `relaunch()`해 "놓쳐서 실행" 한 줄을 본다.
 
+**홈에서 모든 workspace를 넘어 읽는 대화 — 홈 대화** (`docs/sdlc/home-conversation/`, 2026-11-03). **첫 실행에 마이그레이션
+`0015`가 돈다** — `workspace.kind`(`'normal' | 'home'`, 기본 `normal`, 백필 없음). 홈 화면 바닥에 **접힌 채 시작하는** 도크(`홈 대화 · 모든
+workspace를 읽습니다 · 읽기 전용`)가 서고, 거기서 보낸 대화의 agent는 홈을 뺀 **모든 workspace를 읽기만** 한다 — 전체 설계 §8의 "토큰의
+workspace만"을 이 대화 하나에 한해 사용자가 뒤집었다(§8에 한 줄). 리포트의 `agent에게 다듬기`는 그대로 고른 workspace로 간다(범위 밖).
+- **홈 대화는 숨은 workspace 한 행에 산다.** core가 부팅 때 없으면 만든다(`ensureHome`, 이름 `홈`, 권한 기본 읽기 전용). **저장소의 `list()`는
+  `normal`만 준다** — 사이드바·리포트·홈 카드·asset 부팅 스캔·`panelScope`·정기 실행 화면이 손대지 않고 홈을 안 본다. 홈이 필요한 자리는
+  `home()`을 부른다(홈 요약의 할 일·돌고 있는 것). 렌더러는 IPC `workspaces.home()`의 `{ workspace, cwd }`로 알고 **id로** 가른다.
+- **홈 행에 손대는 길은 `core/homeGuard.ts`가 막는다** — `workspaces.rename`·`remove`·`updateDefaults`·`updatePaths`, `repos.create`·
+  `issues.create`·`memos.create`·`assets.createAuthored`가 홈 id면 `홈 workspace는 바꿀 수 없습니다`. 저장소를 만드는 자리에서 한 번 감싸
+  IPC와 MCP `deps`가 같이 받는다(바뀜 알림과 같은 규칙). **workspace id를 받는 쓰기를 새로 만들면 가드에 더한다.** 정기 실행 입력 검증은
+  workspace 표를 직접 읽으므로 `kind = 'normal'`을 같이 본다. run이 끝난 뒤의 asset 재스캔은 홈 id면 돌지 않는다(글로벌 루트를 홈 아래에 쌓는다).
+- **홈 run은 읽기 전용 + `<dataDir>/home-conversation/` 빈 폴더로만 뜬다** — 실행 서비스의 필수 옵션 `home`이 `launch` 맨 앞에서(run 행을
+  만들기 전) 다르면 던진다. 조용히 낮추지 않는다. CLI 경로는 workspace 예외 없이 앱 기본 경로다(`workspaceOf`가 홈에서 null). 홈 턴에는
+  이슈화 안내가 붙지 않는다(`shouldProposeIssue`의 필수 `home`).
+- **MCP 범위는 `prepare`가 정한다** (`core/mcp/host.ts`의 `McpScope`) — run의 workspace가 `deps.workspaces.home()`이면 `all`이다. **`RunContext`에
+  범위를 넣지 말 것** — 호출자가 범위를 넘길 길이 생긴다. `all` 토큰은 `core/mcp/allTools.ts`의 `buildAllServer`로 가고, 도구는 **읽기 여덟**
+  (`list_workspaces`·`list_repos`·`list_issues`·`list_memos`·`list_conversations`·`get_issue`·`get_memo`·`get_conversation`)뿐이다 — 쓰기도
+  `propose_issue`도 등록하는 자리가 없다(권한과 별개인 두 번째 겹). 항목마다 `workspaceId`·`workspaceName`이 붙고 `list_conversations`는
+  `closed`를 받는다. 홈 대화는 홈 대화를 읽지 않는다(없는 id와 같은 말). **workspace 범위 서버는 한 글자도 바뀌지 않았다** — `tools.test`의
+  `tools/list` 스냅샷(`core/mcp/__snapshots__/`)이 지킨다. 설명을 고치면 스냅샷이 빨개지는 것이 맞다(`-u`로 갱신하기 전에 의도인지 본다).
+- **도크의 필수 prop `variant`** — `{ kind: 'workspace' }` 또는 `{ kind: 'home'; cwd; open; onOpenChange }`. 홈 갈래는 펼침을 App이 쥐고(이
+  장비의 localStorage `one-desk.homeDock.open`, 기본 접힘 — `renderer/homeDock.ts`), 펼친 동안 홈의 새 대화 카드를 **`hidden`으로** 숨긴다
+  (`HomePanel`의 필수 `composerHidden` — 언마운트하면 쓰던 글이 사라진다). 입력부는 `RunPanel`의 필수 `homeCwd`로 작업 디렉토리 알약이 없고 권한이
+  `읽기 전용`에 잠기며, 헤더 `⋯`에 이슈 할당이 없고(`canAssignIssue`), 목록 줄·부제에 repo 이름이 없다(`repoNames`·`showRepo` — 없으면 내부
+  폴더 이름 `home-conversation`이 보였다, 캡처로 찾음). **홈 도크는 코드 칸 slot Provider 밖에 둔다** — 안에 두면 홈 제목 줄에 파일·터미널·그림이 선다.
+- 인박스·홈 할 일·"지금 돌고 있는 것"에서 홈 대화는 `홈`이고(`InboxPanel`의 필수 `homeWorkspaceId`, workspace별 보기에서 `홈 묶음`은 맨 아래),
+  `대화 열기`·`답하기`·`다시 보내기`·`다시 실행`은 workspace 화면이 아니라 **홈 화면의 도크로** 간다 — App의 `goToRun`·`openReportConversation`
+  두 자리가 가른다. 실행 슬롯이 홈 턴을 세므로 홈 요약의 `running`도 홈 대화를 훑는다(`HomeSources`의 필수 `home`).
+- App을 그리는 테스트의 가짜 클라이언트에 `workspaces.home`이 있어야 한다(App이 마운트하며 부른다). 가짜 MCP CLI는 `ONE_DESK_FAKE_MCP_CAPTURE`가
+  있으면 `{ cwd, argv, result }`를 남긴다 — `e2e/home-conversation.e2e.ts`가 실제 프로세스의 cwd·권한 인자와 두 workspace의 대화를 본다.
+
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
 한동안 "5단계 착수 전에 정할 것"으로 잡아두고 **평문 SQLite에 자격 증명을 넣을지**를 막힌 결정으로 남겼던 항목이다. 대상 환경을 실측해 보니 **배관 자체가 불필요했다.**
@@ -1289,6 +1320,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/drawings/` | repo마다 Excalidraw 그림 — intent·spec·plan. tldraw를 뺀 근거(intent), 패키지를 풀어 읽은 실측(spec §0 — 합치기·직렬화·글꼴·한글), 데이터 모양과 묘비(§2), 낙관적 잠금 저장(FR-1·2), 그림 하나 = 창 하나(FR-8~10), 동기화 규칙 일곱(FR-21), 끄는 것과 막는 길(FR-25~28), 글꼴과 원격 대체 원본 걷기(FR-29·30), 뒤집을 수 있는 결정(§12). plan에 0단계 실측(Electron 하네스)·변이 표·완료 증명 |
 | `docs/sdlc/agent-status/` | 사이드바 하단의 에이전트 현황 — spec. 하단 줄의 이름과 글자 규칙(FR-1·2), 패널의 넷(FR-3~5), 설정 파일을 (종류, repo id)로만 여는 이유(FR-7), 뒤집을 수 있는 결정(§4) |
 | `docs/sdlc/scheduled-runs/` | 정기 실행 — intent·spec·plan. 대화를 어디에 매다는지 비교(spec §2-1 — run 컬럼이 아니라 실행 기록 테이블), anchor 하나로 정시·놓침·절전을 한 판정에(FR-10~12), start 전에 anchor를 쓰는 이유(FR-12), 겹침·답 기다림 건너뛰기(FR-15), 한 run은 한 번 세기(FR-20 개정), 이슈화 안내를 빼는 이유(FR-22), 뒤집을 수 있는 결정 아홉(§8). plan에 croner 실측·변이 표·완료 증명 |
+| `docs/sdlc/home-conversation/` | 홈 대화 — intent·spec·plan. 저장 자리 세 안의 비교와 숨은 workspace(spec §0), 전체 설계 §8의 예외(FR-1), `list()`가 홈을 빼고 `home()`이 필요한 자리(FR-3·plan §0-1·§0-9), 가드(FR-4), 읽기 전용·홈 폴더 강제(FR-5·6), `prepare`가 정하는 범위와 읽기 여덟(FR-8·9), 도크·카드·인박스(FR-12~14), plan을 v0.30.0에 맞춰 다시 쓴 개정 열둘(plan §0). plan에 변이 표·완료 증명 |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |

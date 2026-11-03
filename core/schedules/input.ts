@@ -55,7 +55,8 @@ export function validateScheduleInput(db: Database, value: ScheduleInput, now: n
   const v = value as unknown as Record<string, unknown>
 
   if (typeof v.workspaceId !== 'string' ||
-    !db.select({ id: workspace.id }).from(workspace).where(eq(workspace.id, v.workspaceId)).get()) {
+    // 홈 workspace는 없는 workspace와 같은 말이다 (home-conversation plan §0-8) — 홈 대화는 사람이 보낼 때만 돈다
+    !db.select({ id: workspace.id }).from(workspace).where(and(eq(workspace.id, v.workspaceId), eq(workspace.kind, 'normal'))).get()) {
     throw new Error('workspace를 찾을 수 없습니다')
   }
   const workspaceId = v.workspaceId

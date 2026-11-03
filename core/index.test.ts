@@ -1002,7 +1002,8 @@ describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)'
       expect(after).toContainEqual(['-d', 'Ubuntu', '--exec', 'test', '-x', '/home/me/bin/claude'])
       close(core)
     })
-  })
+    // 가짜 wsl.exe → 가짜 CLI를 여러 번 띄운다. 혼자 3.1초, 전체 실행의 부하에서 main도 4.9초였다(기본 5초에 걸쳐 있었다 — 2026-11-03 실측)
+  }, 15_000)
 })
 
 describe('core.workspaces.checkAgents', () => {
@@ -2033,5 +2034,117 @@ describe('정기 실행 (docs/sdlc/scheduled-runs/)', () => {
     const deps = source.match(/createMcpHost\(\{\s*deps: \{([^}]*)\}/)
     expect(deps).not.toBeNull()
     expect(deps![1]).not.toMatch(/schedule/i)
+  })
+})
+
+describe('홈 대화 (docs/sdlc/home-conversation/)', () => {
+  const HOME_LOCKED = '홈 workspace는 바꿀 수 없습니다'
+
+  it('부팅이 홈 workspace를 만들고 home()이 그것과 빈 폴더를 준다 — 목록에는 없다 (FR-2·FR-3·FR-6)', () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const home = core.workspaces.home()
+    expect(home.workspace.kind).toBe('home')
+    expect(home.workspace.defaultPermission).toBe('read_only')
+    expect(home.cwd).toBe(join(dataDir, 'home-conversation'))
+    expect(existsSync(home.cwd)).toBe(true)
+    expect(core.workspaces.list()).toEqual([])
+    close(core)
+
+    const again = open(dataDir)
+    expect(again.workspaces.home().workspace.id).toBe(home.workspace.id)
+  })
+
+  type Guarded = (core: Core, homeId: string, dataDir: string) => unknown
+  const GUARDED: Array<[string, Guarded]> = [
+    ['workspaces.rename', (core, id) => core.workspaces.rename(id, '다른 이름')],
+    ['workspaces.remove', (core, id) => core.workspaces.remove(id)],
+    ['workspaces.updateDefaults', (core, id) => core.workspaces.updateDefaults({
+      id, defaultAgentKind: 'claude-code', defaultModelClaude: null, defaultModelOpencode: null,
+      defaultEffortClaude: null, defaultVariantOpencode: null, defaultPermission: 'full'
+    })],
+    ['workspaces.updatePaths', (core, id) => core.workspaces.updatePaths({ id, claudePath: 'C:/x/claude.exe', opencodePath: null })],
+    ['repos.create', (core, id, dataDir) => core.repos.create({ workspaceId: id, name: 'api', path: dataDir })],
+    ['issues.create', (core, id) => core.issues.create({ workspaceId: id, title: '이슈' })],
+    ['memos.create', (core, id) => core.memos.create({ workspaceId: id, title: '메모' })],
+    ['assets.createAuthored', (core, id) => core.assets.createAuthored({ workspaceId: id, kind: 'skill', name: 'x' })]
+  ]
+
+  it.each(GUARDED)('홈 workspace는 %s로 바꿀 수 없다 (FR-4)', async (_name, fn) => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const home = core.workspaces.home().workspace
+    await expect(Promise.resolve().then(() => fn(core, home.id, dataDir))).rejects.toThrow(HOME_LOCKED)
+    expect(core.workspaces.home().workspace).toEqual(home)
+    expect(core.repos.list(home.id)).toEqual([])
+    expect(core.issues.list({ workspaceId: home.id })).toEqual([])
+    expect(core.memos.list({ workspaceId: home.id })).toEqual([])
+    expect(core.assets.list({ workspaceId: home.id })).toEqual([])
+  })
+
+  it('홈 workspace를 다시 훑어도 글로벌 asset이 쌓이지 않는다 — run이 끝난 뒤의 재스캔과 같은 함수다 (plan §0-2)', async () => {
+    const dataDir = makeDataDir()
+    const home = join(dataDir, 'home')
+    const skill = join(home, '.claude', 'skills', '글로벌')
+    mkdirSync(skill, { recursive: true })
+    writeFileSync(join(skill, 'SKILL.md'), ['---', 'name: 글로벌', 'description: 설명', '---', ''].join('\n'))
+    const core = open(dataDir, home)
+    const homeId = core.workspaces.home().workspace.id
+    expect(await core.assets.rescan(homeId)).toEqual([])
+    const ws = core.workspaces.create({ name: '회사' }).id
+    expect((await core.assets.rescan(ws)).map((a) => a.name)).toEqual(['글로벌'])
+  })
+
+  it('홈 run의 실행 파일은 workspace 예외 없이 앱 기본 경로로 찾는다 (FR-7)', async () => {
+    const previous = process.env['ONE_DESK_AGENT_PATH']
+    delete process.env['ONE_DESK_AGENT_PATH']
+    try {
+      const core = open(makeDataDir())
+      core.settings.setAgentPaths({ claude: join(makeDataDir(), '없는-claude'), opencode: null })
+      const { workspace, cwd } = core.workspaces.home()
+      const run = await core.execution.start({
+        workspaceId: workspace.id, agentKind: 'claude-code', cwd, permission: 'read_only', userPrompt: '정리해줘', context: []
+      })
+      await vi.waitFor(() => expect(core.runs.get(run.id).endedAt).toBeTypeOf('number'))
+      expect(core.runs.get(run.id).errorMessage).toContain('없는-claude')
+    } finally {
+      if (previous === undefined) delete process.env['ONE_DESK_AGENT_PATH']
+      else process.env['ONE_DESK_AGENT_PATH'] = previous
+    }
+  })
+
+  it('홈 run은 읽기 전용이 아니면 시작하지 않는다 — core가 실행 서비스에 홈을 넘긴다 (FR-5)', async () => {
+    const core = open(makeDataDir())
+    const { workspace, cwd } = core.workspaces.home()
+    await expect(core.execution.start({
+      workspaceId: workspace.id, agentKind: 'claude-code', cwd, permission: 'edit', userPrompt: '고쳐', context: []
+    })).rejects.toThrow('홈 대화는 읽기 전용으로만')
+    expect(core.runs.list(workspace.id)).toEqual([])
+  })
+
+  it('홈 대화의 답변 필요는 홈 요약의 할 일에 홈으로 선다 — core가 요약에 홈을 넘긴다 (FR-14)', () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const { workspace, cwd } = core.workspaces.home()
+    const run = core.runs.create({
+      workspaceId: workspace.id, agentKind: 'claude-code', model: null, effort: null, cwd, permission: 'read_only',
+      userPrompt: '내가 뭐 하고 있었지', assembledPrompt: '<task/>', logPath: join(dataDir, 'x.jsonl'), context: []
+    })
+    core.runs.markStarted(run.id)
+    core.runs.markFinished(run.id, {
+      status: 'succeeded', resultText: '어느 쪽부터?', externalSessionId: null, needsAnswer: true, exitCode: 0, errorMessage: null, usage: null
+    })
+    const todos = core.home.summary({ now: Date.now(), dayStart: 0 }).todos
+    expect(todos).toEqual([expect.objectContaining({ kind: 'needs-answer', workspaceName: '홈', conversationId: run.id })])
+    expect(core.home.count({ now: Date.now() })).toBe(1)
+  })
+
+  it('보통 workspace는 가드에 걸리지 않는다', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const ws = core.workspaces.create({ name: '회사' })
+    expect(core.workspaces.rename(ws.id, '회사2').name).toBe('회사2')
+    expect(core.issues.create({ workspaceId: ws.id, title: '이슈' }).title).toBe('이슈')
+    expect((await core.repos.create({ workspaceId: ws.id, name: 'api', path: dataDir })).name).toBe('api')
   })
 })

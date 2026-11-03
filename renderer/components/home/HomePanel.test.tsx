@@ -10,7 +10,7 @@ const NOW = new Date(2026, 9, 21, 10, 0, 0).getTime()
 function ws(id: string, name = id): Workspace {
   return {
     id, name, description: null, defaultAgentKind: 'claude-code', defaultModelClaude: 'sonnet', defaultModelOpencode: null,
-    defaultEffortClaude: null, defaultVariantOpencode: null, defaultPermission: 'edit', claudePath: null, opencodePath: null,
+    defaultEffortClaude: null, defaultVariantOpencode: null, defaultPermission: 'edit', claudePath: null, opencodePath: null, kind: 'normal',
     createdAt: 1, updatedAt: 1
   }
 }
@@ -37,7 +37,7 @@ function actions(over: Partial<HomeActions> = {}): HomeActions {
 const cli = { statuses: null, probes: null, probing: false }
 
 function renderBody(summary: HomeSummary, acts = actions(), width = 1440, lastTarget: HomeTarget | null = null) {
-  render(<HomeBody summary={summary} lastTarget={lastTarget} workspaces={[ws('a'), ws('b')]} now={NOW} width={width} actions={acts} />)
+  render(<HomeBody summary={summary} lastTarget={lastTarget} workspaces={[ws('a'), ws('b')]} now={NOW} width={width} composerHidden={false} actions={acts} />)
   return acts
 }
 
@@ -96,10 +96,10 @@ describe('HomeBody — 돌고 있는 것 (FR-10)', () => {
 describe('HomeBody — 작은 창 (FR-13)', () => {
   it('창 폭 1280px(.home 1040px) 아래에서는 타임라인을 그리지 않는다', () => {
     const summary = summaryOf({ timeline: [{ workspaceId: 'a', name: 'a', bars: [] }] })
-    const { unmount } = render(<HomeBody summary={summary} lastTarget={null} workspaces={[ws('a')]} now={NOW} width={1039} actions={actions()} />)
+    const { unmount } = render(<HomeBody summary={summary} lastTarget={null} workspaces={[ws('a')]} now={NOW} width={1039} composerHidden={false} actions={actions()} />)
     expect(screen.queryByRole('heading', { name: '오늘 타임라인' })).not.toBeInTheDocument()
     unmount()
-    render(<HomeBody summary={summary} lastTarget={null} workspaces={[ws('a')]} now={NOW} width={1040} actions={actions()} />)
+    render(<HomeBody summary={summary} lastTarget={null} workspaces={[ws('a')]} now={NOW} width={1040} composerHidden={false} actions={actions()} />)
     expect(screen.getByRole('heading', { name: '오늘 타임라인' })).toBeInTheDocument()
   })
 })
@@ -159,7 +159,7 @@ describe('HomePanel — 준비 단계 (FR-14·16)', () => {
   it('done이 아니면 본문 대신 준비 단계이고, 끝난 단계는 한 줄로 접힌다', async () => {
     const acts = actions()
     const summary = summaryOf({ workspaces: [row('회사', ['api'])], setup: { workspace: true, repo: true, firstRun: false } })
-    render(<HomePanel summary={summary} error={null} lastTarget={null} setup={setupStateOf(summary.setup, 'none')} workspaces={[ws('a', '회사')]} cli={cli} now={NOW} platform="Win32" actions={acts} />)
+    render(<HomePanel summary={summary} error={null} lastTarget={null} setup={setupStateOf(summary.setup, 'none')} workspaces={[ws('a', '회사')]} cli={cli} now={NOW} platform="Win32" composerHidden={false} actions={acts} />)
     expect(screen.queryByRole('heading', { name: '오늘 할 일' })).not.toBeInTheDocument()
     const steps = screen.getAllByRole('listitem').filter((li) => li.classList.contains('home-step'))
     expect(steps.map((s) => s.classList.contains('home-step-done'))).toEqual([true, true, false, false])
@@ -177,7 +177,7 @@ describe('HomePanel — 준비 단계 (FR-14·16)', () => {
   it('아무것도 없으면 ①만 열려 있고 버튼이 사이드바 폼으로 보낸다 — ②·④는 잠긴다', async () => {
     const acts = actions()
     const summary = summaryOf({ workspaces: [], setup: { workspace: false, repo: false, firstRun: false } })
-    render(<HomePanel summary={summary} error={null} lastTarget={null} setup={setupStateOf(summary.setup, 'pending')} workspaces={[]} cli={cli} now={NOW} platform="Win32" actions={acts} />)
+    render(<HomePanel summary={summary} error={null} lastTarget={null} setup={setupStateOf(summary.setup, 'pending')} workspaces={[]} cli={cli} now={NOW} platform="Win32" composerHidden={false} actions={acts} />)
     await userEvent.click(screen.getByRole('button', { name: '워크스페이스 만들기' }))
     expect(acts.onFocusWorkspaceAdd).toHaveBeenCalled()
     expect(screen.getByRole('button', { name: '폴더 연결하기' })).toBeDisabled()
@@ -186,7 +186,21 @@ describe('HomePanel — 준비 단계 (FR-14·16)', () => {
 
   it('넷 다 끝나면 본문이다', () => {
     const summary = summaryOf()
-    render(<HomePanel summary={summary} error={null} lastTarget={null} setup={setupStateOf(summary.setup, 'ready')} workspaces={[ws('a'), ws('b')]} cli={cli} now={NOW} platform="Win32" actions={actions()} />)
+    render(<HomePanel summary={summary} error={null} lastTarget={null} setup={setupStateOf(summary.setup, 'ready')} workspaces={[ws('a'), ws('b')]} cli={cli} now={NOW} platform="Win32" composerHidden={false} actions={actions()} />)
     expect(screen.getByRole('heading', { name: '오늘 할 일' })).toBeInTheDocument()
+  })
+})
+
+describe('홈 대화를 펼친 동안 (docs/sdlc/home-conversation/ FR-13)', () => {
+  it('새 대화 카드는 숨되 언마운트하지 않는다 — 쓰던 글이 남는다', async () => {
+    const summary = summaryOf()
+    const target = { workspaceId: 'b', repoId: 'web' }
+    const { rerender } = render(<HomeBody summary={summary} lastTarget={target} workspaces={[ws('a'), ws('b')]} now={NOW} width={1440} composerHidden={false} actions={actions()} />)
+    const input = screen.getByRole('textbox', { name: '새 대화 지시' })
+    await userEvent.type(input, '쓰던 글')
+    rerender(<HomeBody summary={summary} lastTarget={target} workspaces={[ws('a'), ws('b')]} now={NOW} width={1440} composerHidden actions={actions()} />)
+    expect(screen.queryByRole('textbox', { name: '새 대화 지시' })).not.toBeInTheDocument()
+    rerender(<HomeBody summary={summary} lastTarget={target} workspaces={[ws('a'), ws('b')]} now={NOW} width={1440} composerHidden={false} actions={actions()} />)
+    expect(screen.getByRole('textbox', { name: '새 대화 지시' })).toHaveValue('쓰던 글')
   })
 })

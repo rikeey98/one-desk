@@ -224,7 +224,7 @@ function SectionHeader({ section, collapsed, onToggle }: {
  * 초안 state를 `SettingsPanel`이 쥐는 것과 같은 이유).
  */
 export function ConversationList({
-  open, closed, selectedId, isNew, repos, showClosed, renamingId, expandedIssues,
+  open, closed, selectedId, isNew, repos, repoNames, showClosed, renamingId, expandedIssues,
   sections, collapsedSections, onToggleSection, filterRepo, onClearFilter,
   onPickNew, onPick, onRename, onClose, onToggleClosed, onStartRename, onCancelRename, onToggleIssue
 }: {
@@ -236,6 +236,11 @@ export function ConversationList({
   /** 지금 "새 대화"를 보고 있는가 */
   isNew: boolean
   repos: Repo[]
+  /**
+   * 줄마다 repo 이름을 쓰는가 — 홈 대화면 거짓이다(repo가 아니라 앱의 홈 폴더에서 돈다, home-conversation FR-12). **필수다** — 선택이면
+   * 도크의 한 줄을 빠뜨려도 조용히 컴파일되고 홈 대화 줄에 내부 폴더 이름이 선다.
+   */
+  repoNames: boolean
   showClosed: boolean
   renamingId: string | null
   /** 펼친 이슈 줄의 이슈 id (FR-28). 기본은 접힘이다 */
@@ -261,7 +266,7 @@ export function ConversationList({
   onToggleIssue: (issueId: string) => void
 }) {
   // 구획·거름 안에서는 줄마다 repo 이름을 쓰지 않는다 — 머리(거름 줄)가 말한다 (FR-4)
-  const showRepo = sections === null && filterRepo === null
+  const showRepo = repoNames && sections === null && filterRepo === null
 
   function row(conv: Conversation, nested = false) {
     return (

@@ -20,7 +20,13 @@ import { useClient } from './client/ClientProvider'
 import { chipKey, type ContextChip } from './context'
 import { conversationIdOf, groupConversations, type IssueConversations } from './conversation'
 import { confirmSeen } from './conversationSeen'
-import type { AssignedIssue, HomeTarget, Memo, Run, StartRunInput } from '@shared/models'
+import type { AssignedIssue, HomeTarget, Memo, Repo, Run, StartRunInput } from '@shared/models'
+import { useHomeWorkspace } from './hooks/useHomeWorkspace'
+import { readHomeDockOpen, writeHomeDockOpen } from './homeDock'
+
+/** 홈 도크에 내리는 빈 목록 — 렌더마다 새 배열이면 도크의 메모와 입력부의 effect가 매번 다시 돈다 */
+const NO_REPOS: Repo[] = []
+const NO_CHIPS: ContextChip[] = []
 import { ReportPanel, initialReportQuery, POLISH_PROMPT, type ReportQuery } from './components/ReportPanel'
 import { SchedulePanel } from './components/SchedulePanel'
 import { CloseConfirm } from './components/code/CloseConfirm'
@@ -113,6 +119,28 @@ export default function App() {
     setCliWanted(view === 'home' && setupReachedCli && cliState !== 'ready')
   }, [view, setupReachedCli, cliState])
   const homeNow = useNow(view === 'home')
+  // 홈 대화 (docs/sdlc/home-conversation/) — 숨은 workspace와 그 폴더는 한 번 읽는다. 대화 목록은 홈이 보일 때만 읽고, 도크의 펼침은
+  // App이 쥔다(새 대화 카드가 같은 값을 보고 숨는다 — FR-13). 처음에는 접혀 있다(FR-13a).
+  const { place: homePlace, error: homePlaceError } = useHomeWorkspace()
+  const homeId = homePlace?.workspace.id ?? null
+  const { runs: homeRuns, error: homeRunsError } = useRuns(view === 'home' ? homeId : null)
+  const homeWorkspaces = useMemo(() => (homePlace ? [homePlace.workspace] : []), [homePlace])
+  const [homeDockOpen, setHomeDockOpen] = useState(readHomeDockOpen)
+
+  function changeHomeDockOpen(open: boolean) {
+    setHomeDockOpen(open)
+    writeHomeDockOpen(open)
+  }
+
+  /** 홈 대화를 연다 — 사이드바에 홈 workspace가 없으므로 workspace 화면이 아니라 홈 화면의 도크로 간다 (FR-14) */
+  function openHomeConversation(conversationId: string) {
+    setView('home')
+    setOpenItem(null)
+    setDraftPrompt('')
+    setDraftCwd(null)
+    changeHomeDockOpen(true)
+    setFocusConversationId(conversationId)
+  }
   // 인박스 행동(확인함/보관/이슈 연동) 실패도 조용히 삼키지 않는다 — inboxError와
   // 같은 자리에 뜨되, 방금 누른 행동의 오류가 더 급하므로 앞에 온다.
   const [inboxActionError, setInboxActionError] = useState<string | null>(null)
@@ -283,8 +311,13 @@ export default function App() {
     review(conversationIdOf(run), kind)
   }
 
-  /** 인박스 항목을 그 run의 workspace 화면으로 데려간다. */
+  /** 인박스 항목을 그 run의 workspace 화면으로 데려간다. 홈 대화면 홈 화면의 도크다 (home-conversation FR-14) */
   function goToRun(run: Run) {
+    if (run.workspaceId === homeId) {
+      setView('home')
+      changeHomeDockOpen(true)
+      return
+    }
     setWorkspaceId(run.workspaceId)
     setRepoId(null)
     setChips([])
@@ -326,6 +359,10 @@ export default function App() {
 
   /** 인박스의 "대화 열기"와 같은 길이다 — run 대신 (workspace, 대화 id)를 받는다 */
   function openReportConversation(targetWorkspaceId: string, conversationId: string) {
+    if (targetWorkspaceId === homeId) {
+      openHomeConversation(conversationId)
+      return
+    }
     setWorkspaceId(targetWorkspaceId)
     setRepoId(null)
     setChips([])
@@ -553,13 +590,15 @@ export default function App() {
           {view === 'home' && (
             <HomePanel
               summary={homeSummary}
-              error={homeActionError ?? homeError}
+              error={homeActionError ?? homeError ?? homePlaceError}
               lastTarget={homeLastTarget}
               setup={homeSetup}
               // 사이드바·RunPanel과 같은 useWorkspaces 인스턴스 — 새 대화 카드의 기본값이 설정 화면에서 저장한 값을 본다
               workspaces={workspaces}
               cli={{ statuses: cli.statuses, probes: cli.probes, probing: cli.probing }}
               now={homeNow}
+              // 홈 대화를 펼친 동안은 새 대화 카드가 숨는다 — 둘이 같이 서면 모든 workspace에 대한 질문이 그 workspace의 대화로 간다 (FR-13)
+              composerHidden={homeDockOpen}
               platform={typeof navigator === 'undefined' ? '' : navigator.platform}
               actions={{
                 onOpenConversation: openReportConversation,
@@ -576,6 +615,37 @@ export default function App() {
                 onOpenSettings: () => setView('settings'),
                 onStartFirstConversation: startFirstFromHome
               }}
+            />
+          )}
+          {/* 홈 대화의 도크 (FR-12). 코드 칸 자리(slot Provider) 밖에 둔다 — 안에 두면 제목 줄에 파일·터미널·그림이 서는데
+              홈 화면에는 열 자리가 없다. */}
+          {view === 'home' && homePlace && (
+            <Dock
+              variant={{ kind: 'home', cwd: homePlace.cwd, open: homeDockOpen, onOpenChange: changeHomeDockOpen }}
+              runs={homeRuns}
+              error={homeRunsError}
+              workspaceId={homePlace.workspace.id}
+              workspaces={homeWorkspaces}
+              repos={NO_REPOS}
+              reposError={null}
+              queue={queue}
+              queueError={limitError ?? queueError}
+              onChangeLimit={changeLimit}
+              chips={NO_CHIPS}
+              onRemoveChip={() => {}}
+              // 인박스의 "다시 실행"이 홈 대화면 그 지시를 홈 도크의 새 대화 칸에 채운다
+              draftPrompt={draftPrompt}
+              draftCwd={null}
+              selectedRepoId={null}
+              onClearRepoFilter={() => {}}
+              focusConversationId={focusConversationId}
+              onFocusConsumed={() => { setFocusConversationId(null); setFocusNew(false); setFocusReply(false) }}
+              focusReply={focusReply}
+              onRunStarted={() => { setDraftPrompt(''); setDraftCwd(null) }}
+              // 펼치면 하한에서 시작한다 — 위의 할 일을 밀어내지 않는다(spec §5의 6). 끌어서 넓힐 수 있고 그 높이는 남기지 않는다
+              compact
+              toggleRequest={false}
+              onToggleConsumed={() => {}}
             />
           )}
           {view === 'settings' && (
@@ -624,6 +694,7 @@ export default function App() {
               items={inboxItems}
               workspaces={workspaces}
               reposByWorkspace={inboxRepos}
+              homeWorkspaceId={homeId}
               // 방금 누른 행동의 오류 → 목록을 못 읽음 → repo를 못 읽음(묶음이 `기타`로 가는 이유) 순이다
               error={inboxActionError ?? inboxError ?? inboxReposError}
               onReview={reviewConversation}
@@ -677,6 +748,7 @@ export default function App() {
               <CodePaneSlotContext.Provider value={codeSlot}>
                 <TitleBarSlotContext.Provider value={titleSlot}>
                   <Dock
+                    variant={{ kind: 'workspace' }}
                     runs={runs}
                     error={runsError}
                     workspaceId={workspaceId}

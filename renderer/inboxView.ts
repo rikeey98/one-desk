@@ -40,13 +40,22 @@ export function repoOfItem(run: Run, repos: ReposByWorkspace): Repo | null {
   return repoOfCwd(run.cwd, repos[run.workspaceId] ?? [])
 }
 
-function workspaceName(workspaceId: string, workspaces: readonly Workspace[]): string {
+/**
+ * 홈 대화의 소속·묶음 이름 (`docs/sdlc/home-conversation/` FR-14). 홈 workspace는 사이드바 목록(`workspaces`)에 없으므로 id로 따로
+ * 받는다 — 없으면 홈 대화가 `(사라진 workspace)`로 보인다.
+ */
+export const HOME_LABEL = '홈'
+
+function workspaceName(workspaceId: string, workspaces: readonly Workspace[], homeWorkspaceId: string | null): string {
+  if (workspaceId === homeWorkspaceId) return HOME_LABEL
   return workspaces.find((w) => w.id === workspaceId)?.name ?? MISSING_WORKSPACE
 }
 
-/** 항목 머리의 소속 (FR-5) — `workspace · repo`, repo를 모르면 workspace만 */
-export function sourceLabel(run: Run, workspaces: readonly Workspace[], repos: ReposByWorkspace): string {
-  const ws = workspaceName(run.workspaceId, workspaces)
+/** 항목 머리의 소속 (FR-5) — `workspace · repo`, repo를 모르면 workspace만. 홈 대화는 `홈`이다 */
+export function sourceLabel(
+  run: Run, workspaces: readonly Workspace[], repos: ReposByWorkspace, homeWorkspaceId: string | null
+): string {
+  const ws = workspaceName(run.workspaceId, workspaces, homeWorkspaceId)
   const repo = repoOfItem(run, repos)
   return repo ? `${ws} · ${repo.name}` : ws
 }
@@ -79,10 +88,12 @@ export interface WorkspaceGroup {
 /**
  * workspace → repo 두 단으로 묶는다 (FR-6·7). 묶음 순서는 **정렬한 목록에서 첫 항목이 나온 순**이라 정렬을 따른다 —
  * 최신 먼저면 가장 최근에 끝난 대화가 있는 묶음이, 오래된 먼저면 가장 오래 기다린 대화가 있는 묶음이 위다. `기타`는 그
- * workspace 안에서, 사라진 workspace는 전체에서 늘 맨 아래다. 묶음 안은 정렬 그대로다.
+ * workspace 안에서, 사라진 workspace는 그 아래, 홈 대화의 `홈` 묶음은 전체에서 늘 맨 아래다(home-conversation FR-14). 묶음 안은
+ * 정렬 그대로다.
  */
 export function groupByWorkspace(
-  items: readonly Run[], order: InboxOrder, workspaces: readonly Workspace[], repos: ReposByWorkspace
+  items: readonly Run[], order: InboxOrder, workspaces: readonly Workspace[], repos: ReposByWorkspace,
+  homeWorkspaceId: string | null
 ): WorkspaceGroup[] {
   const groups: Array<{ workspace: Workspace | null; workspaceId: string; repos: RepoGroup[] }> = []
   const byWorkspace = new Map<string, (typeof groups)[number]>()
@@ -108,13 +119,18 @@ export function groupByWorkspace(
     return {
       key: `ws:${g.workspaceId}`,
       workspace: g.workspace,
-      label: g.workspace?.name ?? MISSING_WORKSPACE,
+      label: workspaceName(g.workspaceId, workspaces, homeWorkspaceId),
       repos: sorted,
       count: sorted.reduce((n, r) => n + r.items.length, 0),
       needsAnswer: sorted.some((r) => r.needsAnswer)
     }
   })
-  return [...done.filter((g) => g.workspace !== null), ...done.filter((g) => g.workspace === null)]
+  const isHome = (g: WorkspaceGroup) => g.key === `ws:${homeWorkspaceId}`
+  return [
+    ...done.filter((g) => g.workspace !== null),
+    ...done.filter((g) => g.workspace === null && !isHome(g)),
+    ...done.filter(isHome)
+  ]
 }
 
 /**

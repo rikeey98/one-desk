@@ -7,6 +7,7 @@ export const CHANNELS = {
   workspacesCheckAgents: 'workspaces:checkAgents',
   workspacesProbeAgents: 'workspaces:probeAgents',
   workspacesRemove: 'workspaces:remove',
+  workspacesHome: 'workspaces:home',
   reposList: 'repos:list',
   reposCreate: 'repos:create',
   reposRename: 'repos:rename',

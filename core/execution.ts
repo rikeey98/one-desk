@@ -70,6 +70,12 @@ export interface ExecutionOptions {
    * async). 없으면 WSL repo의 run을 시작할 수 없다 — 테스트 통로이고 core는 늘 넘긴다.
    */
   wsl?: { launcherFor(distro: string, runId: string): Promise<NonNullable<StartSpec['launcher']>> }
+  /**
+   * 홈 대화의 자리 (`docs/sdlc/home-conversation/` FR-5·FR-6). 이 workspace의 run은 읽기 전용이고 이 cwd여야만 시작한다 — 넓은 MCP 범위를
+   * 받는 run이라 조용히 낮추지 않고 행을 만들기 전에 던진다. **필수다** — 선택이면 core의 한 줄을 빠뜨려도 조용히 컴파일되고 홈 run이
+   * 편집 허용으로 뜬다. 테스트처럼 홈이 없으면 null이다.
+   */
+  home: { workspaceId: string; cwd: string } | null
 }
 
 export function createExecutionService(opts: ExecutionOptions) {
@@ -359,9 +365,10 @@ export function createExecutionService(opts: ExecutionOptions) {
    * 안내를 붙이는가 (agent-proposals FR-15) — start·resume이 같이 부르는 한 자리. `assignedIssueId`는 이 턴이 끝난 뒤의 할당이고
    * (새 대화면 자동 할당까지 거친 값), `rootId`가 null이면 새 대화라 기다림·거절이 없다.
    */
-  function proposeIssueFor(assignedIssueId: string | null, rootId: string | null, fromSchedule: boolean): boolean {
+  function proposeIssueFor(assignedIssueId: string | null, rootId: string | null, fromSchedule: boolean, workspaceId: string): boolean {
     return shouldProposeIssue({
       fromSchedule,
+      home: isHomeWorkspace(workspaceId),
       mcp: opts.mcp !== undefined, assignedIssueId,
       state: rootId === null ? { pending: false, declined: false } : proposalStateOf(opts.db, rootId)
     })
@@ -391,7 +398,19 @@ export function createExecutionService(opts: ExecutionOptions) {
     return opts.files.resolveMentions(cwdRepoOf(spec), spec.userPrompt)
   }
 
+  function isHomeWorkspace(workspaceId: string): boolean {
+    return opts.home !== null && workspaceId === opts.home.workspaceId
+  }
+
+  /** 홈 run의 규칙 (FR-5·FR-6) — start·resume이 다 지나는 launch의 맨 앞, run 행을 만들기 전이다 */
+  function assertHomeRun(spec: LaunchSpec): void {
+    if (!opts.home || spec.workspaceId !== opts.home.workspaceId) return
+    if (spec.permission !== 'read_only') throw new Error('홈 대화는 읽기 전용으로만 돌 수 있습니다')
+    if (spec.cwd !== opts.home.cwd) throw new Error(`홈 대화는 홈 폴더에서만 돌 수 있습니다: ${spec.cwd}`)
+  }
+
   async function launch(spec: LaunchSpec): Promise<Run> {
+    assertHomeRun(spec)
     const { repos, issues, memos, assets } = collectContext(opts.db, spec)
     const { resolved, missing } = await resolveAssets(assets)
     // 지시문의 `@경로` (spec §5-3). 읽기·상한에 걸리면 여기서 던진다 — run 행을 만들기 전이다.
@@ -622,7 +641,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       resumeFromRootRunId: null,
       timeoutMs: input.timeoutMs ?? null,
       issueId,
-      proposeIssue: proposeIssueFor(assignedAfter, parentRoot, internal.fromSchedule ?? false),
+      proposeIssue: proposeIssueFor(assignedAfter, parentRoot, internal.fromSchedule ?? false, input.workspaceId),
       title: internal.title ?? null
     })
   }
@@ -680,7 +699,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       // timeoutMs는 원본의 성질을 따른다 (설계 §6의 목록에 빠져 있던 자리다).
       timeoutMs: source.timeoutMs,
       issueId: null,
-      proposeIssue: proposeIssueFor(assigned, rootId, internal.fromSchedule ?? false),
+      proposeIssue: proposeIssueFor(assigned, rootId, internal.fromSchedule ?? false, source.workspaceId),
       title: null
     })
   }

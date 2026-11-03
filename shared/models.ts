@@ -122,8 +122,18 @@ export interface Workspace {
   defaultPermission: Permission
   claudePath: string | null
   opencodePath: string | null
+  /** 홈 대화의 숨은 행이면 'home' (docs/sdlc/home-conversation/ FR-2). 렌더러는 이것이 아니라 id로 가른다(plan §5-1) */
+  kind: WorkspaceKind
   createdAt: number
   updatedAt: number
+}
+
+export type WorkspaceKind = 'normal' | 'home'
+
+/** 홈 대화의 자리 (docs/sdlc/home-conversation/ FR-6) — 숨은 workspace 행과 그 대화가 뜨는 빈 폴더 */
+export interface HomeConversationPlace {
+  workspace: Workspace
+  cwd: string
 }
 
 export interface Repo {
