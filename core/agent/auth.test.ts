@@ -65,6 +65,36 @@ describe('checkAuth — claude', () => {
     if (auth.state === 'none') expect(auth.hint).toContain('claude auth login')
   })
 
+  // 2.1.296부터 로그아웃한 CLI는 loggedIn: false를 찍고 exit 1로 끝난다(Windows·WSL 실측, 2.1.312도 같다).
+  // 종료 코드를 먼저 보면 "확인할 수 없음 (종료 코드 1)"이 되어 칠 명령을 말하지 못한다.
+  it('로그아웃한 CLI가 exit 1로 loggedIn: false를 내도 none이다', async () => {
+    const measured = JSON.stringify({
+      loggedIn: false, authMethod: 'none', apiProvider: 'firstParty', analyticsDisabled: false
+    }, null, 2)
+    const { run } = stub(ok(`${measured}\n`, 1))
+
+    const auth = await checkAuth('claude-code', '/bin/claude', run)
+
+    expect(auth.state).toBe('none')
+  })
+
+  it('종료 코드가 0이 아니고 loggedIn을 읽지 못하면 그 종료 코드를 담은 unknown이다', async () => {
+    const { run } = stub({ code: 3, stdout: JSON.stringify({ authMethod: 'none' }), stderr: 'boom', failure: null })
+
+    const auth = await checkAuth('claude-code', '/bin/claude', run)
+
+    expect(auth.state).toBe('unknown')
+    if (auth.state === 'unknown') expect(auth.reason).toContain('종료 코드 3')
+  })
+
+  it('시간 초과로 끊긴 조회는 찍힌 JSON이 있어도 unknown이다', async () => {
+    const { run } = stub({ code: null, stdout: JSON.stringify({ loggedIn: true }), stderr: '', failure: '시간 초과' })
+
+    const auth = await checkAuth('claude-code', '/bin/claude', run)
+
+    expect(auth.state).toBe('unknown')
+  })
+
   it('계정 식별 정보는 돌려주지 않는다', async () => {
     // auth status는 email·orgId·orgName도 준다. DB·로그·화면 어디에도 넣지
     // 않기로 했으므로(spec NFR-5) 여기서부터 나르지 않는다.

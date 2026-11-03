@@ -37,11 +37,9 @@ costs, AWS Bedrock quotas 문서):
 
 ## 3. WSL repo — v0.25.1 실측이 기록만 한 것 (2026-10-12)
 
-`docs/sdlc/wsl-support/` spec §4-B·§4-C의 실측과 반박 검토가 찾았지만 이번에 고치지 않은 것. 셋째 줄부터는 설계 결정을 다시 정해야 한다.
+`docs/sdlc/wsl-support/` spec §4-B·§4-C의 실측과 반박 검토가 찾았지만 이번에 고치지 않은 것. 둘째 줄부터는 설계 결정을 다시 정해야 한다.
+(첫 항목이던 "로그아웃한 claude가 인증 확인 불가로 보인다"는 2026-11-03에 고쳤다 — agent-setup spec의 "core — 인증 조회" 다듬음.)
 
-- **로그아웃한 claude가 "로그인 필요"가 아니라 "인증 확인 불가 (종료 코드 1)"로 보인다** — claude 2.1.296의 `auth status --json`은
-  로그인하지 않았으면 exit 1로 `loggedIn: false`를 낸다(Windows·WSL 실측). 파서가 종료 코드를 먼저 봐서 그렇다. JSON을 먼저 보면
-  고쳐지지만 agent-setup spec의 우선순위("실패하면 unknown")와 Windows 쪽 동작이 바뀐다 — 그 spec을 고칠지 먼저 정한다.
 - **`ps`가 없는 배포판에서 런처가 setsid를 끝없이 되풀이한다** — `launcher.sh`가 pgid로 판정하고 `ps`가 실패하면 늘 setsid 갈래로
   간다. Ubuntu에는 procps가 있어 잠복이다. `/proc/$$/stat`로 판정하고 `setsid -w` + 한 번만 표식으로 막는 설계가 있다(§4-C 반박).
 - **`~/.profile`이 `exec zsh` 같은 셸 바꾸기를 하면 stdin이 셸 코드로 읽힌다** — run의 프롬프트가 셸 명령으로 실행되고 run은 exit 0

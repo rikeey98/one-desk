@@ -745,7 +745,10 @@ opencode는 `--variant`를 받지만 `init`에도 `result`에도 그 값이 없�
 — 로그인한 경우와 값이 같다. 그래서 준비 상태는 `claude auth status --json`(JSON이 기본 출력,
 실측 0.24초, 훅을 타지 않는다)이 먼저 보고, **그것이 `ok`일 때만** init probe를 돌린다
 (`core/agent/service.ts`). 이 순서를 뒤집거나 probe만으로 판정하면 **아무것도 못 돌리는
-사람에게 초록으로 모델 이름을 띄운다.** 모델 이름 역시 검증이 아니다 — 없는 이름 `gpt-9`도
+사람에게 초록으로 모델 이름을 띄운다.** **로그아웃한 CLI의 `auth status`는 `loggedIn: false`를 찍고 exit 1로
+끝난다**(2.1.296부터, Windows·WSL 실측) — 그래서 파서(`core/agent/auth.ts`)는 종료 코드보다 `loggedIn`을 먼저 본다.
+되돌리면 "로그인 필요"가 "인증 확인 불가 (종료 코드 1)"가 되고(v0.30.0까지 그랬다), `auth.test`의 "로그아웃한 CLI가 exit 1로
+loggedIn: false를 내도 none이다"가 빨개진다. 모델 이름 역시 검증이 아니다 — 없는 이름 `gpt-9`도
 그대로 되돌아오므로 화면은 "이 이름으로 넘어갑니다"까지만 말한다.
 
 **`result`는 `subtype: "success"`인 채로 `is_error: true`가 올 수 있다.** 로그인하지 않고
@@ -887,7 +890,7 @@ WSL repo의 프로세스는 `wsl.exe -d <distro>` 안에서 떠야 하는데, �
 `agent/exec.ts`의 `runCliIn(env)`·`adapters/opencode.ts`)이고 `git ls-files`(`files/list.ts`)·터미널 pty는 `wrapForEnv`를
 직접 탄다. **WSL에서 agent CLI는 늘 로그인 셸 안이다** (spec §4-C) — run은 런처가, 런처 없이 뜨는 인증·probe는 `agentCommand`가
 `LOGIN_SHELL`(`bash -lc 'exec "$0" "$@"'` — 런처 마지막 줄과 같은 상수, `launcher.test`가 둘을 묶는다)로 감싼다. 빠뜨리면 그 판정만
-`~/.profile` 밖에서 돌아 Bedrock 변수를 거기 둔 사람에게 설정 화면이 "인증 확인 불가"·다른 모델을 띄우는데 run은 된다(claude 2.1.296은 로그인하지 않았으면 exit 1이라 "로그인 필요"가 아니라 "인증 확인 불가 (종료 코드 1)"로 보인다 — backlog §3). **짧은 조회는
+`~/.profile` 밖에서 돌아 Bedrock 변수를 거기 둔 사람에게 설정 화면이 "인증 확인 불가"·다른 모델을 띄우는데 run은 된다. **짧은 조회는
 감싸지 않는다** — preflight(`test -x`·`bash -lc 'command -v claude'`)·distro 홈(`sh -c 'echo $HOME'`)은 `runQueryIn`이고 wslpath·kill·
 git과 같다(홈은 프로필과 무관한데 프로필이 찍는 글자에 깨지기만 하고, 취소가 `~/.profile`에 기대면 안 된다). 로그인 셸이 출력 앞에
 글자를 찍을 수 있으므로 **인증 파서는 출력 끝의 JSON을, `parseInit`은 init 줄 앞에 붙은 글자를 건너뛰고** 읽는다 — 특히 후자를
