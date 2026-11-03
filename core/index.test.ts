@@ -1971,9 +1971,12 @@ describe('정기 실행 (docs/sdlc/scheduled-runs/)', () => {
   })
 
   it('정기 실행이 낸 run이 돌다 실패로 끝나면 연속 실패를 센다 — onRunUpdate 배선 (FR-20)', async () => {
-    // 가짜 CLI의 home 시나리오: 지시에 [실패]가 있으면 is_error + exit 1 — runNow가 돌아온 뒤에 끝난다
-    const previous = process.env['ONE_DESK_FAKE_SCRIPT']
+    // 가짜 CLI의 home 시나리오: 지시에 [실패]가 있으면 is_error + exit 1 — runNow가 돌아온 뒤에 끝난다.
+    // 런처(node)가 없으면 Windows에서 가짜 CLI(.mjs)가 뜨지 않아 runNow가 돌아오기 전에 끝난다
+    const keys = ['ONE_DESK_FAKE_SCRIPT', 'ONE_DESK_AGENT_LAUNCHER'] as const
+    const previous = keys.map((k) => process.env[k])
     process.env['ONE_DESK_FAKE_SCRIPT'] = 'home'
+    process.env['ONE_DESK_AGENT_LAUNCHER'] = process.execPath
     try {
       await withAgentPath(FAKE_AGENT, async () => {
         const dataDir = makeDataDir()
@@ -1986,8 +1989,11 @@ describe('정기 실행 (docs/sdlc/scheduled-runs/)', () => {
         close(core)
       })
     } finally {
-      if (previous === undefined) delete process.env['ONE_DESK_FAKE_SCRIPT']
-      else process.env['ONE_DESK_FAKE_SCRIPT'] = previous
+      keys.forEach((k, i) => {
+        const v = previous[i]
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      })
     }
   })
 
