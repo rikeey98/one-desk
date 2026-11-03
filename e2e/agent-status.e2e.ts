@@ -9,7 +9,7 @@ import { launchApp } from './driver'
  * e2e가 사용자의 편집기를 열면 안 된다.
  */
 describe('에이전트 현황', () => {
-  it('하단 줄이 MCP와 실행 슬롯을 보이고, 누르면 패널이 뜨며, repo의 설정 파일을 (종류, repo id)로 연다', async () => {
+  it('하단 줄이 쓸 수 있는 agent와 MCP를 보이고, 누르면 패널이 뜨며, repo의 설정 파일을 (종류, repo id)로 연다', async () => {
     const app = await launchApp()
     const { page } = app
     const artifacts = resolve('e2e/artifacts')
@@ -35,8 +35,11 @@ describe('에이전트 현황', () => {
     await page.getByRole('button', { name: '추가' }).click()
     await page.getByRole('button', { name: 'api repo' }).waitFor({ state: 'visible', timeout: 10_000 })
 
+    // 하단 줄은 쓸 수 있는 agent와 MCP만 — 가짜 CLI가 두 agent 모두에 물려 있다. 포트·실행 수는 풍선에 있다(FR-1 개정)
     const row = page.getByRole('button', { name: '에이전트 현황' })
-    await expect.poll(() => row.textContent(), { timeout: 10_000 }).toMatch(/MCP :\d+.*실행 0\/\d+/)
+    await expect.poll(() => row.textContent(), { timeout: 10_000 }).toBe('Claude CodeOpenCodeMCP')
+    expect(await row.getAttribute('title')).toMatch(/^Claude Code · OpenCode · MCP :\d+ · 실행 0\/\d+ — /)
+    await page.locator('nav.sidebar').screenshot({ path: join(artifacts, 'agent-status-sidebar.png') })
 
     await row.click()
     const dialog = page.getByRole('dialog', { name: '에이전트 현황' })
