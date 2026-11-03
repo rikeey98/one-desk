@@ -8,7 +8,7 @@ workspace/repo/issue/memo를 한 화면에서 관리하고, 필요한 맥락을 
 
 **agent는 MCP에 stdio로 붙는다**(설계 `2026-08-14-mcp-stdio-design.md`) — claude가 `core/mcp/bridge.mjs`를 자식 프로세스로 띄우고, 브리지가 앱 안의 HTTP 서버로 중계한다. 사내 프록시가 루프백 HTTP를 403으로 막던 환경 때문이다. `ONE_DESK_REAL_CLI=1 pnpm test realCli`가 진짜 CLI로 이 계약을 검증한다.
 
-**MCP 서버는 이제 부팅과 함께 뜬다**(설계 `2026-08-14-mcp-always-on-design.md`). 전체 설계 §14의 "앱을 여는 행위가 아무것도 시작하지 않는다"를 사용자가 명시적으로 뒤집은 것이다 — 사이드바 하단이 `● MCP :53021`로 상태와 포트를 보여준다. 토큰은 여전히 run 단위라, run이 없는 동안 서버는 401만 돌려주는 껍데기다. **포트는 원래부터 동적이었다** — `listen(0)`이 OS에게 빈 포트를 받으므로 충돌이 구조적으로 불가능하다.
+**MCP 서버는 이제 부팅과 함께 뜬다**(설계 `2026-08-14-mcp-always-on-design.md`). 전체 설계 §14의 "앱을 여는 행위가 아무것도 시작하지 않는다"를 사용자가 명시적으로 뒤집은 것이다 — 사이드바 하단이 상태를 보여준다 — 지금은 `● Claude Code ● MCP`이고 포트는 풍선과 에이전트 현황 패널에 있다(`docs/sdlc/agent-status/` FR-1 개정). 토큰은 여전히 run 단위라, run이 없는 동안 서버는 401만 돌려주는 껍데기다. **포트는 원래부터 동적이었다** — `listen(0)`이 OS에게 빈 포트를 받으므로 충돌이 구조적으로 불가능하다.
 
 같은 작업에서 **Windows 실행 경로**가 처음으로 열렸다. 실행 파일 탐색이 `core/runner/executable.ts`로 떨어져 나와 `PATHEXT`와 폴백 디렉토리를 다루고, `.cmd` 설치본은 preflight가 명확한 메시지로 거부한다. 그 과정에서 로그 스트림의 미처리 오류가 메인 프로세스를 죽이던 결함도 잡혔다.
 
@@ -486,12 +486,17 @@ repo → CLI → 첫 대화)이 그 자리에 서고, 단계마다 가는 곳은
 밑의 2주가 안 된 판 둘을 `pnpm.overrides`로 묶었다. 앱 시작 청크는 19 KB만 늘었다 — Excalidraw는 칸을 처음 열 때 불린다(아래 함정 절).
 `e2e/drawing.e2e.ts`가 진짜 Excalidraw로 저장 · 창 사이 합치기 · 묘비 · 창 닫기 흘려보내기 · 끌어 놓기 막기 · 한글 글꼴 · CSP · 재기동 ·
 repo 삭제를 본다(요소는 main에서 DB를 읽어 센다).
-**사이드바 하단 줄이 에이전트 현황이다** (`docs/sdlc/agent-status/`, 2026-11-02). 마이그레이션 없음. MCP 줄이 버튼(이름 `에이전트 현황` —
-바뀌는 글자를 이름에 넣지 않는다, 부분 일치 셀렉터 `상태`·`설정`·`agent`·`실행 슬롯`과 부딪힌다)이 되어 `MCP :53021 … 실행 1/3 +2 대기`를
-보이고(대기는 `대기 N`이 아니다 — `queue.e2e`의 `getByText('대기 1')`), 누르면 App이 그리는 popover `AgentActivityPanel`이 뜬다: 지금 동작(홈 요약의
-`running`) · 에이전트 설치(설정 실행 탭과 같은 `useCliReadiness`·`AgentStatusRow`) · 실행 환경(workspace 기본값) · 설정 파일. **설정 파일은
+**사이드바 하단 줄이 에이전트 현황이다** (`docs/sdlc/agent-status/`, 2026-11-02 · 하단 줄 개정 2026-11-03). 마이그레이션 없음. MCP 줄이
+버튼(이름 `에이전트 현황` — 바뀌는 글자를 이름에 넣지 않는다, 부분 일치 셀렉터 `상태`·`설정`·`agent`·`실행 슬롯`과 부딪힌다)이고 글자는
+**쓸 수 있는 agent와 MCP만**이다: `● Claude Code  ● OpenCode        ● MCP`(한 줄, MCP는 오른쪽 끝, 좁으면 agent 이름이 말줄임). 포트·실행 수·
+대기는 풍선과 패널에만 있다(사용자 결정 — 글자에 `대기 N`을 쓰지 않는 것은 `queue.e2e`의 `getByText('대기 1')` 때문이기도 하다). agent 칩은
+App의 `useAgentAvailability`가 고른 workspace(없으면 첫 workspace)로 부른 **`checkAgents`(빠른 칸)만**이고 Sidebar의 필수 prop `agents`로 내린다 —
+**`probeAgents`를 하단 줄에 걸지 말 것**(늘 떠 있는 줄이라 workspace를 고를 때마다 claude init probe가 돌고, 홈 준비 단계가 겪은 가짜 CLI 캡처
+파일 덮기와 같은 경합이 생긴다). 다시 묻는 때는 대상 변경·그 workspace의 `workspace`·`repo` 바뀜 알림·설정 화면에서 나올 때다(앱 탭 CLI 기본
+경로는 알림이 없다). 판정 전이면 칩이 없고 하나도 없으면 `agent 없음`이다. 누르면 App이 그리는 popover `AgentActivityPanel`이 뜬다: 지금 동작(홈
+요약의 `running`) · 에이전트 설치(설정 실행 탭과 같은 `useCliReadiness`·`AgentStatusRow`) · 실행 환경(workspace 기본값) · 설정 파일. **설정 파일은
 (종류, repo id)로만 연다** — `core/app/configFiles.ts`가 종류·repoId 모양을 검증해 경로를 정하고 없는 파일은 던지며, electron은 `shell.openPath`만
-한다(`reveal`과 같은 원칙). 파일 확인은 비동기 stat이다(`\\wsl$` UNC). Sidebar의 `queue`·`activityOpen`·`onToggleActivity`는 필수다.
+한다(`reveal`과 같은 원칙). 파일 확인은 비동기 stat이다(`\\wsl$` UNC). Sidebar의 `queue`·`agents`·`activityOpen`·`onToggleActivity`는 필수다.
 
 **지시를 등록해 두면 정해진 주기마다 agent가 저절로 돈다 — 정기 실행** (`docs/sdlc/scheduled-runs/`, 2026-11-02). **첫 실행에 마이그레이션
 `0013`이 돈다** — 테이블 둘(`schedule` · `schedule_fire`, 백필 없음). 사이드바의 리포트 아래 `정기 실행`이 workspace를 넘는 목록(workspace로

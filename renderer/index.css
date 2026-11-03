@@ -618,10 +618,18 @@ select.pill { padding-right: 4px; cursor: pointer; text-overflow: ellipsis; }
 .agent-activity-button { anchor-name: --agent-activity; width: 100%; border: 0; border-top: 1px solid var(--border); background: transparent; font: inherit; font-size: .6875rem; text-align: left; cursor: pointer; padding-bottom: 4px; transition: color .12s; }
 .agent-activity-button:hover, .agent-activity-open { color: var(--text-secondary); }
 .agent-activity-button.mcp-status-failed { cursor: pointer; }
-.agent-activity-button .mcp-label { display: flex; align-items: baseline; gap: 6px; flex: 1 1 auto; min-width: 0; white-space: nowrap; }
-.agent-activity-mcp { overflow: hidden; text-overflow: ellipsis; }
-.agent-activity-runs { margin-left: auto; font-variant-numeric: tabular-nums; }
-.agent-activity-waiting { color: var(--warn-text); font-variant-numeric: tabular-nums; }
+/* 줄의 칩 — `● Claude Code  ● OpenCode        ● MCP` (FR-1 개정). 한 줄이다 — MCP는 오른쪽 끝에 붙고, 좁으면(Windows 글꼴·WSL 칩)
+   agent 이름이 말줄임된다. 줄바꿈하면 사이드바 바닥이 들쭉날쭉하다. 전체는 풍선이 말한다. */
+.activity-chips { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; }
+.activity-chip { display: inline-flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; }
+.activity-chip-agent { flex: 0 1 auto; }
+.activity-chip-label { overflow: hidden; text-overflow: ellipsis; }
+.activity-chip-mcp { flex: 0 0 auto; margin-left: auto; }
+.activity-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex: 0 0 auto; }
+.activity-chip-none .activity-dot { background: var(--danger); }
+.agent-activity-button.mcp-status-failed { color: var(--text-muted); }
+.agent-activity-button.mcp-status-failed .activity-chip-mcp { color: var(--danger-text); }
+.agent-activity-button.mcp-status-failed:hover, .agent-activity-button.mcp-status-failed.agent-activity-open { color: var(--text-secondary); }
 .agent-activity-busy .mcp-dot { animation: activity-pulse 1.4s ease-in-out infinite; }
 @keyframes activity-pulse {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 55%, transparent); }
@@ -629,6 +637,10 @@ select.pill { padding-right: 4px; cursor: pointer; text-overflow: ellipsis; }
 }
 @media (prefers-reduced-motion: reduce) { .agent-activity-busy .mcp-dot { animation: none; outline: 2px solid var(--success); outline-offset: 1px; } }
 .sidebar-collapsed .agent-activity-button { cursor: pointer; padding-bottom: 4px; }
+/* 접히면 MCP 점만 남는다 — agent 칩과 글자는 화면에서만 숨긴다(이름과 aria-describedby 글자는 그대로, 풍선이 전부를 말한다) */
+.sidebar-collapsed .activity-chip-agent, .sidebar-collapsed .activity-chip-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.sidebar-collapsed .activity-chips { justify-content: center; }
+.sidebar-collapsed .activity-chip-mcp { margin-left: 0; }
 
 /* 에이전트 현황 패널 — 최상위 레이어 popover가 하단 줄의 오른쪽에 바닥을 맞춰 뜬다. 넘치면 패널 안만 스크롤한다. */
 .agent-activity-panel { position: fixed; position-anchor: --agent-activity; inset: auto; left: anchor(right); bottom: anchor(bottom); position-try-fallbacks: flip-block; margin: 0 0 0 14px; width: 420px; max-width: calc(100vw - 80px); max-height: calc(100vh - 56px); padding: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); box-shadow: var(--shadow-panel), var(--shadow-overlay); font-family: inherit; overflow: hidden; }
