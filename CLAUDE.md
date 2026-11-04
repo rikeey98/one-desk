@@ -705,6 +705,13 @@ Playwright의 `getByLabel('본문')`이 부분 일치로 그것까지 잡는다.
 
 **`pnpm test:e2e`와 `pnpm dev`를 동시에 돌리지 말 것.** `test:e2e`는 `electron-vite build`로 시작하는데, 그 산출물 디렉토리가 `electron-vite dev --watch`가 감시하는 `out/`과 같아서 실행 중인 dev 앱의 main/preload가 e2e용 빌드로 갈아끼워진다. 반대 방향(dev가 떠 있어도 e2e는 정상 동작)은 검증돼 있으니, 손해를 보는 쪽은 항상 dev다. **dev를 끌 수 없으면 작업 트리를 복사한 곳에서 돌린다** — 추적 파일과 새 파일(`git ls-files -co --exclude-standard`)을 다른 디렉토리로 복사하고 `node_modules`만 저장소의 것으로 잇는 접합점(`mklink /J`)을 둔 뒤 거기서 `pnpm test:e2e`를 부른다. 드라이버가 앱 루트를 제 파일 위치에서 뽑으므로(`e2e/driver.ts`의 `APP_ROOT`) 복사본의 `out/`을 쓴다. 치울 때 접합점은 링크만 지운다(`cmd /c rmdir`) — 도구에 따라 재귀 삭제가 접합점을 따라 들어가 저장소의 `node_modules` 내용까지 지운다(Windows PowerShell 5.1의 `Remove-Item -Recurse`가 그렇다). `conversation-timeline`의 리뷰 반영과 마지막 검증이 이렇게 돌았다.
 
+**e2e의 앱 창은 화면 밖에 뜬다 — 도는 동안 사람의 화면을 가로채지 않게 하려는 것이다** (`e2e/background-window.cjs`, 2026-11-04). 전에는 앱을 띄울 때마다
+창이 화면 한가운데에 뜨고 11ms 만에 포커스를 가져가(실측) 전체 suite가 도는 5분 동안 다른 일을 못 했다. 드라이버가 Electron의 `-r`로 이 모듈을 앱보다 먼저 실어
+`browser-window-created`에서 창을 (-20000, -20000)으로 옮기고 `show`→`showInactive`, `focus`→아무것도 안 함으로 갈아 끼운다 — 제품 코드에 테스트 분기가 없다. 모든 창이
+`createWindow`의 `ready-to-show`에서 `win.show()`를 부르는 것에 기댄다. 전체 suite에서 창 86개가 전부 화면 밖이었고 포커스 이동은 0번이었다(EnumWindows 기록).
+**렌더러는 멈추지 않는다** — 창을 12초 동안 움직여도 `visible`·rAF 약 121/초·타이머 100%였고 가림 판정을 끄는 스위치를 넣어도 수가 같아 그 스위치는 뺐다.
+`e2e/background-window.e2e.ts`가 이것을 고정한다. 창을 눈으로 보며 고칠 때는 `ONE_DESK_E2E_SHOW=1 pnpm test:e2e`다.
+
 **`dev` 스크립트의 `--watch`를 지우지 말 것.** `electron-vite dev`는 `--watch` 없이는 **main과 preload를 시작할 때 딱 한 번만 빌드한다.** 렌더러는 HMR로 즉시 반영되므로 화면은 멀쩡해 보이는데, `core/`나 `electron/`을 고쳐도 앱은 낡은 코드를 계속 돌린다. 2단계에서 어댑터를 고치고도 반영이 안 돼 한참 헤맸다 — `out/main/index.js`의 mtime이 소스보다 오래됐는지 보면 바로 드러난다.
 
 **MCP 서버의 응답은 SSE(`text/event-stream`)다.** `StreamableHTTPServerTransport`가 그렇게 응답한다. `res.json()`으로 바로 파싱하면 깨진다 — 본문을 텍스트로 받아 `data:`로 시작하는 줄을 찾아 그 뒤를 JSON.parse해야 한다. `core/runner/fixtures/fake-claude-mcp.mjs`가 그 패턴이다.
