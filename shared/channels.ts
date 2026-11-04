@@ -23,8 +23,6 @@ export const CHANNELS = {
   reportsBuild: 'reports:build',
   homeSummary: 'home:summary',
   homeCount: 'home:count',
-  homeLastTarget: 'home:lastTarget',
-  homeSetLastTarget: 'home:setLastTarget',
   proposalsPending: 'proposals:pending',
   proposalsAccept: 'proposals:accept',
   proposalsDecline: 'proposals:decline',

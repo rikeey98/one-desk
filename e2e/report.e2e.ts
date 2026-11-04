@@ -4,7 +4,7 @@ import { launchApp } from './driver'
 import { waitConvStatus } from './dock'
 
 /** 리포트의 `agent에게 다듬기`가 채우는 지시 — `renderer/components/ReportPanel.tsx`의 POLISH_PROMPT (e2e는 renderer를 import하지 않는다) */
-const POLISH_PROMPT = '담은 리포트 메모를 바탕으로 팀에 공유할 주간 보고를 써 줘. 완료한 일, 진행 중인 일, 막힌 것 순서로.'
+const POLISH_PROMPT = '아래 리포트를 바탕으로 팀에 공유할 보고를 써 줘. 완료한 일, 진행 중인 일, 막힌 것 순서로. 리포트에 없는 것은 필요하면 직접 찾아 읽어.'
 
 async function makeWorkspace(page: Page, name: string) {
   await page.getByPlaceholder('새 workspace 이름…').fill(name)
@@ -88,15 +88,19 @@ describe('기간 리포트', () => {
       await expect.poll(async () => (await memos.getAttribute('class')) ?? '', { timeout: 5_000 }).toContain('panel-expanded')
       expect(await page.getByRole('button', { name: 'rep-b', exact: true }).getAttribute('class')).toContain('ws-selected')
 
-      // agent에게 다듬기 — 새 대화 칸에 메모 칩과 초안, 보내지는 않는다
+      // agent에게 다듬기 — 리포트 바닥의 홈 도크가 펼쳐지고 새 대화 칸에 초안(지시 + 리포트), 메모·칩 없이, 보내지는 않는다
+      // (docs/sdlc/home-conversation/ FR-15a, 2026-11-03)
       await page.getByRole('button', { name: '리포트', exact: true }).click()
+      await page.getByText('모든 workspace를 읽습니다').waitFor({ state: 'visible', timeout: 10_000 })
       await page.getByRole('button', { name: 'agent에게 다듬기' }).click()
       const prompt = page.getByRole('textbox', { name: '지시' })
       await prompt.waitFor({ state: 'visible', timeout: 10_000 })
-      await expect.poll(() => prompt.inputValue(), { timeout: 5_000 }).toBe(POLISH_PROMPT)
-      await page.locator('.composer-card .run-chips').getByRole('button', { name: /^리포트 .* 맥락에서 빼기$/ })
-        .waitFor({ state: 'visible', timeout: 5_000 })
+      await expect.poll(async () => (await prompt.inputValue()).startsWith(POLISH_PROMPT), { timeout: 5_000 }).toBe(true)
+      expect(await prompt.inputValue()).toContain('## rep-a')
+      expect(await page.getByRole('textbox', { name: '권한' }).inputValue()).toBe('읽기 전용')
+      expect(await page.locator('.composer-card .run-chips').count()).toBe(0)
       expect(await page.locator('.dock-conv').count()).toBe(0)
+      expect(await page.title()).toBe('리포트 — one-desk')
 
       // 리포트에서 다른 workspace의 이슈를 열면 그 workspace에서 열린다 — 목록이 오기 전에 닫히지 않는다(FR-19)
       await page.getByRole('button', { name: '리포트', exact: true }).click()

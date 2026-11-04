@@ -1083,12 +1083,6 @@ export interface HomeSummaryInput {
   dayStart: number
 }
 
-/** 새 대화 카드의 대상 — `app_setting`의 `home.lastTarget` (FR-7) */
-export interface HomeTarget {
-  workspaceId: string
-  repoId: string
-}
-
 // ---- 정기 실행 (`docs/sdlc/scheduled-runs/`) ----
 
 /** 정기 실행이 대화를 어떻게 남기나 — 매번 새 대화 / 한 대화를 이어 감 (intent의 결정) */

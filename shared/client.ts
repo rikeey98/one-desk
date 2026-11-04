@@ -8,7 +8,7 @@ import type {
   GuardedUpdateIssueInput, IssueUpdateResult,
   CreateMemoInput, UpdateMemoInput,
   GuardedUpdateMemoInput, MemoUpdateResult,
-  ListQuery, StartRunInput, QueueSnapshot, BuildReportInput, ReportData, HomeSummary, HomeSummaryInput, HomeTarget,
+  ListQuery, StartRunInput, QueueSnapshot, BuildReportInput, ReportData, HomeSummary, HomeSummaryInput,
   UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses, AgentProbes,
   InboxCounts,
   McpStatus, PlanUsage, ResumeRunInput, ItemChange,
@@ -145,10 +145,6 @@ export interface OneDeskClient {
     summary(input: HomeSummaryInput): Promise<HomeSummary>
     /** 홈 배지 — `summary().todos.length`와 같은 수를 요약 전체 없이 센다(FR-17) */
     count(input: Pick<HomeSummaryInput, 'now'>): Promise<number>
-    /** 새 대화 카드의 대상. 저장값의 workspace·repo가 지워졌으면 null(FR-7) */
-    lastTarget(): Promise<HomeTarget | null>
-    /** 전송에 성공했을 때만 부른다(FR-7) */
-    setLastTarget(target: HomeTarget): Promise<HomeTarget>
   }
   /**
    * agent의 제안 (`docs/sdlc/agent-proposals/` FR-20). 받기·거절은 사람이 누른 버튼만 이 길을 탄다 — MCP에는 받는 도구가 없다.

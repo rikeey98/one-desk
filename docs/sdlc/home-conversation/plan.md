@@ -260,3 +260,35 @@ core 밖에서 `workspace` 테이블을 직접 읽는 자리는 `core/db/open.te
 - **기존 테스트 하나의 시간 제한을 늘렸다** — `core/index.test`의 "WSL claude 경로가 비었으면…"(FR-12). 가짜 wsl.exe → 가짜 CLI를 여러 번 띄워
   혼자 3.1초, 전체 실행에서 **`main`도 4,916·4,975ms**(기본 5초의 98~99%)였고 이 브랜치에서 테스트가 늘자 5,009·5,015ms로 넘었다. 동작 변화가
   아니라 부하라 15초를 준다(같은 파일의 프로세스를 띄우는 테스트들처럼).
+
+## 8. 사용자 결정에 따른 개정 (2026-11-03) — spec §6
+
+"홈에서 다른 repo로 대화 보내기는 제거해줘, 그리고 리포트에서도 홈 대화를 넣어줘." spec FR-13·FR-15·FR-15a·§6이 결정이고, 여기는 한 일과 변이다.
+
+- **걷은 것.** `HomeComposer`, `renderer/home/target.ts`(+테스트), `HomePanel`의 `lastTarget`·`workspaces`·`composerHidden`과 `onStartConversation`,
+  App의 `startFromHome`, `useHome`의 `lastTarget`, IPC `home:lastTarget`·`home:setLastTarget`(preload·client·핸들러), core의
+  `home.lastTarget`·`setLastTarget`, 설정 저장소의 `homeLastTarget`·`setHomeLastTarget`·`HOME_LAST_TARGET_KEY`, `HomeTarget`,
+  `renderer/runDefaults.ts`의 `newRunInput`·`RunPicks`(카드만 썼다), 카드의 CSS. DB의 `home.lastTarget` 행은 두었다(읽는 곳이 없다).
+- **리포트의 홈 도크.** App이 도크를 `view === 'home' || view === 'report'`에서 그린다 — JSX 자리가 하나라 두 화면을 오가도 같은
+  인스턴스다. 최대화 CSS에 `.report-panel`을 더했다.
+- **다듬기.** `ReportPanel`의 `onPolish`가 메모 대신 초안 글자(`polishDraft` = `POLISH_PROMPT` + 빈 줄 + `toMarkdown`)를 받고, 필수
+  `canPolish`(홈 자리를 읽었는가)가 버튼을 잠근다. App의 `polishReport`는 `homeDraftPrompt`를 세우고 `focusNew`를 세운다 — 펼치는 것은
+  도크가 `focusNew`를 받으며 한다(따로 펼치던 줄은 변이 M6이 군더더기임을 보여 걷었다).
+- **초안을 둘로 갈랐다.** 홈 도크는 App의 `homeDraftPrompt`, workspace 도크는 `draftPrompt`다. 하나를 나누면 보내지 않은 다듬기 초안이
+  workspace 화면의 새 대화 칸으로 샜다. 인박스의 "다시 실행"이 홈 대화면 `homeDraftPrompt`에 쓴다(전에는 공유 초안이라 같은 틈이 있었다).
+
+**변이** (`renderer/App.test.tsx`·`ReportPanel.test.tsx`·`home/` 기준)
+
+| 변이 | 결과 |
+|---|---|
+| M1 홈 도크가 공유 `draftPrompt`를 받는다 | 잡힘 |
+| M2 다듬기가 공유 초안에도 쓴다 | 잡힘 ("workspace의 새 대화 칸으로 새지 않는다") |
+| M3 `canPolish={true}` | 잡힘 |
+| M4 리포트에 도크가 없다 | 잡힘 |
+| M5 홈 도크에 `focusNew`를 안 넘긴다 | 처음엔 **살아남음** — 홈 대화가 없는 픽스처라 도크가 늘 새 대화 칸이었다. 지난 홈 대화를 심고 잡힘(둘) |
+| M6 다듬기가 도크를 따로 펼치지 않는다 | **살아남음** — `focusNew`가 이미 펼친다. 그 줄을 걷었다 |
+| M7 홈 대화의 다시 실행이 공유 초안에 쓴다 | 잡힘 |
+| M8 다듬기가 메모도 만든다 | 잡힘 |
+| M9 다듬기가 고른 workspace를 요구한다 | 살아남음 — **같은 동작이다**: 리포트에 내용이 있으면 대상 workspace가 늘 있다(고른 것 → 담긴 첫 것) |
+| M10 초안에 리포트가 없다 | 잡힘 |
+| M11 홈 본문에 입력칸이 다시 선다 | 잡힘 |

@@ -1,9 +1,8 @@
-import type { AgentKind, Permission, Repo, StartRunInput, Workspace } from '@shared/models'
-import { agentBlockedReason } from './agentEnv'
+import type { AgentKind, Workspace } from '@shared/models'
 
 /**
- * 새 run의 기본값 — 입력부(`RunPanel`)와 홈의 새 대화 카드(`HomeComposer`)가 같이 쓴다 (`docs/sdlc/home/` FR-11, plan 개정 1).
- * 따로 적으면 홈 카드가 보여준 agent·모델·권한과 실제로 보낸 값이 갈린다.
+ * 새 run의 기본값 — 입력부(`RunPanel`)와 정기 실행의 편집 칸(`schedules/form.ts`)이 같이 쓴다 (`docs/sdlc/home/` FR-11, plan 개정 1).
+ * 따로 적으면 두 자리가 보여준 모델·effort가 갈린다.
  */
 
 /**
@@ -34,36 +33,4 @@ export function defaultEffortOf(workspace: Workspace | null, agentKind: AgentKin
     ? workspace.defaultVariantOpencode
     : workspace.defaultEffortClaude
   return value ?? ''
-}
-
-/** 홈 카드에서 사람이 바꾼 값. 없으면 workspace 기본값이다 */
-export interface RunPicks {
-  agentKind?: AgentKind
-  model?: string
-  effort?: string
-  permission?: Permission
-}
-
-/**
- * 새 대화 한 턴의 입력. 맥락은 싣지 않는다(홈에는 담을 것이 없다). WSL repo에서는 OpenCode를 띄울 수 없으므로
- * (wsl-support FR-7) 고른 agent가 막히면 Claude Code로 떨어뜨린다 — RunPanel의 effect와 같은 규칙이다.
- * 빈 모델·effort는 null(= 그 인자를 붙이지 않는다)이다.
- */
-export function newRunInput(
-  workspace: Workspace, repo: Pick<Repo, 'path' | 'agentEnv'>, prompt: string, picks: RunPicks = {}
-): StartRunInput {
-  const wanted = picks.agentKind ?? workspace.defaultAgentKind
-  const agentKind: AgentKind = agentBlockedReason(repo.agentEnv, wanted) ? 'claude-code' : wanted
-  const model = (picks.model ?? defaultModelOf(workspace, agentKind)).trim()
-  const effort = (picks.effort ?? defaultEffortOf(workspace, agentKind)).trim()
-  return {
-    workspaceId: workspace.id,
-    agentKind,
-    model: model || null,
-    effort: effort || null,
-    cwd: repo.path,
-    permission: picks.permission ?? workspace.defaultPermission,
-    userPrompt: prompt,
-    context: []
-  }
 }

@@ -21,7 +21,7 @@ import type {
   GuardedUpdateIssueInput, GuardedUpdateMemoInput, InboxCounts, Issue, IssueUpdateResult,
   McpStatus, Memo, MemoUpdateResult, Repo, Run, UpdateIssueInput, UpdateMemoInput, Workspace,
   UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses, AgentProbes, Asset, UpdateRepoInput,
-  HomeSummary, HomeTarget, HomeTodo, StartRunInput, ConfigFile
+  HomeSummary, HomeTodo, ConfigFile
 } from '@shared/models'
 
 const HOME_ID = 'home'
@@ -84,7 +84,6 @@ interface Seed {
   /** 홈 요약의 할 일 — 나머지(workspace 카드·준비 단계)는 위 상태에서 만든다 (docs/sdlc/home/) */
   homeTodos?: HomeTodo[]
   homeRunning?: HomeSummary['running']
-  homeTarget?: HomeTarget | null
   /** CLI probe — 기본은 로그인된 claude. 실행 파일 칸(checkAgents)은 claudePath가 있거나 이것이 true일 때 초록이다 */
   cliReady?: boolean
   /** 정기 실행 (docs/sdlc/scheduled-runs/) — 목록과 그 기록. 배선만 본다 */
@@ -396,9 +395,7 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
         doneToday: [],
         setup: { workspace: workspaces.length > 0, repo: repos.length > 0, firstRun: seed.firstRun ?? started.length > 0 }
       })),
-      count: vi.fn(async () => (seed.homeTodos ?? []).length),
-      lastTarget: vi.fn(async () => seed.homeTarget ?? null),
-      setLastTarget: vi.fn(async (t: HomeTarget) => t)
+      count: vi.fn(async () => (seed.homeTodos ?? []).length)
     },
     account: {
       planUsage: vi.fn(async () => null)
@@ -1894,21 +1891,55 @@ describe('기간 리포트 배선 (docs/sdlc/period-report/ FR-19·FR-24·FR-25)
     expect(await screen.findByRole('button', { name: '지난 30일' })).toHaveAttribute('aria-pressed', 'true')
   })
 
-  it('agent에게 다듬기는 메모를 저장해 맥락에 담고 새 대화 칸에 초안을 채운다 — 보내지 않는다', async () => {
+  // 다듬기는 홈 대화로 간다 (docs/sdlc/home-conversation/ FR-15·FR-15a, 2026-11-03)
+  it('리포트 바닥에 홈 도크가 서고, 다듬기는 메모 없이 그 새 대화 칸에 초안을 채운다 — 화면은 리포트에 남고 보내지 않는다', async () => {
+    // 홈 대화가 이미 있다 — 도크를 그냥 펼치면 그 대화가 열린다. 다듬기는 새 대화 칸으로 옮겨야 한다(`focusNew`)
+    const earlier = makeRun({ id: 'h-old', workspaceId: HOME_ID, cwd: HOME_CWD, permission: 'read_only', userPrompt: '지난 홈 대화' })
     const client = makeClient({}, {
       repos: [makeRepo('r1', 'api', '/tmp/api')],
-      issues: [makeIssue({ id: 'i1', title: '리포트의 이슈' })]
+      issues: [makeIssue({ id: 'i1', title: '리포트의 이슈' })],
+      inbox: [earlier]
     })
     renderApp(client)
     await userEvent.click(screen.getByRole('button', { name: '리포트' }))
     await screen.findByRole('article', { name: '리포트 문서' })
+    expect(await screen.findByText('모든 workspace를 읽습니다')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: '지시' })).not.toBeInTheDocument()
+
     await userEvent.click(screen.getByRole('button', { name: 'agent에게 다듬기' }))
 
-    await waitFor(() => expect(client.memos.create).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: 'w1' })))
-    const title = (client.memos.create as unknown as { mock: { calls: [{ title: string }][] } }).mock.calls[0]![0].title
-    expect(await screen.findByRole('button', { name: `${title} 맥락에서 빼기` })).toBeInTheDocument()
-    expect(await screen.findByPlaceholderText(/무엇을 시킬지/)).toHaveValue(POLISH_PROMPT)
+    const prompt = await screen.findByRole('textbox', { name: '지시' })
+    await waitFor(() => expect((prompt as HTMLTextAreaElement).value.startsWith(POLISH_PROMPT)).toBe(true))
+    expect((prompt as HTMLTextAreaElement).value).toContain('리포트의 이슈')
+    expect(screen.getByRole('textbox', { name: '권한' })).toHaveValue('읽기 전용')
+    expect(screen.getByRole('article', { name: '리포트 문서' })).toBeInTheDocument()
+    expect(client.memos.create).not.toHaveBeenCalled()
     expect(client.runs.start).not.toHaveBeenCalled()
+  })
+
+  it('보내지 않은 다듬기 초안은 workspace의 새 대화 칸으로 새지 않는다', async () => {
+    renderApp(makeClient({}, {
+      repos: [makeRepo('r1', 'api', '/tmp/api')],
+      issues: [makeIssue({ id: 'i1', title: '리포트의 이슈' })]
+    }))
+    await userEvent.click(screen.getByRole('button', { name: '리포트' }))
+    await screen.findByRole('article', { name: '리포트 문서' })
+    await userEvent.click(screen.getByRole('button', { name: 'agent에게 다듬기' }))
+    await waitFor(() => expect(screen.getByRole('textbox', { name: '지시' })).not.toHaveValue(''))
+
+    await userEvent.click(screen.getByRole('button', { name: 'ws1' }))
+    await screen.findByPlaceholderText('새 이슈 (첫 줄이 제목)')
+    await userEvent.click(screen.getByRole('button', { name: '새 대화' }))
+    expect(screen.getByRole('textbox', { name: '지시' })).toHaveValue('')
+  })
+
+  it('홈 대화의 자리를 못 읽으면 다듬기가 잠긴다', async () => {
+    const client = makeClient({}, { issues: [makeIssue({ id: 'i1', title: '리포트의 이슈' })] })
+    client.workspaces.home = vi.fn(async () => { throw new Error('홈 행이 없다') })
+    renderApp(client)
+    await userEvent.click(screen.getByRole('button', { name: '리포트' }))
+    await screen.findByRole('article', { name: '리포트 문서' })
+    expect(screen.getByRole('button', { name: 'agent에게 다듬기' })).toBeDisabled()
   })
 })
 
@@ -2198,17 +2229,6 @@ describe('홈 배선 (docs/sdlc/home/)', () => {
     expect(await screen.findByText('1건 중 1번째')).toBeInTheDocument()
   })
 
-  it('새 대화 카드가 보낸 run의 workspace·repo가 home.setLastTarget에 찍히고 그 대화가 열린다', async () => {
-    const started = makeRun({ id: 'from-home', userPrompt: '로그인 고쳐줘' })
-    const client = makeClient({ start: vi.fn(async () => started) }, { repos: [api], firstRun: true, cliReady: true })
-    renderApp(client)
-    await userEvent.type(await screen.findByRole('textbox', { name: '새 대화 지시' }), '로그인 고쳐줘')
-    await userEvent.click(screen.getByRole('button', { name: '실행' }))
-    await waitFor(() => expect(client.home.setLastTarget).toHaveBeenCalledWith({ workspaceId: 'w1', repoId: 'r1' }))
-    const input = (client.runs.start as ReturnType<typeof vi.fn>).mock.calls[0]![0] as StartRunInput
-    expect(input).toMatchObject({ workspaceId: 'w1', cwd: '/tmp/api', userPrompt: '로그인 고쳐줘', context: [] })
-    expect(await screen.findByPlaceholderText('새 이슈 (첫 줄이 제목)')).toBeInTheDocument()
-  })
 })
 
 describe('에이전트 현황 배선 (docs/sdlc/agent-status/)', () => {
@@ -2283,16 +2303,15 @@ describe('홈 대화 배선 (docs/sdlc/home-conversation/)', () => {
     return makeRun({ id: 'h-1', workspaceId: HOME_ID, cwd: HOME_CWD, permission: 'read_only', userPrompt: '내가 뭐 하고 있었지', ...over })
   }
 
-  it('홈 대화는 접힌 채 시작하고, 펼치면 새 대화 카드가 숨으며 입력부는 홈 폴더 · 읽기 전용으로 보낸다 (FR-12·13·13a)', async () => {
+  it('홈 대화는 접힌 채 시작하고, 홈에서 보내는 칸은 그것 하나이며 입력부는 홈 폴더 · 읽기 전용으로 보낸다 (FR-12·13·13a)', async () => {
     const client = makeClient({}, { repos: [api], firstRun: true, cliReady: true })
     renderApp(client)
     await screen.findByRole('heading', { name: '오늘 할 일' })
     expect(await screen.findByText('모든 workspace를 읽습니다')).toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: '새 대화 지시' })).toBeVisible()
+    expect(within(screen.getByRole('region', { name: '홈' })).queryByRole('textbox')).not.toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: '지시' })).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '대화창 보이기' }))
-    expect(screen.queryByRole('textbox', { name: '새 대화 지시' })).not.toBeInTheDocument()
     const permission = screen.getByRole('textbox', { name: '권한' })
     expect(permission).toHaveValue('읽기 전용')
     expect(permission).toHaveAttribute('readonly')
@@ -2305,7 +2324,6 @@ describe('홈 대화 배선 (docs/sdlc/home-conversation/)', () => {
     await waitFor(() => expect(client.runs.start).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceId: HOME_ID, cwd: HOME_CWD, permission: 'read_only' })
     ))
-    expect(client.home.setLastTarget).not.toHaveBeenCalled()
   })
 
   it('펼침은 이 장비에 남는다', async () => {

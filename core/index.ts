@@ -21,7 +21,7 @@ import { describeCommands } from './commands/describe'
 import type { GlobalRoots } from './db/repositories/setting'
 import type {
   UpdateRepoInput, AppPaths, ConfigFile, FileSearchInput, BuildReportInput, ReportData, FileTreeInput, FileRef, FileSaveInput
-, AgentEnv, WslDistros, HomeSummary, HomeSummaryInput, HomeTarget, HomeConversationPlace } from '@shared/models'
+, AgentEnv, WslDistros, HomeSummary, HomeSummaryInput, HomeConversationPlace } from '@shared/models'
 import { PANEL_KINDS, type PanelScope } from '@shared/panelWindow'
 import { createFileService } from './files/service'
 import { createTerminalService, type SpawnPty } from './terminal/service'
@@ -917,22 +917,12 @@ export function createCore(opts: CoreOptions) {
     },
 
     /**
-     * 홈 요약 (`docs/sdlc/home/` FR-1·FR-7·FR-17). workspace를 넘어 읽는 둘째 길이고 `reports`와 같은 규칙이다 —
+     * 홈 요약 (`docs/sdlc/home/` FR-1·FR-17). workspace를 넘어 읽는 둘째 길이고 `reports`와 같은 규칙이다 —
      * MCP `deps`에는 넘기지 않는다. 판정은 `core/home/summary.ts`의 순수 함수고 여기서는 소스만 잇는다.
      */
     home: {
       summary: (input: HomeSummaryInput): HomeSummary => buildHomeSummary(homeSources(), input),
-      count: (input: Pick<HomeSummaryInput, 'now'>): number => homeCount(homeSources(), input),
-      /** 저장값의 workspace·repo가 지금 있을 때만 — 지워졌으면 null이고 화면이 폴백한다(FR-7) */
-      lastTarget(): HomeTarget | null {
-        const saved = settings.homeLastTarget()
-        if (!saved) return null
-        if (!workspaces.list().some((w) => w.id === saved.workspaceId)) return null
-        if (!repos.list(saved.workspaceId).some((r) => r.id === saved.repoId)) return null
-        return saved
-      },
-      /** 렌더러가 전송에 성공했을 때만 부른다 — 자동 재시도·MCP가 만든 run은 "마지막으로 보낸 곳"이 아니다(FR-7) */
-      setLastTarget: (target: HomeTarget): HomeTarget => settings.setHomeLastTarget(target)
+      count: (input: Pick<HomeSummaryInput, 'now'>): number => homeCount(homeSources(), input)
     },
 
     /** 테스트용. MCP 서버가 아직 안 떴으면 null. */

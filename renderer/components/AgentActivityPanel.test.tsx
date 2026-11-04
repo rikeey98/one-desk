@@ -43,8 +43,7 @@ function makeClient(over: { summary?: HomeSummary; files?: ConfigFile[]; openCon
   }
   const client = {
     home: {
-      summary: vi.fn(async () => over.summary ?? summary()),
-      lastTarget: vi.fn(async () => null)
+      summary: vi.fn(async () => over.summary ?? summary())
     },
     workspaces: {
       checkAgents: vi.fn(async () => statuses),

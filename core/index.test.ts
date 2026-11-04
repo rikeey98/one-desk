@@ -1721,25 +1721,6 @@ describe('홈 배선 (docs/sdlc/home/)', () => {
     close(core)
   })
 
-  it('lastTarget은 저장값의 workspace·repo가 지금 있을 때만 돌려준다 — 지워졌으면 null', async () => {
-    const dataDir = makeDataDir()
-    const core = open(dataDir)
-    const workspaceId = core.workspaces.create({ name: 'ws' }).id
-    const repoPath = join(dataDir, 'api')
-    mkdirSync(repoPath, { recursive: true })
-    const repoId = (await core.repos.create({ workspaceId, name: 'api', path: repoPath })).id
-
-    expect(core.home.lastTarget()).toBeNull()
-    expect(core.home.setLastTarget({ workspaceId, repoId })).toEqual({ workspaceId, repoId })
-    expect(core.home.lastTarget()).toEqual({ workspaceId, repoId })
-
-    core.repos.remove(repoId)
-    expect(core.home.lastTarget()).toBeNull()
-    core.home.setLastTarget({ workspaceId: 'gone', repoId })
-    expect(core.home.lastTarget()).toBeNull()
-    close(core)
-  })
-
   it('홈은 MCP deps에 없다 — agent는 토큰의 workspace만 본다 (FR-1, 전체 설계 §8)', () => {
     // reports와 같은 규칙이다. 실행 중에 잡을 수 없어 소스로 본다(core/app/titleBar.test가 CSS를 읽는 것과 같다).
     const source = readFileSync(resolve(__dirname, 'index.ts'), 'utf8')
@@ -1927,7 +1908,6 @@ describe('정기 실행 (docs/sdlc/scheduled-runs/)', () => {
       expect(core.schedules.fires(schedule.id)).toMatchObject([{ cause: 'manual', outcome: 'started', runId: run.id, conversationId: run.id }])
       await vi.waitFor(() => expect(core.runs.get(run.id).endedAt).toBeTypeOf('number'))
       expect(core.schedules.list()[0]!.lastFire).toMatchObject({ runId: run.id, runStatus: core.runs.get(run.id).status })
-      expect(core.home.lastTarget()).toBeNull()
       close(core)
     })
   })
