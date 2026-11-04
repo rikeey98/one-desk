@@ -6,14 +6,14 @@ import { RenameField } from './RenameField'
 import { DeleteByName } from './DeleteByName'
 import { useClient } from '../client/ClientProvider'
 import { IconChart, IconClock, IconInbox, IconPencil, IconSettings, IconTrash, IconHome } from './icons'
-import type { InboxCounts, McpStatus, PlanUsage, QueueSnapshot, Workspace } from '@shared/models'
+import type { AgentStatuses, InboxCounts, McpStatus, PlanUsage, QueueSnapshot, Workspace } from '@shared/models'
 
 /** workspace 목록은 App이 useWorkspaces()로 한 번만 조회해 내려준다 — 이 컴포넌트가
  * 자기 인스턴스를 따로 가지면 다른 인스턴스(App→InboxPanel 등)가 새 workspace를
  * 모르게 된다(App.tsx의 주석 참고). */
 export function Sidebar({
   workspaces, loading, error, refresh, selectedId, onSelect, view, onSelectHome, homeCount, onSelectInbox, onSelectReport, onSelectSchedules, onSelectSettings, counts, countsError, mcpStatus, planUsage, onDeleted, repoTree,
-  queue, activityOpen, onToggleActivity, collapsed, focusWorkspaceAdd, onFocusWorkspaceAddConsumed
+  queue, agents, activityOpen, onToggleActivity, collapsed, focusWorkspaceAdd, onFocusWorkspaceAddConsumed
 }: {
   workspaces: Workspace[]
   /** 아이콘 줄로 접혔는가 — 제목 줄의 `사이드바 최소화`가 App에서 세운다. 접히면 화면 이동·설정·MCP 점만 남고
@@ -53,6 +53,11 @@ export function Sidebar({
    * 부르면 셋이 다른 수를 말한다). 아직 못 받았으면 null
    */
   queue: QueueSnapshot | null
+  /**
+   * 쓸 수 있는 agent의 판정(`checkAgents` — 빠른 칸) — 하단 줄이 `● Claude Code ● MCP`로 보인다(FR-1 개정). App의
+   * `useAgentAvailability` 하나다. 아직 판정 전이면 null. **필수다** — 선택이면 App의 한 줄을 지워도 조용히 컴파일된다
+   */
+  agents: AgentStatuses | null
   /** 에이전트 현황 패널이 열려 있는가 — 패널은 App이 그린다(FR-3). **필수다** — 선택이면 App의 한 줄을 지워도 조용히 컴파일된다 */
   activityOpen: boolean
   onToggleActivity: () => void
@@ -243,7 +248,7 @@ export function Sidebar({
         <span className="nav-icon"><IconSettings /></span>
         <span className="nav-label">설정</span>
       </button>
-      <ActivityButton status={mcpStatus} queue={queue} open={activityOpen} onToggle={onToggleActivity} />
+      <ActivityButton status={mcpStatus} queue={queue} agents={agents} open={activityOpen} onToggle={onToggleActivity} />
       {planUsage && !collapsed && <PlanUsageRow usage={planUsage} />}
     </nav>
   )
@@ -271,23 +276,22 @@ function PlanUsageRow({ usage }: { usage: PlanUsage }) {
 }
 
 /**
- * 사이드바 하단의 MCP · 에이전트 실행 줄 (`docs/sdlc/agent-status/` FR-1·FR-2). 누르면 에이전트 현황 패널을 연다 — 패널은 App이
- * 그린다(사이드바 안에 두면 사이드바의 overflow에 잘린다. 최상위 레이어 popover다).
+ * 사이드바 하단의 에이전트 줄 (`docs/sdlc/agent-status/` FR-1·FR-2, 2026-11-03 개정) — `● Claude Code  ● OpenCode  ● MCP`.
+ * 쓸 수 있는 agent와 MCP만 간략히 보이고, 포트·실행 수·대기는 풍선과 패널이 말한다. 도는 agent가 있으면 MCP 점이 숨쉰다.
+ * 누르면 에이전트 현황 패널을 연다 — 패널은 App이 그린다(사이드바 안에 두면 사이드바의 overflow에 잘린다. 최상위 레이어 popover다).
  *
- * MCP 포트는 그대로 보인다 — "서버가 정말 떴는가"와 "몇 번인가"를 눈으로 확인해야 하는 상황이 실제로 있었다. 실패 사유는
- * 길어질 수 있어 풍선에 넣는다.
- *
- * **버튼 이름은 `에이전트 현황` 하나로 고정이다.** 이름에 바뀌는 글자(포트·실행 수)가 들면 매번 다른 버튼이 되고, `상태`·`설정`·
- * `agent`·`실행 슬롯`을 품으면 e2e의 부분 일치 셀렉터(`getByLabel('상태')`·`{ name: '설정' }` …)에 걸린다. 지금 값은
- * `aria-describedby`가 가리키는 글자가 말하고, 그 글자가 `aria-live`다.
+ * **버튼 이름은 `에이전트 현황` 하나로 고정이다.** 이름에 바뀌는 글자가 들면 매번 다른 버튼이 되고, `상태`·`설정`·`agent`·
+ * `실행 슬롯`을 품으면 e2e의 부분 일치 셀렉터(`getByLabel('상태')`·`{ name: '설정' }` …)에 걸린다. 지금 값은 `aria-describedby`가
+ * 가리키는 글자가 말하고, 그 글자가 `aria-live`다.
  */
-function ActivityButton({ status, queue, open, onToggle }: {
+function ActivityButton({ status, queue, agents, open, onToggle }: {
   status: McpStatus
   queue: QueueSnapshot | null
+  agents: AgentStatuses | null
   open: boolean
   onToggle: () => void
 }) {
-  const view = activityView(status, queue)
+  const view = activityView(status, queue, agents)
   const classes = ['mcp-status', `mcp-status-${status.state}`, 'agent-activity-button']
   if (view.busy) classes.push('agent-activity-busy')
   if (open) classes.push('agent-activity-open')
@@ -303,12 +307,24 @@ function ActivityButton({ status, queue, open, onToggle }: {
       title={view.title}
       onClick={onToggle}
     >
-      <span className="mcp-dot" aria-hidden="true" />
-      {/* 접힌 사이드바에서는 점만 보인다 — 글자는 화면에서만 숨긴다 */}
-      <span id="agent-activity-text" className="mcp-label" aria-live="polite">
-        <span className="agent-activity-mcp">{view.mcp}</span>
-        {view.activity && <span className="agent-activity-runs">{view.activity}</span>}
-        {view.waiting && <span className="agent-activity-waiting">{view.waiting}</span>}
+      <span id="agent-activity-text" className="activity-chips" aria-live="polite">
+        {/* 접힌 사이드바에서는 MCP 점만 남는다 — agent 칩은 숨기고 글자는 화면에서만 숨긴다 */}
+        {view.agents?.map((agent) => (
+          <span key={agent.key} className="activity-chip activity-chip-agent">
+            <span className="activity-dot" aria-hidden="true" />
+            <span className="activity-chip-label">{agent.label}</span>
+          </span>
+        ))}
+        {view.agents?.length === 0 && (
+          <span className="activity-chip activity-chip-agent activity-chip-none">
+            <span className="activity-dot" aria-hidden="true" />
+            <span className="activity-chip-label">agent 없음</span>
+          </span>
+        )}
+        <span className="activity-chip activity-chip-mcp">
+          <span className="mcp-dot" aria-hidden="true" />
+          <span className="activity-chip-label">MCP</span>
+        </span>
       </span>
     </button>
   )

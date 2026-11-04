@@ -14,6 +14,7 @@ import { useQueue } from './hooks/useQueue'
 import { useInbox } from './hooks/useInbox'
 import { useInboxRepos } from './hooks/useInboxRepos'
 import { useMcpStatus } from './hooks/useMcpStatus'
+import { useAgentAvailability } from './hooks/useAgentAvailability'
 import { usePlanUsage } from './hooks/usePlanUsage'
 import { useWorkspaces } from './hooks/useWorkspaces'
 import { useClient } from './client/ClientProvider'
@@ -104,6 +105,10 @@ export default function App() {
   // 인박스의 묶음과 소속에 쓰는 repo — 인박스는 workspace를 넘는 목록이라 위의 useRepos(고른 workspace 하나)로는 모자라
   // workspace마다 읽는다. 인박스가 열려 있을 때만 읽는다 (docs/sdlc/inbox-views/ FR-16).
   const { repos: inboxRepos, error: inboxReposError } = useInboxRepos(workspaces, view === 'inbox')
+  // 사이드바 하단의 "쓸 수 있는 agent" (docs/sdlc/agent-status/ FR-1 개정) — 고른 workspace, 없으면 첫 workspace로 판정한다
+  // (에이전트 현황 패널과 같은 대상). 설정 화면에 있는 동안은 묻지 않고, 나오면 다시 묻는다 — 앱 탭의 CLI 기본 경로는 바뀜
+  // 알림이 없다.
+  const sidebarAgents = useAgentAvailability(workspaceId ?? workspaces[0]?.id ?? null, view !== 'settings')
   // 홈 (docs/sdlc/home/ FR-17) — 요약은 홈이 보일 때만, 배지는 늘. CLI 판정은 준비 단계가 끝나기 전·홈이 보일 때만 묻는다(FR-15)
   const { summary: homeSummary, error: homeError } = useHome(view === 'home')
   const homeCount = useHomeCount()
@@ -554,6 +559,7 @@ export default function App() {
           planUsage={planUsage}
           // 하단 줄의 실행 현황 — 도크·설정과 같은 스냅샷이다(docs/sdlc/agent-status/ FR-1)
           queue={queue}
+          agents={sidebarAgents}
           activityOpen={activityOpen}
           onToggleActivity={() => setActivityOpen((open) => !open)}
           onDeleted={forgetWorkspace}

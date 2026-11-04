@@ -21,7 +21,7 @@ import type {
   GuardedUpdateIssueInput, GuardedUpdateMemoInput, InboxCounts, Issue, IssueUpdateResult,
   McpStatus, Memo, MemoUpdateResult, Repo, Run, UpdateIssueInput, UpdateMemoInput, Workspace,
   UpdateWorkspaceDefaultsInput, UpdateWorkspacePathsInput, AgentStatuses, AgentProbes, Asset, UpdateRepoInput,
-  HomeSummary, HomeTodo, ConfigFile
+  HomeSummary, HomeTodo, ConfigFile, ItemChange
 } from '@shared/models'
 
 const HOME_ID = 'home'
@@ -1328,7 +1328,9 @@ describe('MCP 상태 배선', () => {
     // 타입은 막아주지만, 엉뚱한 값(예: 고정된 starting)을 넘기는 변이는 못 막는다.
     // 그래서 기본값과 다른 포트를 준다.
     renderApp(makeClient({}, { mcpStatus: { state: 'listening', port: 61234 } }))
-    expect(await screen.findByText(/MCP :61234/)).toBeInTheDocument()
+    // 포트는 하단 줄의 글자가 아니라 풍선에 있다 (docs/sdlc/agent-status/ FR-1 개정)
+    const row = screen.getByRole('button', { name: '에이전트 현황' })
+    await waitFor(() => expect(row).toHaveAttribute('title', expect.stringContaining('MCP :61234')))
   })
 
   it('구독으로 들어온 상태 변화가 화면에 반영된다', async () => {
@@ -1351,10 +1353,12 @@ describe('MCP 상태 배선', () => {
         </RunEventProvider>
       </ClientProvider>
     )
-    expect(await screen.findByText(/MCP 시작 중/)).toBeInTheDocument()
+    const row = screen.getByRole('button', { name: '에이전트 현황' })
+    await waitFor(() => expect(row).toHaveAttribute('title', expect.stringContaining('MCP 시작 중')))
 
     act(() => { for (const cb of push) cb({ state: 'listening', port: 5555 }) })
-    expect(await screen.findByText(/MCP :5555/)).toBeInTheDocument()
+    await waitFor(() => expect(row).toHaveAttribute('title', expect.stringContaining('MCP :5555')))
+    expect(row).toHaveClass('mcp-status-listening')
   })
 })
 
@@ -1383,7 +1387,8 @@ describe('요금제 사용률 배선', () => {
       return () => {}
     })
     renderApp(client)
-    await screen.findByText(/MCP :/)
+    // 앱이 떠 MCP 상태를 읽을 때까지 — 포트는 하단 줄의 풍선에 있다 (docs/sdlc/agent-status/ FR-1 개정)
+    await waitFor(() => expect(screen.getByRole('button', { name: '에이전트 현황' })).toHaveAttribute('title', expect.stringContaining('MCP :')))
     expect(screen.queryByText(/요금제/)).toBeNull()
 
     act(() => { for (const cb of push) cb(usage(0.5)) })
@@ -1400,7 +1405,8 @@ describe('요금제 사용률 배선', () => {
       return () => {}
     })
     renderApp(client)
-    await screen.findByText(/MCP :/)
+    // 앱이 떠 MCP 상태를 읽을 때까지 — 포트는 하단 줄의 풍선에 있다 (docs/sdlc/agent-status/ FR-1 개정)
+    await waitFor(() => expect(screen.getByRole('button', { name: '에이전트 현황' })).toHaveAttribute('title', expect.stringContaining('MCP :')))
     act(() => { for (const cb of push) cb(usage(0.7)) })
     await act(async () => { resolveRead(usage(0.1)) })
     expect(screen.getByText('요금제 5h 70% · 7d 2%')).toBeInTheDocument()
@@ -2236,8 +2242,52 @@ describe('에이전트 현황 배선 (docs/sdlc/agent-status/)', () => {
     // App.tsx의 `queue={queue}` 한 줄을 지킨다. 기본값과 다른 수를 준다.
     renderApp(makeClient({ queueSnapshot: vi.fn().mockResolvedValue({ running: 2, limit: 5, waiting: 1 }) }))
     const row = screen.getByRole('button', { name: '에이전트 현황' })
-    await waitFor(() => expect(row).toHaveTextContent('실행 2/5'))
-    expect(row).toHaveTextContent('+1 대기')
+    await waitFor(() => expect(row).toHaveAttribute('title', expect.stringContaining('실행 2/5 · 대기 1')))
+    expect(row).toHaveClass('agent-activity-busy')
+  })
+
+  it('하단 줄이 쓸 수 있는 agent를 보인다 — 고른 workspace가 없으면 첫 workspace로 판정한다 (FR-1 개정)', async () => {
+    // App.tsx의 `agents={sidebarAgents}` 한 줄과 대상 workspace를 지킨다. 홈에서 시작하므로 고른 workspace가 없다.
+    const client = makeClient({}, { cliReady: true })
+    renderApp(client)
+    const row = screen.getByRole('button', { name: '에이전트 현황' })
+    await waitFor(() => expect(row).toHaveTextContent(/^Claude CodeMCP$/))
+    expect(client.workspaces.checkAgents).toHaveBeenCalledWith('w1')
+  })
+
+  it('실행 파일이 하나도 안 잡히면 "agent 없음"이다', async () => {
+    renderApp(makeClient({}, { cliReady: false }))
+    const row = screen.getByRole('button', { name: '에이전트 현황' })
+    await waitFor(() => expect(row).toHaveTextContent(/^agent 없음MCP$/))
+  })
+
+  it('workspace의 CLI 경로가 바뀌면(바뀜 알림) 다시 판정한다', async () => {
+    const listeners: Array<(c: ItemChange) => void> = []
+    const client = makeClient({}, { cliReady: false })
+    client.events.onItemChanged = vi.fn((cb: (c: ItemChange) => void) => { listeners.push(cb); return () => {} })
+    renderApp(client)
+    const row = screen.getByRole('button', { name: '에이전트 현황' })
+    await waitFor(() => expect(row).toHaveTextContent(/^agent 없음MCP$/))
+    vi.mocked(client.workspaces.checkAgents).mockResolvedValueOnce({
+      'claude-code': { ok: true, executable: '/opt/claude' },
+      opencode: { ok: false, reason: '없음' }
+    })
+    act(() => { for (const cb of listeners) cb({ workspaceId: 'w1', kind: 'workspace' }) })
+    await waitFor(() => expect(row).toHaveTextContent(/^Claude CodeMCP$/))
+  })
+
+  it('설정 화면에서 나오면 다시 판정한다 — 앱 탭의 CLI 기본 경로는 바뀜 알림이 없다', async () => {
+    const client = makeClient({}, { cliReady: false })
+    renderApp(client)
+    const row = screen.getByRole('button', { name: '에이전트 현황' })
+    await waitFor(() => expect(row).toHaveTextContent(/^agent 없음MCP$/))
+    await userEvent.click(screen.getByRole('button', { name: '설정' }))
+    vi.mocked(client.workspaces.checkAgents).mockResolvedValue({
+      'claude-code': { ok: false, reason: '없음' },
+      opencode: { ok: true, executable: '/opt/opencode' }
+    })
+    await userEvent.click(screen.getByRole('button', { name: '홈' }))
+    await waitFor(() => expect(row).toHaveTextContent(/^OpenCodeMCP$/))
   })
 
   it('하단 줄을 누르면 패널이 열리고, 다시 누르면 닫힌다', async () => {

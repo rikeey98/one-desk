@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { Sidebar } from './Sidebar'
 import type { OneDeskClient } from '@shared/client'
-import type { InboxCounts, McpStatus, PlanUsage, QueueSnapshot, Workspace } from '@shared/models'
+import type { AgentStatuses, InboxCounts, McpStatus, PlanUsage, QueueSnapshot, Workspace } from '@shared/models'
 
 function makeWorkspace(name: string, id: string): Workspace {
   return {
@@ -60,6 +60,7 @@ function renderSidebar(over: {
   onSelectSchedules?: () => void
   collapsed?: boolean
   queue?: QueueSnapshot | null
+  agents?: AgentStatuses | null
   activityOpen?: boolean
   onToggleActivity?: () => void
   client?: OneDeskClient
@@ -85,6 +86,7 @@ function renderSidebar(over: {
         onDeleted={over.onDeleted ?? vi.fn()}
         collapsed={over.collapsed ?? false}
         queue={over.queue === undefined ? null : over.queue}
+        agents={over.agents === undefined ? null : over.agents}
         activityOpen={over.activityOpen ?? false}
         onToggleActivity={over.onToggleActivity ?? vi.fn()}
         onSelectHome={over.onSelectHome ?? vi.fn()}
@@ -175,6 +177,7 @@ function renderSidebarRaw(mcpStatus: McpStatus) {
           planUsage={null}
           collapsed={false}
           queue={null}
+          agents={null}
           activityOpen={false}
           onToggleActivity={vi.fn()}
         onSelectHome={vi.fn()}
@@ -189,56 +192,69 @@ function renderSidebarRaw(mcpStatus: McpStatus) {
   return { rerender: (next: McpStatus) => { view.rerender(tree(next)) } }
 }
 
-describe('MCP 상태 줄', () => {
-  it('listening이면 포트를 보여준다', () => {
-    // 포트를 그대로 보여주는 것이 요점이다 — "서버가 정말 떴는가"와 "몇 번인가"를
-    // 눈으로 확인해야 하는 상황이 실제로 있었다.
-    renderSidebar({ mcpStatus: { state: 'listening', port: 53021 } })
-    expect(screen.getByText(/MCP :53021/)).toBeInTheDocument()
+const CLAUDE_ONLY: AgentStatuses = {
+  'claude-code': { ok: true, executable: '/usr/local/bin/claude' },
+  opencode: { ok: false, reason: 'opencode를 찾을 수 없습니다' }
+}
+
+describe('하단 에이전트 줄 (docs/sdlc/agent-status/ FR-1·FR-2, 2026-11-03 개정)', () => {
+  it('쓸 수 있는 agent와 MCP만 보이고, 포트·실행 수는 글자가 아니라 풍선에 있다', () => {
+    renderSidebar({ mcpStatus: { state: 'listening', port: 53021 }, agents: CLAUDE_ONLY, queue: { running: 1, limit: 3, waiting: 2 } })
+    const row = screen.getByRole('button', { name: '에이전트 현황' })
+    expect(row).toHaveTextContent(/^Claude CodeMCP$/)
+    expect(row).not.toHaveTextContent('53021')
+    expect(row).not.toHaveTextContent('실행')
+    expect(row).toHaveAttribute('title', 'Claude Code · MCP :53021 · 실행 1/3 · 대기 2 — 눌러서 에이전트 현황 보기')
+    expect(row).toHaveClass('mcp-status-listening')
   })
 
-  it('starting이면 시작 중으로 보여준다', () => {
-    renderSidebar({ mcpStatus: { state: 'starting' } })
-    expect(screen.getByText(/MCP 시작 중/)).toBeInTheDocument()
+  it('둘 다 잡히면 둘 다 보인다 — 실행 패널과 같은 순서로', () => {
+    renderSidebar({
+      agents: { 'claude-code': { ok: true, executable: '/a' }, opencode: { ok: true, executable: '/b' } }
+    })
+    expect(screen.getByRole('button', { name: '에이전트 현황' })).toHaveTextContent(/^Claude CodeOpenCodeMCP$/)
   })
 
-  it('failed면 실패로 보여주고 사유를 title에 담는다', () => {
-    renderSidebar({ mcpStatus: { state: 'failed', message: 'EADDRINUSE' } })
-    const row = screen.getByText(/MCP 연결 실패/).closest('.mcp-status')
-    expect(row).toBeInTheDocument()
+  it('하나도 없으면 "agent 없음"이다', () => {
+    renderSidebar({
+      agents: { 'claude-code': { ok: false, reason: '없음' }, opencode: { ok: false, reason: '없음' } }
+    })
+    const row = screen.getByRole('button', { name: '에이전트 현황' })
+    expect(row).toHaveTextContent(/^agent 없음MCP$/)
+    expect(row.querySelector('.activity-chip-none')).not.toBeNull()
+  })
+
+  it('판정 전이면 MCP만 보인다', () => {
+    renderSidebar({ agents: null })
+    expect(screen.getByRole('button', { name: '에이전트 현황' })).toHaveTextContent(/^MCP$/)
+  })
+
+  it('MCP 상태는 점의 색(클래스)과 풍선이 말한다 — 실패 사유는 풍선에', () => {
+    renderSidebar({ mcpStatus: { state: 'failed', message: 'EADDRINUSE' }, agents: CLAUDE_ONLY })
+    const row = screen.getByRole('button', { name: '에이전트 현황' })
+    expect(row).toHaveClass('mcp-status-failed')
     expect(row).toHaveAttribute('title', expect.stringContaining('MCP 연결 실패: EADDRINUSE'))
   })
 
   it('상태가 바뀌면 화면도 바뀐다 — prop을 실제로 읽는다', () => {
-    // 하드코딩된 문자열을 그리는 구현으로도 위 셋이 통과할 수 있다.
-    // 같은 컴포넌트에 다른 상태를 주어 prop을 읽는다는 것을 고정한다.
+    // 하드코딩된 상태를 그리는 구현으로도 위가 통과할 수 있다. 같은 컴포넌트에 다른 상태를 주어 prop을 읽는다는 것을 고정한다.
     const { rerender } = renderSidebarRaw({ state: 'starting' })
-    expect(screen.getByText(/MCP 시작 중/)).toBeInTheDocument()
+    const row = screen.getByRole('button', { name: '에이전트 현황' })
+    expect(row).toHaveClass('mcp-status-starting')
+    expect(row).toHaveAttribute('title', expect.stringContaining('MCP 시작 중'))
     rerender({ state: 'listening', port: 999 })
-    expect(screen.queryByText(/MCP 시작 중/)).not.toBeInTheDocument()
-    expect(screen.getByText(/MCP :999/)).toBeInTheDocument()
-  })
-})
-
-describe('에이전트 실행 현황 (docs/sdlc/agent-status/ FR-1·FR-2)', () => {
-  it('MCP 곁에 실행 슬롯을, 대기가 있으면 `+N 대기`를 보인다', () => {
-    renderSidebar({ queue: { running: 1, limit: 3, waiting: 2 } })
-    const row = screen.getByRole('button', { name: '에이전트 현황' })
-    expect(row).toHaveTextContent('MCP :12345')
-    expect(row).toHaveTextContent('실행 1/3')
-    expect(row).toHaveTextContent('+2 대기')
-    // 도크의 슬롯 표시기(`· 대기 N`)를 화면 전체에서 잡는 e2e와 부딪히지 않는다
-    expect(row.textContent).not.toMatch(/대기 \d/)
-    expect(row).toHaveClass('agent-activity-busy')
-    expect(row).toHaveAttribute('title', 'MCP :12345 · 실행 1/3 · +2 대기 — 눌러서 에이전트 현황 보기')
+    expect(row).toHaveClass('mcp-status-listening')
+    expect(row).toHaveAttribute('title', expect.stringContaining('MCP :999'))
   })
 
-  it('도는 것이 없으면 점이 쉬고 대기 글자가 없다', () => {
+  it('도는 agent가 있으면 숨쉰다', () => {
+    renderSidebar({ queue: { running: 1, limit: 3, waiting: 0 } })
+    expect(screen.getByRole('button', { name: '에이전트 현황' })).toHaveClass('agent-activity-busy')
+  })
+
+  it('도는 것이 없으면 쉰다', () => {
     renderSidebar({ queue: { running: 0, limit: 3, waiting: 0 } })
-    const row = screen.getByRole('button', { name: '에이전트 현황' })
-    expect(row).toHaveTextContent('실행 0/3')
-    expect(row).not.toHaveTextContent('대기')
-    expect(row).not.toHaveClass('agent-activity-busy')
+    expect(screen.getByRole('button', { name: '에이전트 현황' })).not.toHaveClass('agent-activity-busy')
   })
 
   it('누르면 onToggleActivity를 부르고, 열림을 aria-expanded로 말한다', async () => {
@@ -250,9 +266,10 @@ describe('에이전트 실행 현황 (docs/sdlc/agent-status/ FR-1·FR-2)', () =
     expect(onToggleActivity).toHaveBeenCalledTimes(1)
   })
 
-  it('접혀도 버튼은 남고 이름이 같다', () => {
-    renderSidebar({ collapsed: true, queue: { running: 2, limit: 3, waiting: 0 } })
-    expect(screen.getByRole('button', { name: '에이전트 현황' })).toHaveAttribute('title', expect.stringContaining('실행 2/3'))
+  it('접혀도 버튼은 남고 이름이 같다 — 풍선이 전부를 말한다', () => {
+    renderSidebar({ collapsed: true, agents: CLAUDE_ONLY, queue: { running: 2, limit: 3, waiting: 0 } })
+    expect(screen.getByRole('button', { name: '에이전트 현황' }))
+      .toHaveAttribute('title', 'Claude Code · MCP :12345 · 실행 2/3 — 눌러서 에이전트 현황 보기')
   })
 })
 
@@ -405,7 +422,7 @@ describe('리포트 진입점 (docs/sdlc/period-report/ FR-13)', () => {
     expect(inbox).toHaveAttribute('title', '인박스')
     expect(screen.getByRole('button', { name: '설정' })).toHaveAttribute('title', '설정')
     // MCP는 점만 보이므로 상태를 풍선이 말한다
-    expect(document.querySelector('.mcp-status')).toHaveAttribute('title', 'MCP :12345 — 눌러서 에이전트 현황 보기')
+    expect(document.querySelector('.mcp-status')).toHaveAttribute('title', 'agent 확인 전 · MCP :12345 — 눌러서 에이전트 현황 보기')
   })
 })
 
