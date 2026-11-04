@@ -12,7 +12,7 @@ const workspaces: Workspace[] = [
   {
     id: 'w1', name: '앱', description: null, defaultAgentKind: 'claude-code',
     defaultModelClaude: null, defaultModelOpencode: null, defaultEffortClaude: null, defaultVariantOpencode: null, defaultPermission: 'edit',
-    claudePath: null, opencodePath: null, createdAt: 0, updatedAt: 0
+    claudePath: null, opencodePath: null, kind: 'normal', createdAt: 0, updatedAt: 0
   }
 ]
 
@@ -38,6 +38,7 @@ function renderPanel(items: Run[], over: Partial<Parameters<typeof InboxPanel>[0
     items,
     workspaces,
     reposByWorkspace: {} as ReposByWorkspace,
+    homeWorkspaceId: null,
     error: null,
     onReview: vi.fn(),
     onOpenConversation: vi.fn(),
@@ -165,7 +166,7 @@ describe('InboxPanel', () => {
         <InboxPanel
           items={[run(over)]}
           workspaces={workspaces}
-          reposByWorkspace={{}}
+          reposByWorkspace={{}} homeWorkspaceId={null}
           error={null}
           onReview={vi.fn()}
           onOpenConversation={vi.fn()}
@@ -272,7 +273,7 @@ describe('보기와 정렬 (docs/sdlc/inbox-views/)', () => {
   it('다시 마운트해도 보기·정렬·접힘이 남는다 (FR-3·14)', async () => {
     const { unmount } = render(
       <InboxPanel
-        items={items} workspaces={workspaces} reposByWorkspace={repos} error={null}
+        items={items} workspaces={workspaces} reposByWorkspace={repos} homeWorkspaceId={null} error={null}
         onReview={vi.fn()} onOpenConversation={vi.fn()} onRestart={vi.fn()} onCloseIssue={vi.fn()} onMakeIssue={vi.fn()}
       />
     )

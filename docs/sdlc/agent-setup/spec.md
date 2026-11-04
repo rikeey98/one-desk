@@ -176,7 +176,11 @@ export type AgentProbes = Record<AgentKind, AgentProbe>
 
 - **claude**: `auth status --json`(JSON이 기본 출력, 0.24초). `loggedIn`이 참이면 `ok`,
   거짓이면 `none`. **서브커맨드가 없거나 실패하면 `unknown`** — 옛 버전을 "로그인 안 됨"으로
-  단정하지 않는다.
+  단정하지 않는다. **`loggedIn`을 읽었으면 종료 코드보다 그것이 먼저다**(2026-11-03 다듬음) —
+  2.1.296부터 로그아웃한 CLI는 `loggedIn: false`를 찍고 exit 1로 끝나, 종료 코드를 먼저 보면
+  `none`이어야 할 것이 "확인할 수 없음 (종료 코드 1)"이 됐다(Windows·WSL 실측, 2.1.312도 같다).
+  "실패"는 `loggedIn`을 읽지 못한 실패다. 프로세스를 못 띄웠거나 시간 초과로 끊긴 조회는 찍힌 JSON이
+  있어도 `unknown`이다.
 - **opencode**: `auth list`. **ANSI 이스케이프를 제거한 뒤** `N credentials`를 읽는다.
   `0`이면 `none`, 1 이상이면 `ok`, **읽어내지 못하면 `unknown`**(FR-3).
   `auth.json`은 열지 않는다(NFR-5).

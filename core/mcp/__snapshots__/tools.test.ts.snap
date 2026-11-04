@@ -1,0 +1,1105 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`권한이 도구 등록을 통제한다 > workspace 범위 서버의 tools/list는 홈 대화 이전과 바이트로 같다 (docs/sdlc/home-conversation/ NFR-1) > edit 1`] = `
+"[
+  {
+    "name": "list_repos",
+    "description": "이 workspace에 등록된 repo 목록",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "list_issues",
+    "description": "이 workspace의 이슈 요약 목록 (id·title·status·repoIds·source·kind·priority와 시각 createdAt·startedAt(마지막으로 doing이 된 때)·closedAt(done이 된 때)·updatedAt·triagedAt — 본문은 빠진다). 시각은 시간대가 붙은 ISO다. source/kind/priority가 비어 있거나 triagedAt이 null이면 아직 분류되지 않은 이슈다. since·until을 주면 그 기간에 만들어지거나 시작·완료·수정된 이슈만 준다 — \\"이번 주에 생긴 것·한 일\\" 정리에 쓴다. 본문이 필요하면 get_issue를 쓴다.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "status": {
+          "description": "상태로 거른다",
+          "type": "string",
+          "enum": [
+            "open",
+            "doing",
+            "done"
+          ]
+        },
+        "repoId": {
+          "description": "이 repo에 태그된 것과 공통 항목만",
+          "type": "string"
+        },
+        "since": {
+          "description": "이 날짜(2026-09-28이면 그 날 0시) 또는 ISO 날짜시각부터",
+          "type": "string"
+        },
+        "until": {
+          "description": "이 날짜 또는 ISO 날짜시각 전까지",
+          "type": "string"
+        }
+      }
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "get_issue",
+    "description": "이슈 하나의 본문 전체",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "list_memos",
+    "description": "이 workspace의 메모 요약 목록 (id·title·repoIds·createdAt·updatedAt — 본문은 빠진다). 시각은 시간대가 붙은 ISO다. since·until을 주면 그 기간에 만들어지거나 수정된 메모만 준다. 본문이 필요하면 get_memo를 쓴다.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "repoId": {
+          "description": "이 repo에 태그된 것과 공통 항목만",
+          "type": "string"
+        },
+        "since": {
+          "description": "이 날짜(2026-09-28이면 그 날 0시) 또는 ISO 날짜시각부터",
+          "type": "string"
+        },
+        "until": {
+          "description": "이 날짜 또는 ISO 날짜시각 전까지",
+          "type": "string"
+        }
+      }
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "get_memo",
+    "description": "메모 하나의 본문 전체",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "list_conversations",
+    "description": "이 workspace에서 돌린 대화(agent 실행)의 요약 목록, 최신 활동순 — id·title·startedAt·lastActivityAt·status·needsAnswer·turns·closed·issueId(이 대화에 할당된 이슈, 없으면 null — 본문은 get_issue로)·firstPrompt(첫 지시 앞부분)·lastAnswer(마지막 답 앞부분). 시각은 시간대가 붙은 ISO다. since·until을 주면 그 기간에 활동이 있던 대화만 준다 — \\"이번 주에 한 일\\" 정리에 쓴다. 지시·답 전체는 싣지 않는다.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "since": {
+          "description": "이 날짜(2026-09-28이면 그 날 0시) 또는 ISO 날짜시각부터",
+          "type": "string"
+        },
+        "until": {
+          "description": "이 날짜 또는 ISO 날짜시각 전까지",
+          "type": "string"
+        }
+      }
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "get_conversation",
+    "description": "대화 하나의 턴 전부, 오래된 순, 그리고 issueId(이 대화에 할당된 이슈, 없으면 null) — 턴마다 requestedAt(지시를 보낸 때)·startedAt(실행 시작)·endedAt(끝)·waitSeconds(기다린 초)·durationSeconds(걸린 초)·status·needsAnswer·agent·model·prompt(지시 앞부분)·answer(답 앞부분)·error. 시각은 시간대가 붙은 ISO다. id는 list_conversations의 id나 그 대화의 아무 턴 id. \\"언제 무엇을 시켰고 얼마나 걸렸나\\" 정리에 쓴다.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "propose_issue",
+    "description": "이 대화가 처리해야 할 일이면 사람에게 이슈로 만들자고 제안한다. 아무것도 만들거나 바꾸지 않는다 — 사람이 받아야 이슈가 생기고 이 대화에 할당된다. 같은 일을 하는 열린 이슈가 있으면 existingIssueId로 그 이슈를 준다.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[^\\\\n]+$",
+          "description": "한 줄, 무엇을 해야 하는지가 드러나게"
+        },
+        "body": {
+          "default": "",
+          "description": "한두 줄",
+          "type": "string",
+          "maxLength": 4000
+        },
+        "repoIds": {
+          "default": [],
+          "description": "관련 repo. 같은 workspace여야 한다",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source": {
+          "description": "어디서 온 일인가",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "customer",
+                "plan",
+                "meeting",
+                "dev"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "description": "무슨 성격의 일인가",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "bug",
+                "feature",
+                "refactor",
+                "docs",
+                "research"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "priority": {
+          "description": "얼마나 급한가",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "urgent",
+                "week",
+                "someday"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "existingIssueId": {
+          "description": "같은 일을 하는 열린 이슈의 id. 있으면 새 이슈 대신 그것을 권한다",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "title"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "create_issue",
+    "description": "이 workspace에 이슈를 만든다",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "default": "",
+          "type": "string"
+        },
+        "repoIds": {
+          "description": "태그할 repo. 같은 workspace여야 한다",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source": {
+          "description": "어디서 온 이슈인가",
+          "type": "string",
+          "enum": [
+            "customer",
+            "plan",
+            "meeting",
+            "dev"
+          ]
+        },
+        "kind": {
+          "description": "무슨 성격의 일인가",
+          "type": "string",
+          "enum": [
+            "bug",
+            "feature",
+            "refactor",
+            "docs",
+            "research"
+          ]
+        },
+        "priority": {
+          "description": "얼마나 급한가",
+          "type": "string",
+          "enum": [
+            "urgent",
+            "week",
+            "someday"
+          ]
+        }
+      },
+      "required": [
+        "title"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "update_issue",
+    "description": "이슈의 상태·본문·분류를 고친다",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "doing",
+            "done"
+          ]
+        },
+        "body": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "customer",
+            "plan",
+            "meeting",
+            "dev"
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "bug",
+            "feature",
+            "refactor",
+            "docs",
+            "research"
+          ]
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "urgent",
+            "week",
+            "someday"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "create_memo",
+    "description": "이 workspace에 메모를 만든다",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "default": "",
+          "type": "string"
+        },
+        "repoIds": {
+          "description": "태그할 repo. 같은 workspace여야 한다",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "title"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "update_memo",
+    "description": "메모의 제목이나 본문을 고친다",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  }
+]"
+`;
+
+exports[`권한이 도구 등록을 통제한다 > workspace 범위 서버의 tools/list는 홈 대화 이전과 바이트로 같다 (docs/sdlc/home-conversation/ NFR-1) > full 1`] = `
+"[
+  {
+    "name": "list_repos",
+    "description": "이 workspace에 등록된 repo 목록",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "list_issues",
+    "description": "이 workspace의 이슈 요약 목록 (id·title·status·repoIds·source·kind·priority와 시각 createdAt·startedAt(마지막으로 doing이 된 때)·closedAt(done이 된 때)·updatedAt·triagedAt — 본문은 빠진다). 시각은 시간대가 붙은 ISO다. source/kind/priority가 비어 있거나 triagedAt이 null이면 아직 분류되지 않은 이슈다. since·until을 주면 그 기간에 만들어지거나 시작·완료·수정된 이슈만 준다 — \\"이번 주에 생긴 것·한 일\\" 정리에 쓴다. 본문이 필요하면 get_issue를 쓴다.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "status": {
+          "description": "상태로 거른다",
+          "type": "string",
+          "enum": [
+            "open",
+            "doing",
+            "done"
+          ]
+        },
+        "repoId": {
+          "description": "이 repo에 태그된 것과 공통 항목만",
+          "type": "string"
+        },
+        "since": {
+          "description": "이 날짜(2026-09-28이면 그 날 0시) 또는 ISO 날짜시각부터",
+          "type": "string"
+        },
+        "until": {
+          "description": "이 날짜 또는 ISO 날짜시각 전까지",
+          "type": "string"
+        }
+      }
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "get_issue",
+    "description": "이슈 하나의 본문 전체",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "list_memos",
+    "description": "이 workspace의 메모 요약 목록 (id·title·repoIds·createdAt·updatedAt — 본문은 빠진다). 시각은 시간대가 붙은 ISO다. since·until을 주면 그 기간에 만들어지거나 수정된 메모만 준다. 본문이 필요하면 get_memo를 쓴다.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "repoId": {
+          "description": "이 repo에 태그된 것과 공통 항목만",
+          "type": "string"
+        },
+        "since": {
+          "description": "이 날짜(2026-09-28이면 그 날 0시) 또는 ISO 날짜시각부터",
+          "type": "string"
+        },
+        "until": {
+          "description": "이 날짜 또는 ISO 날짜시각 전까지",
+          "type": "string"
+        }
+      }
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "get_memo",
+    "description": "메모 하나의 본문 전체",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "list_conversations",
+    "description": "이 workspace에서 돌린 대화(agent 실행)의 요약 목록, 최신 활동순 — id·title·startedAt·lastActivityAt·status·needsAnswer·turns·closed·issueId(이 대화에 할당된 이슈, 없으면 null — 본문은 get_issue로)·firstPrompt(첫 지시 앞부분)·lastAnswer(마지막 답 앞부분). 시각은 시간대가 붙은 ISO다. since·until을 주면 그 기간에 활동이 있던 대화만 준다 — \\"이번 주에 한 일\\" 정리에 쓴다. 지시·답 전체는 싣지 않는다.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "since": {
+          "description": "이 날짜(2026-09-28이면 그 날 0시) 또는 ISO 날짜시각부터",
+          "type": "string"
+        },
+        "until": {
+          "description": "이 날짜 또는 ISO 날짜시각 전까지",
+          "type": "string"
+        }
+      }
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "get_conversation",
+    "description": "대화 하나의 턴 전부, 오래된 순, 그리고 issueId(이 대화에 할당된 이슈, 없으면 null) — 턴마다 requestedAt(지시를 보낸 때)·startedAt(실행 시작)·endedAt(끝)·waitSeconds(기다린 초)·durationSeconds(걸린 초)·status·needsAnswer·agent·model·prompt(지시 앞부분)·answer(답 앞부분)·error. 시각은 시간대가 붙은 ISO다. id는 list_conversations의 id나 그 대화의 아무 턴 id. \\"언제 무엇을 시켰고 얼마나 걸렸나\\" 정리에 쓴다.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "propose_issue",
+    "description": "이 대화가 처리해야 할 일이면 사람에게 이슈로 만들자고 제안한다. 아무것도 만들거나 바꾸지 않는다 — 사람이 받아야 이슈가 생기고 이 대화에 할당된다. 같은 일을 하는 열린 이슈가 있으면 existingIssueId로 그 이슈를 준다.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[^\\\\n]+$",
+          "description": "한 줄, 무엇을 해야 하는지가 드러나게"
+        },
+        "body": {
+          "default": "",
+          "description": "한두 줄",
+          "type": "string",
+          "maxLength": 4000
+        },
+        "repoIds": {
+          "default": [],
+          "description": "관련 repo. 같은 workspace여야 한다",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source": {
+          "description": "어디서 온 일인가",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "customer",
+                "plan",
+                "meeting",
+                "dev"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "description": "무슨 성격의 일인가",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "bug",
+                "feature",
+                "refactor",
+                "docs",
+                "research"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "priority": {
+          "description": "얼마나 급한가",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "urgent",
+                "week",
+                "someday"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "existingIssueId": {
+          "description": "같은 일을 하는 열린 이슈의 id. 있으면 새 이슈 대신 그것을 권한다",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "title"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "create_issue",
+    "description": "이 workspace에 이슈를 만든다",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "default": "",
+          "type": "string"
+        },
+        "repoIds": {
+          "description": "태그할 repo. 같은 workspace여야 한다",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source": {
+          "description": "어디서 온 이슈인가",
+          "type": "string",
+          "enum": [
+            "customer",
+            "plan",
+            "meeting",
+            "dev"
+          ]
+        },
+        "kind": {
+          "description": "무슨 성격의 일인가",
+          "type": "string",
+          "enum": [
+            "bug",
+            "feature",
+            "refactor",
+            "docs",
+            "research"
+          ]
+        },
+        "priority": {
+          "description": "얼마나 급한가",
+          "type": "string",
+          "enum": [
+            "urgent",
+            "week",
+            "someday"
+          ]
+        }
+      },
+      "required": [
+        "title"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "update_issue",
+    "description": "이슈의 상태·본문·분류를 고친다",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "doing",
+            "done"
+          ]
+        },
+        "body": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "customer",
+            "plan",
+            "meeting",
+            "dev"
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "bug",
+            "feature",
+            "refactor",
+            "docs",
+            "research"
+          ]
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "urgent",
+            "week",
+            "someday"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "create_memo",
+    "description": "이 workspace에 메모를 만든다",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "default": "",
+          "type": "string"
+        },
+        "repoIds": {
+          "description": "태그할 repo. 같은 workspace여야 한다",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "title"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "update_memo",
+    "description": "메모의 제목이나 본문을 고친다",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  }
+]"
+`;
+
+exports[`권한이 도구 등록을 통제한다 > workspace 범위 서버의 tools/list는 홈 대화 이전과 바이트로 같다 (docs/sdlc/home-conversation/ NFR-1) > read_only 1`] = `
+"[
+  {
+    "name": "list_repos",
+    "description": "이 workspace에 등록된 repo 목록",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "list_issues",
+    "description": "이 workspace의 이슈 요약 목록 (id·title·status·repoIds·source·kind·priority와 시각 createdAt·startedAt(마지막으로 doing이 된 때)·closedAt(done이 된 때)·updatedAt·triagedAt — 본문은 빠진다). 시각은 시간대가 붙은 ISO다. source/kind/priority가 비어 있거나 triagedAt이 null이면 아직 분류되지 않은 이슈다. since·until을 주면 그 기간에 만들어지거나 시작·완료·수정된 이슈만 준다 — \\"이번 주에 생긴 것·한 일\\" 정리에 쓴다. 본문이 필요하면 get_issue를 쓴다.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "status": {
+          "description": "상태로 거른다",
+          "type": "string",
+          "enum": [
+            "open",
+            "doing",
+            "done"
+          ]
+        },
+        "repoId": {
+          "description": "이 repo에 태그된 것과 공통 항목만",
+          "type": "string"
+        },
+        "since": {
+          "description": "이 날짜(2026-09-28이면 그 날 0시) 또는 ISO 날짜시각부터",
+          "type": "string"
+        },
+        "until": {
+          "description": "이 날짜 또는 ISO 날짜시각 전까지",
+          "type": "string"
+        }
+      }
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "get_issue",
+    "description": "이슈 하나의 본문 전체",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "list_memos",
+    "description": "이 workspace의 메모 요약 목록 (id·title·repoIds·createdAt·updatedAt — 본문은 빠진다). 시각은 시간대가 붙은 ISO다. since·until을 주면 그 기간에 만들어지거나 수정된 메모만 준다. 본문이 필요하면 get_memo를 쓴다.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "repoId": {
+          "description": "이 repo에 태그된 것과 공통 항목만",
+          "type": "string"
+        },
+        "since": {
+          "description": "이 날짜(2026-09-28이면 그 날 0시) 또는 ISO 날짜시각부터",
+          "type": "string"
+        },
+        "until": {
+          "description": "이 날짜 또는 ISO 날짜시각 전까지",
+          "type": "string"
+        }
+      }
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "get_memo",
+    "description": "메모 하나의 본문 전체",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "list_conversations",
+    "description": "이 workspace에서 돌린 대화(agent 실행)의 요약 목록, 최신 활동순 — id·title·startedAt·lastActivityAt·status·needsAnswer·turns·closed·issueId(이 대화에 할당된 이슈, 없으면 null — 본문은 get_issue로)·firstPrompt(첫 지시 앞부분)·lastAnswer(마지막 답 앞부분). 시각은 시간대가 붙은 ISO다. since·until을 주면 그 기간에 활동이 있던 대화만 준다 — \\"이번 주에 한 일\\" 정리에 쓴다. 지시·답 전체는 싣지 않는다.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "since": {
+          "description": "이 날짜(2026-09-28이면 그 날 0시) 또는 ISO 날짜시각부터",
+          "type": "string"
+        },
+        "until": {
+          "description": "이 날짜 또는 ISO 날짜시각 전까지",
+          "type": "string"
+        }
+      }
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "get_conversation",
+    "description": "대화 하나의 턴 전부, 오래된 순, 그리고 issueId(이 대화에 할당된 이슈, 없으면 null) — 턴마다 requestedAt(지시를 보낸 때)·startedAt(실행 시작)·endedAt(끝)·waitSeconds(기다린 초)·durationSeconds(걸린 초)·status·needsAnswer·agent·model·prompt(지시 앞부분)·answer(답 앞부분)·error. 시각은 시간대가 붙은 ISO다. id는 list_conversations의 id나 그 대화의 아무 턴 id. \\"언제 무엇을 시켰고 얼마나 걸렸나\\" 정리에 쓴다.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "propose_issue",
+    "description": "이 대화가 처리해야 할 일이면 사람에게 이슈로 만들자고 제안한다. 아무것도 만들거나 바꾸지 않는다 — 사람이 받아야 이슈가 생기고 이 대화에 할당된다. 같은 일을 하는 열린 이슈가 있으면 existingIssueId로 그 이슈를 준다.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[^\\\\n]+$",
+          "description": "한 줄, 무엇을 해야 하는지가 드러나게"
+        },
+        "body": {
+          "default": "",
+          "description": "한두 줄",
+          "type": "string",
+          "maxLength": 4000
+        },
+        "repoIds": {
+          "default": [],
+          "description": "관련 repo. 같은 workspace여야 한다",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source": {
+          "description": "어디서 온 일인가",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "customer",
+                "plan",
+                "meeting",
+                "dev"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "description": "무슨 성격의 일인가",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "bug",
+                "feature",
+                "refactor",
+                "docs",
+                "research"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "priority": {
+          "description": "얼마나 급한가",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "urgent",
+                "week",
+                "someday"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "existingIssueId": {
+          "description": "같은 일을 하는 열린 이슈의 id. 있으면 새 이슈 대신 그것을 권한다",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "title"
+      ]
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  }
+]"
+`;

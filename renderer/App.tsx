@@ -21,8 +21,14 @@ import { useClient } from './client/ClientProvider'
 import { chipKey, type ContextChip } from './context'
 import { conversationIdOf, groupConversations, type IssueConversations } from './conversation'
 import { confirmSeen } from './conversationSeen'
-import type { AssignedIssue, HomeTarget, Memo, Run, StartRunInput } from '@shared/models'
-import { ReportPanel, initialReportQuery, POLISH_PROMPT, type ReportQuery } from './components/ReportPanel'
+import type { AssignedIssue, Repo, Run } from '@shared/models'
+import { useHomeWorkspace } from './hooks/useHomeWorkspace'
+import { readHomeDockOpen, writeHomeDockOpen } from './homeDock'
+
+/** 홈 도크에 내리는 빈 목록 — 렌더마다 새 배열이면 도크의 메모와 입력부의 effect가 매번 다시 돈다 */
+const NO_REPOS: Repo[] = []
+const NO_CHIPS: ContextChip[] = []
+import { ReportPanel, initialReportQuery, type ReportQuery } from './components/ReportPanel'
 import { SchedulePanel } from './components/SchedulePanel'
 import { CloseConfirm } from './components/code/CloseConfirm'
 import { CodePaneSlotContext, TitleBarSlotContext } from './components/code/CodePaneContext'
@@ -104,7 +110,7 @@ export default function App() {
   // 알림이 없다.
   const sidebarAgents = useAgentAvailability(workspaceId ?? workspaces[0]?.id ?? null, view !== 'settings')
   // 홈 (docs/sdlc/home/ FR-17) — 요약은 홈이 보일 때만, 배지는 늘. CLI 판정은 준비 단계가 끝나기 전·홈이 보일 때만 묻는다(FR-15)
-  const { summary: homeSummary, lastTarget: homeLastTarget, error: homeError } = useHome(view === 'home')
+  const { summary: homeSummary, error: homeError } = useHome(view === 'home')
   const homeCount = useHomeCount()
   const firstWorkspaceId = workspaces[0]?.id ?? null
   const [cliWanted, setCliWanted] = useState(false)
@@ -118,6 +124,31 @@ export default function App() {
     setCliWanted(view === 'home' && setupReachedCli && cliState !== 'ready')
   }, [view, setupReachedCli, cliState])
   const homeNow = useNow(view === 'home')
+  // 홈 대화 (docs/sdlc/home-conversation/) — 숨은 workspace와 그 폴더는 한 번 읽는다. 도크는 홈과 리포트 두 화면에 서고(FR-12·FR-15),
+  // 대화 목록은 그 둘이 보일 때만 읽는다. 펼침은 App이 쥐어 두 화면이 나눈다 — 처음에는 접혀 있다(FR-13a).
+  const { place: homePlace, error: homePlaceError } = useHomeWorkspace()
+  const homeId = homePlace?.workspace.id ?? null
+  const homeDockShown = view === 'home' || view === 'report'
+  const { runs: homeRuns, error: homeRunsError } = useRuns(homeDockShown ? homeId : null)
+  const homeWorkspaces = useMemo(() => (homePlace ? [homePlace.workspace] : []), [homePlace])
+  const [homeDockOpen, setHomeDockOpen] = useState(readHomeDockOpen)
+  // 홈 도크의 새 대화 칸에 채울 지시 — 리포트의 다듬기·인박스의 다시 실행이 세운다. workspace 도크의 `draftPrompt`와 따로 둔다:
+  // 하나를 나누면 보내지 않고 workspace 화면으로 간 순간 리포트 초안이 그 workspace의 새 대화 칸에 들어간다.
+  const [homeDraftPrompt, setHomeDraftPrompt] = useState('')
+
+  function changeHomeDockOpen(open: boolean) {
+    setHomeDockOpen(open)
+    writeHomeDockOpen(open)
+  }
+
+  /** 홈 대화를 연다 — 사이드바에 홈 workspace가 없으므로 workspace 화면이 아니라 홈 화면의 도크로 간다 (FR-14) */
+  function openHomeConversation(conversationId: string) {
+    setView('home')
+    setOpenItem(null)
+    setHomeDraftPrompt('')
+    changeHomeDockOpen(true)
+    setFocusConversationId(conversationId)
+  }
   // 인박스 행동(확인함/보관/이슈 연동) 실패도 조용히 삼키지 않는다 — inboxError와
   // 같은 자리에 뜨되, 방금 누른 행동의 오류가 더 급하므로 앞에 온다.
   const [inboxActionError, setInboxActionError] = useState<string | null>(null)
@@ -288,8 +319,13 @@ export default function App() {
     review(conversationIdOf(run), kind)
   }
 
-  /** 인박스 항목을 그 run의 workspace 화면으로 데려간다. */
+  /** 인박스 항목을 그 run의 workspace 화면으로 데려간다. 홈 대화면 홈 화면의 도크다 (home-conversation FR-14) */
   function goToRun(run: Run) {
+    if (run.workspaceId === homeId) {
+      setView('home')
+      changeHomeDockOpen(true)
+      return
+    }
     setWorkspaceId(run.workspaceId)
     setRepoId(null)
     setChips([])
@@ -331,6 +367,10 @@ export default function App() {
 
   /** 인박스의 "대화 열기"와 같은 길이다 — run 대신 (workspace, 대화 id)를 받는다 */
   function openReportConversation(targetWorkspaceId: string, conversationId: string) {
+    if (targetWorkspaceId === homeId) {
+      openHomeConversation(conversationId)
+      return
+    }
     setWorkspaceId(targetWorkspaceId)
     setRepoId(null)
     setChips([])
@@ -380,20 +420,6 @@ export default function App() {
     setTriageStart(true)
   }
 
-  /**
-   * 새 대화 카드 (FR-11, plan 개정 1) — App이 직접 보낸다. 입력은 카드가 `newRunInput`으로 만든 것이고(입력부와 같은 기본값),
-   * 보내고 나서야 "마지막으로 보낸 곳"을 찍는다(FR-7 — 실패한 전송은 찍지 않는다). 실패는 던져 카드의 오류 줄이 된다.
-   */
-  async function startFromHome(input: StartRunInput, target: HomeTarget) {
-    const run = await client.runs.start(input)
-    try {
-      await client.home.setLastTarget(target)
-    } catch {
-      // 대상 저장 실패는 대화를 막지 않는다 — 다음 번 카드가 폴백할 뿐이다
-    }
-    openReportConversation(target.workspaceId, conversationIdOf(run))
-  }
-
   /** 준비 단계 ① — 사이드바의 workspace 입력칸. 접혀 있으면 펼친다(접힌 줄에는 폼이 없다) */
   function focusWorkspaceAddFromHome() {
     if (sidebarCollapsed) { setSidebarCollapsed(false); writeSidebarCollapsed(false) }
@@ -417,21 +443,22 @@ export default function App() {
   }
 
   /**
-   * `agent에게 다듬기` (period-report FR-24) — 저장한 리포트 메모를 맥락에 담고 그 workspace의 새 대화 칸에 지시 초안을
-   * 채운다. **보내지 않는다** — agent·권한·모델은 사람이 보고 보낸다. workspace를 넘는 데이터가 agent에게 가는 길은
-   * 사람이 누른 이 버튼이 만든 메모 하나뿐이다.
+   * `agent에게 다듬기` (period-report FR-24, home-conversation FR-15a) — 리포트 화면 바닥의 홈 도크 새 대화 칸에 초안(지시 + 리포트의
+   * 마크다운)을 채운다. 펼치는 것은 도크가 `focusNew`를 받으며 한다. **보내지 않는다** — 사람이 읽고 고쳐 보낸다. 화면은 리포트에 남는다.
    */
-  function polishReport(memo: Memo) {
-    selectWorkspace(memo.workspaceId)
-    setChips([{ type: 'memo', id: memo.id, label: memo.title }])
-    setDraftPrompt(POLISH_PROMPT)
-    setDraftCwd(null)
+  function polishReport(draft: string) {
+    setHomeDraftPrompt(draft)
     setFocusConversationId(null)
     setFocusNew(true)
   }
 
   function restart(run: Run) {
     goToRun(run)
+    if (run.workspaceId === homeId) {
+      setHomeDraftPrompt(run.userPrompt)
+      setFocusConversationId(null)
+      return
+    }
     setDraftPrompt(run.userPrompt)
     // 원본이 돌던 디렉토리까지 함께 옮긴다. 이것이 빠지면 RunPanel이 첫 repo로
     // 실행해 엉뚱한 저장소가 편집된다 (권한 기본값이 edit이다).
@@ -559,11 +586,8 @@ export default function App() {
           {view === 'home' && (
             <HomePanel
               summary={homeSummary}
-              error={homeActionError ?? homeError}
-              lastTarget={homeLastTarget}
+              error={homeActionError ?? homeError ?? homePlaceError}
               setup={homeSetup}
-              // 사이드바·RunPanel과 같은 useWorkspaces 인스턴스 — 새 대화 카드의 기본값이 설정 화면에서 저장한 값을 본다
-              workspaces={workspaces}
               cli={{ statuses: cli.statuses, probes: cli.probes, probing: cli.probing }}
               now={homeNow}
               platform={typeof navigator === 'undefined' ? '' : navigator.platform}
@@ -575,7 +599,6 @@ export default function App() {
                 onTriage: triageFromHome,
                 onOpenIssues: selectWorkspace,
                 onOpenWorkspace: selectWorkspace,
-                onStartConversation: startFromHome,
                 onFocusWorkspaceAdd: focusWorkspaceAddFromHome,
                 onOpenRepoForm: openRepoFormFromHome,
                 onRefreshCli: cli.refresh,
@@ -615,6 +638,42 @@ export default function App() {
               onOpenConversation={openReportConversation}
               onOpenMemo={openFromReport('memo')}
               onPolish={polishReport}
+              // 초안을 채울 홈 도크가 아직 없으면 잠긴다 (home-conversation FR-15a)
+              canPolish={homePlace !== null}
+            />
+          )}
+          {/* 홈 대화의 도크 (FR-12) — 홈과 리포트 두 화면의 바닥이다(FR-15, 2026-11-03). JSX 자리가 하나라 두 화면을 오가도 같은
+              인스턴스로 남는다. 코드 칸 자리(slot Provider) 밖에 둔다 — 안에 두면 제목 줄에 파일·터미널·그림이 서는데 두 화면에는
+              열 자리가 없다. */}
+          {homeDockShown && homePlace && (
+            <Dock
+              variant={{ kind: 'home', cwd: homePlace.cwd, open: homeDockOpen, onOpenChange: changeHomeDockOpen }}
+              runs={homeRuns}
+              error={homeRunsError}
+              workspaceId={homePlace.workspace.id}
+              workspaces={homeWorkspaces}
+              repos={NO_REPOS}
+              reposError={null}
+              queue={queue}
+              queueError={limitError ?? queueError}
+              onChangeLimit={changeLimit}
+              chips={NO_CHIPS}
+              onRemoveChip={() => {}}
+              // 리포트의 다듬기와 인박스의 "다시 실행"(홈 대화)이 채운다 — workspace 도크의 초안과 따로다
+              draftPrompt={homeDraftPrompt}
+              draftCwd={null}
+              selectedRepoId={null}
+              onClearRepoFilter={() => {}}
+              focusConversationId={focusConversationId}
+              onFocusConsumed={() => { setFocusConversationId(null); setFocusNew(false); setFocusReply(false) }}
+              focusReply={focusReply}
+              // 다듬기가 새 대화 칸으로 옮긴다
+              focusNew={focusNew}
+              onRunStarted={() => setHomeDraftPrompt('')}
+              // 펼치면 하한에서 시작한다 — 위의 할 일을 밀어내지 않는다(spec §5의 6). 끌어서 넓힐 수 있고 그 높이는 남기지 않는다
+              compact
+              toggleRequest={false}
+              onToggleConsumed={() => {}}
             />
           )}
           {view === 'schedules' && (
@@ -630,6 +689,7 @@ export default function App() {
               items={inboxItems}
               workspaces={workspaces}
               reposByWorkspace={inboxRepos}
+              homeWorkspaceId={homeId}
               // 방금 누른 행동의 오류 → 목록을 못 읽음 → repo를 못 읽음(묶음이 `기타`로 가는 이유) 순이다
               error={inboxActionError ?? inboxError ?? inboxReposError}
               onReview={reviewConversation}
@@ -683,6 +743,7 @@ export default function App() {
               <CodePaneSlotContext.Provider value={codeSlot}>
                 <TitleBarSlotContext.Provider value={titleSlot}>
                   <Dock
+                    variant={{ kind: 'workspace' }}
                     runs={runs}
                     error={runsError}
                     workspaceId={workspaceId}

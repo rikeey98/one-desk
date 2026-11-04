@@ -1,9 +1,9 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { CHANNELS, EVENT_CHANNELS } from '@shared/channels'
 import type { OneDeskClient, Unsubscribe } from '@shared/client'
-import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, ConfigFile, AssetBody, FileSearchResult, ReportData, HomeSummary, HomeTarget, FileTreeResult, FileOpenResult, FileSaveResult, FileProbeResult, TerminalSession, TerminalTab, TerminalShellOption, TerminalData, TerminalExit, TerminalShellSetting, WslDistros } from '@shared/models'
+import type { Workspace, Repo, Issue, Memo, Run, QueueSnapshot, InboxCounts, McpStatus, PlanUsage, ItemChange, IssueUpdateResult, MemoUpdateResult, Asset, AssetUpdateResult, GlobalRoots, AgentPaths, CommandListResult, AgentStatuses, AgentProbes, AppInfo, ConfigFile, AssetBody, FileSearchResult, ReportData, HomeSummary, FileTreeResult, FileOpenResult, FileSaveResult, FileProbeResult, TerminalSession, TerminalTab, TerminalShellOption, TerminalData, TerminalExit, TerminalShellSetting, WslDistros } from '@shared/models'
 import type { RunEvent } from '@shared/events'
-import type { Proposal, Drawing, DrawingSummary, SaveSceneResult, ScheduleFireView, SchedulePreview, ScheduleView } from '@shared/models'
+import type { HomeConversationPlace, Proposal, Drawing, DrawingSummary, SaveSceneResult, ScheduleFireView, SchedulePreview, ScheduleView } from '@shared/models'
 
 /**
  * ipcRenderer.invoke가 실패하면 Electron이 오류를
@@ -32,7 +32,8 @@ const client: OneDeskClient = {
     checkAgents: (workspaceId) => call<AgentStatuses>(CHANNELS.workspacesCheckAgents, workspaceId),
     probeAgents: (workspaceId, refresh) =>
       call<AgentProbes>(CHANNELS.workspacesProbeAgents, workspaceId, refresh),
-    remove: (id) => call<void>(CHANNELS.workspacesRemove, id)
+    remove: (id) => call<void>(CHANNELS.workspacesRemove, id),
+    home: () => call<HomeConversationPlace>(CHANNELS.workspacesHome)
   },
   repos: {
     list: (workspaceId) => call<Repo[]>(CHANNELS.reposList, workspaceId),
@@ -72,9 +73,7 @@ const client: OneDeskClient = {
   },
   home: {
     summary: (input) => call<HomeSummary>(CHANNELS.homeSummary, input),
-    count: (input) => call<number>(CHANNELS.homeCount, input),
-    lastTarget: () => call<HomeTarget | null>(CHANNELS.homeLastTarget),
-    setLastTarget: (target) => call<HomeTarget>(CHANNELS.homeSetLastTarget, target)
+    count: (input) => call<number>(CHANNELS.homeCount, input)
   },
   proposals: {
     pending: (workspaceId) => call<Proposal[]>(CHANNELS.proposalsPending, workspaceId),

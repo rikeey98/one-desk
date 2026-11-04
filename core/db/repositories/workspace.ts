@@ -16,8 +16,30 @@ function blankToNull(value: string | null): string | null {
 
 export function createWorkspaceRepository(db: Database) {
   return {
+    /** 사람이 고르는 workspace — 홈 행은 없다 (docs/sdlc/home-conversation/ FR-3). 홈이 필요한 자리는 `home()`을 부른다 */
     list(): Workspace[] {
-      return db.select().from(workspace).orderBy(asc(workspace.name)).all()
+      return db.select().from(workspace).where(eq(workspace.kind, 'normal')).orderBy(asc(workspace.name)).all()
+    },
+
+    /** 홈 대화의 숨은 행. 둘 이상이면 가장 오래된 것이다(FR-2) — 정상 경로에서는 `ensureHome`이 하나만 만든다 */
+    home(): Workspace | null {
+      return db.select().from(workspace).where(eq(workspace.kind, 'home'))
+        .orderBy(asc(workspace.createdAt), asc(workspace.id)).limit(1).get() ?? null
+    },
+
+    /** 없으면 만든다 — 부팅이 부른다. 권한 기본값은 읽기 전용이다(FR-5가 그것만 받는다) */
+    ensureHome(): Workspace {
+      return db.transaction((tx) => {
+        const found = tx.select().from(workspace).where(eq(workspace.kind, 'home'))
+          .orderBy(asc(workspace.createdAt), asc(workspace.id)).limit(1).get()
+        if (found) return found
+        const now = Date.now()
+        const [row] = tx.insert(workspace).values({
+          id: randomUUID(), name: '홈', kind: 'home', defaultPermission: 'read_only', createdAt: now, updatedAt: now
+        }).returning().all()
+        if (!row) throw new Error('홈 workspace 생성에 실패했습니다')
+        return row
+      })
     },
 
     create(input: CreateWorkspaceInput): Workspace {

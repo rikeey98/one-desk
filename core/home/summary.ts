@@ -21,6 +21,12 @@ import type { LiveSnapshot } from './live'
  */
 export interface HomeSources {
   workspaces(): Workspace[]
+  /**
+   * 홈 대화의 숨은 workspace (`docs/sdlc/home-conversation/` plan §0-1·§0-9). `workspaces()`에 없으므로 따로 받는다 — 홈 대화의
+   * 답변 필요·실패는 할 일에, 도는 턴은 "지금 돌고 있는 것"에 `홈`으로 선다(실행 슬롯이 그 턴을 센다). 카드·타임라인·오늘 완료·준비
+   * 단계에는 없다. **필수다** — 선택이면 core의 한 줄을 빠뜨려도 조용히 컴파일되고 홈 대화의 질문이 할 일에서 사라진다.
+   */
+  home(): Workspace | null
   repos(workspaceId: string): Repo[]
   issues(workspaceId: string): Issue[]
   /** 최신순(`runs.list`) */
@@ -93,6 +99,11 @@ function badgeRuns(inbox: readonly Run[], workspaceIds: ReadonlySet<string>): Ar
   ]
 }
 
+/** 할 일 1·2가 세는 workspace — 보통 workspace와 홈. 요약과 배지가 같은 집합이어야 한다 */
+function badgeWorkspaceIds(workspaces: readonly Workspace[], home: Workspace | null): Set<string> {
+  return new Set([...workspaces.map((w) => w.id), ...(home ? [home.id] : [])])
+}
+
 interface WorkspaceData {
   workspace: Workspace
   repos: Repo[]
@@ -132,13 +143,18 @@ export function buildHomeSummary(src: HomeSources, input: HomeSummaryInput): Hom
     const repos = src.repos(workspace.id)
     return { workspace, repos, issues: src.issues(workspace.id), convs: conversationsOf(src.runs(workspace.id), repos) }
   })
+  const home = src.home()
+  // 홈 대화 — repo가 없으므로 repo 판정은 늘 null이다
+  const withHome: Array<Pick<WorkspaceData, 'workspace' | 'convs'>> = home
+    ? [...data, { workspace: home, convs: conversationsOf(src.runs(home.id), []) }]
+    : data
   const convById = new Map<string, { conv: Conv; workspace: Workspace }>()
-  for (const d of data) for (const conv of d.convs) convById.set(conv.id, { conv, workspace: d.workspace })
+  for (const d of withHome) for (const conv of d.convs) convById.set(conv.id, { conv, workspace: d.workspace })
 
   // 돌고 있는 것 · 대기
   const running: HomeRunning[] = []
   let queued = 0
-  for (const { workspace, convs } of data) {
+  for (const { workspace, convs } of withHome) {
     for (const conv of convs) {
       queued += conv.ordered.filter((r) => r.status === 'pending').length
       const turn = conv.active
@@ -156,7 +172,7 @@ export function buildHomeSummary(src: HomeSources, input: HomeSummaryInput): Hom
   const queue = src.queue()
 
   // 할 일
-  const wsIds = new Set(workspaces.map((w) => w.id))
+  const wsIds = badgeWorkspaceIds(workspaces, home)
   const todos: HomeTodo[] = badgeRuns(src.inbox(), wsIds).map(({ run, kind }): HomeTodo => {
     const conversationId = run.rootRunId ?? run.id
     // 요약이 읽은 run 목록에 없는 대화(그 사이 지워짐)도 줄은 남긴다(제목은 첫 지시) — `homeCount`가 같은 집합을 세야 배지와 줄 수가 같다
@@ -235,9 +251,9 @@ export function buildHomeSummary(src: HomeSources, input: HomeSummaryInput): Hom
  * 홈 배지 — `todos.length`와 같은 수(FR-4·FR-17). 요약 전체를 만들지 않고 인박스와 이슈만 읽는다 — workspace 화면에 있을
  * 때도 매 이슈 변경마다 모든 workspace의 run을 긁지 않기 위해서다. 집합은 `buildHomeSummary`의 할 일과 같은 함수에서 나온다.
  */
-export function homeCount(src: Pick<HomeSources, 'workspaces' | 'issues' | 'inbox'>, input: Pick<HomeSummaryInput, 'now'>): number {
+export function homeCount(src: Pick<HomeSources, 'workspaces' | 'home' | 'issues' | 'inbox'>, input: Pick<HomeSummaryInput, 'now'>): number {
   const workspaces = src.workspaces()
-  const wsIds = new Set(workspaces.map((w) => w.id))
+  const wsIds = badgeWorkspaceIds(workspaces, src.home())
   const data = workspaces.map((workspace) => ({ workspace, repos: [], issues: src.issues(workspace.id), convs: [] }))
   return badgeRuns(src.inbox(), wsIds).length + issueTodos(data, input.now).length
 }

@@ -23,6 +23,8 @@ const APP_ROOT = resolve(HERE, '..')
 // 저장소 루트에서 부를 때만 맞고, 다른 디렉토리에서 vitest를 돌리면 조용히 어긋난다.
 const FAKE_AGENT = resolve(APP_ROOT, 'core/runner/fixtures/fake-claude.mjs')
 const ARTIFACTS = resolve(HERE, 'artifacts')
+/** 창을 화면 밖에 띄워 도는 동안 사람의 화면을 가로채지 않는다. 창을 눈으로 보며 고칠 때는 ONE_DESK_E2E_SHOW=1 */
+const BACKGROUND_WINDOW = process.env['ONE_DESK_E2E_SHOW'] ? [] : ['-r', resolve(HERE, 'background-window.cjs')]
 
 /** e2e가 running 상태를 관찰할 수 있을 만큼만 결과를 늦춘다. */
 const FAKE_DELAY_MS = '1500'
@@ -90,7 +92,7 @@ async function launchElectron(
   let app: ElectronApplication | undefined
   try {
     app = await _electron.launch({
-      args: [APP_ROOT],
+      args: [...BACKGROUND_WINDOW, APP_ROOT],
       // env는 물려받는 것이 아니라 교체된다. PATH가 사라지면 preflight가 claude를
       // 찾지 못해 모든 run이 프리플라이트 실패로 끝난다.
       // extraEnv는 ONE_DESK_FAKE_DELAY_MS 기본값 뒤에 얹혀 그것을 덮어쓸 수 있다 —

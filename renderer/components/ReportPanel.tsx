@@ -25,8 +25,13 @@ export function initialReportQuery(now: number): ReportQuery {
   return { preset: 'last-week', period: presetRange('last-week', now), workspaceIds: null }
 }
 
-/** `agent에게 다듬기`가 새 대화 칸에 채우는 지시 (FR-24). 보내지는 않는다 */
-export const POLISH_PROMPT = '담은 리포트 메모를 바탕으로 팀에 공유할 주간 보고를 써 줘. 완료한 일, 진행 중인 일, 막힌 것 순서로.'
+/** `agent에게 다듬기`가 홈 대화의 새 대화 칸에 채우는 지시 (FR-24, home-conversation FR-15a). 보내지는 않는다 */
+export const POLISH_PROMPT = '아래 리포트를 바탕으로 팀에 공유할 보고를 써 줘. 완료한 일, 진행 중인 일, 막힌 것 순서로. 리포트에 없는 것은 필요하면 직접 찾아 읽어.'
+
+/** 다듬기의 초안 — 지시 다음에 지금 보이는 리포트의 마크다운(`마크다운 복사`와 같은 글)이 온다 */
+export function polishDraft(markdown: string): string {
+  return `${POLISH_PROMPT}\n\n${markdown}`
+}
 
 const DONE_MS = 1500
 
@@ -47,7 +52,7 @@ function itemCounts(data: ReportData | null): Record<string, number> | null {
  */
 export function ReportPanel({
   workspaces, query, onQueryChange, targetWorkspaceId,
-  onOpenIssue, onOpenConversation, onOpenMemo, onPolish
+  onOpenIssue, onOpenConversation, onOpenMemo, onPolish, canPolish
 }: {
   workspaces: Workspace[]
   query: ReportQuery
@@ -57,8 +62,13 @@ export function ReportPanel({
   onOpenIssue: (workspaceId: string, issueId: string) => void
   onOpenConversation: (workspaceId: string, conversationId: string) => void
   onOpenMemo: (workspaceId: string, memoId: string) => void
-  /** 저장한 메모를 맥락에 담고 새 대화 칸을 연다 (FR-24) */
-  onPolish: (memo: Memo) => void
+  /**
+   * 초안을 홈 대화의 새 대화 칸에 채운다 (`docs/sdlc/home-conversation/` FR-15a). 메모를 만들지 않는다 — 리포트는 workspace를 넘는
+   * 것이라 한 workspace를 고를 이유가 없다.
+   */
+  onPolish: (draft: string) => void
+  /** 홈 대화의 자리를 읽었는가 — 못 읽었으면 초안을 채울 곳이 없어 다듬기가 잠긴다. **필수다**(App 한 줄을 지우면 늘 열린다) */
+  canPolish: boolean
 }) {
   const client = useClient()
   const [tab, setTab] = useState<ReportTab>(readTab)
@@ -166,9 +176,8 @@ export function ReportPanel({
     }
   }
 
-  async function polish() {
-    const memo = await saveMemo()
-    if (memo) onPolish(memo)
+  function polish() {
+    if (shown) onPolish(polishDraft(toMarkdown(shown, include)))
   }
 
   const ready = shown !== null && !isEmptyReport(shown)
@@ -207,7 +216,7 @@ export function ReportPanel({
             {copied === 'done' ? <IconCheck /> : <IconCopy />}
             {copied === 'done' ? '복사함' : '마크다운 복사'}
           </button>
-          <button type="button" className="report-btn" disabled={!ready || !target || busy} onClick={() => void polish()}>
+          <button type="button" className="report-btn" disabled={!ready || !canPolish} onClick={polish}>
             <IconSparkle />agent에게 다듬기
           </button>
           <button type="button" className="report-btn report-btn-primary" disabled={!ready || !target || busy} onClick={() => void saveMemo()}>

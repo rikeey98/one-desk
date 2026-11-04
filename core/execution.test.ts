@@ -46,6 +46,8 @@ interface SetupOptions {
   files?: Pick<FileService, 'resolveMentions'>
   /** WSL 런처 (wsl-support FR-10). 없으면 WSL repo의 run은 시작 전에 실패한다 */
   wsl?: ExecutionOptions['wsl']
+  /** 홈 workspace를 만들고 실행 서비스에 넘긴다 (docs/sdlc/home-conversation/) */
+  home?: boolean
 }
 
 function setup(options: SetupOptions = {}) {
@@ -54,6 +56,8 @@ function setup(options: SetupOptions = {}) {
   const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
   const repoId = createRepoRepository(db).create({ workspaceId, name: 'api', path: process.cwd() }).id
   const issueId = createIssueRepository(db).create({ workspaceId, title: '토큰 버그', body: '설명' }).id
+  const homeId = options.home ? createWorkspaceRepository(db).ensureHome().id : null
+  const homeCwd = mkdtempSync(resolve(tmpdir(), 'one-desk-home-'))
   const real = createRunRepository(db)
   const runs = options.wrapRuns ? options.wrapRuns(real) : real
   const updates: Run[] = []
@@ -72,6 +76,7 @@ function setup(options: SetupOptions = {}) {
     ...(options.verifyRunnable ? { verifyRunnable: options.verifyRunnable } : {}),
     ...(options.files ? { files: options.files } : {}),
     ...(options.wsl ? { wsl: options.wsl } : {}),
+    home: homeId ? { workspaceId: homeId, cwd: homeCwd } : null,
     resolveExecutable: options.preflight ?? (async () => ({ ok: true, executable: process.execPath })),
     onRunUpdate: (run) => {
       updates.push(run)
@@ -81,7 +86,7 @@ function setup(options: SetupOptions = {}) {
   })
   // 단언은 감싸지 않은 저장소로 읽는다 — 감싼 쪽이 던지게 만든 테스트에서
   // 단언까지 같이 넘어져 실패 원인이 흐려진다.
-  return { db, service, runs: real, queue, updates, workspaceId, repoId, issueId, logDir }
+  return { db, service, runs: real, queue, updates, workspaceId, repoId, issueId, logDir, homeId, homeCwd }
 }
 
 describe('ExecutionService', () => {
@@ -1405,6 +1410,7 @@ describe('ExecutionService', () => {
           db: running.db,
           runs: running.runs,
           queue: createRunQueue({ limit: 3 }),
+          home: null,
           resolveExecutable: async () => ({ ok: true, executable: process.execPath }),
           manager: {
             logPathFor: (id: string) => resolve(tmpdir(), `one-desk-restart-${id}.jsonl`),
@@ -2282,5 +2288,62 @@ describe('정기 실행의 내부 인자 (docs/sdlc/scheduled-runs/ FR-18)', () 
       workspaceId: ctx3.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
       permission: 'read_only', userPrompt: '또', context: [], parentRunId: first.id
     }, { title: 'x' })).rejects.toThrow(/새 대화/)
+  })
+})
+
+describe('홈 대화의 실행 규칙 (docs/sdlc/home-conversation/ FR-5·FR-6·FR-7a)', () => {
+  let h: ReturnType<typeof setup>
+  beforeEach(() => { h = setup({ home: true, mcp: fakeHost().host }) })
+  afterEach(() => {
+    rmSync(h.logDir, { recursive: true, force: true })
+    rmSync(h.homeCwd, { recursive: true, force: true })
+  })
+
+  const startHome = (over: Partial<Parameters<typeof h.service.start>[0]> = {}) => h.service.start({
+    workspaceId: h.homeId!, agentKind: 'claude-code', cwd: h.homeCwd,
+    permission: 'read_only', userPrompt: '내가 뭐 하고 있었지', context: [], ...over
+  })
+
+  it.each(['edit', 'full'] as const)('홈 run은 %s 권한이면 행을 만들기 전에 던진다 — start', async (permission) => {
+    await expect(startHome({ permission })).rejects.toThrow('홈 대화는 읽기 전용으로만')
+    expect(h.runs.list(h.homeId!)).toEqual([])
+  })
+
+  it('홈 run은 홈 폴더가 아닌 cwd면 행을 만들기 전에 던진다', async () => {
+    await expect(startHome({ cwd: process.cwd() })).rejects.toThrow('홈 대화는 홈 폴더에서만')
+    expect(h.runs.list(h.homeId!)).toEqual([])
+  })
+
+  it('홈 run을 이을 때도 읽기 전용이 아니면 행을 만들기 전에 던진다 — resume', async () => {
+    const first = await startHome()
+    await vi.waitFor(() => expect(h.runs.get(first.id).endedAt).toBeTypeOf('number'))
+    await expect(h.service.resume({ conversationId: first.id, permission: 'edit', userPrompt: '고쳐', context: [] }))
+      .rejects.toThrow('홈 대화는 읽기 전용으로만')
+    expect(h.runs.list(h.homeId!)).toHaveLength(1)
+  })
+
+  it('홈 턴에는 이슈화 안내가 붙지 않는다 — 새 대화도 이어 가는 턴도 (FR-7a)', async () => {
+    const first = await startHome()
+    await vi.waitFor(() => expect(h.runs.get(first.id).endedAt).toBeTypeOf('number'))
+    expect(h.runs.get(first.id).assembledPrompt).not.toContain('propose_issue')
+    const next = await h.service.resume({ conversationId: first.id, permission: 'read_only', userPrompt: '더', context: [] })
+    await vi.waitFor(() => expect(h.runs.get(next.id).endedAt).toBeTypeOf('number'))
+    expect(h.runs.get(next.id).assembledPrompt).not.toContain('propose_issue')
+    // 같은 서비스의 보통 workspace 대화는 평소대로 받는다
+    const normal = await h.service.start({
+      workspaceId: h.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'read_only', userPrompt: '고쳐줘', context: []
+    })
+    await vi.waitFor(() => expect(h.runs.get(normal.id).endedAt).toBeTypeOf('number'))
+    expect(h.runs.get(normal.id).assembledPrompt).toContain('propose_issue')
+  })
+
+  it('보통 workspace는 홈 규칙을 받지 않는다 — 편집 허용이 그대로 뜬다', async () => {
+    const run = await h.service.start({
+      workspaceId: h.workspaceId, agentKind: 'claude-code', cwd: process.cwd(),
+      permission: 'edit', userPrompt: '고쳐줘', context: []
+    })
+    await vi.waitFor(() => expect(h.runs.get(run.id).endedAt).toBeTypeOf('number'))
+    expect(h.runs.get(run.id).permission).toBe('edit')
   })
 })

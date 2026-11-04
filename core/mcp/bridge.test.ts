@@ -33,7 +33,7 @@ beforeEach(() => {
       issues: createIssueRepository(db),
       memos: createMemoRepository(db),
       runs: createRunRepository(db),
-      proposals: createProposalRepository(db, () => {})
+      proposals: createProposalRepository(db, () => {}), workspaces: createWorkspaceRepository(db)
     },
     configDir: resolve(dir, 'mcp'),
     execPath: process.execPath,

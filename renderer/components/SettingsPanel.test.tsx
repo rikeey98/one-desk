@@ -24,7 +24,7 @@ function makeWorkspace(over: Partial<Workspace> = {}): Workspace {
   return {
     id: 'w1', name: 'ws1', description: null, defaultAgentKind: 'claude-code',
     defaultModelClaude: null, defaultModelOpencode: null, defaultEffortClaude: null, defaultVariantOpencode: null, defaultPermission: 'edit',
-    claudePath: null, opencodePath: null, createdAt: 0, updatedAt: 0, ...over
+    claudePath: null, opencodePath: null, kind: 'normal', createdAt: 0, updatedAt: 0, ...over
   }
 }
 

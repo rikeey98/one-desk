@@ -69,6 +69,7 @@
 - **FR-7** `home.lastTarget` 읽기/쓰기: `core.home.lastTarget()`·`setLastTarget({ workspaceId, repoId })`. **쓰는 자리는 실행 서비스의
   `start`가 아니라 렌더러의 전송 성공 콜백이다** — 자동 재시도·다시 보내기·MCP가 만든 run이 "마지막으로 보낸 곳"을 바꾸면 안 된다.
   읽을 때 workspace나 repo가 없으면(지워짐) null을 주고 화면이 폴백한다.
+  **2026-11-03 걷었다** — 새 대화 카드(FR-11)와 함께 사라졌다(`docs/sdlc/home-conversation/` spec §6).
 
 ### (B) 렌더러 — 할 일 목록
 
@@ -99,6 +100,7 @@
   `assemble.ts`가 보낼 때 해석하고 슬래시는 입력 중의 피커뿐이라 RunPanel을 거칠 이유가 없다. 홈 카드는 `/`·`@` 피커가 없다(§6의 2).
   비어 있으면 `실행`이 잠기고 실패는 카드의 오류 줄이다.
   대상 기본값은 FR-7, 없으면 첫 workspace의 첫 repo, repo가 하나도 없으면 카드 대신 "repo를 등록하세요" 한 줄.
+  **2026-11-03 걷었다** — 홈에서 보내는 대화는 홈 도크 하나다(`docs/sdlc/home-conversation/` spec FR-13·§6, 사용자 결정).
 - **FR-12** 제목 줄 범위는 `홈`, `document.title`은 `홈 — one-desk`(ux-polish FR-6의 표에 한 줄). 사이드바 `홈`은 인박스 **위**,
   접힌 사이드바에서도 타일이고 배지는 FR-4. 단축키 표(`SHORTCUTS`)에 **`Ctrl+Shift+H` 홈**을 더한다 — `Ctrl+H`는 브라우저·Electron의
   기록이라 피한다(§6의 3).

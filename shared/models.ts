@@ -122,8 +122,18 @@ export interface Workspace {
   defaultPermission: Permission
   claudePath: string | null
   opencodePath: string | null
+  /** 홈 대화의 숨은 행이면 'home' (docs/sdlc/home-conversation/ FR-2). 렌더러는 이것이 아니라 id로 가른다(plan §5-1) */
+  kind: WorkspaceKind
   createdAt: number
   updatedAt: number
+}
+
+export type WorkspaceKind = 'normal' | 'home'
+
+/** 홈 대화의 자리 (docs/sdlc/home-conversation/ FR-6) — 숨은 workspace 행과 그 대화가 뜨는 빈 폴더 */
+export interface HomeConversationPlace {
+  workspace: Workspace
+  cwd: string
 }
 
 export interface Repo {
@@ -1071,12 +1081,6 @@ export interface HomeSummaryInput {
   now: number
   /** 이 장비의 로컬 자정 — 렌더러가 넘긴다. core는 시간대를 모른다(FR-5) */
   dayStart: number
-}
-
-/** 새 대화 카드의 대상 — `app_setting`의 `home.lastTarget` (FR-7) */
-export interface HomeTarget {
-  workspaceId: string
-  repoId: string
 }
 
 // ---- 정기 실행 (`docs/sdlc/scheduled-runs/`) ----

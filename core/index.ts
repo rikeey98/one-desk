@@ -21,7 +21,7 @@ import { describeCommands } from './commands/describe'
 import type { GlobalRoots } from './db/repositories/setting'
 import type {
   UpdateRepoInput, AppPaths, ConfigFile, FileSearchInput, BuildReportInput, ReportData, FileTreeInput, FileRef, FileSaveInput
-, AgentEnv, WslDistros, HomeSummary, HomeSummaryInput, HomeTarget } from '@shared/models'
+, AgentEnv, WslDistros, HomeSummary, HomeSummaryInput, HomeConversationPlace } from '@shared/models'
 import { PANEL_KINDS, type PanelScope } from '@shared/panelWindow'
 import { createFileService } from './files/service'
 import { createTerminalService, type SpawnPty } from './terminal/service'
@@ -65,6 +65,7 @@ import {
   notifyingIssues, notifyingMemos, notifyingAssets, notifyingRepos, notifyingWorkspaces,
   announcingAssignedConversations, notifyingProposals, notifyingDrawings, notifyingSchedules, type Notify
 } from './changes'
+import { lockHomeCreate, lockHomeWorkspace, type IsHome } from './homeGuard'
 import { createScheduleRepository } from './db/repositories/schedule'
 import { createScheduler } from './schedules/scheduler'
 import { presentContext, validateScheduleInput } from './schedules/input'
@@ -172,18 +173,28 @@ export function createCore(opts: CoreOptions) {
   const notify: Notify = (change) => {
     try { emitter.emit(ITEM_CHANGED, change) } catch (err) { onError('바뀜 알림 실패', err) }
   }
-  const workspaces = notifyingWorkspaces(createWorkspaceRepository(db), notify)
+  /**
+   * 홈 대화가 사는 숨은 workspace (docs/sdlc/home-conversation/ FR-2·FR-6). 부팅에 없으면 만들고 그 id는 앱이 사는 동안 같다. 저장소의
+   * `list()`는 홈을 주지 않으므로 사이드바·리포트·홈 카드·asset 스캔은 손대지 않아도 홈을 안 본다(FR-3). 홈 행에 손대는 길은 아래의 가드가
+   * 막는다(FR-4) — 감싼 저장소를 IPC 표면과 MCP `deps`가 같이 받는다(바뀜 알림과 같은 규칙).
+   */
+  const workspaceRows = createWorkspaceRepository(db)
+  const homeWorkspaceId = workspaceRows.ensureHome().id
+  const isHome: IsHome = (workspaceId) => workspaceId === homeWorkspaceId
+  const homeCwd = join(opts.dataDir, 'home-conversation')
+  mkdirSync(homeCwd, { recursive: true })
+  const workspaces = lockHomeWorkspace(notifyingWorkspaces(workspaceRows, notify), isHome)
   const runs = createRunRepository(db)
   // 할당된 대화의 이슈 이름·삭제를 대화 화면이 곧바로 따라간다 (docs/sdlc/conversation-issue/ FR-26).
   // 알림이 던져도 쓰기는 이미 끝났다 — notify와 같이 삼킨다.
-  const issues = announcingAssignedConversations(
+  const issues = lockHomeCreate(announcingAssignedConversations(
     notifyingIssues(createIssueRepository(db), notify),
     runs,
     (run) => {
       try { emitter.emit(RUN_UPDATE, run) } catch (err) { onError('대화 갱신 알림 실패', err) }
     }
-  )
-  const memos = notifyingMemos(createMemoRepository(db), notify)
+  ), 'create', isHome)
+  const memos = lockHomeCreate(notifyingMemos(createMemoRepository(db), notify), 'create', isHome)
   // repo의 그림 (docs/sdlc/drawings/ FR-4·FR-6). IPC 표면만 받는다 — MCP deps에는 넘기지 않는다: agent는 그림을 못 본다(intent 결정 4)
   const drawings = notifyingDrawings(createDrawingRepository(db), notify)
   // agent의 제안 (docs/sdlc/agent-proposals/ FR-12) — 감싼 것을 MCP deps와 IPC 표면이 같이 받는다. 받기는 맨 저장소로(FR-18)
@@ -192,11 +203,11 @@ export function createCore(opts: CoreOptions) {
   const proposalService = createProposalService({
     db, runs, issues: createIssueRepository(db), proposals: proposalRows, repos: createRepoRepository(db)
   })
-  const repos = notifyingRepos(createRepoRepository(db), notify)
+  const repos = lockHomeCreate(notifyingRepos(createRepoRepository(db), notify), 'create', isHome)
   // 정기 실행 (docs/sdlc/scheduled-runs/). 감싼 것을 스케줄러와 IPC 표면이 같이 받는다 — 스케줄러의 기록·끄기도 화면에 닿는다.
   // **MCP deps에는 넘기지 않는다**(FR-25) — workspace를 넘는 목록이다.
   const schedules = notifyingSchedules(createScheduleRepository(db, onError), notify)
-  const assetRows = notifyingAssets(createAssetRepository(db), notify)
+  const assetRows = lockHomeCreate(notifyingAssets(createAssetRepository(db), notify), 'createAuthored', isHome)
   const settings = createSettingRepository(db, opts.homeDir)
   /**
    * 실행 파일 경로의 유일한 해석 자리 — 실행·설정 화면·슬래시 커맨드·인증 확인이 전부 여기를 탄다.
@@ -350,6 +361,8 @@ export function createCore(opts: CoreOptions) {
       for (const w of workspaces.list()) notify({ workspaceId: w.id, kind: 'asset' })
     },
     async scanWorkspace(workspaceId: string) {
+      // 홈에는 repo가 없지만 스캔은 글로벌 루트를 그 workspace 아래에 쌓는다 — 홈 run이 끝날 때마다 홈 행에 asset이 생긴다 (plan §0-2)
+      if (isHome(workspaceId)) return
       await rawAssetService.scanWorkspace(workspaceId)
       notify({ workspaceId, kind: 'asset' })
     },
@@ -368,7 +381,7 @@ export function createCore(opts: CoreOptions) {
   runs.reapStale()
 
   const mcp = createMcpHost({
-    deps: { repos, issues, memos, runs, proposals },
+    deps: { repos, issues, memos, runs, proposals, workspaces },
     configDir: join(opts.dataDir, 'mcp'),
     execPath: opts.execPath ?? process.execPath,
     // 리눅스 패키지에서는 앱이 뜬 LD_LIBRARY_PATH — agent가 물려준 사용자의 값으로는 브리지(Electron)가 못 뜰 수 있다(linux-launch-env)
@@ -501,6 +514,8 @@ export function createCore(opts: CoreOptions) {
     files,
     // WSL run의 런처 — 이 한 줄이 빠지면 WSL repo의 run이 "런처가 배선되지 않았습니다"로 끝난다.
     wsl: { launcherFor: wslLauncherFor },
+    // 홈 run은 읽기 전용 + 홈 폴더로만 (home-conversation FR-5·FR-6)
+    home: { workspaceId: homeWorkspaceId, cwd: homeCwd },
     // 설정 화면·probe와 같은 판정이다 (wsl-support FR-7·13)
     resolveExecutable: (agentKind, workspaceId, cwd) => preflightFor(agentKind, workspaceId, cwd),
     verifyRunnable: async (agentKind, input) => {
@@ -578,6 +593,7 @@ export function createCore(opts: CoreOptions) {
   function homeSources(): HomeSources {
     return {
       workspaces: () => workspaces.list(),
+      home: () => workspaces.home(),
       repos: (workspaceId) => repos.list(workspaceId),
       issues: (workspaceId) => issues.list({ workspaceId }),
       runs: (workspaceId) => runs.list(workspaceId),
@@ -599,6 +615,12 @@ export function createCore(opts: CoreOptions) {
      */
     workspaces: {
       ...workspaces,
+
+      /** 홈 대화의 자리 — 숨은 행과 대화가 뜨는 빈 폴더 (FR-6, plan §0-3). 렌더러는 이것으로 홈 도크를 그리고 홈 run의 cwd를 안다 */
+      home(): HomeConversationPlace {
+        mkdirSync(homeCwd, { recursive: true })
+        return { workspace: workspaceRows.ensureHome(), cwd: homeCwd }
+      },
 
       /** 지우기 전에 그 아래 repo의 셸을 끝낸다 — 지우고 나면 repo 목록이 cascade로 사라진다 (terminal-spec FR-10) */
       remove(id: string) {
@@ -895,22 +917,12 @@ export function createCore(opts: CoreOptions) {
     },
 
     /**
-     * 홈 요약 (`docs/sdlc/home/` FR-1·FR-7·FR-17). workspace를 넘어 읽는 둘째 길이고 `reports`와 같은 규칙이다 —
+     * 홈 요약 (`docs/sdlc/home/` FR-1·FR-17). workspace를 넘어 읽는 둘째 길이고 `reports`와 같은 규칙이다 —
      * MCP `deps`에는 넘기지 않는다. 판정은 `core/home/summary.ts`의 순수 함수고 여기서는 소스만 잇는다.
      */
     home: {
       summary: (input: HomeSummaryInput): HomeSummary => buildHomeSummary(homeSources(), input),
-      count: (input: Pick<HomeSummaryInput, 'now'>): number => homeCount(homeSources(), input),
-      /** 저장값의 workspace·repo가 지금 있을 때만 — 지워졌으면 null이고 화면이 폴백한다(FR-7) */
-      lastTarget(): HomeTarget | null {
-        const saved = settings.homeLastTarget()
-        if (!saved) return null
-        if (!workspaces.list().some((w) => w.id === saved.workspaceId)) return null
-        if (!repos.list(saved.workspaceId).some((r) => r.id === saved.repoId)) return null
-        return saved
-      },
-      /** 렌더러가 전송에 성공했을 때만 부른다 — 자동 재시도·MCP가 만든 run은 "마지막으로 보낸 곳"이 아니다(FR-7) */
-      setLastTarget: (target: HomeTarget): HomeTarget => settings.setHomeLastTarget(target)
+      count: (input: Pick<HomeSummaryInput, 'now'>): number => homeCount(homeSources(), input)
     },
 
     /** 테스트용. MCP 서버가 아직 안 떴으면 null. */

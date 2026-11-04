@@ -59,17 +59,17 @@ function trailingJsonObject(stdout: string): Record<string, unknown> | null {
  */
 async function claudeAuth(executable: string, run: RunCli): Promise<AgentAuth> {
   const out = await run({ executable, args: ['auth', 'status', '--json'], timeoutMs: TIMEOUT_MS })
+  if (out.failure) return unknown(`인증 상태를 조회하지 못했습니다 (${out.failure})`)
 
-  // 옛 CLI에는 이 서브커맨드가 없다. 그것을 "로그인 안 됨"으로 단정하면 멀쩡히
-  // 돌아가는 설치본에 빨간 줄이 뜬다 — 모르는 것은 모른다고 적는다(FR-3).
-  const problem = launchProblem(out)
-  if (problem) return unknown(`인증 상태를 조회하지 못했습니다 (${problem})`)
-
+  // 로그아웃한 CLI는 loggedIn: false를 찍고 exit 1로 끝난다(2.1.296부터 실측) — 그래서 종료 코드보다 JSON을 먼저 본다.
+  // 옛 CLI에는 이 서브커맨드가 없어 JSON 없이 실패한다. 그것을 "로그인 안 됨"으로 단정하면 멀쩡히 돌아가는 설치본에
+  // 빨간 줄이 뜬다 — 모르는 것은 모른다고 적는다(FR-3).
   const record = trailingJsonObject(out.stdout)
-  if (!record) return unknown('인증 상태의 출력을 읽지 못했습니다 (JSON이 아닙니다)')
-  const loggedIn = record['loggedIn']
-  if (typeof loggedIn !== 'boolean') {
-    return unknown('인증 상태의 출력에 loggedIn이 없습니다')
+  const loggedIn = record?.['loggedIn']
+  if (record === null || typeof loggedIn !== 'boolean') {
+    const problem = launchProblem(out)
+    if (problem) return unknown(`인증 상태를 조회하지 못했습니다 (${problem})`)
+    return unknown(record ? '인증 상태의 출력에 loggedIn이 없습니다' : '인증 상태의 출력을 읽지 못했습니다 (JSON이 아닙니다)')
   }
 
   if (!loggedIn) {

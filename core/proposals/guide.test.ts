@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { shouldProposeIssue } from './guide'
 
 const base = {
-  mcp: true, assignedIssueId: null, state: { pending: false, declined: false }, fromSchedule: false
+  mcp: true, assignedIssueId: null, state: { pending: false, declined: false }, fromSchedule: false, home: false
 }
 
 describe('shouldProposeIssue (agent-proposals spec FR-15)', () => {
@@ -28,5 +28,9 @@ describe('shouldProposeIssue (agent-proposals spec FR-15)', () => {
 
   it('정기 실행이 낸 턴에는 붙이지 않는다 — 매시간 새 대화마다 배너가 서지 않게 (scheduled-runs FR-22)', () => {
     expect(shouldProposeIssue({ ...base, fromSchedule: true })).toBe(false)
+  })
+
+  it('홈 대화의 턴에는 붙이지 않는다 — 홈에는 이슈가 생길 수 없고 그 MCP 범위에 propose_issue가 없다 (home-conversation FR-7a)', () => {
+    expect(shouldProposeIssue({ ...base, home: true })).toBe(false)
   })
 })

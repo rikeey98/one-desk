@@ -344,6 +344,9 @@ body { margin: 0; background: var(--bg); color: var(--text); }
    않는다(Dock이 style을 떼어 낸다). */
 .dock.dock-max { flex: 1 1 auto; min-height: 0; }
 .main:has(> .dock-max) > .columns { display: none; }
+/* 홈·리포트 화면에서도 최대화한 도크가 본문을 쓴다 — 홈 대화 (docs/sdlc/home-conversation/ FR-12·FR-15) */
+.main:has(> .dock-max) > .home,
+.main:has(> .dock-max) > .report-panel { display: none; }
 .dock-resizer { flex: 0 0 auto; height: 7px; margin: -1px -1px 0; cursor: ns-resize; background: transparent; touch-action: none; user-select: none; }
 .dock-resizer:hover { background: var(--accent-bg-strong); }
 /* 헤더는 토글 · 슬롯 표시기 · 최대화다 (FR-37). 취소는 없다 — 멈추는 자리는 대화 헤더·입력부·
@@ -353,6 +356,10 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 /* 흐림은 opacity가 아니라 --text-secondary다(FR-47). 접힌 도크에서는 꺾쇠가 위를 향한다 —
    돌아가 있을 뿐 움직이지 않는다(장식 모션 금지). */
 .dock-toggle { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; border: 0; border-radius: 5px; padding: 2px 5px; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: .6875rem; font-weight: 700; transition: background .12s, color .12s; }
+/* 홈 도크의 안내 (home-conversation FR-12·13a) — 버튼이 아니라 글자다. 좁으면 뒤에서부터 잘린다 */
+.dock-home-note { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; font-size: .6875rem; color: var(--text-muted); }
+.dock-home-badge { flex: 0 0 auto; border: 1px solid var(--border); border-radius: 9px; padding: 0 6px; color: var(--text-secondary); font-weight: 600; }
+.dock-home-count { overflow: hidden; text-overflow: ellipsis; }
 .dock-toggle:hover { background: var(--bg-hover); color: var(--text); }
 .dock-toggle[aria-expanded="false"] .dock-toggle-icon { transform: rotate(180deg); }
 .dock-max-toggle { margin-left: auto; }
@@ -1621,11 +1628,11 @@ button.report-flow-line:hover { background: var(--bg-muted); }
 .home-row-scope { display: flex; gap: 10px; font-size: .6875rem; color: var(--text-muted); }
 .home-row-scope .path-text { font-family: var(--font-mono); }
 .home-row-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; margin-top: 2px; }
-.home-row-actions button, .home-step-actions button, .home-send { border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: .75rem; padding: 4px 10px; transition: background .12s, color .12s; }
+.home-row-actions button, .home-step-actions button { border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: .75rem; padding: 4px 10px; transition: background .12s, color .12s; }
 .home-row-actions button:hover, .home-step-actions button:hover { background: var(--bg-hover); color: var(--text); }
 .home-primary, .home-row-actions .home-primary, .home-step-actions .home-primary { background: var(--accent); border-color: var(--accent-strong); color: var(--on-accent); font-weight: 600; }
 .home-primary:hover, .home-row-actions .home-primary:hover { background: var(--accent-strong); color: var(--on-accent); }
-.home-primary:disabled, .home-send:disabled { background: var(--bg-muted); border-color: var(--border); color: var(--text-muted); cursor: default; }
+.home-primary:disabled { background: var(--bg-muted); border-color: var(--border); color: var(--text-muted); cursor: default; }
 .home-row-icon { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0 !important; }
 .home-row-icon svg { width: 13px; height: 13px; }
 /* 상태 점 — 답변 필요·판정 없음은 홈에만 있는 두 칸이다. 색은 기존 토큰. */
@@ -1668,14 +1675,6 @@ button.report-flow-line:hover { background: var(--bg-muted); }
 .home-done-list li { display: flex; align-items: center; gap: 8px; }
 .home-done-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-done-list .path-text { font-family: var(--font-mono); font-size: .6875rem; color: var(--text-muted); }
-/* 새 대화 카드 — 입력부(.composer-card)와 같은 결 */
-.home-composer { display: flex; flex-direction: column; gap: 8px; border-color: var(--border-strong); }
-.home-composer:focus-within { border-color: var(--accent-border); }
-.home-composer textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 44px; border: 0; background: transparent; color: var(--text); font: inherit; font-size: .8125rem; outline: none; }
-.home-composer-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.home-pill, .home-composer .settings-field input { border: 1px solid var(--border); border-radius: 999px; background: var(--bg-muted); color: var(--text-secondary); font: inherit; font-size: .6875rem; padding: 3px 10px; }
-.home-composer .settings-field { margin: 0; }
-.home-send { margin-left: auto; }
 /* 준비 단계 (FR-16) */
 .home-setup { display: grid; grid-template-columns: 1fr; gap: 14px; }
 @container (min-width: 1100px) { .home-setup { grid-template-columns: minmax(0, 3fr) minmax(260px, 1fr); } }

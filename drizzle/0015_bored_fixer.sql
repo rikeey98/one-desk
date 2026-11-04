@@ -1,0 +1,1 @@
+ALTER TABLE `workspace` ADD `kind` text DEFAULT 'normal' NOT NULL;

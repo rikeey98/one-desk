@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { ClientProvider } from '../client/ClientProvider'
-import { ReportPanel, initialReportQuery, type ReportQuery } from './ReportPanel'
+import { ReportPanel, initialReportQuery, POLISH_PROMPT, type ReportQuery } from './ReportPanel'
 import type { OneDeskClient } from '@shared/client'
 import type { BuildReportInput, Memo, ReportData, ReportWorkspace, Workspace } from '@shared/models'
 
@@ -55,7 +55,8 @@ function Harness(props: {
   client: OneDeskClient
   targetWorkspaceId?: string | null
   onOpenIssue?: (ws: string, id: string) => void
-  onPolish?: (memo: Memo) => void
+  onPolish?: (draft: string) => void
+  canPolish?: boolean
   onQuery?: (q: ReportQuery) => void
 }) {
   const [query, setQuery] = useState(() => initialReportQuery(Date.now()))
@@ -70,6 +71,7 @@ function Harness(props: {
         onOpenConversation={vi.fn()}
         onOpenMemo={vi.fn()}
         onPolish={props.onPolish ?? vi.fn()}
+        canPolish={props.canPolish ?? true}
       />
     </ClientProvider>
   )
@@ -154,16 +156,33 @@ describe('ReportPanel (docs/sdlc/period-report/)', () => {
     expect(await screen.findByRole('button', { name: '메모 열기' })).toBeInTheDocument()
   })
 
-  it('agent에게 다듬기는 메모를 저장한 뒤 그 메모로 onPolish를 부른다', async () => {
+  // 홈 대화로 간다 — 메모를 만들지 않는다 (docs/sdlc/home-conversation/ FR-15a, 2026-11-03)
+  it('agent에게 다듬기는 메모를 만들지 않고, 지시 초안과 지금 보이는 리포트의 마크다운으로 onPolish를 부른다', async () => {
     const onPolish = vi.fn()
     const { client, create } = makeClient()
     render(<Harness client={client} onPolish={onPolish} />)
     await screen.findByRole('article', { name: '리포트 문서' })
-    expect(screen.getByRole('button', { name: 'one-desk에 메모로 저장' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('checkbox', { name: '회사 포함' }))
     await userEvent.click(screen.getByRole('button', { name: 'agent에게 다듬기' }))
-    await waitFor(() => expect(onPolish).toHaveBeenCalledOnce())
-    expect(create).toHaveBeenCalledOnce()
-    expect(onPolish.mock.calls[0]![0]).toMatchObject({ id: 'memo-1', workspaceId: 'w1' })
+    expect(onPolish).toHaveBeenCalledOnce()
+    expect(create).not.toHaveBeenCalled()
+    const draft = onPolish.mock.calls[0]![0] as string
+    expect(draft.startsWith(POLISH_PROMPT)).toBe(true)
+    expect(draft).toContain('\n\n# 리포트 ')
+    expect(draft).toContain('## one-desk')
+    expect(draft).not.toContain('## 회사')
+    expect(screen.queryByRole('button', { name: '메모 열기' })).not.toBeInTheDocument()
+  })
+
+  it('다듬기는 고른 workspace가 없어도 서고, 홈 자리를 못 읽었으면 잠긴다', async () => {
+    const { client } = makeClient()
+    const { unmount } = render(<Harness client={client} targetWorkspaceId={null} />)
+    await screen.findByRole('article', { name: '리포트 문서' })
+    expect(screen.getByRole('button', { name: 'agent에게 다듬기' })).toBeEnabled()
+    unmount()
+    render(<Harness client={client} canPolish={false} />)
+    await screen.findByRole('article', { name: '리포트 문서' })
+    expect(screen.getByRole('button', { name: 'agent에게 다듬기' })).toBeDisabled()
   })
 
   it('비었으면 안내와 지난 30일, 내보내기는 잠긴다', async () => {

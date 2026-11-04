@@ -12,7 +12,7 @@ const NOW = DAY_START + 10 * 60 * 60 * 1000 // 오전 10시
 function ws(id: string, name = id): Workspace {
   return {
     id, name, description: null, defaultAgentKind: 'claude-code', defaultModelClaude: null, defaultModelOpencode: null,
-    defaultEffortClaude: null, defaultVariantOpencode: null, defaultPermission: 'edit', claudePath: null, opencodePath: null,
+    defaultEffortClaude: null, defaultVariantOpencode: null, defaultPermission: 'edit', claudePath: null, opencodePath: null, kind: 'normal',
     createdAt: 1, updatedAt: 1
   }
 }
@@ -37,6 +37,8 @@ function run(id: string, workspaceId: string, over: Partial<Run> = {}): Run {
 
 interface Seed {
   workspaces?: Workspace[]
+  /** 홈 대화의 숨은 workspace (home-conversation) */
+  home?: Workspace
   repos?: Repo[]
   issues?: Issue[]
   /** workspace마다 최신순으로 넣는다 */
@@ -63,6 +65,7 @@ function sources(seed: Seed): HomeSources {
   inbox.sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
   return {
     workspaces: () => seed.workspaces ?? [],
+    home: () => seed.home ?? null,
     repos: (id) => (seed.repos ?? []).filter((r) => r.workspaceId === id),
     issues: (id) => (seed.issues ?? []).filter((i) => i.workspaceId === id),
     runs: (id) => runs.filter((r) => r.workspaceId === id).sort((a, b) => b.createdAt - a.createdAt),
@@ -300,5 +303,48 @@ describe('NFR-1', () => {
     // spec은 50ms다. CI 러너의 흔들림을 감안해 상한은 넉넉히 두고, 실측값은 plan의 완료 증명에 적는다.
     expect(summaryMs).toBeLessThan(150)
     expect(countMs).toBeLessThan(75)
+  })
+})
+
+describe('홈 대화 (docs/sdlc/home-conversation/ FR-14, plan §0-1·§0-9)', () => {
+  const home: Workspace = { ...ws('h', '홈'), kind: 'home' }
+
+  it('홈 대화의 답변 필요·실패는 할 일에 홈으로 뜨고 배지에 세며, 카드·타임라인에는 없다', () => {
+    const src = sources({
+      workspaces: [ws('a', '회사')], home,
+      runs: [
+        run('hq', 'h', { needsAnswer: true, resultText: '어느 쪽부터 볼까요?' }),
+        run('hf', 'h', { status: 'failed', errorMessage: '시간 초과' }),
+        run('aq', 'a', { needsAnswer: true })
+      ]
+    })
+    const s = buildHomeSummary(src, input)
+    const homeTodos = s.todos.filter((t) => t.workspaceId === 'h')
+    expect(homeTodos.map((t) => [t.kind, t.workspaceName])).toEqual([['needs-answer', '홈'], ['failed', '홈']])
+    expect(homeTodos[0]).toMatchObject({ conversationId: 'hq', title: '지시 hq', repoName: null })
+    expect(homeCount(src, { now: NOW })).toBe(s.todos.length)
+    expect(s.todos).toHaveLength(3)
+    expect(s.workspaces.map((w) => w.workspaceId)).toEqual(['a'])
+    expect(s.timeline.map((r) => r.workspaceId)).toEqual(['a'])
+  })
+
+  it('도는 홈 턴은 지금 돌고 있는 것에 홈으로 있다 — 실행 슬롯이 그것을 센다', () => {
+    const s = buildHomeSummary(sources({
+      workspaces: [ws('a', '회사')], home,
+      runs: [
+        run('hr', 'h', { status: 'running', startedAt: NOW - 5_000, endedAt: null }),
+        run('hr-2', 'h', { rootRunId: 'hr', parentRunId: 'hr', status: 'pending', startedAt: null, endedAt: null, createdAt: NOW })
+      ],
+      queue: { running: 1, limit: 2, waiting: 0 }
+    }), input)
+    expect(s.running).toEqual([expect.objectContaining({
+      workspaceId: 'h', workspaceName: '홈', repoId: null, repoName: null, conversationId: 'hr', runId: 'hr', turns: 2
+    })])
+    expect(s.queued).toBe(1)
+  })
+
+  it('홈이 없으면(테스트 소스) 지금과 같다', () => {
+    const s = buildHomeSummary(sources({ workspaces: [ws('a')], runs: [run('q', 'h', { needsAnswer: true })] }), input)
+    expect(s.todos).toEqual([])
   })
 })

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { clock } from '../home/timeline'
 import { useClient } from '../client/ClientProvider'
 import { clampDockHeight, readDockHeight, writeDockHeight, DEFAULT_DOCK_RATIO, MIN_DOCK_PX } from '../dockHeight'
 import { withShortcut } from '../shortcut'
@@ -42,12 +43,25 @@ function availablePaneSpace(slot: HTMLElement | null): number {
   return (app?.clientWidth ?? window.innerWidth) - (sidebar?.offsetWidth ?? 0) - PANE_RESIZER_PX - PANE_COLUMN_GUTTER_PX
 }
 
+/**
+ * 어느 도크인가 (`docs/sdlc/home-conversation/` FR-12·FR-13a). 홈 갈래는 홈 화면 바닥의 도크다 — 펼침을 App이 쥐고(새 대화 카드가 같은
+ * 값을 보고 숨는다, FR-13) 접힌 채 시작하며, 입력부는 홈 폴더·읽기 전용에 고정되고 대화 헤더에 이슈 할당이 없다.
+ */
+export type DockVariant =
+  | { kind: 'workspace' }
+  | { kind: 'home'; cwd: string; open: boolean; onOpenChange: (open: boolean) => void }
+
 export function Dock({
-  runs, error, workspaceId, workspaces, repos, reposError, queue, queueError, onChangeLimit, chips, onRemoveChip,
+  variant, runs, error, workspaceId, workspaces, repos, reposError, queue, queueError, onChangeLimit, chips, onRemoveChip,
   onRunStarted, draftPrompt, draftCwd, selectedRepoId, onClearRepoFilter, focusConversationId, onFocusConsumed, focusReply,
   // 개발 버전: 선택 prop이다 — plan에서 필수로 올리고 App 배선 테스트를 붙인다 (conversation-issue spec §7).
   draftIssue = null, onClearDraftIssue = () => {}, focusNew = false, onOpenIssue = () => {}, compact, toggleRequest, onToggleConsumed
 }: {
+  /**
+   * 어느 도크인가 (home-conversation FR-12). **필수다** — 선택이면 App의 한 줄을 지워도 조용히 컴파일되고 홈 도크가 펼친 채
+   * 시작하며 권한을 고를 수 있는 일반 도크가 된다.
+   */
+  variant: DockVariant
   runs: Run[]
   error: string | null
   workspaceId: string
@@ -112,7 +126,14 @@ export function Dock({
 }) {
   const client = useClient()
   const drafts = useDraftStore()
-  const [open, setOpen] = useState(true)
+  // 홈 도크는 펼침을 App이 쥔다(새 대화 카드가 같은 값을 본다 — home-conversation FR-13). workspace 도크는 지금처럼 제 것이다
+  const [ownOpen, setOwnOpen] = useState(true)
+  const open = variant.kind === 'home' ? variant.open : ownOpen
+  const setOpen = (next: boolean) => {
+    if (variant.kind === 'home') variant.onOpenChange(next)
+    else setOwnOpen(next)
+  }
+  const homeCwd = variant.kind === 'home' ? variant.cwd : null
   // 최대화 (`docs/sdlc/conversation-timeline/` spec FR-38) — 도크가 본문 전체 높이를 쓰고 세 패널은
   // CSS로 **숨는다**(언마운트하지 않는다 — 입력 중이던 이슈 본문이 지워지지 않는다). 보기 방식이라
   // 저장하지 않고, workspace를 바꿔도 남긴다(spec §3).
@@ -613,8 +634,20 @@ export function Dock({
           onClick={toggleOpen}
         >
           <IconChevronDown className="dock-toggle-icon" width="12" height="12" />
-          대화
+          {variant.kind === 'home' ? '홈 대화' : '대화'}
         </button>
+        {/* 홈 도크의 안내 (FR-12·FR-13a) — 버튼이 아니라 글자다. 접혀 있으면 대화 수와 마지막 활동을 같이 보인다 */}
+        {variant.kind === 'home' && (
+          <span className="dock-home-note">
+            <span>모든 workspace를 읽습니다</span>
+            <span className="dock-home-badge">읽기 전용</span>
+            {!open && openConversations.length > 0 && (
+              <span className="dock-home-count">
+                대화 {openConversations.length} · {clock(openConversations[0]!.last.endedAt ?? openConversations[0]!.last.createdAt)}
+              </span>
+            )}
+          </span>
+        )}
         <SlotIndicator snapshot={queue} onChangeLimit={onChangeLimit} />
         {/* 한 단추가 번갈아 선다 — 누른 뒤에도 포커스가 같은 자리에 남아 Esc가 도크에 닿는다.
             되돌리는 이름을 "축소"라 하지 않는다: 패널의 `축소`(e2e가 exact로 잡는다)와 부분
@@ -645,6 +678,7 @@ export function Dock({
               selectedId={selected?.id ?? null}
               isNew={view === 'new'}
               repos={repos}
+              repoNames={variant.kind === 'workspace'}
               showClosed={showClosed}
               renamingId={renaming?.where === 'list' ? renaming.id : null}
               expandedIssues={expandedIssues}
@@ -695,6 +729,9 @@ export function Dock({
                   onAssignIssue={(issueId) => {
                     if (shownConversation) void assignIssue(shownConversation, issueId)
                   }}
+                  // 홈 workspace에는 이슈가 없다 (home-conversation plan §0-11)
+                  canAssignIssue={variant.kind === 'workspace'}
+                  showRepo={variant.kind === 'workspace'}
                 />
                 <ConversationPanel
                   key={draftKeyOf(shownConversation?.id ?? null, workspaceId)}
@@ -712,6 +749,7 @@ export function Dock({
                   draftCwd={draftCwd}
                   selectedRepoId={selectedRepoId}
                   onCwdChange={setNewCwd}
+                  homeCwd={homeCwd}
                   // 그 대화가 실제로 열린 뒤에만 넘긴다 — runs가 아직 오기 전에는 새 대화 칸이 서 있어 거기에 포커스가 가 버린다
                   focusInput={replyRequested && shownConversation !== null}
                   onFocusInputConsumed={() => setReplyRequested(false)}

@@ -21,6 +21,8 @@ export const workspace = sqliteTable('workspace', {
     .notNull().default('edit'),
   claudePath: text('claude_path'),
   opencodePath: text('opencode_path'),
+  // 홈 대화가 사는 숨은 행 (docs/sdlc/home-conversation/ FR-2). 저장소의 list()는 normal만 준다 — 홈은 home()으로만 닿는다
+  kind: text('kind', { enum: ['normal', 'home'] }).notNull().default('normal'),
   createdAt: integer('created_at').notNull().default(nowMs()),
   updatedAt: integer('updated_at').notNull().default(nowMs())
 })

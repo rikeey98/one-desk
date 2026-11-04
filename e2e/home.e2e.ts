@@ -113,7 +113,7 @@ describe('홈 (docs/sdlc/home/)', () => {
     expect(await page.getByRole('heading', { name: '시작하기' }).count()).toBe(0)
   })
 
-  it('할 일 넷이 workspace를 넘어 한 목록이고, 줄의 버튼이 그 자리로 데려가며, 새 대화 카드가 보낸 곳을 기억한다', async () => {
+  it('할 일 넷이 workspace를 넘어 한 목록이고, 줄의 버튼이 그 자리로 데려가며, 본문에는 보내는 칸이 없다', async () => {
     const app = await launchApp({ env: HOME_ENV })
     const page = app.page
     const repoB = join(app.repoDir, 'b')
@@ -156,19 +156,12 @@ describe('홈 (docs/sdlc/home/)', () => {
     await page.locator('.triage-card').waitFor({ state: 'visible', timeout: 10_000 })
     expect(await page.locator('.triage-title').textContent()).toBe('정리할 이슈')
 
-    // 새 대화 카드 — 보내면 그 workspace 도크에 턴이 서고, 다시 홈에 오면 대상이 그 repo다 (FR-7·FR-11)
+    // 홈에서 보내는 대화는 바닥의 홈 도크 하나다 — 그 workspace로 보내던 새 대화 카드를 걷었다 (home-conversation FR-13 개정, 2026-11-03)
     await goHome(page)
-    await page.getByRole('combobox', { name: '대상' }).selectOption({ label: '홈-회사 · api' })
-    await page.getByRole('textbox', { name: '새 대화 지시' }).fill('홈에서 보낸 지시')
-    await page.getByRole('button', { name: '실행', exact: true }).click()
-    await waitConvStatus(page, '홈에서 보낸 지시', 'succeeded')
-    expect(await page.title()).toBe('홈-회사 — one-desk')
-    await goHome(page)
-    await expect.poll(
-      () => page.locator('select[aria-label="대상"] option:checked').textContent(), { timeout: 10_000 }
-    ).toBe('홈-회사 · api')
+    await page.getByRole('heading', { name: '오늘 할 일' }).waitFor({ state: 'visible', timeout: 10_000 })
+    expect(await page.locator('.home textarea').count()).toBe(0)
 
-    // 바깥 스크롤이 없다 — 홈이 넘쳐도 스크롤은 `.home` 안에서만 한다. ModelField compact의 `.sr-only` 글자가 문서 기준
+    // 바깥 스크롤이 없다 — 홈이 넘쳐도 스크롤은 `.home` 안에서만 한다. 걷어 낸 새 대화 카드의 `.sr-only` 글자가 문서 기준
     // absolute라 `.home` 밖(문서)에 스크롤을 만들었고, 그것을 내리면 100vh 아래의 빈 body가 하얗게 보였다(2026-10-22 보고).
     await app.electron.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0]?.setSize(1100, 520) })
     await expect.poll(() => page.evaluate('innerHeight'), { timeout: 10_000 }).toBeLessThan(600)

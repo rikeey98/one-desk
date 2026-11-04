@@ -32,7 +32,7 @@ const TRIGGER_DEFAULTS = { time: '09:00', days: [1], everyHours: 3 as HourlyStep
 
 /**
  * 새 정기 실행 — 실행 패널과 같은 기본값 함수(`runDefaults.ts`)가 그 workspace에서 만든다. WSL repo에서 OpenCode가 막히면 Claude Code로
- * 떨어뜨린다(`newRunInput`과 같은 규칙).
+ * 떨어뜨린다(RunPanel의 effect와 같은 규칙).
  */
 export function emptyDraft(workspace: Workspace, repos: readonly Repo[]): ScheduleDraft {
   const repo = repos[0]

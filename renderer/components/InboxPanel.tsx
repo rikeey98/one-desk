@@ -139,7 +139,7 @@ function InboxGroup({ groupKey, label, name, title, count, needsAnswer, level, c
 }
 
 export function InboxPanel({
-  items, workspaces, reposByWorkspace, error, onReview, onOpenConversation, onRestart, onCloseIssue, onMakeIssue
+  items, workspaces, reposByWorkspace, homeWorkspaceId, error, onReview, onOpenConversation, onRestart, onCloseIssue, onMakeIssue
 }: {
   items: Run[]
   workspaces: Workspace[]
@@ -148,6 +148,11 @@ export function InboxPanel({
    * 선택이면 App의 한 줄을 지워도 조용히 컴파일되고 모든 항목이 `기타`로 간다.
    */
   reposByWorkspace: ReposByWorkspace
+  /**
+   * 홈 대화의 workspace (`docs/sdlc/home-conversation/` FR-14) — 그 대화는 소속이 `홈`이고 workspace별 보기에서 맨 아래 `홈 묶음`이다.
+   * **필수다** — 선택이면 App의 한 줄을 지워도 조용히 컴파일되고 홈 대화가 `(사라진 workspace)`로 보인다.
+   */
+  homeWorkspaceId: string | null
   error: string | null
 } & ItemActions) {
   // 보기·정렬·접힘은 보기 취향이라 이 장비에 남는다 (FR-3·14). 인박스는 화면을 옮길 때마다 다시 마운트되므로 저장소에서 연다.
@@ -168,7 +173,7 @@ export function InboxPanel({
     writeInboxCollapsed(next)
   }
 
-  const source = (run: Run) => sourceLabel(run, workspaces, reposByWorkspace)
+  const source = (run: Run) => sourceLabel(run, workspaces, reposByWorkspace, homeWorkspaceId)
 
   function list(runs: readonly Run[], show: { category: boolean; source: boolean }) {
     return (
@@ -191,7 +196,7 @@ export function InboxPanel({
     if (view.mode === 'workspace') {
       return (
         <ul className="inbox-groups">
-          {groupByWorkspace(items, view.order, workspaces, reposByWorkspace).map((ws) => (
+          {groupByWorkspace(items, view.order, workspaces, reposByWorkspace, homeWorkspaceId).map((ws) => (
             <InboxGroup
               key={ws.key} groupKey={ws.key} label={ws.label} name={`${ws.label} 묶음`} count={ws.count}
               needsAnswer={ws.needsAnswer} level="top" collapsed={collapsed} onToggle={toggle}

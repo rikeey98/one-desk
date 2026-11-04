@@ -7,6 +7,7 @@ import type { IssueRepository } from '../db/repositories/issue'
 import type { MemoRepository } from '../db/repositories/memo'
 import type { RunRepository } from '../db/repositories/run'
 import type { ProposalRepository } from '../db/repositories/proposal'
+import type { WorkspaceRepository } from '../db/repositories/workspace'
 import type { RunContext } from './host'
 import type { Issue, IssueStatus, IssueSource, IssueKind, IssuePriority, Memo } from '@shared/models'
 import { parseBound, toIso } from './time'
@@ -26,10 +27,15 @@ export interface McpHostDeps {
    * 저장소는 그 도구에서 읽기만 한다
    */
   proposals: ProposalRepository
+  /**
+   * 토큰의 범위를 정하고(`home()` — docs/sdlc/home-conversation/ FR-8) 홈 대화가 읽을 workspace를 준다(`list()` — FR-9). 읽기만 넘긴다 —
+   * MCP에는 workspace를 바꾸는 길이 없다
+   */
+  workspaces: Pick<WorkspaceRepository, 'list' | 'home'>
 }
 
 /** 도구 결과의 공통 형태. 던진 것은 isError로 바꿔 agent가 읽고 대응하게 한다. */
-function reply(fn: () => unknown) {
+export function reply(fn: () => unknown) {
   try {
     return { content: [{ type: 'text' as const, text: JSON.stringify(fn(), null, 2) }] }
   } catch (err) {
@@ -83,7 +89,7 @@ interface IssueSummary {
   triagedAt: string | null
 }
 
-function issueSummary(row: Issue): IssueSummary {
+export function issueSummary(row: Issue): IssueSummary {
   return {
     id: row.id, title: row.title, status: row.status, repoIds: row.repoIds,
     source: row.source, kind: row.kind, priority: row.priority,
@@ -101,7 +107,7 @@ interface MemoSummary {
   updatedAt: string
 }
 
-function memoSummary(row: Memo): MemoSummary {
+export function memoSummary(row: Memo): MemoSummary {
   return {
     id: row.id, title: row.title, repoIds: row.repoIds,
     createdAt: toIso(row.createdAt)!, updatedAt: toIso(row.updatedAt)!
@@ -109,7 +115,7 @@ function memoSummary(row: Memo): MemoSummary {
 }
 
 /** get·create·update가 돌려주는 이슈 전체 — 본문까지, 시각만 ISO로 (FR-4) */
-function issueOut(row: Issue) {
+export function issueOut(row: Issue) {
   return {
     ...row,
     createdAt: toIso(row.createdAt), updatedAt: toIso(row.updatedAt), closedAt: toIso(row.closedAt),
@@ -118,17 +124,17 @@ function issueOut(row: Issue) {
 }
 
 /** issueOut과 대칭 */
-function memoOut(row: Memo) {
+export function memoOut(row: Memo) {
   return { ...row, createdAt: toIso(row.createdAt), updatedAt: toIso(row.updatedAt) }
 }
 
 /** 기간 인자. 둘 다 선택이고 `until`은 그 시각 **전까지**다 (FR-6) */
-const RANGE = {
+export const RANGE = {
   since: z.string().optional().describe('이 날짜(2026-09-28이면 그 날 0시) 또는 ISO 날짜시각부터'),
   until: z.string().optional().describe('이 날짜 또는 ISO 날짜시각 전까지')
 }
 
-function readRange(args: { since?: string | undefined; until?: string | undefined }) {
+export function readRange(args: { since?: string | undefined; until?: string | undefined }) {
   return {
     ...(args.since !== undefined ? { since: parseBound(args.since, 'since') } : {}),
     ...(args.until !== undefined ? { until: parseBound(args.until, 'until') } : {})
@@ -147,9 +153,10 @@ type AssertIssueStatusExhaustive<T extends readonly IssueStatus[]> =
   IssueStatus extends T[number] ? T : never
 const issueStatusValues: AssertIssueStatusExhaustive<typeof ISSUE_STATUS_VALUES> = ISSUE_STATUS_VALUES
 
-const ISSUE_STATUS = z.enum(issueStatusValues)
+export const ISSUE_STATUS = z.enum(issueStatusValues)
 
-export function buildServer(ctx: RunContext, deps: McpHostDeps): McpServer {
+/** workspace 하나에 묶인 run의 서버 — 토큰의 workspace만 본다(전체 설계 §8). 홈 대화는 `allTools.ts`의 `buildAllServer`다 */
+export function buildWorkspaceServer(ctx: RunContext, deps: McpHostDeps): McpServer {
   const server = new McpServer({ name: MCP_SERVER_NAME, version: '0.1.0' })
 
   server.registerTool('list_repos', {

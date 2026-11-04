@@ -23,6 +23,11 @@ export interface ProposeIssueInput {
    * 그것을 전부 눌러 치워야 한다. 사람이 그 대화에 직접 이어 보낸 턴은 거짓이다.
    */
   fromSchedule: boolean
+  /**
+   * 홈 대화의 턴인가 (`docs/sdlc/home-conversation/` FR-7a). **필수다** — 홈 대화에는 이슈가 생길 수 없고 그 MCP 범위에는 `propose_issue`가
+   * 없어, 붙이면 agent가 없는 도구를 부르려 한다.
+   */
+  home: boolean
 }
 
 /**
@@ -33,6 +38,7 @@ export interface ProposeIssueInput {
 export function shouldProposeIssue(input: ProposeIssueInput): boolean {
   if (!input.mcp) return false
   if (input.fromSchedule) return false
+  if (input.home) return false
   if (input.assignedIssueId !== null) return false
   return !input.state.pending && !input.state.declined
 }

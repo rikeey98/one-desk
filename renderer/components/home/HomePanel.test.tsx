@@ -1,19 +1,12 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { HomeSummary, HomeTarget, HomeWorkspace, StartRunInput, Workspace } from '@shared/models'
+import type { HomeSummary, HomeWorkspace } from '@shared/models'
 import { HomeBody, HomePanel, type HomeActions } from './HomePanel'
 import { setupStateOf } from '../../home/setup'
 
 const NOW = new Date(2026, 9, 21, 10, 0, 0).getTime()
 
-function ws(id: string, name = id): Workspace {
-  return {
-    id, name, description: null, defaultAgentKind: 'claude-code', defaultModelClaude: 'sonnet', defaultModelOpencode: null,
-    defaultEffortClaude: null, defaultVariantOpencode: null, defaultPermission: 'edit', claudePath: null, opencodePath: null,
-    createdAt: 1, updatedAt: 1
-  }
-}
 function row(id: string, repos: string[], over: Partial<HomeWorkspace> = {}): HomeWorkspace {
   return {
     workspaceId: id, name: id, open: 1, doing: 0, doneToday: 0, untriaged: 0,
@@ -30,14 +23,14 @@ function summaryOf(over: Partial<HomeSummary> = {}): HomeSummary {
 function actions(over: Partial<HomeActions> = {}): HomeActions {
   return {
     onOpenConversation: vi.fn(), onReply: vi.fn(), onResend: vi.fn(), onStop: vi.fn(), onTriage: vi.fn(), onOpenIssues: vi.fn(),
-    onOpenWorkspace: vi.fn(), onStartConversation: vi.fn(async () => {}), onFocusWorkspaceAdd: vi.fn(), onOpenRepoForm: vi.fn(),
+    onOpenWorkspace: vi.fn(), onFocusWorkspaceAdd: vi.fn(), onOpenRepoForm: vi.fn(),
     onRefreshCli: vi.fn(), onOpenSettings: vi.fn(), onStartFirstConversation: vi.fn(), ...over
   }
 }
 const cli = { statuses: null, probes: null, probing: false }
 
-function renderBody(summary: HomeSummary, acts = actions(), width = 1440, lastTarget: HomeTarget | null = null) {
-  render(<HomeBody summary={summary} lastTarget={lastTarget} workspaces={[ws('a'), ws('b')]} now={NOW} width={width} actions={acts} />)
+function renderBody(summary: HomeSummary, acts = actions(), width = 1440) {
+  render(<HomeBody summary={summary} now={NOW} width={width} actions={acts} />)
   return acts
 }
 
@@ -96,10 +89,10 @@ describe('HomeBody — 돌고 있는 것 (FR-10)', () => {
 describe('HomeBody — 작은 창 (FR-13)', () => {
   it('창 폭 1280px(.home 1040px) 아래에서는 타임라인을 그리지 않는다', () => {
     const summary = summaryOf({ timeline: [{ workspaceId: 'a', name: 'a', bars: [] }] })
-    const { unmount } = render(<HomeBody summary={summary} lastTarget={null} workspaces={[ws('a')]} now={NOW} width={1039} actions={actions()} />)
+    const { unmount } = render(<HomeBody summary={summary} now={NOW} width={1039} actions={actions()} />)
     expect(screen.queryByRole('heading', { name: '오늘 타임라인' })).not.toBeInTheDocument()
     unmount()
-    render(<HomeBody summary={summary} lastTarget={null} workspaces={[ws('a')]} now={NOW} width={1040} actions={actions()} />)
+    render(<HomeBody summary={summary} now={NOW} width={1040} actions={actions()} />)
     expect(screen.getByRole('heading', { name: '오늘 타임라인' })).toBeInTheDocument()
   })
 })
@@ -113,45 +106,12 @@ describe('HomeBody — workspace 카드 (FR-6)', () => {
   })
 })
 
-describe('HomeBody — 새 대화 카드 (FR-11)', () => {
-  it('비어 있으면 실행이 잠기고, 보내면 newRunInput과 대상을 App에 올린다 — 대상은 마지막으로 보낸 곳', async () => {
-    const acts = renderBody(summaryOf(), actions(), 1440, { workspaceId: 'b', repoId: 'web' })
-    const send = screen.getByRole('button', { name: '실행' })
-    expect(send).toBeDisabled()
-    expect(screen.getByRole('combobox', { name: '대상' })).toHaveValue('b\nweb')
-    await userEvent.type(screen.getByRole('textbox', { name: '새 대화 지시' }), '로그인 고쳐줘')
-    expect(send).toBeEnabled()
-    await userEvent.click(send)
-    const [input, target] = (acts.onStartConversation as ReturnType<typeof vi.fn>).mock.calls[0] as [StartRunInput, HomeTarget]
-    expect(target).toEqual({ workspaceId: 'b', repoId: 'web' })
-    expect(input).toMatchObject({ workspaceId: 'b', cwd: '/w/b/web', agentKind: 'claude-code', model: 'sonnet', permission: 'edit', userPrompt: '로그인 고쳐줘', context: [] })
-    expect(screen.getByRole('textbox', { name: '새 대화 지시' })).toHaveValue('')
-  })
-
-  it('저장된 대상이 없으면 첫 workspace의 첫 repo이고, 알약으로 바꾼 agent·권한이 실린다', async () => {
-    const acts = renderBody(summaryOf())
-    expect(screen.getByRole('combobox', { name: '대상' })).toHaveValue('a\napi')
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: '대상' }), 'b\nweb')
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: '권한' }), 'full')
-    await userEvent.type(screen.getByRole('textbox', { name: '새 대화 지시' }), 'x')
-    await userEvent.keyboard('{Control>}{Enter}{/Control}')
-    const [input, target] = (acts.onStartConversation as ReturnType<typeof vi.fn>).mock.calls[0] as [StartRunInput, HomeTarget]
-    expect(target).toEqual({ workspaceId: 'b', repoId: 'web' })
-    expect(input.permission).toBe('full')
-  })
-
-  it('repo가 하나도 없으면 카드 대신 안내 한 줄이다', () => {
-    renderBody(summaryOf({ workspaces: [row('a', [])] }))
+// 홈에서 보내는 대화는 홈 도크 하나다 — 그 workspace로 보내는 카드를 걷었다 (docs/sdlc/home-conversation/ FR-13 개정, 2026-11-03)
+describe('HomeBody — 보내는 칸이 없다', () => {
+  it('본문에 지시 입력칸도 실행 버튼도 없다', () => {
+    renderBody(summaryOf())
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '실행' })).not.toBeInTheDocument()
-    expect(screen.getByText(/repo를 등록하면/)).toBeInTheDocument()
-  })
-
-  it('실패하면 카드의 오류 줄이고 지시는 남는다', async () => {
-    renderBody(summaryOf(), actions({ onStartConversation: vi.fn(async () => { throw new Error('repo 밖') }) }))
-    await userEvent.type(screen.getByRole('textbox', { name: '새 대화 지시' }), 'x')
-    await userEvent.click(screen.getByRole('button', { name: '실행' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('repo 밖')
-    expect(screen.getByRole('textbox', { name: '새 대화 지시' })).toHaveValue('x')
   })
 })
 
@@ -159,7 +119,7 @@ describe('HomePanel — 준비 단계 (FR-14·16)', () => {
   it('done이 아니면 본문 대신 준비 단계이고, 끝난 단계는 한 줄로 접힌다', async () => {
     const acts = actions()
     const summary = summaryOf({ workspaces: [row('회사', ['api'])], setup: { workspace: true, repo: true, firstRun: false } })
-    render(<HomePanel summary={summary} error={null} lastTarget={null} setup={setupStateOf(summary.setup, 'none')} workspaces={[ws('a', '회사')]} cli={cli} now={NOW} platform="Win32" actions={acts} />)
+    render(<HomePanel summary={summary} error={null} setup={setupStateOf(summary.setup, 'none')} cli={cli} now={NOW} platform="Win32" actions={acts} />)
     expect(screen.queryByRole('heading', { name: '오늘 할 일' })).not.toBeInTheDocument()
     const steps = screen.getAllByRole('listitem').filter((li) => li.classList.contains('home-step'))
     expect(steps.map((s) => s.classList.contains('home-step-done'))).toEqual([true, true, false, false])
@@ -177,7 +137,7 @@ describe('HomePanel — 준비 단계 (FR-14·16)', () => {
   it('아무것도 없으면 ①만 열려 있고 버튼이 사이드바 폼으로 보낸다 — ②·④는 잠긴다', async () => {
     const acts = actions()
     const summary = summaryOf({ workspaces: [], setup: { workspace: false, repo: false, firstRun: false } })
-    render(<HomePanel summary={summary} error={null} lastTarget={null} setup={setupStateOf(summary.setup, 'pending')} workspaces={[]} cli={cli} now={NOW} platform="Win32" actions={acts} />)
+    render(<HomePanel summary={summary} error={null} setup={setupStateOf(summary.setup, 'pending')} cli={cli} now={NOW} platform="Win32" actions={acts} />)
     await userEvent.click(screen.getByRole('button', { name: '워크스페이스 만들기' }))
     expect(acts.onFocusWorkspaceAdd).toHaveBeenCalled()
     expect(screen.getByRole('button', { name: '폴더 연결하기' })).toBeDisabled()
@@ -186,7 +146,7 @@ describe('HomePanel — 준비 단계 (FR-14·16)', () => {
 
   it('넷 다 끝나면 본문이다', () => {
     const summary = summaryOf()
-    render(<HomePanel summary={summary} error={null} lastTarget={null} setup={setupStateOf(summary.setup, 'ready')} workspaces={[ws('a'), ws('b')]} cli={cli} now={NOW} platform="Win32" actions={actions()} />)
+    render(<HomePanel summary={summary} error={null} setup={setupStateOf(summary.setup, 'ready')} cli={cli} now={NOW} platform="Win32" actions={actions()} />)
     expect(screen.getByRole('heading', { name: '오늘 할 일' })).toBeInTheDocument()
   })
 })

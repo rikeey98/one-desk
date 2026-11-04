@@ -21,7 +21,7 @@ function makeRun(over: Partial<Run> & { id: string }): Run {
 function makeWorkspace(id: string, name: string): Workspace {
   return {
     id, name, description: null, defaultAgentKind: 'claude-code', defaultModelClaude: null, defaultModelOpencode: null,
-    defaultEffortClaude: null, defaultVariantOpencode: null, defaultPermission: 'edit', claudePath: null, opencodePath: null,
+    defaultEffortClaude: null, defaultVariantOpencode: null, defaultPermission: 'edit', claudePath: null, opencodePath: null, kind: 'normal',
     createdAt: 0, updatedAt: 0
   }
 }
@@ -80,10 +80,10 @@ describe('항목의 repo와 소속 (FR-5·6)', () => {
   })
 
   it('소속은 workspace · repo이고, repo를 모르면 workspace만, workspace가 없으면 사라진 workspace다', () => {
-    expect(sourceLabel(makeRun({ id: 'a', cwd: '/work/api' }), workspaces, repos)).toBe('one-desk · api')
-    expect(sourceLabel(makeRun({ id: 'b', cwd: '/elsewhere' }), workspaces, repos)).toBe('one-desk')
-    expect(sourceLabel(makeRun({ id: 'c', cwd: '/work/api' }), workspaces, {})).toBe('one-desk')
-    expect(sourceLabel(makeRun({ id: 'd', workspaceId: 'gone' }), workspaces, repos)).toBe('(사라진 workspace)')
+    expect(sourceLabel(makeRun({ id: 'a', cwd: '/work/api' }), workspaces, repos, null)).toBe('one-desk · api')
+    expect(sourceLabel(makeRun({ id: 'b', cwd: '/elsewhere' }), workspaces, repos, null)).toBe('one-desk')
+    expect(sourceLabel(makeRun({ id: 'c', cwd: '/work/api' }), workspaces, {}, null)).toBe('one-desk')
+    expect(sourceLabel(makeRun({ id: 'd', workspaceId: 'gone' }), workspaces, repos, null)).toBe('(사라진 workspace)')
   })
 })
 
@@ -104,7 +104,7 @@ describe('groupByWorkspace (FR-6·7)', () => {
   ]
 
   it('workspace → repo 두 단으로 묶고, 묶음 순서는 첫 항목이 정렬에서 앞선 순이다 — 기타와 사라진 workspace는 맨 아래', () => {
-    const groups = groupByWorkspace(items, 'desc', workspaces, repos)
+    const groups = groupByWorkspace(items, 'desc', workspaces, repos, null)
     expect(groups.map((g) => [g.key, g.label, g.count])).toEqual([
       ['ws:w2', 'beta', 1],
       ['ws:w1', 'alpha', 4],
@@ -121,7 +121,7 @@ describe('groupByWorkspace (FR-6·7)', () => {
   })
 
   it('오래된 먼저면 가장 오래 기다린 대화가 있는 묶음이 위이고, 묶음 안도 오래된 순이다', () => {
-    const groups = groupByWorkspace(items, 'asc', workspaces, repos)
+    const groups = groupByWorkspace(items, 'asc', workspaces, repos, null)
     expect(groups.map((g) => g.key)).toEqual(['ws:w1', 'ws:w2', 'ws:w9'])
     expect(groups[0]!.repos.map((r) => [r.key, ids(r.items)])).toEqual([
       ['repo:r-web', ['a-web2', 'a-web']],
@@ -131,7 +131,7 @@ describe('groupByWorkspace (FR-6·7)', () => {
   })
 
   it('묶음마다 그 안에 답변 필요가 있는지 안다 (FR-13)', () => {
-    const groups = groupByWorkspace(items, 'desc', workspaces, repos)
+    const groups = groupByWorkspace(items, 'desc', workspaces, repos, null)
     const alpha = groups.find((g) => g.key === 'ws:w1')!
     expect(alpha.needsAnswer).toBe(true)
     expect(alpha.repos.map((r) => r.needsAnswer)).toEqual([true, false, false])
@@ -139,7 +139,18 @@ describe('groupByWorkspace (FR-6·7)', () => {
   })
 
   it('비면 묶음이 없다', () => {
-    expect(groupByWorkspace([], 'desc', workspaces, repos)).toEqual([])
+    expect(groupByWorkspace([], 'desc', workspaces, repos, null)).toEqual([])
+  })
+
+  it('홈 대화는 홈 묶음이고 사라진 workspace보다도 아래다 (home-conversation FR-14)', () => {
+    const runs = [
+      makeRun({ id: 'h1', workspaceId: 'home', endedAt: 900 }),
+      makeRun({ id: 'g1', workspaceId: 'gone', endedAt: 800 }),
+      makeRun({ id: 'a1', cwd: '/work/api', endedAt: 100 })
+    ]
+    expect(groupByWorkspace(runs, 'desc', workspaces, repos, 'home').map((g) => g.label))
+      .toEqual(['alpha', '(사라진 workspace)', '홈'])
+    expect(sourceLabel(runs[0]!, workspaces, repos, 'home')).toBe('홈')
   })
 })
 

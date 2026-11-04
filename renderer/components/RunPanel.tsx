@@ -37,7 +37,7 @@ function firstLineOf(text: string): string {
 export function RunPanel({
   workspaceId, workspaces, repos, reposError, chips, onRemoveChip, onStarted,
   conversation, draftPrompt, draftCwd, selectedRepoId, reserved, running, reservation, waitingFirst,
-  onCancel, inputRef, onCwdChange, carriedIssue = null
+  onCancel, inputRef, onCwdChange, homeCwd, carriedIssue = null
 }: {
   workspaceId: string
   /** App이 useWorkspaces()로 한 번만 조회해 내려준다 — 이 컴포넌트가 자기 인스턴스를
@@ -76,6 +76,12 @@ export function RunPanel({
    * 칸이 알약을 안 따라간다.
    */
   onCwdChange: (cwd: string) => void
+  /**
+   * 홈 대화의 폴더 (`docs/sdlc/home-conversation/` FR-5·FR-6·FR-12). 있으면 작업 디렉토리는 늘 이것이고 알약이 없으며, 권한은 `읽기 전용`에
+   * 잠긴다 — core가 다른 값을 던지므로 고를 수 있게 두면 보내는 순간 실패한다. **필수다** — 선택이면 도크의 한 줄을 빠뜨려도 조용히
+   * 컴파일되고 홈 도크의 입력부가 빈 작업 디렉토리로 잠긴다.
+   */
+  homeCwd: string | null
   /** 중지·예약 취소가 부른다 — 도크의 `cancel`이다(실패하면 도크 배너로 보인다) */
   onCancel: (runId: string) => void
   /**
@@ -290,6 +296,11 @@ export function RunPanel({
   // 않는다 — effect 두 개로 나뉘어 있던 예전 버전은 선언 순서가 곧 실행 순서였고,
   // 뒤집히면 요구한 경로가 첫 repo로 덮여 원본과 다른 저장소에서 agent가 돌았다.
   useEffect(() => {
+    if (homeCwd !== null) {
+      setMissingCwd(null)
+      if (cwd !== homeCwd) setCwd(homeCwd)
+      return
+    }
     if (draftCwd !== null) {
       // "다시 실행"이 요구한 경로다. 목록에 없다고 첫 repo로 조용히 떨어뜨리면
       // 원본과 다른 저장소에서 agent가 돈다 — 권한이 edit이면 엉뚱한 저장소가
@@ -321,7 +332,7 @@ export function RunPanel({
     }
     setMissingCwd(null)
     setCwd(selectedPath ?? (repos.length > 0 ? repos[0]!.path : ''))
-  }, [repos, cwd, draftCwd, selectedPath])
+  }, [repos, cwd, draftCwd, selectedPath, homeCwd])
 
   // 작업 디렉토리의 실행 환경 (docs/sdlc/wsl-support/ FR-7). WSL repo에서는 OpenCode를 고를 수 없다 — 고른 채 옮겨 왔으면
   // Claude Code로 떨어뜨린다(저장하지 않는다 — 이 run만). 이어 가는 대화는 agent가 잠겨 있어 해당 없다.
@@ -342,6 +353,9 @@ export function RunPanel({
   const ready = (conversation !== null || (cwd !== '' && missingCwd === null))
     && prompt.trim() !== '' && !busy && !reserved
 
+  // 홈 대화는 읽기 전용뿐이다 (FR-5) — 알약이 잠겨 있어도 보내는 값을 여기서 한 번 더 고정한다
+  const sentPermission: Permission = homeCwd !== null ? 'read_only' : permission
+
   async function start() {
     if (!ready) return
     setBusy(true)
@@ -352,7 +366,7 @@ export function RunPanel({
             conversationId: conversation.id,
             model: model.trim() || null,
             effort: effort.trim() || null,
-            permission,
+            permission: sentPermission,
             userPrompt: prompt,
             context: chips.map(({ type, id }) => ({ type, id }))
           })
@@ -362,7 +376,7 @@ export function RunPanel({
             model: model.trim() || null,
             effort: effort.trim() || null,
             cwd,
-            permission,
+            permission: sentPermission,
             userPrompt: prompt,
             context: chips.map(({ type, id }) => ({ type, id })),
             ...(carriedIssue ? { issueId: carriedIssue.id } : {})
@@ -455,7 +469,8 @@ export function RunPanel({
           repo를 등록하거나 다른 디렉토리를 고르세요.
         </div>
       )}
-      {repos.length === 0 && (
+      {/* 홈 대화는 repo가 아니라 홈 폴더에서 돈다 — 등록할 repo가 필요 없다 (home-conversation FR-6) */}
+      {repos.length === 0 && homeCwd === null && (
         <div className="panel-empty">작업 디렉토리로 쓸 repo를 먼저 등록하세요</div>
       )}
       {reservation && (
@@ -640,17 +655,29 @@ export function RunPanel({
               </select>
             </span>
           )}
-          <select
-            className="pill"
-            aria-label="권한"
-            value={permission}
-            onChange={(e) => setPermission(e.target.value as Permission)}
-          >
-            {(Object.keys(PERMISSION_LABELS) as Permission[]).map((p) => (
-              <option key={p} value={p}>{PERMISSION_LABELS[p]}</option>
-            ))}
-          </select>
-          {conversation ? (
+          {homeCwd !== null ? (
+            // 잠긴 알약은 readOnly 입력이다 — disabled면 title 풍선이 뜨지 않아 이유가 보이지 않는다
+            <input
+              className="pill run-locked"
+              aria-label="권한"
+              value={PERMISSION_LABELS.read_only}
+              readOnly
+              title="홈 대화는 모든 workspace를 읽기만 합니다"
+            />
+          ) : (
+            <select
+              className="pill"
+              aria-label="권한"
+              value={permission}
+              onChange={(e) => setPermission(e.target.value as Permission)}
+            >
+              {(Object.keys(PERMISSION_LABELS) as Permission[]).map((p) => (
+                <option key={p} value={p}>{PERMISSION_LABELS[p]}</option>
+              ))}
+            </select>
+          )}
+          {/* 홈 대화에는 작업 디렉토리 알약이 없다 (FR-12) — repo가 아니라 앱 데이터 폴더의 빈 폴더다 */}
+          {homeCwd !== null ? null : conversation ? (
             // 세션은 특정 CLI가 특정 디렉토리에서 만든 것이라 둘 다 바꿀 수 없다 (설계 §6).
             // 대화를 벗어나는 것은 도크의 대화 목록이 한다 — 여기엔 나갈 버튼이 없다.
             //
