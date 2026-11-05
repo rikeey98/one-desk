@@ -287,6 +287,14 @@ SKILL.md의 frontmatter는 평문 칸으로 뗀다. 그리고 **창을 닫기 �
 필수 + App 배선 테스트)과 spec §7의 e2e(이슈에서 대화 시작·열기, 헤더에서 이슈 열기, 이슈 삭제)다. 같은 릴리스에
 **이슈·메모의 첫 줄이 제목**(`docs/sdlc/first-line-title/` — Enter 만들기, Shift+Enter 줄바꿈, `splitTitleBody`)이 들어갔다.
 
+**새 대화의 작업 디렉토리는 `renderer/cwdRule.ts`의 `pickCwd` 하나가 정한다** (`docs/sdlc/issue-flow/` FR-1~4, 2026-11-05 — conversation-issue FR-16 "지금 규칙
+그대로"를 뒤집었다). 순서는 "다시 실행"의 경로 → 알약으로 고른 경로(`pickedCwd`) → 기준 이슈의 repo(이 workspace에서 **정확히 하나**일 때) → 사이드바 → 지금 값 → 첫 repo다.
+기준 이슈는 `baseIssueOf` 한 함수가 고른다 — 할당 예정 이슈, 없으면 **하나만** 담은 이슈다. 둘 이상 담으면 기준이 없다(같은 repo여도). 할당 예정 이슈에 repo가 없어도 담은 이슈로 넘어가지 않는다. 이어 가는 대화와 "다시 실행"이 경로를 정한 칸에는 기준이 없다(경로를 바꿀 수 없어 안내의 버튼이 아무 일도 못 한다).
+**사이드바는 이슈를 이기지 못하고 알약 값도 덮지 못한다** — 알약 값은 전송·대화 칸 변경·할당 예정 이슈 변경에서만 잊는다. 그 바람에 `대화 시작`이 입력부를 갈아끼워도(지금 값이 사라져) 첫 repo로 떨어지지
+않는다. `PendingIssue.repoIds`와 이슈 칩의 `repoIds`, RunPanel의 `pendingIssue`는 필수다 — 선택이면 한 줄을 빠뜨려도 조용히 컴파일되고 그 길로 연 대화만 다른 repo에서 돈다. `ContextChip`은 합집합이라 이슈 칩만 `repoIds`를 든다. 이슈의 repo가 지금 작업 디렉토리와 어긋나면 입력칸 위에
+`.composer-repo-mismatch`(버튼 `<repo>에서 시작`)가 서고 전송은 막지 않는다 — repo 태그가 둘 이상인 이슈는 이것으로 고른다. 칩의 태그는 담은 순간의 값이다(spec §6 우려 3 — 담은 뒤 태그를 고치면 다시 담아야 한다). `Run.issue`는 그대로
+`AssignedIssue`이고 태그가 없다(FR-20은 아직이다). 새 대화의 빈 칸(`.conversation-panel > .panel-empty`)은 도크 하한에서 입력부에 자리를 내주며 줄어든다 — `flex: 1 1 auto`로 되돌리면 안내가 설 때 입력 카드 아랫줄이 잘린다.
+
 **기간 리포트가 붙었다** (`docs/sdlc/period-report/`, v0.21.0). 마이그레이션 없음. 사이드바의 인박스 아래 `리포트`가
 기간(월요일 시작 주·지난 7/30일·직접 지정)과 workspace(체크, 기본 전부)를 골라 **여러 workspace를 넘어** 이슈·메모·대화를
 모은다. 보기는 탭 셋 — `문서`(내보낼 마크다운과 같은 순서)·`요일`(workspace × 날 보드)·`이슈 흐름`(기간 축 트랙) — 이고
@@ -1347,6 +1355,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/scheduled-runs/` | 정기 실행 — intent·spec·plan. 대화를 어디에 매다는지 비교(spec §2-1 — run 컬럼이 아니라 실행 기록 테이블), anchor 하나로 정시·놓침·절전을 한 판정에(FR-10~12), start 전에 anchor를 쓰는 이유(FR-12), 겹침·답 기다림 건너뛰기(FR-15), 한 run은 한 번 세기(FR-20 개정), 이슈화 안내를 빼는 이유(FR-22), 뒤집을 수 있는 결정 아홉(§8). plan에 croner 실측·변이 표·완료 증명 |
 | `docs/sdlc/home-conversation/` | 홈 대화 — intent·spec·plan. 저장 자리 세 안의 비교와 숨은 workspace(spec §0), 전체 설계 §8의 예외(FR-1), `list()`가 홈을 빼고 `home()`이 필요한 자리(FR-3·plan §0-1·§0-9), 가드(FR-4), 읽기 전용·홈 폴더 강제(FR-5·6), `prepare`가 정하는 범위와 읽기 여덟(FR-8·9), 도크·카드·인박스(FR-12~14), plan을 v0.30.0에 맞춰 다시 쓴 개정 열둘(plan §0), 새 대화 카드를 걷고 리포트에 홈 도크·다듬기를 홈 대화로 보낸 사용자 결정(spec §6). plan에 변이 표·완료 증명 |
 | `docs/sdlc/context-pick/` | 대화에 담는 버튼 — spec. 왼쪽 동그라미를 줄 끝의 글자 버튼으로 옮긴 이유(FR-1·2), 열린 항목의 헤더에서 담기(FR-3), 비교한 시안(§2) |
+| `docs/sdlc/issue-flow/` | 이슈 흐름 — intent·spec·plan. 새 대화의 작업 디렉토리가 이슈의 repo를 따르는 규칙(spec FR-1~4, 구현됨), 대화를 끝낼 때 이슈 완료 묻기·MCP 쓰기 범위·agent의 이슈 정리 제안(§(B) 이후, 아직 구현하지 않음), 뒤집은 결정과 우려(§6) |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |

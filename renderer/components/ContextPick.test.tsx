@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { ContextPick } from './ContextPick'
 import type { ContextChip } from '../context'
 
-const CHIP: ContextChip = { type: 'issue', id: 'i1', label: '토큰 만료' }
+const CHIP: ContextChip = { type: 'issue', id: 'i1', label: '토큰 만료', repoIds: [] }
 
 function picker(picked: boolean) {
   return { keys: new Set(picked ? ['issue:i1'] : []), onToggle: vi.fn() }

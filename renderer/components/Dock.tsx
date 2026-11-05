@@ -27,7 +27,8 @@ import { conversationIdOf, filterByRepo, groupConversations, repoOfConversation,
 import { readCollapsedSections, writeCollapsedSections } from '../dockSections'
 import { confirmSeen as confirmConversationSeen } from '../conversationSeen'
 import type { ContextChip } from '../context'
-import type { AcceptIssueProposal, AssignedIssue, QueueSnapshot, Repo, Run, Workspace } from '@shared/models'
+import type { AcceptIssueProposal, QueueSnapshot, Repo, Run, Workspace } from '@shared/models'
+import type { PendingIssue } from '../cwdRule'
 
 /** 코드 칸 폭 경계의 폭(px)과 칸 열의 오른쪽 여백 — CSS `.code-pane-resizer`·`.code-column`과 같다 */
 const PANE_RESIZER_PX = 9
@@ -100,7 +101,7 @@ export function Dock({
    */
   focusReply: boolean
   /** 새 대화 칸에 걸린 할당 예정 이슈 (`docs/sdlc/conversation-issue/` FR-20). 새 대화 칸에서만 쓴다 */
-  draftIssue?: AssignedIssue | null
+  draftIssue?: PendingIssue | null
   /** 할당 예정을 뗀다(새 대화 칸의 `이슈 할당 해제`) */
   onClearDraftIssue?: () => void
   /** 이슈 상세의 `대화 시작`이 세운다 — 도크를 펼치고 새 대화 칸으로 옮긴다(FR-15). 쓰면 `onFocusConsumed`로 치운다 */

@@ -258,7 +258,7 @@ export function IssuePanel({
                         />
                       </span>
                       {/* 맨 끝이다 — 삭제가 hover에 펼쳐져도 이 버튼은 움직이지 않는다. */}
-                      {context && <ContextPick chip={{ type: 'issue', id: i.id, label: i.title }} picker={context} place="row" />}
+                      {context && <ContextPick chip={{ type: 'issue', id: i.id, label: i.title, repoIds: i.repoIds }} picker={context} place="row" />}
                     </li>
                   )
                 })}
@@ -338,7 +338,7 @@ export function IssuePanel({
       window={inWindow}
       action={(
         <>
-          {context && open && <ContextPick chip={{ type: 'issue', id: open.id, label: open.title }} picker={context} place="header" />}
+          {context && open && <ContextPick chip={{ type: 'issue', id: open.id, label: open.title, repoIds: open.repoIds }} picker={context} place="header" />}
           {expanded && openId && (
             <button type="button" className="icon-button icon-button-sm" aria-label="축소" title="축소" onClick={() => onOpen(openId)}>
               <IconCollapse />

@@ -21,7 +21,8 @@ import { useClient } from './client/ClientProvider'
 import { chipKey, type ContextChip } from './context'
 import { conversationIdOf, groupConversations, type IssueConversations } from './conversation'
 import { confirmSeen } from './conversationSeen'
-import type { AssignedIssue, Repo, Run } from '@shared/models'
+import type { Repo, Run } from '@shared/models'
+import type { PendingIssue } from './cwdRule'
 import { useHomeWorkspace } from './hooks/useHomeWorkspace'
 import { readHomeDockOpen, writeHomeDockOpen } from './homeDock'
 
@@ -62,7 +63,7 @@ export default function App() {
   // 이슈 상세의 `대화 시작`이 세운다 (docs/sdlc/conversation-issue/ FR-15·FR-20) — 새 대화 칸의 할당 예정 이슈와
   // "새 대화 칸으로 옮겨라"는 일회성 지시. 예정은 담기 칩과 같은 수명이다: 첫 턴을 보내거나, 떼거나, workspace를
   // 바꾸면 사라진다.
-  const [draftIssue, setDraftIssue] = useState<AssignedIssue | null>(null)
+  const [draftIssue, setDraftIssue] = useState<PendingIssue | null>(null)
   const [focusNew, setFocusNew] = useState(false)
   // 확장된 패널과 그 안에서 열린 항목. **한 번에 하나뿐이다.**
   // 각 패널이 따로 들면 둘 다 열린 상태가 만들어지고, 컬럼 비율을 누가 정하는지도
@@ -179,7 +180,7 @@ export default function App() {
       void confirmSeen(client, conversation).catch(() => {})
     },
     start: (issue) => {
-      setDraftIssue({ id: issue.id, title: issue.title })
+      setDraftIssue({ id: issue.id, title: issue.title, repoIds: issue.repoIds })
       setFocusConversationId(null)
       setFocusNew(true)
     }

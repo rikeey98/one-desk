@@ -1,10 +1,11 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
 import { CommandPicker } from './CommandPicker'
 import { useCommands } from '../hooks/useCommands'
 import { findSlashToken, insertCommand, extendCommand, matchCommands, commonPrefix } from '../slash'
 import { useClient } from '../client/ClientProvider'
 import { useDraftStore } from '../store/DraftContext'
 import { draftKeyOf, isBlankDraft } from '../store/drafts'
+import { baseIssueOf, cwdMismatch, pickCwd, type PendingIssue } from '../cwdRule'
 import { PERMISSION_LABELS } from '../permission'
 import { AGENT_KINDS, AGENT_LABELS } from '../agents'
 import { agentBlockedReason, agentEnvOfCwd } from '../agentEnv'
@@ -37,7 +38,7 @@ function firstLineOf(text: string): string {
 export function RunPanel({
   workspaceId, workspaces, repos, reposError, chips, onRemoveChip, onStarted,
   conversation, draftPrompt, draftCwd, selectedRepoId, reserved, running, reservation, waitingFirst,
-  onCancel, inputRef, onCwdChange, homeCwd, carriedIssue = null
+  onCancel, inputRef, onCwdChange, homeCwd, carriedIssue = null, pendingIssue
 }: {
   workspaceId: string
   /** App이 useWorkspaces()로 한 번만 조회해 내려준다 — 이 컴포넌트가 자기 인스턴스를
@@ -54,10 +55,7 @@ export function RunPanel({
   draftPrompt: string
   /** "다시 실행"이 요구하는 작업 디렉토리. null이면 요구가 없다. */
   draftCwd: string | null
-  /**
-   * 사이드바에서 고른 repo. 새 대화의 작업 디렉토리가 이것을 따라간다 — 고른 순간(바뀐 순간)에만
-   * 반영하므로 입력부의 알약으로 다시 바꿀 수 있다. "다시 실행"의 `draftCwd`가 이긴다.
-   */
+  /** 사이드바에서 고른 repo. 새 대화의 작업 디렉토리가 이것을 따라간다. 순서는 `pickCwd`가 정한다 */
   selectedRepoId: string | null
   /** 대화당 예약은 하나다 — 이미 예약된 턴이 있으면 전송을 잠근다 (설계 §3-2). */
   reserved: boolean
@@ -94,6 +92,11 @@ export function RunPanel({
    * 할당 예정 이슈이고 시작할 때 `issueId`로 넘긴다(FR-5). 이어 가는 대화에서 실제로 싣는 것은 core다(FR-11).
    */
   carriedIssue?: AssignedIssue | null
+  /**
+   * 새 대화에 할당될 이슈. 작업 디렉토리가 이 이슈의 repo를 따른다 (docs/sdlc/issue-flow/ FR-1). 이어 가는 대화면 null이다.
+   * **필수다** — 선택이면 한 줄을 빠뜨려도 조용히 컴파일되고 그 길로 연 대화만 다른 repo에서 돈다.
+   */
+  pendingIssue: PendingIssue | null
 }) {
   const client = useClient()
   const drafts = useDraftStore()
@@ -103,8 +106,6 @@ export function RunPanel({
   // "다시 실행"이 요구한 경로가 지금 repo 목록에 없을 때 그 경로를 담는다.
   const [missingCwd, setMissingCwd] = useState<string | null>(null)
   const selectedPath = repos.find((r) => r.id === selectedRepoId)?.path ?? null
-  // 마지막으로 cwd에 반영한 사이드바 선택. 선택이 "바뀔 때"만 덮어야 알약으로 고른 값이 산다.
-  const appliedSelection = useRef<string | null>(null)
   const [permission, setPermission] = useState<Permission>('edit')
   const [agentKind, setAgentKind] = useState<AgentKind>(conversation?.last.agentKind ?? workspace?.defaultAgentKind ?? 'claude-code')
   // 실제 값은 아래 두 effect가 세운다 — 권한과 같은 구조다. 여기서 한 번 더
@@ -168,6 +169,12 @@ export function RunPanel({
   // 검색은 작업 디렉토리에 해당하는 repo에서 한다 — 렌더러는 경로가 아니라 repo id를 넘긴다(§5-1).
   const mention = !dismissed && !token ? findMentionToken(prompt, cursor) : null
   const cwdRepo = repos.find((r) => r.path === effectiveCwd) ?? null
+  // 이어 가는 대화와 "다시 실행"은 경로가 정해져 있다 — 기준 이슈를 두면 눌러도 소용없는 안내가 선다.
+  const baseIssue = useMemo(
+    () => (conversation || draftCwd !== null ? null : baseIssueOf(pendingIssue, chips)),
+    [conversation, draftCwd, pendingIssue, chips]
+  )
+  const mismatch = cwdRepo ? cwdMismatch(repos, baseIssue, cwdRepo.path) : []
   const fileState = useFileSearch(workspaceId, cwdRepo?.id ?? null, mention?.query ?? '', mention !== null)
   const mentionReason = mention && !cwdRepo
     ? (effectiveCwd ? '작업 디렉토리가 등록된 repo가 아닙니다' : '작업 디렉토리를 먼저 고르세요')
@@ -289,50 +296,27 @@ export function RunPanel({
     if (draftPrompt && !conversation) setPrompt(draftPrompt)
   }, [draftPrompt, conversation])
 
-  // cwd를 정하는 단일 effect. "다시 실행"이 요구한 경로(draftCwd)가 있으면 그것을
-  // 최우선으로 반영하고, 없을 때만 workspace의 repo 목록에 대한 fallback으로
-  // 넘어간다. 두 갈래를 한 함수 안의 순차 조건문(early return)으로 묶어 두면
-  // "무엇이 나중에 도느냐"가 일반적인 순차 코드가 되어, 블록을 옮겨도 뒤집히지
-  // 않는다 — effect 두 개로 나뉘어 있던 예전 버전은 선언 순서가 곧 실행 순서였고,
-  // 뒤집히면 요구한 경로가 첫 repo로 덮여 원본과 다른 저장소에서 agent가 돌았다.
+  // 사람이 알약으로 고른 경로. 전송하거나 대화 칸·할당 예정 이슈가 바뀌면 잊는다 (docs/sdlc/issue-flow/ FR-2).
+  const [pickedCwd, setPickedCwd] = useState<string | null>(null)
+  const pickScope = `${draftKey}:${pendingIssue?.id ?? ''}`
+  const [pickedScope, setPickedScope] = useState(pickScope)
+  if (pickedScope !== pickScope) {
+    setPickedScope(pickScope)
+    setPickedCwd(null)
+  }
+
+  // cwd를 정하는 단일 effect. 순서는 pickCwd 하나에 있다 — 지금 값이 그 workspace의 repo가 아니면 pickCwd가 버리므로
+  // 다른 workspace의 디렉토리에서 agent가 돌지 않는다. core/execution.ts는 맥락 항목의 소속만 검증하고 cwd는 보지 않는다.
   useEffect(() => {
     if (homeCwd !== null) {
       setMissingCwd(null)
       if (cwd !== homeCwd) setCwd(homeCwd)
       return
     }
-    if (draftCwd !== null) {
-      // "다시 실행"이 요구한 경로다. 목록에 없다고 첫 repo로 조용히 떨어뜨리면
-      // 원본과 다른 저장소에서 agent가 돈다 — 권한이 edit이면 엉뚱한 저장소가
-      // 편집된다. 조용히 바꾸는 대신 그 사실을 보이고 실행을 막는다.
-      setMissingCwd(repos.some((r) => r.path === draftCwd) ? null : draftCwd)
-      if (cwd !== draftCwd) setCwd(draftCwd)
-      return
-    }
-
-    // 사이드바에서 repo를 새로 골랐으면 그것을 따른다.
-    if (selectedPath !== appliedSelection.current) {
-      appliedSelection.current = selectedPath
-      if (selectedPath !== null) {
-        setMissingCwd(null)
-        if (cwd !== selectedPath) setCwd(selectedPath)
-        return
-      }
-    }
-
-    // 요구가 없을 때만 fallback한다: cwd가 지금 workspace의 repo 목록에 없으면
-    // 첫 repo로 되돌린다(없으면 비운다). "비어 있을 때만 채운다"로는 부족하다 —
-    // RunPanel은 workspace가 바뀌어도 다시 마운트되지 않으므로(App이 key를 주지
-    // 않는다) 이전 workspace의 경로가 그대로 남고, ready도 계속 true라 다른
-    // workspace의 디렉토리에서 agent가 실행된다. core/execution.ts는 맥락 항목의
-    // 소속만 검증하고 cwd는 보지 않는다.
-    if (cwd !== '' && repos.some((r) => r.path === cwd)) {
-      setMissingCwd(null)
-      return
-    }
-    setMissingCwd(null)
-    setCwd(selectedPath ?? (repos.length > 0 ? repos[0]!.path : ''))
-  }, [repos, cwd, draftCwd, selectedPath, homeCwd])
+    const next = pickCwd({ repos, draftCwd, pickedCwd, issue: baseIssue, selectedPath, current: cwd })
+    setMissingCwd(next.missing)
+    if (cwd !== next.cwd) setCwd(next.cwd)
+  }, [repos, cwd, draftCwd, pickedCwd, baseIssue, selectedPath, homeCwd])
 
   // 작업 디렉토리의 실행 환경 (docs/sdlc/wsl-support/ FR-7). WSL repo에서는 OpenCode를 고를 수 없다 — 고른 채 옮겨 왔으면
   // Claude Code로 떨어뜨린다(저장하지 않는다 — 이 run만). 이어 가는 대화는 agent가 잠겨 있어 해당 없다.
@@ -383,6 +367,7 @@ export function RunPanel({
           })
       setPrompt('')
       setHistoryIndex(NO_HISTORY)
+      setPickedCwd(null)
       // 스토어도 여기서 바로 비운다 — 위 effect에만 맡기지 않는다. 새 대화의 첫 턴이면
       // onStarted가 도크를 그 대화로 넘기며 이 입력부를 갈아끼우는데, 두 갱신이 한 번에
       // 그려지면 이 인스턴스는 빈 입력을 그려 보지도 못하고 사라져 effect가 돌지 않는다
@@ -501,6 +486,15 @@ export function RunPanel({
         // 말한다(conversation-issue spec §8의 1). 막지는 않는다: 보내는 것이 곧 다시 여는 것이다.
         <div role="note" className="composer-note">
           끝낸 대화입니다 — 보내면 다시 열립니다
+        </div>
+      )}
+      {mismatch.length > 0 && (
+        // 막지 않는다 — 다른 repo의 변경을 요구하는 이슈라면 일부러 다른 곳에서 시작한다 (issue-flow FR-4).
+        <div role="status" className="composer-repo-mismatch">
+          <span>{baseIssue?.assigned ? '이 대화의 이슈' : '담은 이슈'}는 {mismatch.map((r) => r.name).join(', ')}에 있습니다. 작업 디렉토리는 {cwdRepo?.name}입니다.</span>
+          {mismatch.map((r) => (
+            <button key={r.id} type="button" onClick={() => setPickedCwd(r.path)}>{r.name}에서 시작</button>
+          ))}
         </div>
       )}
       {argumentWarning && (
@@ -704,7 +698,7 @@ export function RunPanel({
               aria-label="작업 디렉토리"
               value={cwd}
               title={cwd || undefined}
-              onChange={(e) => setCwd(e.target.value)}
+              onChange={(e) => { setPickedCwd(e.target.value); setCwd(e.target.value) }}
             >
               {/* 목록에 없는 경로도 그대로 보여준다 — option에 없는 값을 주면 브라우저가
                   select.value를 ''로 정규화해 무엇이 문제인지 화면에서 사라진다. */}

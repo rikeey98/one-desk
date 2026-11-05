@@ -11,6 +11,7 @@ import type { OneDeskClient } from '@shared/client'
 import type { AgentKind, Permission, Repo, Run, Workspace } from '@shared/models'
 import type { Conversation } from '../conversation'
 import type { ContextChip } from '../context'
+import type { PendingIssue } from '../cwdRule'
 
 const repos: Repo[] = [
   { id: 'r1', workspaceId: 'w1', name: 'api', path: '/tmp/api', description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0 }
@@ -89,6 +90,7 @@ interface ResumeOpts {
   draftPrompt?: string
   draftCwd?: string | null
   selectedRepoId?: string | null
+  pendingIssue?: PendingIssue | null
   reserved?: boolean
   running?: Run | null
   reservation?: Run | null
@@ -132,6 +134,7 @@ function panel(
           draftPrompt={resumeOpts.draftPrompt ?? ''}
           draftCwd={resumeOpts.draftCwd ?? null}
           selectedRepoId={resumeOpts.selectedRepoId ?? null}
+          pendingIssue={resumeOpts.pendingIssue ?? null}
           reserved={resumeOpts.reserved ?? false}
           running={resumeOpts.running ?? null}
           reservation={resumeOpts.reservation ?? null}
@@ -169,7 +172,7 @@ describe('RunPanel', () => {
     const onStarted = renderPanel(
       makeClient({ start }),
       repos,
-      [{ type: 'issue', id: 'i1', label: '토큰 버그' }],
+      [{ type: 'issue', id: 'i1', label: '토큰 버그', repoIds: [] }],
       vi.fn(),
       {},
       [makeWorkspace('read_only')]
@@ -546,14 +549,14 @@ describe('RunPanel — 접근성', () => {
   })
 
   it('칩은 "맥락에서 빼기"라는 이름의 버튼이다', async () => {
-    const chips: ContextChip[] = [{ type: 'issue', id: 'i1', label: '토큰 만료' }]
+    const chips: ContextChip[] = [{ type: 'issue', id: 'i1', label: '토큰 만료', repoIds: [] }]
     const onRemoveChip = vi.fn()
     render(
       <ClientProvider client={makeClient()}>
         <DraftProvider store={drafts}>
           <RunPanel homeCwd={null} workspaceId="w1" workspaces={[makeWorkspace('edit')]} repos={repos} reposError={null}
             chips={chips} onRemoveChip={onRemoveChip} onStarted={vi.fn()}
-            conversation={null} draftPrompt="" draftCwd={null} selectedRepoId={null} reserved={false}
+            conversation={null} draftPrompt="" draftCwd={null} selectedRepoId={null} pendingIssue={null} reserved={false}
             running={null} reservation={null} waitingFirst={false} onCancel={vi.fn()}
             inputRef={createRef<HTMLTextAreaElement>()} onCwdChange={vi.fn()} />
         </DraftProvider>
@@ -608,14 +611,14 @@ describe('RunPanel — 접근성', () => {
   })
 
   it('칩은 "맥락에서 빼기"라는 이름의 버튼이다', async () => {
-    const chips: ContextChip[] = [{ type: 'issue', id: 'i1', label: '토큰 만료' }]
+    const chips: ContextChip[] = [{ type: 'issue', id: 'i1', label: '토큰 만료', repoIds: [] }]
     const onRemoveChip = vi.fn()
     render(
       <ClientProvider client={makeClient()}>
         <DraftProvider store={drafts}>
           <RunPanel homeCwd={null} workspaceId="w1" workspaces={[makeWorkspace('edit')]} repos={repos} reposError={null}
             chips={chips} onRemoveChip={onRemoveChip} onStarted={vi.fn()}
-            conversation={null} draftPrompt="" draftCwd={null} selectedRepoId={null} reserved={false}
+            conversation={null} draftPrompt="" draftCwd={null} selectedRepoId={null} pendingIssue={null} reserved={false}
             running={null} reservation={null} waitingFirst={false} onCancel={vi.fn()}
             inputRef={createRef<HTMLTextAreaElement>()} onCwdChange={vi.fn()} />
         </DraftProvider>
@@ -1048,7 +1051,7 @@ describe('RunPanel — 입력 카드', () => {
 
   describe('모양 (FR-27)', () => {
     it('맥락 칩 · 입력칸 · 알약 다섯과 전송 버튼이 카드 하나 안에 있다 — 이름은 그대로다', () => {
-      renderPanel(makeClient(), repos, [{ type: 'issue', id: 'i1', label: '토큰 만료' }])
+      renderPanel(makeClient(), repos, [{ type: 'issue', id: 'i1', label: '토큰 만료', repoIds: [] }])
       const card = document.querySelector<HTMLElement>('.composer-card')!
       expect(card.firstElementChild).toHaveClass('run-chips')
       expect(within(card).getByRole('button', { name: '토큰 만료 맥락에서 빼기' })).toBeInTheDocument()
@@ -1582,6 +1585,145 @@ describe('작업 디렉토리 알리기 (docs/sdlc/code-editor/ FR-6)', () => {
   })
 })
 
+describe('RunPanel — 이슈를 따라가는 새 대화의 작업 디렉토리 (docs/sdlc/issue-flow/ FR-1·2·4)', () => {
+  const two: Repo[] = [
+    ...repos,
+    { id: 'r2', workspaceId: 'w1', name: 'web', path: '/tmp/web', description: null, sortOrder: 1, agentEnv: 'host', createdAt: 0 }
+  ]
+  const WEB_ISSUE = { id: 'i1', title: '웹 버그', repoIds: ['r2'] }
+  const WEB_CHIP: ContextChip = { type: 'issue', id: 'i1', label: '웹 버그', repoIds: ['r2'] }
+  const pill = () => screen.getByLabelText('작업 디렉토리')
+
+  it('첫 repo가 아니라 이슈의 repo에서 돈다', async () => {
+    const start = vi.fn().mockResolvedValue({ id: 'run-1' } as Run)
+    renderPanel(makeClient({ start }), two, [], vi.fn(), { pendingIssue: WEB_ISSUE })
+
+    await waitFor(() => expect(pill()).toHaveValue('/tmp/web'))
+    await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '고쳐줘')
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
+    await waitFor(() => expect(start).toHaveBeenCalled())
+    expect(start.mock.calls[0]![0].cwd).toBe('/tmp/web')
+  })
+
+  it('사이드바에서 다른 repo를 골라도 이슈의 repo가 남는다', async () => {
+    const client = makeClient()
+    const opts = { pendingIssue: WEB_ISSUE }
+    const { rerender } = render(panel(client, two, [], vi.fn(), 'w1', opts))
+    await waitFor(() => expect(pill()).toHaveValue('/tmp/web'))
+
+    rerender(panel(client, two, [], vi.fn(), 'w1', { ...opts, selectedRepoId: 'r1' }))
+    await waitFor(() => expect(screen.queryByRole('status')).toBeNull())
+    expect(pill()).toHaveValue('/tmp/web')
+  })
+
+  it('알약으로 고르면 그것이 이기고, 안내의 버튼으로 이슈의 repo에 돌아온다', async () => {
+    renderPanel(makeClient(), two, [], vi.fn(), { pendingIssue: WEB_ISSUE })
+    await waitFor(() => expect(pill()).toHaveValue('/tmp/web'))
+
+    await userEvent.selectOptions(pill(), '/tmp/api')
+    expect(pill()).toHaveValue('/tmp/api')
+    expect(screen.getByRole('status')).toHaveTextContent('이 대화의 이슈는 web에 있습니다. 작업 디렉토리는 api입니다.')
+
+    await userEvent.click(screen.getByRole('button', { name: 'web에서 시작' }))
+    await waitFor(() => expect(pill()).toHaveValue('/tmp/web'))
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('다른 이슈에서 대화 시작을 누르면 고른 값을 잊는다', async () => {
+    const client = makeClient()
+    const { rerender } = render(panel(client, two, [], vi.fn(), 'w1', { pendingIssue: WEB_ISSUE }))
+    await waitFor(() => expect(pill()).toHaveValue('/tmp/web'))
+    await userEvent.selectOptions(pill(), '/tmp/api')
+
+    rerender(panel(client, two, [], vi.fn(), 'w1', { pendingIssue: { id: 'i2', title: '다른 웹 버그', repoIds: ['r2'] } }))
+    await waitFor(() => expect(pill()).toHaveValue('/tmp/web'))
+  })
+
+  it('보내면 고른 값을 잊는다', async () => {
+    const start = vi.fn().mockResolvedValue({ id: 'run-1' } as Run)
+    renderPanel(makeClient({ start }), two, [], vi.fn(), { pendingIssue: WEB_ISSUE })
+    await waitFor(() => expect(pill()).toHaveValue('/tmp/web'))
+    await userEvent.selectOptions(pill(), '/tmp/api')
+
+    await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '고쳐줘')
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
+    await waitFor(() => expect(start).toHaveBeenCalled())
+    expect(start.mock.calls[0]![0].cwd).toBe('/tmp/api')
+    await waitFor(() => expect(pill()).toHaveValue('/tmp/web'))
+  })
+
+  it('이슈 하나를 담으면 그 이슈의 repo로 옮겨 가고 첫 턴도 거기서 돈다', async () => {
+    const start = vi.fn().mockResolvedValue({ id: 'run-1' } as Run)
+    const client = makeClient({ start })
+    const { rerender } = render(panel(client, two, [], vi.fn(), 'w1'))
+    await waitFor(() => expect(pill()).toHaveValue('/tmp/api'))
+
+    rerender(panel(client, two, [WEB_CHIP], vi.fn(), 'w1'))
+    await waitFor(() => expect(pill()).toHaveValue('/tmp/web'))
+
+    await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '고쳐줘')
+    await userEvent.click(screen.getByRole('button', { name: '실행' }))
+    await waitFor(() => expect(start).toHaveBeenCalled())
+    expect(start.mock.calls[0]![0].cwd).toBe('/tmp/web')
+  })
+
+  it('담은 이슈의 repo가 사이드바를 이긴다', async () => {
+    renderPanel(makeClient(), two, [WEB_CHIP], vi.fn(), { selectedRepoId: 'r1' })
+    await waitFor(() => expect(pill()).toHaveValue('/tmp/web'))
+  })
+
+  it('이슈를 둘 담으면 따라가지 않는다', async () => {
+    const other: ContextChip = { ...WEB_CHIP, id: 'i2', label: '다른 웹 버그' }
+    renderPanel(makeClient(), two, [WEB_CHIP, other], vi.fn(), { selectedRepoId: 'r1' })
+    await waitFor(() => expect(pill()).toHaveValue('/tmp/api'))
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('알약으로 고른 값은 이슈를 담아도 남고, 안내가 담은 이슈를 말한다', async () => {
+    const client = makeClient()
+    const { rerender } = render(panel(client, two, [], vi.fn(), 'w1'))
+    await waitFor(() => expect(pill()).toHaveValue('/tmp/api'))
+    await userEvent.selectOptions(pill(), '/tmp/api')
+
+    rerender(panel(client, two, [WEB_CHIP], vi.fn(), 'w1'))
+    expect(await screen.findByRole('status')).toHaveTextContent('담은 이슈는 web에 있습니다. 작업 디렉토리는 api입니다.')
+    expect(pill()).toHaveValue('/tmp/api')
+
+    await userEvent.click(screen.getByRole('button', { name: 'web에서 시작' }))
+    await waitFor(() => expect(pill()).toHaveValue('/tmp/web'))
+  })
+
+  it('할당 예정 이슈가 있으면 담은 이슈를 보지 않는다', async () => {
+    renderPanel(makeClient(), two, [WEB_CHIP], vi.fn(), { pendingIssue: { id: 'i9', title: 'repo 없는 이슈', repoIds: [] } })
+    await waitFor(() => expect(pill()).toHaveValue('/tmp/api'))
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('이어 가는 대화에서는 담은 이슈가 안내를 세우지 않는다', async () => {
+    const conversation = groupConversations([makeRun({ id: 'a1' })])[0]!
+    renderPanel(makeClient(), two, [WEB_CHIP], vi.fn(), { conversation })
+    expect(await screen.findByRole('textbox', { name: '지시' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'web에서 시작' })).toBeNull()
+  })
+
+  it('"다시 실행"이 정한 경로에서는 담은 이슈가 안내를 세우지 않는다 — 경로를 바꿀 수 없다', async () => {
+    renderPanel(makeClient(), two, [WEB_CHIP], vi.fn(), { draftCwd: '/tmp/api' })
+    await waitFor(() => expect(pill()).toHaveValue('/tmp/api'))
+    expect(screen.queryByRole('button', { name: 'web에서 시작' })).toBeNull()
+  })
+
+  it('이슈의 repo가 둘이면 고르지 않고 후보마다 버튼을 세운다 — 전송은 막지 않는다', async () => {
+    const docs: Repo = { ...two[1]!, id: 'r3', name: 'docs', path: '/tmp/docs' }
+    renderPanel(makeClient(), [...two, docs], [], vi.fn(), { pendingIssue: { id: 'i1', title: '문서', repoIds: ['r2', 'r3'] } })
+
+    await waitFor(() => expect(pill()).toHaveValue('/tmp/api'))
+    expect(screen.getByRole('button', { name: 'web에서 시작' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'docs에서 시작' })).toBeInTheDocument()
+    await userEvent.type(screen.getByPlaceholderText(/무엇을 시킬지/), '고쳐줘')
+    expect(screen.getByRole('button', { name: '실행' })).toBeEnabled()
+  })
+})
+
 describe('RunPanel — WSL repo에서는 OpenCode를 고를 수 없다 (docs/sdlc/wsl-support/ FR-7)', () => {
   const WSL_PATH = '\\\\wsl$\\Ubuntu\\home\\me\\api'
   const mixed: Repo[] = [
@@ -1618,7 +1760,7 @@ describe('홈 대화의 입력부 (docs/sdlc/home-conversation/ FR-5·FR-6·FR-1
         <DraftProvider store={createDraftStore()}>
           <RunPanel homeCwd="/data/home-conversation" workspaceId="w1" workspaces={[makeWorkspace('edit')]} repos={[]} reposError={null}
             chips={[]} onRemoveChip={vi.fn()} onStarted={vi.fn()}
-            conversation={null} draftPrompt="" draftCwd={null} selectedRepoId={null} reserved={false}
+            conversation={null} draftPrompt="" draftCwd={null} selectedRepoId={null} pendingIssue={null} reserved={false}
             running={null} reservation={null} waitingFirst={false} onCancel={vi.fn()}
             inputRef={createRef<HTMLTextAreaElement>()} onCwdChange={vi.fn()} />
         </DraftProvider>

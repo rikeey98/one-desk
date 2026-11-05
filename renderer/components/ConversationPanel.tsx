@@ -8,7 +8,8 @@ import { issueToCarry } from '@shared/conversationIssue'
 import { resendInput } from '../resend'
 import { IssueProposalBanner } from './IssueProposalBanner'
 import type { IssueBanner } from '../proposal'
-import type { AcceptIssueProposal, AssignedIssue, Repo, Run, Workspace } from '@shared/models'
+import type { AcceptIssueProposal, Repo, Run, Workspace } from '@shared/models'
+import type { PendingIssue } from '../cwdRule'
 
 /**
  * 대화 하나. 위는 대화록, 아래는 입력이다 (설계 §4-1).
@@ -27,7 +28,7 @@ export function ConversationPanel({
 }: {
   conversation: Conversation | null
   /** 새 대화 칸에 걸린 할당 예정 이슈 (conversation-issue FR-20). 대화가 있으면 쓰지 않는다 */
-  pendingIssue?: AssignedIssue | null
+  pendingIssue?: PendingIssue | null
   workspaceId: string
   workspaces: Workspace[]
   repos: Repo[]
@@ -148,6 +149,7 @@ export function ConversationPanel({
         onCancel={onCancel}
         inputRef={inputRef}
         carriedIssue={carriedIssue}
+        pendingIssue={pendingIssue}
         onCwdChange={onCwdChange}
         homeCwd={homeCwd}
       />

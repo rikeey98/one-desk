@@ -1548,6 +1548,49 @@ describe('맥락 담기 토글의 자리와 표시', () => {
   })
 })
 
+describe('이슈에서 대화 시작 (docs/sdlc/issue-flow/ FR-3)', () => {
+  it('그 이슈의 repo에서 새 대화를 연다 — App이 repo 태그를 넘긴다', async () => {
+    renderApp(makeClient({}, {
+      repos: [makeRepo('r1', 'api', '/tmp/api'), makeRepo('r2', 'web', '/tmp/web')],
+      issues: [makeIssue({ id: 'i1', title: '토큰 만료', repoIds: ['r2'] })]
+    }))
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+
+    await userEvent.click(await screen.findByRole('button', { name: '이 이슈로 대화 시작' }))
+
+    await waitFor(() => expect(screen.getByLabelText('작업 디렉토리')).toHaveValue('/tmp/web'))
+  })
+})
+
+describe('담은 이슈의 repo (docs/sdlc/issue-flow/ FR-1·3)', () => {
+  const data = {
+    repos: [makeRepo('r1', 'api', '/tmp/api'), makeRepo('r2', 'web', '/tmp/web')],
+    issues: [makeIssue({ id: 'i1', title: '토큰 만료', repoIds: ['r2'] })]
+  }
+
+  it('목록에서 담으면 작업 디렉토리가 그 이슈의 repo로 옮겨 간다', async () => {
+    renderApp(makeClient({}, data))
+    await selectWorkspace()
+    await waitFor(() => expect(screen.getByLabelText('작업 디렉토리')).toHaveValue('/tmp/api'))
+
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료 맥락에 담기' }))
+
+    await waitFor(() => expect(screen.getByLabelText('작업 디렉토리')).toHaveValue('/tmp/web'))
+  })
+
+  it('열린 이슈의 헤더에서 담아도 그 이슈의 repo로 옮겨 간다', async () => {
+    renderApp(makeClient({}, data))
+    await selectWorkspace()
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+    await waitFor(() => expect(screen.getByLabelText('작업 디렉토리')).toHaveValue('/tmp/api'))
+
+    await userEvent.click(await screen.findByRole('button', { name: '대화에 담기' }))
+
+    await waitFor(() => expect(screen.getByLabelText('작업 디렉토리')).toHaveValue('/tmp/web'))
+  })
+})
+
 describe('삭제 후 선택 정리', () => {
   // CLAUDE.md: App이 자식에게 내려보내는 prop 한 줄은 그 자체로 되돌릴 수 있는
   // 변이다. 3a·3b가 두 번 다 이 자리에서 샜다 — 아래 둘은 그 배선을 겨눈다.
