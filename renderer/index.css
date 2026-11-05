@@ -212,6 +212,9 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .panel-actions button { border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; font-size: .6875rem; padding: 2px 8px; cursor: pointer; }
 .panel-actions button:hover { background: var(--bg-muted); }
 .panel-actions .icon-button { width: 24px; height: 24px; padding: 0; border-radius: 6px; }
+/* 열린 항목을 대화에 담는 버튼. 상세는 스크롤되지만 헤더는 남는다. */
+.panel-actions .item-pick { height: 24px; padding: 0 9px; gap: 4px; color: var(--text); font-weight: 500; }
+.panel-actions .item-pick:hover, .panel-actions .item-pick.item-picked { border-color: var(--accent-border); background: var(--accent-bg); color: var(--accent-text); }
 .panel-title { font-size: .6875rem; letter-spacing: .07em; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; }
 .panel-body { flex: 1; overflow-y: auto; padding: 8px; }
 .panel-empty, .repo-empty, .sidebar-empty, .blank { font-size: .75rem; color: var(--text-muted); padding: 10px; }
@@ -228,7 +231,8 @@ body { margin: 0; background: var(--bg); color: var(--text); }
    숨겨 제목이 남게 하고, 창이 좁으면 둘을 숨긴다. 돌아오는 길은 축소 버튼과 Esc다. */
 .columns:has(> .panel-expanded) > .panel:not(.panel-expanded) { flex: 0 0 180px; }
 /* 좁은 열은 제목 목록만 남긴다 — 표식·설명·묶기·배너는 넓을 때 보면 된다. */
-.columns:has(> .panel-expanded) > .panel:not(.panel-expanded) :is(.item-meta, .item-actions, .asset-desc, .asset-origin, .group-axis, .triage-banner, .panel-empty-hint, .asset-add select, .asset-add .icon-button) { display: none; }
+.columns:has(> .panel-expanded) > .panel:not(.panel-expanded) :is(.item-pick-text, .item-meta, .item-actions, .asset-desc, .asset-origin, .group-axis, .triage-banner, .panel-empty-hint, .asset-add select, .asset-add .icon-button) { display: none; }
+.columns:has(> .panel-expanded) > .panel:not(.panel-expanded) .item-pick { margin-left: auto; }
 @media (max-width: 1280px) {
   .columns:has(> .panel-expanded) > .panel:not(.panel-expanded) { display: none; }
 }
@@ -253,22 +257,17 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .window-splitter { flex: 0 0 auto; width: 7px; margin: 0 8px 0 -3px; cursor: ew-resize; background: transparent; border-left: 1px solid var(--border-faint); touch-action: none; user-select: none; }
 .window-splitter:hover, .window-splitter:focus-visible { background: var(--accent-bg-strong); outline: none; }
 .panel-window .item-open-active { font-weight: 600; }
-/* 맥락 담기 토글. 줄의 맨 왼쪽에서 체크박스처럼 읽히도록 원형이다.
-   이슈·메모·repo 세 곳이 같은 모양을 쓴다 — 같은 동작이므로. */
-.item-pick, .repo-context {
-  flex: 0 0 auto; width: 16px; height: 16px; padding: 0;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: 1.5px solid var(--neutral); border-radius: 50%; background: var(--bg);
-  color: transparent; cursor: pointer; font-size: .625rem; line-height: 1;
-  transition: border-color .12s, background .12s;
+/* 대화에 담는 버튼. 빈 동그라미는 이슈 줄에서 "완료 표시"로 읽혔다 — 글자가 하는 일을 말하고, 담긴 줄은
+   파란 체크박스가 아니라 선택 칩의 색이다 (docs/sdlc/context-pick/). */
+.item-pick {
+  flex: 0 0 auto; height: 20px; padding: 0 6px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 3px;
+  border: 1px solid var(--border-strong); border-radius: 5px; background: var(--bg);
+  color: var(--text-secondary); cursor: pointer; font: inherit; font-size: .6875rem; white-space: nowrap;
+  transition: border-color .12s, background .12s, color .12s;
 }
-.item-pick:hover, .repo-context:hover { border-color: var(--accent-border); }
-/* 담을 수 없는 줄(지시 파일)의 자리 맞춤. 버튼이 아니라 빈 칸이다 — 호버도 없다. */
-.item-pick-none { border-color: transparent; background: transparent; cursor: default; pointer-events: none; }
-/* 색만으로는 구분이 약해서 체크 글리프를 함께 쓴다. */
-.item-pick.item-picked, .repo-context.repo-context-picked {
-  border-color: var(--accent-text); background: var(--accent-strong); color: var(--on-accent);
-}
+.item-pick:hover, .item-pick.item-picked { border-color: var(--accent-border); background: var(--accent-bg); color: var(--accent-text); }
+.repo-slot .item-pick { width: 18px; height: 18px; padding: 0; }
 .item-open { font-weight: 700; }
 .item-list { list-style: none; margin: 0; padding: 0; }
 .item { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; margin-bottom: 1px; background: transparent; font-size: .8125rem; transition: background .12s; }
@@ -464,7 +463,6 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .repo-slot .repo-card { flex: 1; min-width: 0; }
 
 button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer; font: inherit; text-align: left; padding: 0; min-width: 0; }
-.item-picked { font-weight: 700; color: var(--accent-text); }
 /* 입력부 — 카드 하나 (docs/sdlc/conversation-timeline/ spec FR-27, 치수는 §4). 카드 위(밖)에
    오류·예약 칩, 카드 안에 맥락 칩 줄 · 입력칸 · 알약 줄. 흐림은 opacity가 아니라 토큰이다. */
 .run-panel { display: flex; flex-direction: column; gap: 6px; }

@@ -128,13 +128,7 @@ describe('RepoStrip 맥락 담기 토글', () => {
     expect(pick.parentElement!.firstElementChild).toBe(pick)
   })
 
-  it('담긴 repo만 체크 표시를 갖는다', () => {
-    renderStrip(new Set(['repo:r1']))
-    expect(screen.getByRole('button', { name: 'api-server 맥락에 담기' })).toHaveTextContent('✓')
-    expect(screen.getByRole('button', { name: 'web-client 맥락에 담기' })).not.toHaveTextContent('✓')
-  })
-
-  it('담긴 상태를 aria-pressed로도 알린다 — 이슈·메모 짝과 대칭이다', () => {
+  it('담긴 상태를 aria-pressed로 알린다 — 이슈·메모 짝과 대칭이다', () => {
     renderStrip(new Set(['repo:r1']))
     expect(screen.getByRole('button', { name: 'api-server 맥락에 담기' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: 'web-client 맥락에 담기' })).toHaveAttribute('aria-pressed', 'false')

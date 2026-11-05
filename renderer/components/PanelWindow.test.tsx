@@ -71,6 +71,14 @@ describe('PanelWindow (docs/sdlc/item-windows/)', () => {
     expect(screen.queryByRole('button', { name: /새 창으로 열기/ })).toBeNull()
   })
 
+  it('패널 창에서 항목을 열어도 담기 버튼이 없다 — 창에는 도크가 없다 (FR-8)', async () => {
+    const { client } = makeClient()
+    renderWindow(client, { kind: 'issue', workspaceId: 'w1', repoId: 'r1' })
+    await userEvent.click(await screen.findByRole('button', { name: '로그인 오류' }))
+    await screen.findByLabelText('제목')
+    expect(screen.queryByRole('button', { name: '대화에 담기' })).toBeNull()
+  })
+
   it('제목은 "<종류> · <repo>"이고 창 제목도 같다 — 전체면 "<workspace> 전체" (FR-4)', async () => {
     const { client } = makeClient()
     renderWindow(client, { kind: 'issue', workspaceId: 'w1', repoId: 'r1' })

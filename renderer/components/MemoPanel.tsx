@@ -4,7 +4,8 @@ import { AddForm } from './AddForm'
 import { MemoDetail } from './MemoDetail'
 import { useMemos } from '../hooks/useMemos'
 import { useClient } from '../client/ClientProvider'
-import { chipKey, type ContextPicker } from '../context'
+import type { ContextPicker } from '../context'
+import { ContextPick } from './ContextPick'
 import { splitTitleBody } from '../titleBody'
 import { OpenWindowButton } from './OpenWindowButton'
 import { ListToggleButton, WindowSplit } from './WindowSplit'
@@ -82,22 +83,9 @@ export function MemoPanel({
       )}
       <ul className="item-list">
         {memos.map((m) => {
-          const picked = context?.keys.has(chipKey({ type: 'memo', id: m.id })) ?? false
           return (
             <li key={m.id} className={openId === m.id ? 'item item-active' : 'item'}>
-              {context && (
-                <button
-                  type="button"
-                  className={picked ? 'item-pick item-picked' : 'item-pick'}
-                  aria-label={`${m.title} 맥락에 담기`}
-                  aria-pressed={picked}
-                  onClick={() => context.onToggle({ type: 'memo', id: m.id, label: m.title })}
-                >
-                  {picked ? '✓' : ''}
-                </button>
-              )}
-              {/* 담기 토글이 줄의 맨 앞이다 — 체크박스처럼 읽히도록.
-                  클릭은 "열어본다"이고 맥락에 담는 것은 이 토글이 맡는다 (설계 §5). */}
+              {/* 클릭은 "열어본다"이고 맥락에 담는 것은 줄 끝의 담기 버튼이 맡는다 (설계 §5). */}
               <button
                 type="button"
                 className={openId === m.id ? 'item-title item-open' : 'item-title'}
@@ -115,6 +103,8 @@ export function MemoPanel({
                   onConfirm={() => void removeMemo(m.id)}
                 />
               </span>
+              {/* 맨 끝이다 — 삭제가 hover에 펼쳐져도 이 버튼은 움직이지 않는다. */}
+              {context && <ContextPick chip={{ type: 'memo', id: m.id, label: m.title }} picker={context} place="row" />}
             </li>
           )
         })}
@@ -152,6 +142,7 @@ export function MemoPanel({
       window={inWindow}
       action={(
         <>
+          {context && open && <ContextPick chip={{ type: 'memo', id: open.id, label: open.title }} picker={context} place="header" />}
           {expanded && openId && (
             <button type="button" className="icon-button icon-button-sm" aria-label="축소" title="축소" onClick={() => onOpen(openId)}>
               <IconCollapse />

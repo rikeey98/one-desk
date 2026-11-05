@@ -3,7 +3,8 @@ import { useClient } from '../client/ClientProvider'
 import { AddRepoForm } from './AddRepoForm'
 import { RenameField } from './RenameField'
 import { ConfirmButton } from './ConfirmButton'
-import { chipKey, type ContextChip } from '../context'
+import type { ContextChip } from '../context'
+import { ContextPick } from './ContextPick'
 import { repoTitleOf } from '../agentEnv'
 import { useDrawings } from '../hooks/useDrawings'
 import { IconExternalLink, IconFolder, IconPencil, IconPlus, IconTrash } from './icons'
@@ -77,17 +78,7 @@ export function RepoStrip({ workspaceId, repos, error, refresh, selectedRepoId, 
         {repos.map((r) => (
           // 카드 클릭은 필터, 별도 버튼이 맥락 담기다. 버튼 안에 버튼을 넣을 수 없어 감싼다.
           <div key={r.id} className="repo-slot">
-            {/* 이슈·메모 목록과 같은 자리·같은 모양이다 — 왼쪽 끝의 원형 체크. */}
-            <button
-              type="button"
-              className={chipKeys.has(chipKey({ type: 'repo', id: r.id }))
-                ? 'repo-context repo-context-picked' : 'repo-context'}
-              aria-label={`${r.name} 맥락에 담기`}
-              aria-pressed={chipKeys.has(chipKey({ type: 'repo', id: r.id }))}
-              onClick={() => onToggleContext({ type: 'repo', id: r.id, label: r.name })}
-            >
-              {chipKeys.has(chipKey({ type: 'repo', id: r.id })) ? '✓' : ''}
-            </button>
+            <ContextPick chip={{ type: 'repo', id: r.id, label: r.name }} picker={{ keys: chipKeys, onToggle: onToggleContext }} place="repo" />
             {editing === r.id ? (
               <RenameField
                 initial={r.name}

@@ -4,7 +4,8 @@ import { AddForm } from './AddForm'
 import { AssetDetail } from './AssetDetail'
 import { useAssets } from '../hooks/useAssets'
 import { useClient } from '../client/ClientProvider'
-import { chipKey, type ContextPicker } from '../context'
+import type { ContextPicker } from '../context'
+import { ContextPick } from './ContextPick'
 import { OpenWindowButton } from './OpenWindowButton'
 import { ListToggleButton, WindowSplit } from './WindowSplit'
 import { IconChevronDown, IconChevronRight, IconCollapse, IconRefresh } from './icons'
@@ -32,6 +33,14 @@ function originOf(item: Asset, repos: Repo[]): string {
   if (item.source === 'authored') return '앱에서 작성'
   if (!item.repoId) return '글로벌'
   return repos.find((r) => r.id === item.repoId)?.name ?? '알 수 없는 repo'
+}
+
+/**
+ * 지시 파일은 보기 전용이다 — CLI가 실행할 때 알아서 읽으므로 담으면 같은 본문이 두 번 들어간다.
+ * 버튼을 숨기는 것이 아니라 렌더하지 않는다 (docs/sdlc/repo-instructions/ FR-8). core도 거부한다(FR-9).
+ */
+function isAttachable(item: Asset): boolean {
+  return item.kind !== 'instructions'
 }
 
 export function AssetPanel({
@@ -83,27 +92,8 @@ export function AssetPanel({
   const present = assets.filter((a) => !isMissing(a, latestSeenAt))
 
   const row = (a: Asset) => {
-    const picked = context?.keys.has(chipKey({ type: 'asset', id: a.id })) ?? false
-    // 지시 파일은 보기 전용이다 — CLI가 실행할 때 알아서 읽으므로 담으면 같은
-    // 본문이 두 번 들어간다. 버튼을 숨기는 것이 아니라 렌더하지 않는다
-    // (docs/sdlc/repo-instructions/ FR-8). core도 거부한다(FR-9).
-    const attachable = a.kind !== 'instructions'
-    // 패널 창에는 담기가 없다(FR-8) — 자리표시도 그리지 않는다.
     return (
       <li key={a.id} className="item" aria-label={a.name}>
-        {context && (attachable
-          ? (
-              <button
-                type="button"
-                className={picked ? 'item-pick item-picked' : 'item-pick'}
-                aria-label={`${a.name} 맥락에 담기`}
-                aria-pressed={picked}
-                onClick={() => context.onToggle({ type: 'asset', id: a.id, label: a.name })}
-              >
-                {picked ? '✓' : ''}
-              </button>
-            )
-          : <span className="item-pick item-pick-none" aria-hidden="true" />)}
         {/* 이름·설명·경로는 평문이다. 외부 repo의 파일에서 왔으므로
             마크다운으로 그리지 않는다 (설계 §6-3). */}
         <button
@@ -116,6 +106,7 @@ export function AssetPanel({
           <span className="asset-origin" title={a.filePath ?? ''}>{origin(a)}</span>
           {isMissing(a, latestSeenAt) && <span className="chip-badge">없음</span>}
         </span>
+        {context && isAttachable(a) && <ContextPick chip={{ type: 'asset', id: a.id, label: a.name }} picker={context} place="row" />}
       </li>
     )
   }
@@ -206,6 +197,9 @@ export function AssetPanel({
       window={inWindow}
       action={(
         <>
+          {context && open && isAttachable(open) && (
+            <ContextPick chip={{ type: 'asset', id: open.id, label: open.name }} picker={context} place="header" />
+          )}
           {expanded && openId && (
             <button type="button" className="icon-button icon-button-sm" aria-label="축소" title="축소" onClick={() => onOpen?.(openId)}>
               <IconCollapse />

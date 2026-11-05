@@ -6,7 +6,8 @@ import { IssueDetail } from './IssueDetail'
 import { TriageCard, type TriagePick } from './TriageCard'
 import { useIssues } from '../hooks/useIssues'
 import { useClient } from '../client/ClientProvider'
-import { chipKey, type ContextPicker } from '../context'
+import type { ContextPicker } from '../context'
+import { ContextPick } from './ContextPick'
 import { OpenWindowButton } from './OpenWindowButton'
 import { ListToggleButton, WindowSplit } from './WindowSplit'
 import { groupIssues, nextInQueue, triageQueue } from '../issueGroups'
@@ -222,20 +223,8 @@ export function IssuePanel({
             {!isCollapsed && (
               <ul className="item-list">
                 {group.issues.map((i) => {
-                  const picked = context?.keys.has(chipKey({ type: 'issue', id: i.id })) ?? false
                   return (
                     <li key={i.id} className={openId === i.id ? 'item item-active' : 'item'}>
-                      {context && (
-                        <button
-                          type="button"
-                          className={picked ? 'item-pick item-picked' : 'item-pick'}
-                          aria-label={`${i.title} 맥락에 담기`}
-                          aria-pressed={picked}
-                          onClick={() => context.onToggle({ type: 'issue', id: i.id, label: i.title })}
-                        >
-                          {picked ? '✓' : ''}
-                        </button>
-                      )}
                       <button
                         type="button"
                         className={openId === i.id ? 'item-title item-open' : 'item-title'}
@@ -268,6 +257,8 @@ export function IssuePanel({
                           onConfirm={() => void removeIssue(i.id)}
                         />
                       </span>
+                      {/* 맨 끝이다 — 삭제가 hover에 펼쳐져도 이 버튼은 움직이지 않는다. */}
+                      {context && <ContextPick chip={{ type: 'issue', id: i.id, label: i.title }} picker={context} place="row" />}
                     </li>
                   )
                 })}
@@ -347,6 +338,7 @@ export function IssuePanel({
       window={inWindow}
       action={(
         <>
+          {context && open && <ContextPick chip={{ type: 'issue', id: open.id, label: open.title }} picker={context} place="header" />}
           {expanded && openId && (
             <button type="button" className="icon-button icon-button-sm" aria-label="축소" title="축소" onClick={() => onOpen(openId)}>
               <IconCollapse />

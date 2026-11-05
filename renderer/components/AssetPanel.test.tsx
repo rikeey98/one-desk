@@ -106,6 +106,15 @@ describe('AssetPanel', () => {
     expect(onToggleContext).toHaveBeenCalledWith({ type: 'asset', id: 'a1', label: '알파' })
   })
 
+  it('연 asset은 헤더에서 바로 담는다 — 축소하지 않아도 된다', async () => {
+    const onToggle = vi.fn()
+    renderPanel(makeClient([asset({ name: '알파' })]), {
+      context: { keys: new Set<string>(), onToggle }, expanded: true, openId: 'a1', onOpen: vi.fn()
+    })
+    await userEvent.click(await screen.findByRole('button', { name: '대화에 담기' }))
+    expect(onToggle).toHaveBeenCalledWith({ type: 'asset', id: 'a1', label: '알파' })
+  })
+
   it('workspace가 없으면 목록을 부르지 않는다', async () => {
     const client = makeClient([])
     renderPanel(client, { workspaceId: null })
@@ -204,6 +213,12 @@ describe('AssetPanel — 출처와 필터', () => {
       expect(screen.queryByRole('button', { name: 'CLAUDE.md 맥락에 담기' })).toBeNull()
       // skill 줄에는 그대로 있다 — 조건이 통째로 사라진 것이 아니다.
       expect(screen.getByRole('button', { name: '알파 맥락에 담기' })).toBeInTheDocument()
+    })
+
+    it('열어도 헤더에 담기 버튼이 없다', async () => {
+      renderPanel(makeClient(rows), { expanded: true, openId: 'i1', onOpen: vi.fn() })
+      await screen.findByLabelText('이름')
+      expect(screen.queryByRole('button', { name: '대화에 담기' })).toBeNull()
     })
 
     it('이름을 누르면 상세가 열린다 — 보기는 된다', async () => {

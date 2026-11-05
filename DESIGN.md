@@ -230,6 +230,8 @@ workspace 아래에 그 workspace의 repo가 트리처럼 들여쓰기로 붙는
   표시 전용 알약(`.applied-chip`·`.axis-chip`)은 회색 테두리에 `cursor: default`.
 - **목록 줄**: 평소엔 배경이 없고 hover에 `--bg-muted`, 열린 줄(`.item-active`)은 `--accent-bg`.
   줄 오른쪽 끝의 읽기 전용 표식은 `.item-meta`에 모으고, 제목이 줄어들지 표식이 줄어들지 않는다.
+- **담기 버튼**(`.item-pick`): 줄 맨 끝의 `＋ 담기`, 담기면 `✓ 담김`이고 색은 선택 칩과 같다(`--accent-bg` + `--accent-border` + `--accent-text`). 파란 면으로 채우지
+  않는다 — 왼쪽 끝의 파란 체크는 이슈 완료로 읽혔다. 좁은 열에서는 글자가 사라지고, 사이드바 repo 줄은 왼쪽의 18px 아이콘뿐이다. 열린 항목은 패널 헤더의 `＋ 대화에 담기`다.
 - **개수 알약**: 패널 제목·그룹 헤더·asset 절 제목 옆의 `.panel-count`/`.group-count`. 괄호로
   쓰지 않는다.
 - **상태 알약**: 점 + 글자(`.status::before`). 색만으로 가르지 않는다. 글자는
