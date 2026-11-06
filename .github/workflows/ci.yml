@@ -1,0 +1,35 @@
+name: ci
+
+# release.yml은 태그를 밀어야 돈다. 플랫폼마다 깨지는 테스트가 릴리스 빌드에서야 드러나던 것
+# (v0.2.0·v0.7.0·v0.7.1)을 main과 PR에서 먼저 잡는다. 문서만 고친 커밋은 건너뛴다.
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['docs/**', '**.md']
+  pull_request:
+    paths-ignore: ['docs/**', '**.md']
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        # windows-2022로 고정한 이유는 release.yml의 주석에 있다.
+        os: [windows-2022, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      # cache: pnpm을 켜지 않는다. 태그 빌드는 main의 캐시를 복원할 수 있어서, 켜면 빈 저장소로 돌던
+      # 릴리스가 여기서 만든 pnpm 저장소(네이티브 모듈 빌드 결과 포함)를 물려받는다.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
