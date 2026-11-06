@@ -13,7 +13,7 @@ import { createAssetRepository } from './db/repositories/asset'
 import { createRunManager, type RunManager, type RunOutcome, type StartSpec } from './runner/manager'
 import { createRunQueue } from './runner/queue'
 import { claudeCodeAdapter } from './runner/adapters/claudeCode'
-import { createExecutionService, type ExecutionOptions } from './execution'
+import { createExecutionService, type ExecutionManager, type ExecutionOptions } from './execution'
 import type { AgentKind, Run } from '@shared/models'
 import type { PreflightResult, VerifyRunnableInput } from './runner/types'
 import type { McpHost } from './mcp/host'
@@ -27,7 +27,7 @@ const FAKE = resolve(HERE, 'runner/fixtures/fake-claude.mjs')
 
 interface SetupOptions {
   preflight?: () => Promise<PreflightResult>
-  manager?: RunManager
+  manager?: ExecutionManager
   limit?: number
   /** run 저장소를 감싸 특정 호출만 던지게 만드는 통로 (유령 run 재현) */
   wrapRuns?: (runs: RunRepository) => RunRepository
@@ -1787,7 +1787,7 @@ function createPerRunManager() {
   // 끝나는 순간은 테스트가 finish()로 정한다.
   const cancelRequests: string[] = []
 
-  const manager: RunManager = {
+  const manager: ExecutionManager = {
     logPathFor,
     rawLogPathFor: (runId: string) => resolve(tmpdir(), `one-desk-perrun-${runId}.raw.jsonl`),
     start: (spec) => {
@@ -1857,7 +1857,7 @@ function createDeferredManager() {
     settle = (outcome) => { done = true; r(outcome) }
   })
 
-  const manager: RunManager = {
+  const manager: ExecutionManager = {
     logPathFor: (runId) => resolve(tmpdir(), `one-desk-deferred-${runId}.jsonl`),
     rawLogPathFor: (runId) => resolve(tmpdir(), `one-desk-deferred-${runId}.raw.jsonl`),
     start: () => { calls += 1; return pending },

@@ -195,6 +195,36 @@ describe('createCore', () => {
     }
   })
 
+  it('workspace를 지우면 그 run의 로그 폴더도 지운다 — 다른 workspace의 로그는 남는다', async () => {
+    const previous = process.env['ONE_DESK_AGENT_PATH']
+    process.env['ONE_DESK_AGENT_PATH'] = FAKE_AGENT
+    try {
+      const dataDir = makeDataDir()
+      const core = open(dataDir)
+      const logDirOfRunIn = async (workspaceId: string) => {
+        const run = await core.execution.start({
+          workspaceId, agentKind: 'claude-code', cwd: dataDir,
+          permission: 'edit', userPrompt: 'x', context: []
+        })
+        await vi.waitFor(() => expect(core.runs.get(run.id).endedAt).toBeTypeOf('number'))
+        return join(dataDir, 'logs', run.id)
+      }
+      const doomedWorkspace = core.workspaces.create({ name: '지울 것' }).id
+      const keptWorkspace = core.workspaces.create({ name: '남길 것' }).id
+      const doomed = await logDirOfRunIn(doomedWorkspace)
+      const kept = await logDirOfRunIn(keptWorkspace)
+      expect(existsSync(doomed)).toBe(true)
+
+      core.workspaces.remove(doomedWorkspace)
+
+      await vi.waitFor(() => expect(existsSync(doomed)).toBe(false))
+      expect(existsSync(kept)).toBe(true)
+    } finally {
+      if (previous === undefined) delete process.env['ONE_DESK_AGENT_PATH']
+      else process.env['ONE_DESK_AGENT_PATH'] = previous
+    }
+  })
+
   it('부팅하면 MCP 서버가 뜨고 상태가 listening이 된다', async () => {
     // 이 단언은 예전에 정반대였다("부팅만으로는 포트를 열지 않는다"). 사용자가
     // 상시 기동을 택해 전체 설계 §14의 결정을 뒤집었다 — 지우지 않고 뒤집어,

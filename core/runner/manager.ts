@@ -8,6 +8,7 @@ import { createLogWriter, createRawLogWriter, RAW_LOG_MAX_BYTES } from './logWri
 import { taskkillTreeSync, terminate, readPgid } from './terminate'
 import { killGroup as killGroupAsync, killGroupSync as killGroupSyncDefault, type GroupKiller } from '../wsl/kill'
 import { rmSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { agentCommand } from './executable'
 import type { ErrorSink } from '../errors'
 import type { ProcessEnvSpec } from '../wsl/env'
@@ -186,6 +187,20 @@ export function createRunManager(opts: RunManagerOptions) {
    */
   function rawLogPathFor(runId: string): string {
     return join(opts.logDir, runId, 'raw.jsonl')
+  }
+
+  /**
+   * run의 로그 폴더를 지운다. MCP 서버가 같은 프로세스에 있어 메인을 막지 않게 비동기로 지운다.
+   * **run 행을 지운 뒤에 부른다** — 행은 되돌릴 수 없으므로 못 지워도 던지지 않는다.
+   */
+  async function removeLogs(runIds: readonly string[]): Promise<void> {
+    for (const runId of runIds) {
+      try {
+        await rm(join(opts.logDir, runId), { recursive: true, force: true })
+      } catch (err) {
+        opts.onError(`로그를 지우지 못했습니다: ${runId}`, err)
+      }
+    }
   }
 
   function isRunning(runId: string): boolean {
@@ -411,7 +426,7 @@ export function createRunManager(opts: RunManagerOptions) {
     for (const fn of cancels.values()) fn(true)
   }
 
-  return { start, cancel, cancelAll, isRunning, logPathFor, rawLogPathFor }
+  return { start, cancel, cancelAll, isRunning, logPathFor, rawLogPathFor, removeLogs }
 }
 
 export type RunManager = ReturnType<typeof createRunManager>

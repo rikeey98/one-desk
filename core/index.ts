@@ -622,11 +622,16 @@ export function createCore(opts: CoreOptions) {
         return { workspace: workspaceRows.ensureHome(), cwd: homeCwd }
       },
 
-      /** 지우기 전에 그 아래 repo의 셸을 끝낸다 — 지우고 나면 repo 목록이 cascade로 사라진다 (terminal-spec FR-10) */
+      /**
+       * 지우기 전에 그 아래 repo의 셸을 끝낸다 — 지우고 나면 repo 목록이 cascade로 사라진다 (terminal-spec FR-10).
+       * run 행도 cascade로 사라지므로, 지울 로그 폴더의 id를 먼저 받아 둔다.
+       */
       remove(id: string) {
         const owned = repos.list(id)
+        const runIds = runs.list(id).map((run) => run.id)
         const result = workspaces.remove(id)
         for (const repo of owned) terminal.killRepo(repo.id)
+        void manager.removeLogs(runIds)
         return result
       },
 

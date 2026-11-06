@@ -36,10 +36,13 @@ function withIssue(context: ContextItemRef[], issueId: string | null): ContextIt
   return [...context, { type: 'issue', id: issueId }]
 }
 
+/** 실행 서비스가 manager에서 쓰는 부분. 로그를 지우는 것은 workspace 삭제의 일이다 */
+export type ExecutionManager = Omit<RunManager, 'removeLogs'>
+
 export interface ExecutionOptions {
   db: Database
   runs: RunRepository
-  manager: RunManager
+  manager: ExecutionManager
   /** 전역 동시 실행 상한과 대기열 */
   queue: RunQueue
   /** MCP 호스트. 없으면 MCP 없이 실행한다 (테스트 통로) */
