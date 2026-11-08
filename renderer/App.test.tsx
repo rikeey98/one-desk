@@ -519,7 +519,7 @@ describe('App', () => {
     )
 
     await userEvent.click(await screen.findByRole('button', { name: 'ws1' }))
-    await userEvent.click(await screen.findByRole('button', { name: '실행 슬롯' }))
+    await userEvent.click(await screen.findByRole('button', { name: /실행 슬롯/ }))
     const input = screen.getByLabelText('동시 실행 상한')
     await userEvent.clear(input)
     await userEvent.type(input, '5{Enter}')

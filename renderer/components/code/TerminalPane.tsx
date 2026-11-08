@@ -306,6 +306,7 @@ export function TerminalPane({ workspaceId, repo, onClose, onSendSelection }: {
           onSize={onSize}
           onSession={onSession}
           onFailed={onFailed}
+          onLeave={() => { tabButtons.current.get(activeTab.tabId)?.focus() }}
         />
       ) : tabs && tabs.length === 0 && !error && (
         <p className="code-pane-hint terminal-empty">열린 터미널이 없습니다</p>

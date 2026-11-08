@@ -30,15 +30,15 @@ export function HomeWorkspaces({
       <ul className="home-ws-grid">
         {workspaces.map((w) => (
           <li key={w.workspaceId}>
-            <button type="button" className="home-ws-card" aria-label={`${w.name} 워크스페이스 열기`} onClick={() => onOpenWorkspace(w.workspaceId)}>
+            <button type="button" className="home-ws-card" aria-label={`${w.name} 워크스페이스 열기`} aria-describedby={`home-ws-${w.workspaceId}-counts home-ws-${w.workspaceId}-repos`} onClick={() => onOpenWorkspace(w.workspaceId)}>
               <span className="home-ws-name">{w.name}</span>
-              <span className="home-ws-counts">
+              <span id={`home-ws-${w.workspaceId}-counts`} className="home-ws-counts">
                 <span>열림 <b>{w.open}</b></span>
                 <span>진행 중 <b>{w.doing}</b></span>
                 <span>오늘 완료 <b>{w.doneToday}</b></span>
                 {w.untriaged > 0 && <span className="home-ws-warn">정리 안 됨 <b>{w.untriaged}</b></span>}
               </span>
-              <span className="home-ws-repos">
+              <span id={`home-ws-${w.workspaceId}-repos`} className="home-ws-repos">
                 {w.repos.length === 0
                   ? <span className="home-row-faint">등록된 repo 없음</span>
                   : w.repos.map((r) => (

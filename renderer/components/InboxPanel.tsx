@@ -125,6 +125,7 @@ function InboxGroup({ groupKey, label, name, title, count, needsAnswer, level, c
         className="inbox-group-head"
         aria-expanded={!isCollapsed}
         aria-label={name}
+        aria-description={`${count}건`}
         title={title}
         onClick={() => onToggle(groupKey)}
       >

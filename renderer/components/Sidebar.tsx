@@ -154,6 +154,7 @@ export function Sidebar({
                 type="button"
                 className={w.id === selectedId && view === 'workspace' ? 'ws-tile ws-tile-selected' : 'ws-tile'}
                 aria-label={w.name}
+                aria-description={(counts.byWorkspace[w.id] ?? 0) > 0 ? `인박스 ${counts.byWorkspace[w.id]}건` : undefined}
                 title={w.name}
                 aria-current={w.id === selectedId && view === 'workspace' ? 'true' : undefined}
                 onClick={() => onSelect(w.id)}

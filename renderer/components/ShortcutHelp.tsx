@@ -51,6 +51,14 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }) {
           <dd><kbd>{runShortcutLabel(platform)}</kbd></dd>
         </div>
         <div className="shortcut-row">
+          <dt>터미널에서 나가기</dt>
+          <dd><kbd>Ctrl+Shift+Tab</kbd></dd>
+        </div>
+        <div className="shortcut-row">
+          <dt>코드 편집기에서 나가기</dt>
+          <dd><kbd>Esc</kbd> <kbd>Tab</kbd></dd>
+        </div>
+        <div className="shortcut-row">
           <dt>안쪽부터 닫기</dt>
           <dd><kbd>Esc</kbd></dd>
         </div>

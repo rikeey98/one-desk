@@ -50,7 +50,7 @@ import { createWslHome, expandWslRoots } from './wsl/home'
 import { createConfigFiles } from './app/configFiles'
 import { listDistros } from './wsl/distros'
 import { folderStartOf } from './wsl/folderStart'
-import { parseWslPath } from '@shared/wslPath'
+import { isWslUnc, parseWslPath } from '@shared/wslPath'
 import { killSession, killSessionSync } from './wsl/kill'
 import { LAUNCHER_FILE } from './wsl/launch'
 import type { AgentDefaults } from './runner/agentPath'
@@ -228,6 +228,16 @@ export function createCore(opts: CoreOptions) {
     if (agentEnv !== 'wsl') return
     if (!wslSupported) throw new Error('WSL은 Windows에서만 쓸 수 있습니다')
     if (!parseWslPath(path)) throw new Error(`WSL repo의 경로는 \\\\wsl$\\<배포판>\\… 이어야 합니다: ${path}`)
+  }
+
+  /**
+   * repo 경로는 있는 폴더여야 한다 — 실행의 cwd가 그대로 이 값이라 없는 경로를 받아 두면 다음 실행이 원인을 모르는 ENOENT로
+   * 끝난다.
+   */
+  const assertRepoPath = (path: string): void => {
+    let isDir = false
+    try { isDir = statSync(path).isDirectory() } catch { isDir = false }
+    if (!isDir) throw new Error(`존재하지 않는 경로입니다: ${path}`)
   }
 
   /** 그 workspace의 첫 WSL repo (FR-13) — `checkAgents`·`probeAgents`의 `wsl` 칸이 보는 것 */
@@ -755,6 +765,8 @@ export function createCore(opts: CoreOptions) {
       },
       async create(input: Parameters<typeof repos.create>[0]) {
         assertWslRepo(input.agentEnv, input.path)
+        // 등록 때 WSL 경로는 보지 않는다 — stat이 꺼진 VM을 깨운다(wsl-repo-setup §5의 1). 대화상자가 고른 폴더가 대부분이다
+        if (!isWslUnc(input.path)) assertRepoPath(input.path)
         const made = repos.create(input)
         // **스캔을 기다린 뒤에 돌려준다.** 기다리지 않으면 화면이 목록을 다시 읽는
         // 시점에 스캔이 아직 안 끝나 있어, 방금 등록한 repo의 asset이 새로고침을
@@ -780,12 +792,7 @@ export function createCore(opts: CoreOptions) {
       async update(input: UpdateRepoInput) {
         const before = repos.get(input.id)
         // 존재 검사는 경로를 **바꿀 때**다 — 같은 경로를 다시 보내는 저장(실행 환경만 바꾸는 것)이 드라이브를 뺀 날 막히면 안 된다.
-        if (input.path !== undefined && input.path.trim() !== before.path) {
-          const trimmed = input.path.trim()
-          let isDir = false
-          try { isDir = statSync(trimmed).isDirectory() } catch { isDir = false }
-          if (!isDir) throw new Error(`존재하지 않는 경로입니다: ${trimmed}`)
-        }
+        if (input.path !== undefined && input.path.trim() !== before.path) assertRepoPath(input.path.trim())
         assertWslRepo(input.agentEnv ?? before.agentEnv, (input.path ?? before.path).trim())
         const { id, ...patch } = input
         const updated = repos.update(id, patch)

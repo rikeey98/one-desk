@@ -9,6 +9,11 @@ describe('SlotIndicator', () => {
     expect(screen.getByRole('button', { name: /실행 슬롯/ })).toHaveTextContent('2/3')
   })
 
+  it('보이는 수가 접근성 이름에도 있다', () => {
+    render(<SlotIndicator snapshot={{ running: 2, limit: 3, waiting: 0 }} onChangeLimit={vi.fn()} />)
+    expect(screen.getByRole('button', { name: '실행 슬롯, 실행 중 2/3' })).toBeInTheDocument()
+  })
+
   it('대기가 있을 때만 대기 수를 보여준다', () => {
     const { rerender } = render(
       <SlotIndicator snapshot={{ running: 3, limit: 3, waiting: 0 }} onChangeLimit={vi.fn()} />

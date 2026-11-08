@@ -883,6 +883,17 @@ describe('WSL repo의 실행 판정 (docs/sdlc/wsl-support/ FR-7·FR-12·FR-13)'
     })
   })
 
+  it('없는 폴더는 등록하지 않는다 — 받아 두면 다음 실행이 원인을 모르는 ENOENT로 끝난다', async () => {
+    const dataDir = makeDataDir()
+    const core = open(dataDir)
+    const ws = core.workspaces.create({ name: 'ws' }).id
+    const missing = join(dataDir, 'no-such-dir')
+    await expect(core.repos.create({ workspaceId: ws, name: 'x', path: missing }))
+      .rejects.toThrow(`존재하지 않는 경로입니다: ${missing}`)
+    expect(core.repos.list(ws)).toEqual([])
+    close(core)
+  })
+
   it('agentEnv가 wsl이면 경로가 \\\\wsl$\\<배포판>\\… 모양이어야 하고, Windows가 아니면 저장도 거부한다 (FR-2·FR-4)', async () => {
     const dataDir = makeDataDir()
     const core = open(dataDir)

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useRef, type KeyboardEvent, type ReactNod
 import { createPortal } from 'react-dom'
 import { clock } from '../home/timeline'
 import { useClient } from '../client/ClientProvider'
-import { clampDockHeight, readDockHeight, writeDockHeight, DEFAULT_DOCK_RATIO, MIN_DOCK_PX } from '../dockHeight'
+import { clampDockHeight, readDockHeight, writeDockHeight, DEFAULT_DOCK_RATIO, DOCK_STEP_PX, MIN_DOCK_PX } from '../dockHeight'
 import { withShortcut } from '../shortcut'
 import { ConversationPanel } from './ConversationPanel'
 import { useProposals } from '../hooks/useProposals'
@@ -140,9 +140,14 @@ export function Dock({
   // 저장하지 않고, workspace를 바꿔도 남긴다(spec §3).
   const [maximized, setMaximized] = useState(false)
   // 도크 높이. 원래 CSS에 34%로 박혀 있어 대화창을 넓힐 방법이 없었다.
-  // 창 크기는 마운트 시점에만 읽는다 — 리사이즈 추적은 이 변경의 범위가 아니고,
-  // 값은 아래 드래그에서 매번 지금 창 크기로 다시 클램프된다.
+  // 창이 줄면 보이는 높이만 줄인다(아래 shownHeight) — 사용자가 끌어 둔 값은 그대로라 창이 돌아오면 함께 돌아온다.
   const [height, setHeight] = useState(() => readDockHeight(window.innerHeight))
+  const [viewportHeight, setViewportHeight] = useState(window.innerHeight)
+  useEffect(() => {
+    const onResize = () => { setViewportHeight(window.innerHeight) }
+    window.addEventListener('resize', onResize)
+    return () => { window.removeEventListener('resize', onResize) }
+  }, [])
   // 상세가 열려 있는 동안의 높이 (ux-polish FR-1, 2026-10-21 개정). 열리면 하한에서 **시작**하되 끌 수 있다 — 저장하지 않고,
   // 닫으면 끌어 둔 보통 높이(`height`)로 돌아온다. 처음엔 하한에 고정하고 손잡이를 없앴는데 상세를 보며 대화를 넓힐 수 없었다.
   const [compactHeight, setCompactHeight] = useState(MIN_DOCK_PX)
@@ -232,6 +237,16 @@ export function Dock({
     )
     setPaneWidth(next)
     writePaneWidth(next)
+  }
+
+  /** 높이 경계의 키보드 — ↑는 도크를 키우고 ↓는 줄인다. 상세가 열린 동안의 높이는 끌기처럼 저장하지 않는다 */
+  function onDockResizerKey(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+    e.preventDefault()
+    const next = clampDockHeight(shownHeight + (e.key === 'ArrowUp' ? DOCK_STEP_PX : -DOCK_STEP_PX), viewportHeight)
+    if (compact) { setCompactHeight(next); return }
+    setHeight(next)
+    writeDockHeight(next)
   }
 
   function resetHeight() {
@@ -535,7 +550,7 @@ export function Dock({
 
   const isMax = open && maximized
   // 상세가 열려 있으면 그동안의 높이(하한에서 시작, 끌 수 있다)다 — 끌어 둔 보통 높이(`height`)는 남겨 둔다 (①, 2026-10-21 개정).
-  const shownHeight = compact ? compactHeight : height
+  const shownHeight = clampDockHeight(compact ? compactHeight : height, viewportHeight)
   const shownConversation = view === 'new' ? null : selected
   // 보는 대화의 입력칸에 보낼 것이 있는가 — 대화 헤더의 `멈추기`는 그때만 선다(spec §8의 3, 결정
   // 2026-09-27). 입력칸이 비면 같은 자리의 전송 버튼이 이미 중지다. 키는 입력부의 초안 키와 같다.
@@ -604,6 +619,10 @@ export function Dock({
           role="separator"
           aria-label="대화창 크기 조절"
           aria-orientation="horizontal"
+          aria-valuenow={Math.round(shownHeight)}
+          aria-valuemin={Math.round(clampDockHeight(0, viewportHeight))}
+          aria-valuemax={Math.round(clampDockHeight(viewportHeight, viewportHeight))}
+          tabIndex={0}
           className="dock-resizer"
           onPointerDown={(e) => {
             // preventDefault를 부르지 않는다 — 부르면 뒤따르는 click/dblclick이
@@ -612,6 +631,7 @@ export function Dock({
             drag.current = { startY: e.clientY, startHeight: shownHeight, compact }
           }}
           onDoubleClick={resetHeight}
+          onKeyDown={onDockResizerKey}
         />
       )}
       {/* 헤더는 토글 · 슬롯 표시기 · 최대화다 (`docs/sdlc/conversation-timeline/` spec FR-37).

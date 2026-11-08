@@ -12,6 +12,12 @@ describe('ConfirmButton', () => {
     expect(screen.getByRole('button', { name: '정말 삭제?' })).toBeInTheDocument()
   })
 
+  it('확인을 묻는 동안에도 무엇을 지우는지 보조기기에 남는다', async () => {
+    render(<ConfirmButton label="삭제" confirmLabel="정말 삭제?" ariaLabel="결제 이슈 삭제" onConfirm={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: '결제 이슈 삭제' }))
+    expect(screen.getByRole('button', { name: '정말 삭제?' })).toHaveAccessibleDescription('결제 이슈 삭제')
+  })
+
   it('두 번 누르면 부른다', async () => {
     const onConfirm = vi.fn()
     render(<ConfirmButton label="삭제" confirmLabel="정말 삭제?" onConfirm={onConfirm} />)

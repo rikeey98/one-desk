@@ -442,6 +442,8 @@ describe('접힌 사이드바의 workspace 타일 (docs/sdlc/ux-polish/ FR-7)', 
     expect(personal).toHaveTextContent('개')
     expect(personal).toHaveAttribute('title', '개인')
     expect(personal).toHaveTextContent('2')
+    expect(personal).toHaveAccessibleDescription('인박스 2건')
+    expect(company).not.toHaveAttribute('aria-description')
     expect(company).toHaveClass('ws-tile-selected')
     expect(company).toHaveAttribute('aria-current', 'true')
     expect(personal).not.toHaveClass('ws-tile-selected')

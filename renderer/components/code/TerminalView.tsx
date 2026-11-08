@@ -28,6 +28,8 @@ export interface TerminalViewProps {
   onResize: (cols: number, rows: number) => void
   /** 고른 글이 생기고 없어질 때 */
   onSelectionChange: (hasSelection: boolean) => void
+  /** Ctrl+Shift+Tab. Tab은 셸이 받으므로 키보드로 칸을 떠나는 길이 따로 있어야 한다(WCAG 2.1.2) */
+  onLeave: () => void
 }
 
 /** 색은 토큰에서 온다 — 테마가 바뀌면 다시 읽는다(DESIGN.md: 색은 `:root` 토큰에서만) */
@@ -50,11 +52,11 @@ function themeFromTokens(): ITheme {
   }
 }
 
-export function TerminalView({ onReady, onData, onResize, onSelectionChange }: TerminalViewProps) {
+export function TerminalView({ onReady, onData, onResize, onSelectionChange, onLeave }: TerminalViewProps) {
   const host = useRef<HTMLDivElement | null>(null)
   // 콜백은 마운트 한 번에 걸린다 — 바뀐 콜백을 ref로 따라간다
-  const handlers = useRef({ onReady, onData, onResize, onSelectionChange })
-  handlers.current = { onReady, onData, onResize, onSelectionChange }
+  const handlers = useRef({ onReady, onData, onResize, onSelectionChange, onLeave })
+  handlers.current = { onReady, onData, onResize, onSelectionChange, onLeave }
 
   useEffect(() => {
     const el = host.current
@@ -75,6 +77,13 @@ export function TerminalView({ onReady, onData, onResize, onSelectionChange }: T
 
     // Ctrl+C는 선택이 있으면 복사, 없으면 셸로(중단). Ctrl+V는 xterm이 먹지 않게 넘겨 브라우저의 붙여넣기가 돈다 (FR-16)
     term.attachCustomKeyEventHandler((e) => {
+      if (e.key === 'Tab' && e.ctrlKey && e.shiftKey && !e.altKey) {
+        if (e.type === 'keydown') {
+          e.preventDefault()
+          handlers.current.onLeave()
+        }
+        return false
+      }
       if (e.type !== 'keydown' || !e.ctrlKey || e.shiftKey || e.altKey) return true
       const key = e.key.toLowerCase()
       if (key === 'c' && term.hasSelection()) {

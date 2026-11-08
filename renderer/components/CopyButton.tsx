@@ -84,6 +84,7 @@ export function CopyButton({ text, label, display, hint }: Props) {
         type="button"
         className={display === undefined ? 'row-action copy-button' : 'copy-pill'}
         aria-label={label}
+        aria-description={display}
         title={hint ?? label}
         onClick={() => void copy()}
       >

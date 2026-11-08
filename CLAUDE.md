@@ -432,6 +432,14 @@ Ctrl+J · 인박스 Ctrl+Shift+I · `?` 목록(`ShortcutHelp` popover, Esc 사�
 DOM을 짚지 않는다. 수정키 없는 `?`는 글을 받는 자리(`isEditableTarget`)에서 듣지 않는다. 따라온 것 둘: 설정의 저장 버튼은 그 절에
 바뀐 것이 있을 때만 활성이고, CLI 상태의 `확인 중…`은 버튼이 아니라 `role="status"` 글자다(`다시 확인` 버튼은 잠긴 채 남는다).
 
+**UI 검토의 HIGH 10건을 고쳤다** (2026-11-08, better-interface 검토). 마이그레이션 없음. 색과 모양의 규칙은 jsdom이 못 재므로 `renderer/tokenContrast.test.ts`가
+`index.css`를 글자로 읽어 두 스킴에서 잰다(도구는 `renderer/cssTokens.testkit.ts`, `diffContrast.test`와 같이 쓴다). 조용히 깨지는 넷.
+**입력 칸의 테두리는 `--border-control`이다** — 새 입력 칸에 `--border`를 쓰면 1.27:1이라 칸이 보이지 않는다. **`repos.create`는 없는 폴더를 거부한다** — 다만 WSL 경로는 보지 않는다(stat이
+꺼진 VM을 깨운다, `update`는 경로를 바꿀 때 본다). 등록 뒤 폴더가 사라지면 manager가 ENOENT를 `작업 디렉토리가 없습니다`로 바꾼다(Node는 cwd가 없어도 실행 파일 이름을 단 ENOENT를 낸다).
+**도크는 창이 낮아지면 보이는 높이만 줄인다**(`shownHeight`) — `height`까지 깎으면 창을 되돌려도 끌어 둔 높이가 돌아오지 않는다. 상한은 비율과 `PANELS_RESERVED_PX` 둘이고, 그 값은
+`.columns`의 `min-height: 160px`와 맞아야 한다. **`aria-label`로 보이는 수를 가리지 말 것** — 이름을 e2e가 부분 일치로 잡으면 수를 이름에 넣어도 되고(`실행 슬롯, 실행 중 0/3`), 단위 테스트의
+전체 일치를 지키려면 `aria-description`(인박스 묶음 머리, id 알약, 삭제 확인)이나 `aria-describedby`(홈 카드)를 쓴다. 터미널에서 나가는 키는 `Ctrl+Shift+Tab`이다(`TerminalView`의 키 처리).
+
 **앱을 열면 홈이다 — "오늘 할 일"** (`docs/sdlc/home/`, 2026-10-21). 마이그레이션·스키마 변경 없음.
 사이드바 맨 위 `홈`(인박스 위)이 workspace를 넘어 **할 일 넷**을 한 목록으로 보인다 — 답변 필요 대화(`답하기`) · 실패·중단 대화(`다시
 보내기`·`대화 열기`) · workspace마다 정리 안 된 이슈(`훑기`) · 오래 안 본 이슈(`방치 이슈 보기`). 줄마다 버튼 하나이고 끝나면 요약을

@@ -139,7 +139,7 @@ describe('workspace 실행 기본값', () => {
 
     // 저장소에 남았다 — 다시 켠 앱이 같은 값을 읽는다.
     await app.relaunch()
-    await app.page.getByRole('button', { name: '설정' }).click()
+    await app.page.getByRole('button', { name: '설정', exact: true }).click()
     await app.page.getByRole('tab', { name: '앱' }).click()
     await expect.poll(() => app.page.getByLabel('Claude Code 기본 실행 파일').inputValue(), { timeout: 10_000 })
       .toBe(process.execPath)

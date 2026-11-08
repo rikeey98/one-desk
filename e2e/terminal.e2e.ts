@@ -95,6 +95,21 @@ async function openTerminal(page: Page): Promise<void> {
 }
 
 describe('코드 칸 — 터미널', () => {
+  it('Tab은 셸이 받고 Ctrl+Shift+Tab을 누르면 터미널을 떠나 보이는 탭으로 간다', async () => {
+    const app = await launchApp()
+    const { page } = app
+    await prepare(app)
+    await openTerminal(page)
+    await waitShellIdle(page)
+    const focused = () => page.evaluate<string>('document.activeElement?.className ?? ""')
+    await terminalPane(page).locator('.xterm-screen').click()
+    await page.keyboard.press('Tab')
+    expect(await focused()).toContain('xterm-helper-textarea')
+
+    await page.keyboard.press('Control+Shift+Tab')
+    await expect.poll(focused).toContain('terminal-tab-name')
+  })
+
   it('명령의 출력이 보이고, 다른 repo로 갔다 와도·파일 칸으로 바꿨다 와도 같은 셸의 출력이 남아 있다', async () => {
     const app = await launchApp()
     const { page } = app

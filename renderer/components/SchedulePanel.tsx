@@ -181,7 +181,12 @@ export function SchedulePanel({ workspaces, onOpenConversation }: {
       </header>
       <div className="schedule-body">
         <nav className="schedule-list" aria-label="정기 실행 목록">
-          {listError && <div role="alert" className="form-error">목록을 읽지 못했습니다: {listError}</div>}
+          {listError && (
+            <div role="alert" className="form-error report-error">
+              목록을 읽지 못했습니다: {listError}
+              <button type="button" className="report-btn" onClick={() => void refresh()}>다시 시도</button>
+            </div>
+          )}
           {schedules && schedules.length === 0 && (
             <div className="report-empty">
               <p>정기 실행이 없습니다.</p>

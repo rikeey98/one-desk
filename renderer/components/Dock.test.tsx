@@ -12,6 +12,7 @@ import { createCodeBufferStore } from '../store/codeBuffers'
 import { createCloseGuard } from '../store/closeGuard'
 import { createPendingSaves } from '../store/pendingSaves'
 import { Dock } from './Dock'
+import { DOCK_HEIGHT_KEY, MIN_DOCK_PX } from '../dockHeight'
 import type { OneDeskClient } from '@shared/client'
 import type { IssueProposal, ItemChange, Repo, Run, Workspace } from '@shared/models'
 import type { RunEvent } from '@shared/events'
@@ -964,6 +965,44 @@ describe('Dock 크기 조절', () => {
     expect(screen.queryByRole('separator', { name: '대화창 크기 조절' })).not.toBeInTheDocument()
   })
 
+  it('핸들은 키보드로도 닿고 ↑↓로 높이가 바뀌며, 바뀐 높이를 저장한다', async () => {
+    renderDock([makeRun({ id: 'a1', rootRunId: 'a1' })])
+    const handle = screen.getByRole('separator', { name: '대화창 크기 조절' })
+    expect(handle).toHaveAttribute('tabindex', '0')
+    const before = parseFloat(dock().style.height)
+    expect(handle).toHaveAttribute('aria-valuenow', String(Math.round(before)))
+
+    handle.focus()
+    await userEvent.keyboard('{ArrowUp}')
+    const grown = parseFloat(dock().style.height)
+    expect(grown).toBeGreaterThan(before)
+    expect(handle).toHaveAttribute('aria-valuenow', String(Math.round(grown)))
+    expect(localStorage.getItem(DOCK_HEIGHT_KEY)).toBe(String(grown))
+
+    await userEvent.keyboard('{ArrowDown}')
+    expect(parseFloat(dock().style.height)).toBe(before)
+  })
+
+  it('창이 줄면 도크도 줄고, 창이 돌아오면 끌어 둔 높이로 돌아간다', () => {
+    const original = window.innerHeight
+    try {
+      renderDock([makeRun({ id: 'a1', rootRunId: 'a1' })])
+      drag(screen.getByRole('separator', { name: '대화창 크기 조절' }), 500, 300)
+      const dragged = dock().style.height
+
+      window.innerHeight = 454
+      act(() => { window.dispatchEvent(new Event('resize')) })
+      expect(parseFloat(dock().style.height)).toBe(MIN_DOCK_PX)
+      expect(localStorage.getItem(DOCK_HEIGHT_KEY)).toBe(String(parseFloat(dragged)))
+
+      window.innerHeight = original
+      act(() => { window.dispatchEvent(new Event('resize')) })
+      expect(dock().style.height).toBe(dragged)
+    } finally {
+      window.innerHeight = original
+    }
+  })
+
   it('위로 끌면 대화창이 커진다', () => {
     renderDock([makeRun({ id: 'a1', rootRunId: 'a1' })])
     const before = dock().style.height
@@ -1074,7 +1113,7 @@ describe('Dock 헤더 — 토글·최대화·Esc', () => {
       </ClientProvider>
     )
     await userEvent.click(screen.getByRole('button', { name: '대화창 최대화' }))
-    await userEvent.click(screen.getByRole('button', { name: '실행 슬롯' }))
+    await userEvent.click(screen.getByRole('button', { name: /실행 슬롯/ }))
     expect(screen.getByLabelText('동시 실행 상한')).toHaveFocus()
     await userEvent.keyboard('{Escape}')
     expect(screen.queryByLabelText('동시 실행 상한')).toBeNull()

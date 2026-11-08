@@ -150,3 +150,12 @@ describe('HomePanel — 준비 단계 (FR-14·16)', () => {
     expect(screen.getByRole('heading', { name: '오늘 할 일' })).toBeInTheDocument()
   })
 })
+
+describe('HomeBody — workspace 카드의 접근성', () => {
+  it('카드의 이름은 짧게 두고 보이는 개수는 설명으로 남긴다', () => {
+    renderBody(summaryOf())
+    const card = screen.getByRole('button', { name: 'a 워크스페이스 열기' })
+    expect(card).toHaveAccessibleDescription(expect.stringContaining('열림'))
+    expect(card).toHaveAccessibleDescription(expect.stringContaining('api'))
+  })
+})

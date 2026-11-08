@@ -232,6 +232,7 @@ describe('보기와 정렬 (docs/sdlc/inbox-views/)', () => {
     expect(screen.getByRole('button', { name: 'workspace별' })).toHaveAttribute('aria-pressed', 'true')
     // repo 묶음이 하나여도 머리가 선다(FR-8) — 여기서는 api와 기타 둘, 기타는 맨 아래
     expect(groupNames()).toEqual(['앱 묶음', '앱 · api 묶음', '앱 · 기타 묶음'])
+    expect(screen.getByRole('button', { name: '앱 묶음' })).toHaveAccessibleDescription('3건')
     expect(screen.getByRole('button', { name: '앱 묶음' })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByRole('button', { name: '앱 묶음' })).toHaveTextContent('3')
     expect(screen.getByRole('button', { name: '앱 · api 묶음' })).toHaveTextContent('2')

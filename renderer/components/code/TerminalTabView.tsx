@@ -14,7 +14,7 @@ const TerminalView = lazy(() => import('./TerminalView').then((m) => ({ default:
  * 새로 마운트되어 그 탭의 셸에 **새로 붙는다**: 구독 → 붙기(스냅샷) → 이어 쓰기. 규칙은 `code/terminalStream.ts`에 있다. 셸은 core가
  * 쥐므로 보이지 않는 동안에도 돈다(terminal-spec FR-6).
  */
-export function TerminalTabView({ workspaceId, tab, onSendSelection, onSize, onSession, onFailed }: {
+export function TerminalTabView({ workspaceId, tab, onSendSelection, onSize, onSession, onFailed, onLeave }: {
   workspaceId: string
   tab: TerminalTab
   onSendSelection: (text: string) => void
@@ -24,6 +24,8 @@ export function TerminalTabView({ workspaceId, tab, onSendSelection, onSize, onS
   onSession: (session: TerminalSession) => void
   /** 붙기·다시 시작이 실패했다 — 칸이 이유를 보이고 목록을 다시 읽는다 */
   onFailed: (message: string) => void
+  /** 터미널에서 나가기 키를 눌렀다 */
+  onLeave: () => void
 }) {
   const client = useClient()
   const view = useRef<TerminalViewHandle | null>(null)
@@ -95,6 +97,7 @@ export function TerminalTabView({ workspaceId, tab, onSendSelection, onSize, onS
   return (
     <>
       <div className="terminal-tab-actions">
+        <span className="terminal-leave-hint">Ctrl+Shift+Tab으로 나가기</span>
         {/* 고른 글이 없으면 비활성이고 `title`이 이유를 말한다 — `disabled`면 풍선이 뜨지 않는다 */}
         <button
           type="button"
@@ -125,6 +128,7 @@ export function TerminalTabView({ workspaceId, tab, onSendSelection, onSize, onS
             onData={(data) => { if (!exited) client.terminal.write(tab.tabId, data) }}
             onResize={(cols, rows) => { onSize(cols, rows); client.terminal.resize(tab.tabId, cols, rows) }}
             onSelectionChange={setHasSelection}
+            onLeave={onLeave}
           />
         </Suspense>
       </div>

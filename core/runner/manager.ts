@@ -7,7 +7,7 @@ import { createLineSplitter } from './stream'
 import { createLogWriter, createRawLogWriter, RAW_LOG_MAX_BYTES } from './logWriter'
 import { taskkillTreeSync, terminate, readPgid } from './terminate'
 import { killGroup as killGroupAsync, killGroupSync as killGroupSyncDefault, type GroupKiller } from '../wsl/kill'
-import { rmSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { agentCommand } from './executable'
 import type { ErrorSink } from '../errors'
@@ -376,7 +376,10 @@ export function createRunManager(opts: RunManagerOptions) {
     const exitCode = await new Promise<number | null>((resolve) => {
       child.on('close', (code) => resolve(code))
       child.on('error', (err) => {
-        emitFromProcess({ type: 'error', runId: spec.runId, at: Date.now(), message: err.message }, true)
+        // cwd가 없어도 Node는 실행 파일 이름을 단 ENOENT를 낸다 — 멀쩡한 CLI를 탓하지 않게 진짜 원인을 말한다
+        const missingCwd = (err as NodeJS.ErrnoException).code === 'ENOENT' && spec.env.kind === 'host' && !existsSync(spec.cwd)
+        const message = missingCwd ? `작업 디렉토리가 없습니다: ${spec.cwd}. 설정의 repo 탭에서 경로를 고치세요.` : err.message
+        emitFromProcess({ type: 'error', runId: spec.runId, at: Date.now(), message }, true)
         resolve(null)
       })
     })

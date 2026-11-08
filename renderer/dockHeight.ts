@@ -28,8 +28,20 @@ export const MIN_DOCK_PX = 280
 /** 위의 이슈·메모 영역이 완전히 사라지는 것을 막는 상한 */
 export const MAX_DOCK_RATIO = 0.85
 
+/** 높이 경계의 화살표 한 번 — 코드 칸 폭 경계(`PANE_STEP_PX`)와 같다 */
+export const DOCK_STEP_PX = 16
+
+/**
+ * 도크 위에 남기는 높이 — 제목 줄 37 + 본문 여백 24 + 틈 10 + 패널 최소 높이 160(`.columns`의 min-height).
+ * 비율만으로는 낮은 창에서 패널이 입력칸 하나 높이로 눌린다(1108×622에서 99px, 200% 확대에서 0px).
+ */
+export const PANELS_RESERVED_PX = 231
+
 /**
  * 창 안에 들어가는 높이로 자른다.
+ *
+ * 패널 자리를 남기면 하한보다 작아지는 창에서는 **하한이 이기고** 본문(`.main`)이 스크롤한다 — 입력부가
+ * 고정이라 도크가 하한보다 짧으면 입력 카드가 잘려 보낼 수 없다.
  *
  * **창이 하한보다도 작으면 상한이 이긴다.** 하한을 지키면 도크가 창을 넘어
  * 위 영역이 음수 높이가 된다 — 좁은 도크가 넘치는 도크보다 낫다.
@@ -39,8 +51,10 @@ export function clampDockHeight(px: number, viewportPx: number): number {
   // 통째로 무시해 도크가 접힌 것처럼 보이고, 원인은 드래그 계산 한 곳에 있는데
   // 증상은 "높이가 사라졌다"라서 추적이 어렵다.
   const wanted = Number.isFinite(px) ? px : viewportPx * DEFAULT_DOCK_RATIO
-  const max = viewportPx * MAX_DOCK_RATIO
-  return Math.min(max, Math.max(MIN_DOCK_PX, wanted))
+  const ratioMax = viewportPx * MAX_DOCK_RATIO
+  const min = Math.min(MIN_DOCK_PX, ratioMax)
+  const max = Math.max(min, Math.min(ratioMax, viewportPx - PANELS_RESERVED_PX))
+  return Math.min(max, Math.max(min, wanted))
 }
 
 /** 저장된 높이. 없거나 망가졌으면 기본 비율. 어느 쪽이든 지금 창 크기로 클램프한다. */

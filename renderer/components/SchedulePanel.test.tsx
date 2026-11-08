@@ -68,6 +68,26 @@ async function fillNew(name = '저녁 요약') {
 }
 
 describe('SchedulePanel (docs/sdlc/scheduled-runs/ spec FR-26~33)', () => {
+  it('목록을 못 읽으면 다시 시도할 수 있다', async () => {
+    const { client } = makeClient()
+    vi.mocked(client.schedules.list).mockRejectedValueOnce(new Error('DB가 잠겼습니다'))
+    renderPanel(client)
+    expect(await screen.findByRole('alert')).toHaveTextContent('목록을 읽지 못했습니다: DB가 잠겼습니다')
+    await userEvent.click(screen.getByRole('button', { name: '다시 시도' }))
+    expect(await screen.findByText('정기 실행이 없습니다.')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('실행 기록을 못 읽으면 다시 시도할 수 있다', async () => {
+    const { client } = makeClient({ schedules: [schedule()] })
+    vi.mocked(client.schedules.fires).mockRejectedValueOnce(new Error('DB가 잠겼습니다'))
+    renderPanel(client)
+    await userEvent.click(await screen.findByRole('button', { name: new RegExp(schedule().name) }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('기록을 읽지 못했습니다: DB가 잠겼습니다')
+    await userEvent.click(screen.getByRole('button', { name: '다시 시도' }))
+    expect(await screen.findByText('아직 돈 적이 없습니다.')).toBeInTheDocument()
+  })
+
   it('비었으면 빈 상태 하나가 무엇인지 말한다', async () => {
     renderPanel(makeClient().client)
     expect(await screen.findByText('정기 실행이 없습니다.')).toBeInTheDocument()

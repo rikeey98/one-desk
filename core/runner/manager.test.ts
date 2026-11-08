@@ -693,6 +693,17 @@ describe('RunManager — 판정과 실패 이유', () => {
     } finally { cleanup() }
   })
 
+  it('작업 디렉토리가 사라졌으면 실행 파일이 아니라 그 경로를 실패 이유로 말한다', async () => {
+    // Node는 cwd가 없어도 실행 파일 이름을 단 ENOENT를 낸다 — 멀쩡한 CLI를 탓하게 된다
+    const { manager, cleanup } = makeManager()
+    const missing = resolve(tmpdir(), 'one-desk-no-such-cwd')
+    try {
+      const outcome = await manager.start({ ...spec('no-cwd'), cwd: missing })
+      expect(outcome.status).toBe('failed')
+      expect(outcome.errorMessage).toBe(`작업 디렉토리가 없습니다: ${missing}. 설정의 repo 탭에서 경로를 고치세요.`)
+    } finally { cleanup() }
+  })
+
   it('실행 전에 흘린 error(preEvents)는 실패 이유가 되지 않는다', async () => {
     // 맥락 파일을 못 읽었다는 알림은 run을 실패시키지 않는 경고다 (core/execution.ts).
     // 이것이 실패 이유 자리를 차지하면 진짜 원인(stderr)이 가려진다.

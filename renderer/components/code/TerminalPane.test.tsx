@@ -16,7 +16,7 @@ const view = { written: [] as string[], cleared: 0, focused: 0, selection: '' }
 vi.mock('./TerminalView', async () => {
   const { useEffect } = await import('react')
   return {
-    TerminalView: ({ onReady, onData, onSelectionChange }: TerminalViewProps) => {
+    TerminalView: ({ onReady, onData, onSelectionChange, onLeave }: TerminalViewProps) => {
       // 진짜 껍데기처럼 마운트할 때 한 번만 알린다(그릴 때마다 부르면 열기 → state → 다시 그리기가 끝없이 돈다)
       useEffect(() => {
         view.written.length = 0
@@ -32,6 +32,7 @@ vi.mock('./TerminalView', async () => {
       return (
         <div data-testid="xterm">
           <button type="button" onClick={() => onData('ls\r')}>키 입력</button>
+          <button type="button" onClick={onLeave}>나가기 키</button>
           <button type="button" onClick={() => { view.selection = 'FAIL a.test.ts'; onSelectionChange(true) }}>글 고르기</button>
         </div>
       )
@@ -127,6 +128,14 @@ describe('TerminalPane — 붙기 (docs/sdlc/code-editor/terminal-spec.md, termi
     expect(view.written).toEqual(['pwsh> ', 'dir'])
     expect(tab('pwsh')).toHaveAttribute('aria-selected', 'true')
     expect(tab('pwsh')).toHaveAttribute('title', 'C:\\pwsh\\pwsh.exe')
+  })
+
+  it('나가기 키를 누르면 포커스가 보이는 탭으로 옮겨지고, 그 키를 화면에 알린다 — Tab은 셸이 받는다', async () => {
+    setup()
+    await waitFor(() => expect(view.written).toEqual(['pwsh> ']))
+    expect(screen.getByText('Ctrl+Shift+Tab으로 나가기')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '나가기 키' }))
+    expect(tab('pwsh')).toHaveFocus()
   })
 
   it('껍데기가 두 번 마운트돼도(StrictMode·개발 모드) 스냅샷은 한 번만 쓴다 — 늦게 온 옛 응답은 버린다', async () => {

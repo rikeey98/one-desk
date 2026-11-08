@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
-  DOCK_HEIGHT_KEY, DEFAULT_DOCK_RATIO, MIN_DOCK_PX, MAX_DOCK_RATIO,
+  DOCK_HEIGHT_KEY, DEFAULT_DOCK_RATIO, MIN_DOCK_PX, MAX_DOCK_RATIO, PANELS_RESERVED_PX,
   clampDockHeight, readDockHeight, writeDockHeight
 } from './dockHeight'
 
@@ -31,8 +31,16 @@ describe('clampDockHeight', () => {
     expect(clampDockHeight(10, 1000)).toBe(MIN_DOCK_PX)
   })
 
-  it('너무 크면 최대 비율로 내린다 — 위 영역이 완전히 사라지지 않게 한다', () => {
-    expect(clampDockHeight(990, 1000)).toBe(1000 * MAX_DOCK_RATIO)
+  it('너무 크면 위 패널의 자리를 남기고 내린다 — 패널이 입력칸 하나 높이로 눌리지 않는다', () => {
+    expect(clampDockHeight(990, 1000)).toBe(1000 - PANELS_RESERVED_PX)
+  })
+
+  it('아주 큰 창에서는 최대 비율이 먼저 닿는다', () => {
+    expect(clampDockHeight(3000, 2000)).toBe(2000 * MAX_DOCK_RATIO)
+  })
+
+  it('패널 자리를 남기면 하한보다 작아질 때는 하한을 지킨다 — 입력 카드가 잘리면 보낼 수 없다', () => {
+    expect(clampDockHeight(451, 454)).toBe(MIN_DOCK_PX)
   })
 
   it('숫자가 아닌 값은 기본 비율로 떨어진다 — NaN을 돌려주면 style이 통째로 무시된다', () => {
@@ -61,7 +69,7 @@ describe('readDockHeight', () => {
 
   it('저장된 값도 지금 창 크기에 맞춰 클램프한다 — 큰 화면에서 저장하고 작은 화면에서 열 수 있다', () => {
     localStorage.setItem(DOCK_HEIGHT_KEY, '900')
-    expect(readDockHeight(500)).toBe(500 * MAX_DOCK_RATIO)
+    expect(readDockHeight(800)).toBe(800 - PANELS_RESERVED_PX)
   })
 
   it('망가진 값은 기본값으로 떨어진다', () => {

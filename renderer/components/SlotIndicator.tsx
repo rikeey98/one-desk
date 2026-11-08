@@ -69,7 +69,7 @@ export function SlotIndicator({ snapshot, onChangeLimit }: {
       <button
         type="button"
         className="dock-slots-button"
-        aria-label="실행 슬롯"
+        aria-label={`실행 슬롯, 실행 중 ${snapshot.running}/${snapshot.limit}`}
         onClick={open}
       >
         실행 중 {snapshot.running}/{snapshot.limit}

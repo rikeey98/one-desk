@@ -36,7 +36,7 @@ export function ConfirmButton({ label, confirmLabel, ariaLabel, className, onCon
     <button
       type="button"
       className={[armed ? 'confirm-button confirm-armed' : 'confirm-button', className].filter(Boolean).join(' ')}
-      {...(armed || !ariaLabel ? {} : { 'aria-label': ariaLabel })}
+      {...(armed ? { 'aria-description': ariaLabel } : ariaLabel ? { 'aria-label': ariaLabel } : {})}
       onClick={() => { if (armed) { setArmed(false); onConfirm() } else setArmed(true) }}
       onBlur={() => setArmed(false)}
       onKeyDown={handleKeyDown}
