@@ -2139,6 +2139,50 @@ describe('사이드바 최소화 배선', () => {
     expect(await screen.findByRole('button', { name: '사이드바 복원' })).toBeInTheDocument()
     expect(screen.getByRole('navigation')).toHaveClass('sidebar-collapsed')
   })
+
+  describe('좁은 창', () => {
+    /** 창 폭 질의만 바꿔 끼운다 — 테마 질의는 늘 라이트다 */
+    function stubWindowWidth(narrow: boolean) {
+      let matches = narrow
+      const listeners = new Set<() => void>()
+      vi.stubGlobal('matchMedia', (query: string) => (query.includes('max-width')
+        ? { media: query, get matches() { return matches }, addEventListener: (_: string, cb: () => void) => listeners.add(cb), removeEventListener: (_: string, cb: () => void) => listeners.delete(cb) }
+        : { media: query, matches: false, addEventListener: () => {}, removeEventListener: () => {} }))
+      return (next: boolean) => { matches = next; act(() => { listeners.forEach((cb) => cb()) }) }
+    }
+    afterEach(() => { vi.unstubAllGlobals() })
+
+    it('창이 좁으면 기억한 값과 상관없이 접힌 채 그리고, 그동안 펼친 것은 기억하지 않는다', async () => {
+      stubWindowWidth(true)
+      renderApp(makeClient())
+
+      expect(await screen.findByRole('button', { name: '사이드바 복원' })).toBeInTheDocument()
+      expect(screen.getByRole('navigation')).toHaveClass('sidebar-collapsed')
+      expect(document.querySelector('.app-frame')).toHaveClass('app-narrow')
+
+      await userEvent.click(screen.getByRole('button', { name: '사이드바 복원' }))
+      expect(screen.getByRole('navigation')).not.toHaveClass('sidebar-collapsed')
+      expect(localStorage.getItem('one-desk.sidebar.collapsed')).toBeNull()
+    })
+
+    it('넓어지면 기억한 값으로 돌아가고, 다시 좁아지면 또 접힌다', async () => {
+      localStorage.setItem('one-desk.sidebar.collapsed', '1')
+      const setNarrow = stubWindowWidth(true)
+      renderApp(makeClient())
+      await userEvent.click(await screen.findByRole('button', { name: '사이드바 복원' }))
+      expect(screen.getByRole('navigation')).not.toHaveClass('sidebar-collapsed')
+
+      setNarrow(false)
+      expect(screen.getByRole('navigation')).toHaveClass('sidebar-collapsed')
+      expect(document.querySelector('.app-frame')).not.toHaveClass('app-narrow')
+
+      await userEvent.click(screen.getByRole('button', { name: '사이드바 복원' }))
+      expect(localStorage.getItem('one-desk.sidebar.collapsed')).toBeNull()
+
+      setNarrow(true)
+      expect(screen.getByRole('navigation')).toHaveClass('sidebar-collapsed')
+    })
+  })
 })
 
 // ── docs/sdlc/ux-polish/ ──

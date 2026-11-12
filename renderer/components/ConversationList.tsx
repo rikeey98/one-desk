@@ -22,6 +22,14 @@ export function repoLabel(conv: Conversation, repos: Repo[]): string {
   return repoOfConversation(conv, repos)?.name ?? cwdName(conv)
 }
 
+/**
+ * 줄 메타의 repo 이름. 메타에서 이것만 줄어든다 — 이름이 길어도 턴 수와 시각은 남고, 잘린 이름은 호버로 읽는다
+ * (예전에는 메타 전체가 한 덩어리로 잘려 긴 repo 이름이 시각을 통째로 밀어냈다).
+ */
+function RepoName({ name }: { name: string }) {
+  return <span className="dock-conv-repo" title={name}>{name}</span>
+}
+
 /** 구획 머리의 이름 — `기타`는 등록하지 않은 경로·지운 repo에서 돈 대화다 */
 function sectionName(section: RepoSection): string {
   return section.repo?.name ?? '기타'
@@ -102,7 +110,8 @@ function Row({ conv, label = conv.title, nested = false, showRepo = true, select
           <span className="dock-conv-title" title={label}>{label}</span>
         </span>
         <span className="dock-conv-meta">
-          {showRepo && `${repoLabel(conv, repos)} · `}{conv.runs.length}턴 · {when(conv)}
+          {showRepo && <RepoName name={repoLabel(conv, repos)} />}
+          <span className="dock-conv-when">{showRepo && ' · '}{conv.runs.length}턴 · {when(conv)}</span>
         </span>
       </button>
       <span className="dock-conv-actions">
@@ -174,7 +183,9 @@ function IssueRow({ issue, conversations, expanded, showRepo, selected, repos, o
           <span className="group-count">{conversations.length}</span>
         </span>
         <span className="dock-conv-meta">
-          이슈 · {showRepo && `${repoLabel(latest, repos)} · `}{when(latest)}
+          <span className="dock-conv-when">이슈 · </span>
+          {showRepo && <><RepoName name={repoLabel(latest, repos)} /><span className="dock-conv-when"> · </span></>}
+          <span className="dock-conv-when">{when(latest)}</span>
         </span>
       </button>
     </li>

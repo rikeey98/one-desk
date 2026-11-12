@@ -34,7 +34,7 @@ import { SchedulePanel } from './components/SchedulePanel'
 import { CloseConfirm } from './components/code/CloseConfirm'
 import { CodePaneSlotContext, TitleBarSlotContext } from './components/code/CodePaneContext'
 import { IconSidebar } from './components/icons'
-import { readSidebarCollapsed, writeSidebarCollapsed } from './sidebarCollapsed'
+import { useSidebarCollapse } from './hooks/useSidebarCollapse'
 import { isEditableTarget, matchShortcut } from './shortcut'
 import { HomePanel } from './components/home/HomePanel'
 import { useHome, useHomeCount } from './hooks/useHome'
@@ -159,14 +159,8 @@ export default function App() {
   const [codeSlot, setCodeSlot] = useState<HTMLElement | null>(null)
   // 코드 칸 버튼이 설 자리 — 제목 줄 오른쪽 끝, OS 창 단추 바로 왼쪽 (code-editor FR-1, 2026-10-10). 버튼도 도크가 그려 보낸다.
   const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null)
-  // 사이드바를 아이콘 줄로 접었는가 — 토글이 제목 줄에 있어 여기서 쥔다. 이 장비에 기억한다
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed)
-
-  function toggleSidebar() {
-    const next = !sidebarCollapsed
-    setSidebarCollapsed(next)
-    writeSidebarCollapsed(next)
-  }
+  // 사이드바를 아이콘 줄로 접었는가 — 토글이 제목 줄에 있어 여기서 쥔다. 좁은 창에서는 저절로 접힌다
+  const sidebar = useSidebarCollapse()
 
   const chipKeys = useMemo(() => new Set(chips.map(chipKey)), [chips])
 
@@ -423,13 +417,13 @@ export default function App() {
 
   /** 준비 단계 ① — 사이드바의 workspace 입력칸. 접혀 있으면 펼친다(접힌 줄에는 폼이 없다) */
   function focusWorkspaceAddFromHome() {
-    if (sidebarCollapsed) { setSidebarCollapsed(false); writeSidebarCollapsed(false) }
+    sidebar.expand()
     setWsAddFocus(true)
   }
 
   /** 준비 단계 ② — 사이드바의 repo 등록 폼을 펼쳐 포커스. 폼은 고른 workspace 아래에만 있으므로 첫 workspace를 고른다(홈에 남는다) */
   function openRepoFormFromHome() {
-    if (sidebarCollapsed) { setSidebarCollapsed(false); writeSidebarCollapsed(false) }
+    sidebar.expand()
     if (!workspaceId && firstWorkspaceId) setWorkspaceId(firstWorkspaceId)
     setRepoFormOpen(true)
   }
@@ -502,7 +496,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-frame">
+    <div className={sidebar.narrow ? 'app-frame app-narrow' : 'app-frame'}>
       {/* 앱 창의 제목 줄 — OS 제목 표시줄 대신이다(electron/windows.ts). 빈 곳을 끌면 창이 움직이고, 오른쪽 끝은 OS가
           최소화·최대화·닫기를 겹쳐 그린다(CSS가 그 자리를 비운다). 그 바로 왼쪽에 코드 칸 버튼이 선다. */}
       <header className="titlebar">
@@ -512,9 +506,9 @@ export default function App() {
           <button
             type="button"
             className="titlebar-button"
-            aria-label={sidebarCollapsed ? '사이드바 복원' : '사이드바 최소화'}
-            title={sidebarCollapsed ? '사이드바 복원' : '사이드바 최소화'}
-            onClick={toggleSidebar}
+            aria-label={sidebar.collapsed ? '사이드바 복원' : '사이드바 최소화'}
+            title={sidebar.collapsed ? '사이드바 복원' : '사이드바 최소화'}
+            onClick={sidebar.toggle}
           >
             <IconSidebar width="15" height="15" />
           </button>
@@ -564,7 +558,7 @@ export default function App() {
           activityOpen={activityOpen}
           onToggleActivity={() => setActivityOpen((open) => !open)}
           onDeleted={forgetWorkspace}
-          collapsed={sidebarCollapsed}
+          collapsed={sidebar.collapsed}
           // repo 목록은 사이드바의 고른 workspace 아래에 붙는다 (2026-09-22). 본문 상단에
           // 있던 것을 옮겼다 — 같은 useRepos 인스턴스를 RunPanel과 나눠 쓰는 것은 그대로다.
           repoTree={workspaceId ? (

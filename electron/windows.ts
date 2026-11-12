@@ -69,10 +69,14 @@ function createWindow(opts: {
   hash?: string
   /** 창 틀 — 앱 창만 `customTitleBar()`를 넘긴다. 패널 창은 OS 제목 표시줄 그대로다 */
   frame?: BrowserWindowConstructorOptions
+  minWidth?: number
+  minHeight?: number
 }): BrowserWindow {
   const win = new BrowserWindow({
     width: opts.width,
     height: opts.height,
+    ...(opts.minWidth !== undefined && { minWidth: opts.minWidth }),
+    ...(opts.minHeight !== undefined && { minHeight: opts.minHeight }),
     show: false,
     autoHideMenuBar: true,
     ...opts.frame,
@@ -112,7 +116,9 @@ export function getAllWindows(): BrowserWindow[] {
 }
 
 export function createMainWindow(): BrowserWindow {
-  const win = createWindow({ width: 1440, height: 900, frame: customTitleBar() })
+  // 최소 크기 — 그보다 작으면 사이드바를 접어도 패널 셋과 도크(대화 목록 196px + 입력 카드)가 들어가지 않아 도크의 단추가
+  // 잘린다(better-layout 검토, 2026-11-09). 높이는 제목 줄 + 패널 160px + 도크 하한 280px다
+  const win = createWindow({ width: 1440, height: 900, minWidth: 760, minHeight: 500, frame: customTitleBar() })
   mainWindow = win
   // 테마가 바뀌면 OS 창 단추의 색도 따라간다 — 렌더러는 prefers-color-scheme로 이미 바뀐다. macOS는 신호등이 스스로 맞춘다.
   if (process.platform !== 'darwin') {

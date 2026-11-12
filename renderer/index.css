@@ -225,7 +225,8 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .panel-actions .item-pick { height: 24px; padding: 0 9px; gap: 4px; color: var(--text); font-weight: 500; }
 .panel-actions .item-pick:hover, .panel-actions .item-pick.item-picked { border-color: var(--accent-border); background: var(--accent-bg); color: var(--accent-text); }
 .panel-title { font-size: .6875rem; letter-spacing: .07em; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; }
-.panel-body { flex: 1; overflow-y: auto; padding: 8px; }
+/* 목록 칸이 곧 줄의 폭이다 — 줄 규칙은 이 칸의 폭을 보고 접는다(아래 "좁은 목록 칸"). 패널 창에서는 목록(.panel-split-list)이 그 칸이다 */
+.panel-body { flex: 1; overflow-y: auto; padding: 8px; container: rows / inline-size; }
 .panel-empty, .repo-empty, .sidebar-empty, .blank { font-size: .75rem; color: var(--text-muted); padding: 10px; }
 /* 빈 목록은 "없다"만이 아니라 다음에 할 일을 가르친다. 점선 상자가 자리를 잡아 준다. */
 .panel-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; padding: 18px 12px; border: 1px dashed var(--border); border-radius: 8px; }
@@ -239,21 +240,31 @@ body { margin: 0; background: var(--bg); color: var(--text); }
    패널에 뭐가 있는지 안 보여 답답했다(2026-09-22). 좁은 열에서는 줄 오른쪽 표식과 설명을
    숨겨 제목이 남게 하고, 창이 좁으면 둘을 숨긴다. 돌아오는 길은 축소 버튼과 Esc다. */
 .columns:has(> .panel-expanded) > .panel:not(.panel-expanded) { flex: 0 0 180px; }
-/* 좁은 열은 제목 목록만 남긴다 — 표식·설명·묶기·배너는 넓을 때 보면 된다. */
-.columns:has(> .panel-expanded) > .panel:not(.panel-expanded) :is(.item-pick-text, .item-meta, .item-actions, .asset-desc, .asset-origin, .group-axis, .triage-banner, .panel-empty-hint, .asset-add select, .asset-add .icon-button) { display: none; }
-.columns:has(> .panel-expanded) > .panel:not(.panel-expanded) .item-pick { margin-left: auto; }
+/* 좁은 목록 칸 — 줄의 정체는 제목이다. 오른쪽 표식이 제목을 0까지 누르지 못하게, 칸이 좁아지면 표식부터 접는다.
+   예전에는 "항목을 열어 둔 옆의 180px 열"이라는 부모 상태에만 걸려, 창이 좁거나 200% 확대라 셋이 함께 좁아지면 이슈 줄에
+   축 표식만 남고 제목은 폭 0이 되어 누를 수도 없었다(better-layout 검토, 2026-11-09). 앞의 선택자는 아래 규칙들
+   (.item-meta·.asset-desc·.triage-banner …)보다 먼저 적혀도 이기게 하려는 것이다. */
+@container rows (max-width: 240px) {
+  :is(.panel-body, .panel-split-list) :is(.item-pick-text, .item-meta, .asset-desc) { display: none; }
+  /* 설명이 빠지면 이름이 남는 폭을 다 써 담기 버튼을 줄 끝으로 민다 */
+  :is(.panel-body, .panel-split-list) .asset-group .item-open { flex-grow: 1; }
+}
+/* 더 좁으면(옆의 180px 열) 제목 목록만 남긴다 — 묶기·배너·삭제는 넓을 때 보면 된다 */
+@container rows (max-width: 180px) {
+  :is(.panel-body, .panel-split-list) :is(.item-actions, .group-axis, .triage-banner, .panel-empty-hint, .asset-add select, .asset-add .icon-button) { display: none; }
+}
 @media (max-width: 1280px) {
   .columns:has(> .panel-expanded) > .panel:not(.panel-expanded) { display: none; }
 }
 .columns > .panel-expanded { flex: 1; }
 .panel-expanded > .panel-body { padding: 12px 16px; }
 .panel-split { display: flex; gap: 0; height: 100%; min-height: 0; }
-.panel-split-list { flex: 0 0 200px; overflow-y: auto; min-width: 0; padding-right: 12px; margin-right: 16px; border-right: 1px solid var(--border-faint); }
+.panel-split-list { flex: 0 0 200px; overflow-y: auto; min-width: 0; padding-right: 12px; margin-right: 16px; border-right: 1px solid var(--border-faint); container: rows / inline-size; }
 /* 이슈·메모를 열면 그 패널 안에는 상세만 남는다 — 목록은 축소 아이콘·Esc로 돌아온다 (2026-09-22,
    skills 패널과 같은 동작). DOM에는 남겨 두어 상태(입력 중이던 추가 칸 등)가 지워지지 않는다. */
 .panel-split > .panel-split-list:has(+ .panel-split-detail) { display: none; }
-/* 바닥 여백이 없는 것은 .detail-actions 때문이다 — 그 규칙의 주석 */
-.panel-split-detail { flex: 1; min-width: 0; overflow-y: auto; padding: 4px 12px 0; }
+/* 바닥 여백이 없는 것은 .detail-actions 때문이다 — 그 규칙의 주석. scroll-padding도 그 띠 몫이다 */
+.panel-split-detail { flex: 1; min-width: 0; overflow-y: auto; padding: 4px 12px 0; scroll-padding-block-end: 48px; }
 /* 패널 창 (docs/sdlc/item-windows/). 창 하나에 패널 하나라 창을 다 쓰고, 목록과 상세가 나란하다(FR-7) —
    위의 "열면 목록을 숨긴다"를 이긴다. 여러 항목을 넘겨 보며 처리하는 것이 이 창의 목적이다. */
 .panel-window-root { display: flex; flex-direction: column; gap: 8px; height: 100vh; box-sizing: border-box; padding: 12px 16px; font-family: system-ui, sans-serif; background: var(--bg-canvas); color: var(--text); }
@@ -283,9 +294,11 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .item { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; margin-bottom: 1px; background: transparent; font-size: .8125rem; transition: background .12s; }
 .item:hover { background: var(--bg-muted); }
 .item-active, .item-active:hover { background: var(--accent-bg); }
-/* 줄 오른쪽 끝의 읽기 전용 표식 묶음. 제목이 줄어들지 이쪽이 줄어들지 않는다. */
-.item-meta { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; margin-left: auto; }
-.item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 줄 오른쪽 끝의 읽기 전용 표식 묶음. 제목이 길면 제목이 먼저 줄지만, 줄의 40%(최대 6em)는 제목 몫이다 — 표식이 그보다
+   많으면 표식이 제 칸 안에서 줄을 바꾼다. 칸 자체가 좁으면 표식은 통째로 접힌다(위 "좁은 목록 칸").
+   min-width는 기본값(가장 넓은 표식 하나)으로 둔다 — 0이면 칸이 표식보다 좁아져 표식이 왼쪽으로 넘쳐 이름을 덮는다. */
+.item-meta { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 3px 5px; flex: 0 1 auto; margin-left: auto; }
+.item-title { flex: 1; min-width: min(6em, 40%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 줄 위에 겹치지 않고 흐름 안에서 폭 0으로 접혀 있다가 hover·포커스에 펼쳐진다
    (.repo-actions와 같은 이유 — 겹치면 제목을 누르는 클릭을 아이콘이 가로챈다).
    폭 0이어도 Tab으로 닿는다. */
@@ -405,7 +418,10 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .status-dot.status-canceled { background: var(--warn); border-radius: 1px; }
 .dock-conv-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 부제는 --text-muted다 — opacity로 흐리면 대비가 4.5:1 아래로 떨어진다. */
-.dock-conv-meta { color: var(--text-muted); font-size: .625rem; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.dock-conv-meta { display: flex; color: var(--text-muted); font-size: .625rem; font-weight: 400; overflow: hidden; white-space: nowrap; max-width: 100%; }
+/* 메타에서 줄어드는 것은 repo 이름뿐이다 — 턴 수·시각·구분자는 제 폭을 지킨다. pre는 구분자 앞뒤 공백이 flex 칸 끝에서 지워지지 않게 한다 */
+.dock-conv-repo { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dock-conv-when { flex: none; white-space: pre; }
 .dock-conv:hover .dock-conv-meta { color: var(--text-secondary); }
 /* 줄 끝 아이콘은 겹치지 않고 폭 0으로 접혀 있다가 hover·포커스에 펼쳐진다
    (.repo-actions와 같은 이유·같은 방식). 폭 0이어도 Tab으로 닿는다. */
@@ -474,7 +490,8 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .repo-slot { position: relative; flex: 0 0 auto; display: flex; gap: 4px; align-items: center; min-width: 0; }
 .repo-slot .repo-card { flex: 1; min-width: 0; }
 
-button.item-title { flex: 1; border: 0; background: transparent; cursor: pointer; font: inherit; text-align: left; padding: 0; min-width: 0; }
+/* 폭(flex·min-width)은 .item-title이 정한다 — 여기서 min-width: 0을 다시 주면 제목 몫이 사라진다 */
+button.item-title { border: 0; background: transparent; cursor: pointer; font: inherit; text-align: left; padding: 0; }
 /* 입력부 — 카드 하나 (docs/sdlc/conversation-timeline/ spec FR-27, 치수는 §4). 카드 위(밖)에
    오류·예약 칩, 카드 안에 맥락 칩 줄 · 입력칸 · 알약 줄. 흐림은 opacity가 아니라 토큰이다. */
 .run-panel { display: flex; flex-direction: column; gap: 6px; }
@@ -587,9 +604,11 @@ select.pill { padding-right: 4px; cursor: pointer; text-overflow: ellipsis; }
    접힌 아래로 밀려 "삭제 기능이 없다"로 읽힌다 — 바닥에 붙여 항상 손에 닿게 한다.
    배경은 .panel과 같은 값이어야 글자가 비쳐 보이지 않는다.
    **스크롤 칸에 바닥 여백을 두지 말 것.** sticky의 bottom: 0은 칸의 안쪽 여백 위에서 멈춰, 그 여백만큼의 띠로
-   본문이 비친다(메모 4px, 앱 창의 스킬 상세 12px — e2e/ui-review "상세의 바닥"). 바닥 여백은 이 띠가 갖는다. */
+   본문이 비친다(메모 4px, 앱 창의 스킬 상세 12px — e2e/ui-review "상세의 바닥"). 바닥 여백은 이 띠가 갖는다.
+   대신 칸의 scroll-padding-block-end가 이 띠의 높이(실측 39~40px, 100~200%)보다 커야 한다 — 없으면 Tab으로 내려간 링크가 띠 밑에 통째로
+   숨는다(e2e/ui-review "좁은 창의 레이아웃"). */
 .detail-actions { display: flex; justify-content: flex-end; position: sticky; bottom: 0; padding: 8px 0; background: var(--bg); border-top: 1px solid var(--border-faint); }
-.panel-expanded > .panel-body:has(> .detail) { padding-bottom: 0; }
+.panel-expanded > .panel-body:has(> .detail) { padding-bottom: 0; scroll-padding-block-end: 48px; }
 /* discovered asset의 파일 경로. 본문이 어느 파일의 것인지 보이되 제목처럼 크면 안 된다. */
 .asset-path { font-family: var(--font-mono); font-size: .6875rem; color: var(--text-muted); word-break: break-all; }
 /* 전체 허용으로 기본값을 올릴 때의 경고 (설계 §403). form-error보다 약하되
@@ -1592,6 +1611,11 @@ button.report-flow-line:hover { background: var(--bg-muted); }
 /* ⑥ 제목 줄 가운데의 범위 — drag 영역 안의 글자라 눌리지 않는다 */
 .titlebar { position: relative; }
 .titlebar-title { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; font-weight: 600; color: var(--text-secondary); pointer-events: none; }
+/* 좁은 창(App의 .app-narrow — 사이드바가 저절로 접히는 같은 폭)에서는 창 가운데에 띄우지 않고 양쪽 단추 사이의 흐름에 둔다.
+   창 가운데 기준 40vw는 좁은 창에서 오른쪽 코드 칸 단추와 겹쳤다(최소 창을 200% 확대한 380px에서 `그림`·`터미널`). 흐름 안이면
+   겹칠 수 없고 남는 폭만큼 잘린다 */
+.app-narrow .titlebar-start { margin-right: 0; }
+.app-narrow .titlebar-title { position: static; transform: none; flex: 0 1 auto; min-width: 0; max-width: none; margin-inline: auto; }
 /* ⑦ 접힌 사이드바의 workspace 타일 */
 .ws-tiles { list-style: none; margin: 0 0 8px; padding: 0 0 8px; display: flex; flex-direction: column; gap: 4px; align-items: center; border-bottom: 1px solid var(--border); }
 .ws-tile { position: relative; width: 28px; height: 28px; padding: 0; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--text-secondary); box-shadow: var(--shadow-panel); font: inherit; font-size: .75rem; font-weight: 700; cursor: pointer; transition: background .12s, border-color .12s, color .12s; }

@@ -440,6 +440,16 @@ DOM을 짚지 않는다. 수정키 없는 `?`는 글을 받는 자리(`isEditabl
 `.columns`의 `min-height: 160px`와 맞아야 한다. **`aria-label`로 보이는 수를 가리지 말 것** — 이름을 e2e가 부분 일치로 잡으면 수를 이름에 넣어도 되고(`실행 슬롯, 실행 중 0/3`), 단위 테스트의
 전체 일치를 지키려면 `aria-description`(인박스 묶음 머리, id 알약, 삭제 확인)이나 `aria-describedby`(홈 카드)를 쓴다. 터미널에서 나가는 키는 `Ctrl+Shift+Tab`이다(`TerminalView`의 키 처리).
 
+**레이아웃 검토의 HIGH 4건을 고쳤다** (2026-11-09, better-layout 검토). 마이그레이션·IPC 없음. 실측은 `e2e/ui-review.e2e.ts`의 "좁은 창의 레이아웃"이고,
+넷 다 jsdom이 못 재는 것이라 단위 테스트가 없다(사이드바 규칙만 `App.test`). 조용히 깨지는 다섯.
+**목록 줄의 접기는 목록 칸의 container query다**(`rows` — `.panel-body`, 패널 창은 `.panel-split-list`) — 그 규칙 앞의 `:is(.panel-body, .panel-split-list)`를
+지우지 말 것. container query는 특이도를 더하지 않아, 없으면 파일 뒤쪽의 `.item-meta { display: flex }`·`.asset-desc`가 이겨 아무것도 접히지 않는다.
+**제목 폭은 `.item-title` 한 자리다** — `button.item-title`에 `min-width: 0`을 다시 주면 더 구체적인 선택자라 제목 몫(40%, 최대 6em)이 사라진다(실제로 그랬다).
+**`.item-meta`에 `min-width: 0`을 주지 말 것** — 표식이 칸보다 넓어져 왼쪽으로 넘쳐 이름을 덮는다(1100px 창의 스킬 줄에서 캡처로 찾았다).
+**창 폭 900 CSS px 아래면 사이드바가 저절로 접힌다**(`useSidebarCollapse` — 좁은 동안 펼친 것은 기억하지 않는다) — 그래서 **확대한 뒤 사이드바의 workspace·repo를
+누르는 e2e는 못 찾는다**(200% 기본 창이 727px). 앱 창의 최소 크기는 760×500이라 그보다 작게 `setContentSize`해도 줄지 않는다(`home.e2e`의 1100×520은 그 위다).
+**상세 스크롤 칸의 `scroll-padding-block-end`(48px)는 바닥의 삭제 띠 몫이다** — 지우면 Tab으로 내려간 링크가 띠 밑에 통째로 숨는다.
+
 **앱을 열면 홈이다 — "오늘 할 일"** (`docs/sdlc/home/`, 2026-10-21). 마이그레이션·스키마 변경 없음.
 사이드바 맨 위 `홈`(인박스 위)이 workspace를 넘어 **할 일 넷**을 한 목록으로 보인다 — 답변 필요 대화(`답하기`) · 실패·중단 대화(`다시
 보내기`·`대화 열기`) · workspace마다 정리 안 된 이슈(`훑기`) · 오래 안 본 이슈(`방치 이슈 보기`). 줄마다 버튼 하나이고 끝나면 요약을
