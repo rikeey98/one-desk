@@ -225,6 +225,41 @@ describe('createCore', () => {
     }
   })
 
+  it('workspace를 지우면 그 workspace에서 도는 agent와 기다리는 run을 멈춘다', async () => {
+    const keys = ['ONE_DESK_AGENT_PATH', 'ONE_DESK_AGENT_LAUNCHER', 'ONE_DESK_FAKE_DELAY_MS'] as const
+    const previous = keys.map((key) => process.env[key])
+    process.env['ONE_DESK_AGENT_PATH'] = FAKE_AGENT
+    process.env['ONE_DESK_AGENT_LAUNCHER'] = process.execPath
+    process.env['ONE_DESK_FAKE_DELAY_MS'] = '60000'
+    try {
+      const dataDir = makeDataDir()
+      const core = open(dataDir)
+      core.queue.setLimit(1)
+      const workspaceId = core.workspaces.create({ name: '지울 것' }).id
+      const start = () => core.execution.start({
+        workspaceId, agentKind: 'claude-code', cwd: dataDir,
+        permission: 'edit', userPrompt: 'x', context: []
+      })
+      const running = await start()
+      await start()
+      await vi.waitFor(() => expect(core.runs.get(running.id).status).toBe('running'))
+      expect(core.queue.snapshot()).toMatchObject({ running: 1, waiting: 1 })
+
+      core.workspaces.remove(workspaceId)
+
+      await vi.waitFor(
+        () => expect(core.queue.snapshot()).toMatchObject({ running: 0, waiting: 0 }),
+        { timeout: 10_000 }
+      )
+      await vi.waitFor(() => expect(existsSync(join(dataDir, 'logs', running.id))).toBe(false))
+    } finally {
+      keys.forEach((key, i) => {
+        if (previous[i] === undefined) delete process.env[key]
+        else process.env[key] = previous[i]
+      })
+    }
+  }, 20_000)
+
   it('부팅하면 MCP 서버가 뜨고 상태가 listening이 된다', async () => {
     // 이 단언은 예전에 정반대였다("부팅만으로는 포트를 열지 않는다"). 사용자가
     // 상시 기동을 택해 전체 설계 §14의 결정을 뒤집었다 — 지우지 않고 뒤집어,

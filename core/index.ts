@@ -638,7 +638,12 @@ export function createCore(opts: CoreOptions) {
        */
       remove(id: string) {
         const owned = repos.list(id)
-        const runIds = runs.list(id).map((run) => run.id)
+        const ownedRuns = runs.list(id)
+        const runIds = ownedRuns.map((run) => run.id)
+        // 행이 사라지면 화면에서 멈출 길이 없다 — 지우기 전에 멈춘다. 기다리는 것부터: 도는 것을 먼저 멈추면 그 슬롯을 예약이 받는다.
+        for (const status of ['pending', 'running'] as const) {
+          for (const run of ownedRuns) if (run.status === status) execution.cancel(run.id)
+        }
         const result = workspaces.remove(id)
         for (const repo of owned) terminal.killRepo(repo.id)
         void manager.removeLogs(runIds)
