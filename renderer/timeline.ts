@@ -294,6 +294,11 @@ export interface TurnProjection {
   currentChild: ToolItem | null
   /** 도는 중이고 턴의 마지막 이벤트(스코프를 가리지 않는다)가 재시도 공지면 그 문구 */
   retrying: string | null
+  /**
+   * 답은 왔고 백그라운드 작업을 기다리는 중 (background-wait FR-3) — 도는 턴의 마지막 백그라운드 공지에
+   * 남은 작업이 있고, 그 밖의 마지막 활동이 `result`다. `text`는 그 공지의 문구다.
+   */
+  waiting: { pending: number; text: string } | null
   /** 창 때문에 빠진 앞 이벤트 수 — 첫 이벤트의 seq다 */
   omitted: number
 }
@@ -333,7 +338,7 @@ function idOf(value: unknown): string | null {
 const SEARCH_UNITS = ['files', 'matches', 'lines'] as const
 const EDIT_OPERATIONS = ['edit', 'create', 'overwrite', 'delete'] as const
 const BEFORE_MISSING = ['unavailable', 'too_large'] as const
-const NOTICE_KINDS: readonly NoticeKind[] = ['compact', 'retry', 'permission_denied', 'model_fallback']
+const NOTICE_KINDS: readonly NoticeKind[] = ['compact', 'retry', 'permission_denied', 'model_fallback', 'background']
 
 function oneOf<T extends string>(values: readonly T[], value: unknown): value is T {
   return typeof value === 'string' && (values as readonly string[]).includes(value)
@@ -689,6 +694,17 @@ function noticeKindOf(kind: unknown): NoticeKind | 'other' {
   return oneOf(NOTICE_KINDS, kind) ? kind : 'other'
 }
 
+/** 백그라운드 공지의 남은 작업 수. 음이 아닌 정수가 아니면 null — 옛 로그·깨진 값은 "모른다"다 */
+function pendingOf(event: NoticeEvent): number | null {
+  return isCount(event.pending) ? event.pending : null
+}
+
+/** 모델이 한 일과 턴의 끝 — 공지·세션·사용량·오류·원문 줄은 활동이 아니다 */
+function isActivity(event: RunEvent): boolean {
+  return event.type === 'text' || event.type === 'tool_use' || event.type === 'tool_result'
+    || event.type === 'reasoning' || event.type === 'result'
+}
+
 /** 공지 한 줄. 글자가 비면 그리지 않는다 — 빈 공지선은 아무것도 말하지 않는다 */
 function noticeDraftOf(event: NoticeEvent): NoticeDraft | null {
   const text = typeof event.text === 'string' ? event.text : ''
@@ -842,6 +858,8 @@ export function projectTurn(
   const itemsByScope = new Map<string | null, ToolItem[]>()
   const placedCards = new Set<string>()
   const placedDenials = new Set<string>()
+  /** 마지막으로 본 백그라운드 작업 수 — 띄운 적 없이 온 빈 목록을 거른다 */
+  let backgroundPending = 0
 
   /** 한 스코프의 블록. `startAt`은 스코프의 시작 — 첫 생각의 시간을 여기서부터 잰다(events FR-40) */
   const projectScope = (scope: string | null, startAt: number | null): { drafts: Draft[]; items: ToolItem[] } => {
@@ -912,6 +930,13 @@ export function projectTurn(
             // 막힌 호출이 턴 안에 있으면 그 줄 곁에 선다. 없으면 제자리에 id마다 한 번.
             if (id !== null && (uses.has(id) || placedDenials.has(id))) break
             if (id !== null) placedDenials.add(id)
+          }
+          if (kind === 'background') {
+            // 띄운 적 없이 온 빈 목록은 아무것도 말하지 않는다 (background-wait FR-5)
+            const pending = pendingOf(event)
+            const had = backgroundPending > 0
+            backgroundPending = pending ?? 0
+            if (pending === 0 && !had) break
           }
           const draft = noticeDraftOf(event)
           if (!draft) break
@@ -1011,6 +1036,17 @@ export function projectTurn(
     }
   }
 
+  // 답은 왔는데 프로세스가 백그라운드 작업을 기다린다 (background-wait FR-3). opencode는 text마다 result를
+  // 합성하지만 백그라운드 공지를 내지 않으므로 걸리지 않는다.
+  let waiting: TurnProjection['waiting'] = null
+  if (running) {
+    const last = events.findLast((event): event is NoticeEvent => event.type === 'notice' && event.kind === 'background')
+    const pending = last ? pendingOf(last) : null
+    if (last && pending !== null && pending > 0 && events.findLast(isActivity)?.type === 'result') {
+      waiting = { pending, text: noticeDraftOf(last)?.text ?? '' }
+    }
+  }
+
   const first = events[0]
   return {
     blocks,
@@ -1019,6 +1055,7 @@ export function projectTurn(
     current,
     currentChild,
     retrying,
+    waiting,
     omitted: first !== undefined && isCount(first.seq) ? first.seq : 0
   }
 }

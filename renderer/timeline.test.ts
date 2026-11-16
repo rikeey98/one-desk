@@ -1074,6 +1074,52 @@ describe('projectTurn — 접힌 턴의 값 (events FR-39)', () => {
     expect(projectTurn(turn(), events).retrying).toBeNull()
   })
 
+  describe('waiting — 답은 왔고 백그라운드 작업을 기다린다 (background-wait FR-3)', () => {
+    const bg = (seq: number, pending: number, body = '백그라운드 작업 1개 실행 중 · dev 서버'): RunEvent =>
+      ({ type: 'notice', runId: R, seq, at: 0, kind: 'background', text: body, pending })
+    const answered = (seq: number): RunEvent =>
+      ({ type: 'result', runId: R, seq, at: 0, status: 'succeeded', resultText: '띄웠습니다', sessionId: null, needsAnswer: false })
+    const started = [use(0, 'b', 'Bash', { command: 'pnpm dev', run_in_background: true }), bg(1, 1), done(2, 'b'), text(3, '띄웠습니다')]
+
+    it('도는 중이고, 남은 작업이 있고, 마지막 활동이 result면 기다리는 중이다', () => {
+      expect(projectTurn(turn({ status: 'running' }), [...started, answered(4)]).waiting)
+        .toEqual({ pending: 1, text: '백그라운드 작업 1개 실행 중 · dev 서버' })
+    })
+
+    it('아직 답하지 않았으면 기다리는 중이 아니다 — 모델이 일하고 있다', () => {
+      expect(projectTurn(turn({ status: 'running' }), started).waiting).toBeNull()
+    })
+
+    it('작업이 끝나 다시 돌기 시작하면 기다리는 중이 아니다', () => {
+      const events = [...started, answered(4), bg(5, 0, '백그라운드 작업이 끝났습니다')]
+      expect(projectTurn(turn({ status: 'running' }), events).waiting).toBeNull()
+      expect(projectTurn(turn({ status: 'running' }), [...events, text(6, '끝났네요')]).waiting).toBeNull()
+    })
+
+    it('하나가 끝나도 남은 것이 있으면 계속 기다린다 — 마지막 목록을 따른다', () => {
+      const events = [...started, answered(4), bg(5, 2, '백그라운드 작업 2개 실행 중 · a, b'), bg(6, 1, '백그라운드 작업 1개 실행 중 · b')]
+      expect(projectTurn(turn({ status: 'running' }), events).waiting)
+        .toEqual({ pending: 1, text: '백그라운드 작업 1개 실행 중 · b' })
+    })
+
+    it('끝난 턴은 기다리는 중이 아니다', () => {
+      expect(projectTurn(turn(), [...started, answered(4)]).waiting).toBeNull()
+    })
+
+    it('pending이 수가 아니면(옛 로그·깨진 값) 기다리는 중이 아니다', () => {
+      const broken = { type: 'notice', runId: R, seq: 1, at: 0, kind: 'background', text: 'x', pending: '1' } as unknown as RunEvent
+      expect(projectTurn(turn({ status: 'running' }), [broken, answered(2)]).waiting).toBeNull()
+    })
+
+    it('공지선 — 시작과 끝이 서고, 띄운 적 없이 온 빈 목록은 서지 않는다', () => {
+      const lines = (events: RunEvent[]) => projectTurn(turn({ status: 'running' }), events).blocks
+        .filter((b) => b.kind === 'notice').map((b) => b.kind === 'notice' ? b.text : '')
+      expect(lines([...started, answered(4), bg(5, 0, '백그라운드 작업이 끝났습니다')]))
+        .toEqual(['백그라운드 작업 1개 실행 중 · dev 서버', '백그라운드 작업이 끝났습니다'])
+      expect(lines([bg(0, 0, '백그라운드 작업이 끝났습니다'), text(1, '안녕')])).toEqual([])
+    })
+  })
+
   it('omitted — 첫 이벤트의 seq다. 창 때문에 앞이 잘렸으면 0보다 크다', () => {
     expect(projectTurn(turn(), [text(37, '뒷부분')]).omitted).toBe(37)
     expect(projectTurn(turn(), [text(0, '처음부터')]).omitted).toBe(0)

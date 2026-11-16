@@ -7,7 +7,7 @@ import { useRunEvents, useRunEventSnapshot } from '../hooks/useRunEvents'
 import { useNow } from '../hooks/useNow'
 import { useFollowBottom } from '../hooks/useFollowBottom'
 import {
-  formatDuration, metaPieces, projectTurn, switchNotice, type ToolItem, type TurnSummary
+  formatDuration, metaPieces, projectTurn, switchNotice, type ToolItem, type TurnProjection, type TurnSummary
 } from '../timeline'
 import { RUN_STATUS_LABELS } from '../runStatus'
 import { usageTitle } from '../usage'
@@ -22,6 +22,7 @@ import type { RunEvent } from '@shared/events'
  * spec FR-29 — 입력부의 `중지`가 그 자리를 맡는다).
  */
 const STOP_RUNNING_TURN = '실행 중인 턴 멈추기'
+const BACKGROUND_WAIT = '답 도착 · 기다리는 중'
 
 /**
  * 이 턴이 **예약**인가 — 뿌리가 아닌 pending, 곧 앞 턴이 도는 동안 이어 보낸 지시다
@@ -81,12 +82,13 @@ function ToolPiece({ item }: { item: ToolItem }) {
  * 도구 자리에는 (events FR-51) API를 **재시도하는 중이면** 그 문구가 선다 — 왜 멈춰 있는지가 도는
  * 도구보다 먼저다. 지금 도는 것이 **하위 에이전트면** 그 카드 안에서 도는 도구까지 `›`로 잇는다.
  */
-function StatusLine({ run, now, current, currentChild, retrying, onCancel }: {
+function StatusLine({ run, now, current, currentChild, retrying, waiting, onCancel }: {
   run: Run
   now: number
   current: ToolItem | null
   currentChild: ToolItem | null
   retrying: string | null
+  waiting: TurnProjection['waiting']
   onCancel: (runId: string) => void
 }) {
   // 잘려도 전체는 title로 읽는다. 하위 에이전트면 안에서 도는 도구까지다.
@@ -96,11 +98,14 @@ function StatusLine({ run, now, current, currentChild, retrying, onCancel }: {
   return (
     <div className="turn-status">
       <span className="turn-spinner" aria-hidden="true" />
-      <span className="turn-status-piece">작업 중</span>
+      {/* 답은 이미 왔다 — 왜 아직 실행 중인지를 말한다 (background-wait FR-4). 기다리기 싫으면 멈추기다 */}
+      <span className="turn-status-piece">{waiting ? BACKGROUND_WAIT : '작업 중'}</span>
       {run.startedAt !== null && (
         <span className="turn-status-piece">{formatDuration(now - run.startedAt)}</span>
       )}
-      {retrying !== null ? (
+      {waiting ? (
+        <span className="turn-status-piece turn-status-tool" title={waiting.text}>{waiting.text}</span>
+      ) : retrying !== null ? (
         <span className="turn-status-piece turn-status-tool" title={retrying}>{retrying}</span>
       ) : current && (
         <span className="turn-status-piece turn-status-tool" title={toolTitle}>
@@ -192,7 +197,7 @@ function TurnBody({ run, events, logError, open, onToggleOpen, openKeys, onToggl
   const now = useNow(running)
   const { status, resultText, errorMessage, cwd, startedAt } = run
   // startedAt은 생각 블록의 시간을 재는 기준이다 (`docs/sdlc/conversation-events/` spec FR-35).
-  const { blocks, answer, summary, current, currentChild, retrying, omitted } = useMemo(
+  const { blocks, answer, summary, current, currentChild, retrying, waiting, omitted } = useMemo(
     () => projectTurn({ status, resultText, errorMessage, cwd, startedAt }, events),
     [status, resultText, errorMessage, cwd, startedAt, events]
   )
@@ -209,6 +214,7 @@ function TurnBody({ run, events, logError, open, onToggleOpen, openKeys, onToggl
           current={current}
           currentChild={currentChild}
           retrying={retrying}
+          waiting={waiting}
           onCancel={onCancel}
         />
       )}

@@ -409,6 +409,26 @@ describe('claudeNotice — system 줄의 공지 문구 (FR-18)', () => {
     expect(claudeNotice(system('model_fallback', { trigger: 'overloaded', original_model: 'claude-opus-5' }))).toBeNull()
   })
 
+  // 2.1.312 실측 줄(2026-11-16) — 답을 낸 뒤에도 프로세스가 이 작업을 기다린다 (background-wait FR-1)
+  it('백그라운드 작업 목록 — 도는 것이 있으면 수와 설명', () => {
+    expect(claudeNotice(system('background_tasks_changed', {
+      tasks: [{ task_id: 'bvd1h5tqx', run_id: '0mwivo9vn-c8a4216b', task_type: 'local_bash', description: 'Run beat.mjs in the background' }]
+    }))).toEqual({ kind: 'background', text: '백그라운드 작업 1개 실행 중 · Run beat.mjs in the background', pending: 1 })
+    expect(claudeNotice(system('background_tasks_changed', {
+      tasks: [{ task_id: 'a', description: 'dev 서버' }, { task_id: 'b', description: '' }, { task_id: 'c' }]
+    }))).toEqual({ kind: 'background', text: '백그라운드 작업 3개 실행 중 · dev 서버', pending: 3 })
+  })
+
+  it('백그라운드 작업 목록이 비면 끝났다는 공지다', () => {
+    expect(claudeNotice(system('background_tasks_changed', { tasks: [] })))
+      .toEqual({ kind: 'background', text: '백그라운드 작업이 끝났습니다', pending: 0 })
+  })
+
+  it('백그라운드 작업 목록 — tasks가 배열이 아니면 공지가 아니다', () => {
+    expect(claudeNotice(system('background_tasks_changed', {}))).toBeNull()
+    expect(claudeNotice(system('background_tasks_changed', { tasks: 'x' }))).toBeNull()
+  })
+
   it.each(['init', 'status', 'notification', 'informational', 'task_started', 'hook_response', 'turn_duration'])(
     '%s는 공지가 아니다', (subtype) => {
       expect(claudeNotice(system(subtype, { status: 'compacting' }))).toBeNull()

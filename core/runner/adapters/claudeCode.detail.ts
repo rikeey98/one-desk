@@ -19,6 +19,7 @@ export interface ClaudeNotice {
   kind: NoticeKind
   text: string
   toolUseId?: string
+  pending?: number
 }
 
 /** 타입이 어긋났다는 표식. null(=없다)과 가른다 */
@@ -283,7 +284,7 @@ function denial(toolName: unknown, toolUseId: unknown): ClaudeNotice | null {
 /**
  * system 줄(init 밖)의 공지. **문구는 여기서 만들고 화면은 그대로 그린다** — 문구의 출처를 하나로
  * 둔다. 필수 필드가 없거나 타입이 다르면 null이다(줄은 JSON으로 읽혔으니 raw로도 만들지 않는다).
- * `status`·`notification`·`task_*`·`hook_*` 같은 하위 타입도 null이다(버린다 — `raw.jsonl`에는 남는다).
+ * `status`·`notification`·`task_started`·`hook_*` 같은 하위 타입도 null이다(버린다 — `raw.jsonl`에는 남는다).
  */
 export function claudeNotice(line: Record<string, unknown>): ClaudeNotice | null {
   switch (line['subtype']) {
@@ -326,6 +327,17 @@ export function claudeNotice(line: Record<string, unknown>): ClaudeNotice | null
       const trigger = str(line['trigger'])
       const reason = trigger === null ? '' : ` (${FALLBACK_REASONS.get(trigger) ?? trigger})`
       return { kind: 'model_fallback', text: `모델 대체: ${from} → ${to}${reason}` }
+    }
+
+    // 지금 도는 백그라운드 작업의 **전체 목록**이다(바뀔 때마다 온다, 2.1.312 실측). claude -p는 답을 낸
+    // 뒤에도 이 목록이 빌 때까지 끝나지 않는다 — 화면이 왜 아직 실행 중인지 말할 재료다 (background-wait FR-1).
+    case 'background_tasks_changed': {
+      const tasks = line['tasks']
+      if (!Array.isArray(tasks)) return null
+      if (tasks.length === 0) return { kind: 'background', text: '백그라운드 작업이 끝났습니다', pending: 0 }
+      const names = tasks.map((task) => str(record(task)?.['description'])).filter((name) => name !== null && name !== '')
+      const head = `백그라운드 작업 ${tasks.length}개 실행 중`
+      return { kind: 'background', text: names.length === 0 ? head : `${head} · ${names.join(', ')}`, pending: tasks.length }
     }
 
     default:

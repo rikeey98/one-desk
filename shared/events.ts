@@ -103,7 +103,7 @@ export type ToolDetail =
     }
 
 /** 타임라인에 서는 공지의 종류. 문구는 어댑터가 만들고 화면은 그대로 그린다 */
-export type NoticeKind = 'compact' | 'retry' | 'permission_denied' | 'model_fallback'
+export type NoticeKind = 'compact' | 'retry' | 'permission_denied' | 'model_fallback' | 'background'
 
 /**
  * 메시지 단위 출처. **값이 있을 때만 싣는다**(spec FR-7) — 메인 스레드의 모든 이벤트에
@@ -151,7 +151,7 @@ export type RunEvent =
       /** 상한 때문에 버린 뒷부분 글자 수. 없으면 전부다 */
       truncated?: number
     })
-  /** 압축·재시도·권한 거부·모델 대체. run의 상태·결과·실패 이유에 영향을 주지 않는다 */
+  /** 압축·재시도·권한 거부·모델 대체·백그라운드 작업. run의 상태·결과·실패 이유에 영향을 주지 않는다 */
   | (Base & Origin & {
       type: 'notice'
       kind: NoticeKind
@@ -159,6 +159,8 @@ export type RunEvent =
       text: string
       /** permission_denied: 막힌 호출. 같은 id의 공지는 화면에 한 번만 선다 */
       toolUseId?: string
+      /** background: 아직 도는 백그라운드 작업 수. claude는 답을 낸 뒤에도 이것이 0이 될 때까지 프로세스를 끝내지 않는다 */
+      pending?: number
     })
   | (Base & { type: 'error'; message: string })
   /** 모델·토큰·컨텍스트. 한 run에 여러 번 올 수 있고 manager가 접는다 */

@@ -1718,6 +1718,25 @@ describe('Transcript', () => {
         expect(status).not.toHaveTextContent('읽기')
       })
 
+      it('답을 낸 뒤 백그라운드 작업을 기다리면 상태 줄이 그렇게 말한다 (background-wait FR-4)', () => {
+        vi.useFakeTimers({ toFake: ['Date'] })
+        vi.setSystemTime(12_000)
+        snapshots({
+          a1: [
+            text(0, '서버를 띄웠습니다'),
+            { type: 'notice', runId: 'a1', seq: 1, at: 0, kind: 'background', text: '백그라운드 작업 1개 실행 중 · dev 서버', pending: 1 },
+            { type: 'result', runId: 'a1', seq: 2, at: 0, status: 'succeeded', resultText: '서버를 띄웠습니다', sessionId: null, needsAnswer: false }
+          ]
+        })
+        const { container } = renderRuns([makeRun({ id: 'a1', status: 'running', startedAt: 0 })])
+        const status = container.querySelector<HTMLElement>('.turn-status')!
+        expect(status).toHaveTextContent('답 도착 · 기다리는 중')
+        expect(status.querySelector('.turn-status-piece')!.textContent).toBe('답 도착 · 기다리는 중')
+        expect(status).toHaveTextContent('12초')
+        expect(status.querySelector('.turn-status-tool')!.textContent).toBe('백그라운드 작업 1개 실행 중 · dev 서버')
+        expect(screen.getByRole('button', { name: '실행 중인 턴 멈추기' })).toBeInTheDocument()
+      })
+
       it('지금 도는 것이 하위 에이전트면 그 안에서 도는 도구까지 보인다', () => {
         snapshots({
           a1: [

@@ -99,6 +99,8 @@ if (scenario === 'hang') {
   runEvents()
 } else if (process.env.ONE_DESK_FAKE_SCRIPT === 'home') {
   runHome()
+} else if (process.env.ONE_DESK_FAKE_SCRIPT === 'background') {
+  runBackground()
 } else {
   // e2e가 running 상태를 관찰할 수 있도록 결과를 늦출 수 있다. 기본은 0(즉시).
   // 값이 이상하면 Number()가 NaN을 내고 setTimeout(fn, NaN)은 즉시 실행된다 —
@@ -389,4 +391,30 @@ function runHome() {
       finish(0)
     }, delayMs)
   })
+}
+
+/**
+ * 답을 낸 뒤 백그라운드 작업을 기다리는 시나리오 (docs/sdlc/background-wait/). 줄의 모양과 순서는
+ * claude 2.1.312 실측(2026-11-16) 그대로다: 첫 result 뒤에도 프로세스가 끝나지 않고, 작업이 끝나면
+ * 목록이 비었다고 알린 뒤 한 턴이 더 돌아 둘째 result를 낸다. `ONE_DESK_FAKE_BG_MS`(기본 3000)가
+ * 첫 result와 작업 종료 사이의 대기다. 기본 시나리오는 건드리지 않는다.
+ */
+function runBackground() {
+  const parsed = Number(process.env.ONE_DESK_FAKE_BG_MS ?? 3000)
+  const waitMs = Number.isFinite(parsed) ? parsed : 3000
+  const sys = (subtype, extra) => emit({ type: 'system', subtype, uuid: 'fake-uuid', session_id: 'fake-session', ...extra })
+  emit({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'toolu_bg', name: 'Bash', input: { command: 'pnpm dev', description: 'dev 서버 띄우기', run_in_background: true } }] } })
+  sys('background_tasks_changed', { tasks: [{ task_id: 'bvd1h5tqx', run_id: 'fake-run', task_type: 'local_bash', description: 'dev 서버 띄우기' }] })
+  emit({
+    type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_bg', content: 'Command running in background with ID: bvd1h5tqx' }] },
+    tool_use_result: { stdout: '', stderr: '', interrupted: false, isImage: false, noOutputExpected: false, backgroundTaskId: 'bvd1h5tqx' }
+  })
+  emit({ type: 'assistant', message: { content: [{ type: 'text', text: 'dev 서버를 띄웠습니다.' }] } })
+  emit({ type: 'result', subtype: 'success', is_error: false, result: 'dev 서버를 띄웠습니다.', session_id: 'fake-session' })
+  setTimeout(() => {
+    sys('background_tasks_changed', { tasks: [] })
+    emit({ type: 'assistant', message: { content: [{ type: 'text', text: 'dev 서버가 종료 코드 0으로 끝났습니다.' }] } })
+    emit({ type: 'result', subtype: 'success', is_error: false, result: 'dev 서버가 종료 코드 0으로 끝났습니다.', session_id: 'fake-session' })
+    finish(0)
+  }, waitMs)
 }
