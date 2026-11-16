@@ -19,7 +19,8 @@ async function addIssue(page: Page, title: string) {
   const input = page.getByPlaceholder('새 이슈 (첫 줄이 제목)')
   await input.fill(title)
   await input.press('Enter')
-  await page.getByRole('region', { name: '이슈', exact: true }).getByText(title).waitFor({ state: 'visible', timeout: 10_000 })
+  // 목록 줄의 제목 버튼으로 기다린다 — 글자로 잡으면 저장하는 동안 아직 비워지지 않은 입력칸까지 걸려 가끔 strict 위반이 났다
+  await page.getByRole('region', { name: '이슈', exact: true }).getByRole('button', { name: title, exact: true }).waitFor({ state: 'visible', timeout: 10_000 })
 }
 
 /**
