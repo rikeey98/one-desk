@@ -477,6 +477,34 @@ describe('RunManager — WSL 실행 환경 (docs/sdlc/wsl-support/ FR-8·FR-9)',
     }
   }, 15_000)
 
+  it('시간 초과도 pidfile의 그룹에 안에서 TERM을 보낸다 — 취소와 같은 길이다', async () => {
+    const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-wsl-'))
+    const pidfileHost = resolve(dir, 'r.pid')
+    let inner: number | null = null
+    const killGroup = vi.fn<GroupKiller>((_d, pgid, signal) => { process.kill(pgid, `SIG${signal}`) })
+    const { manager, cleanup } = makeManager({ killGroup })
+    try {
+      await withEnv({ ONE_DESK_WSL_PATH: FAKE_WSL, ONE_DESK_AGENT_LAUNCHER: process.execPath }, async () => {
+        const promise = manager.start({
+          ...spec('hang'), cwd: WSL_CWD, env: { kind: 'wsl', distro: 'Ubuntu' }, executable: FAKE, timeoutMs: 2000,
+          launcher: { path: '/mnt/c/app/launcher.sh', pidfile: pidfileHost, pidfileHost }
+        })
+        await vi.waitFor(() => expect(existsSync(pidfileHost)).toBe(true))
+        inner = Number(readFileSync(pidfileHost, 'utf8').trim())
+        await vi.waitFor(() => expect(killGroup).toHaveBeenCalled(), { timeout: 5000 })
+        expect(killGroup.mock.calls[0]!.slice(0, 3)).toEqual(['Ubuntu', inner, 'TERM'])
+        const outcome = await promise
+        expect(outcome.status).toBe('failed')
+        expect(outcome.errorMessage).toBe('실행 시간이 초과되어 중단했습니다.')
+      })
+    } finally {
+      // 고치기 전에는 안쪽 프로세스가 남는다 — 테스트가 빨개져도 고아를 두지 않는다
+      if (inner !== null) { try { process.kill(inner) } catch { /* 이미 끝났다 */ } }
+      cleanup()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 15_000)
+
   it('앱 종료(cancelAll)는 동기 그룹 KILL을 먼저 보낸다', async () => {
     const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-wsl-'))
     const pidfileHost = resolve(dir, 'r.pid')

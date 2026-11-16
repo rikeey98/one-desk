@@ -123,6 +123,9 @@ export function mergeUsage(prev: RunUsage | null, next: RunUsage | null): RunUsa
   }
 }
 
+/** 실패 이유로 남기는 stderr 앞부분의 글자 수 */
+const STDERR_KEEP_CHARS = 2000
+
 /**
  * run의 최종 상태 (`docs/sdlc/conversation-fixes/` spec FR-12). **순서가 곧 규칙이다** —
  * 취소 → 타임아웃 → 비정상 종료 → 어댑터의 보고.
@@ -330,10 +333,12 @@ export function createRunManager(opts: RunManagerOptions) {
     const wsl = spec.env.kind === 'wsl' && spec.launcher
       ? { distro: spec.env.distro, pidfileHost: spec.launcher.pidfileHost }
       : null
+    // 취소와 시간 초과가 같이 쓴다 — WSL에서 wsl.exe만 죽이면 안의 agent가 남는다 (FR-18)
+    const stop = () => terminate(child, wsl ? { wsl: { ...wsl, killGroup: opts.killGroup ?? killGroupAsync } } : {})
     cancels.set(spec.runId, (shutdown) => {
       canceled = true
       if (!shutdown) {
-        terminate(child, wsl ? { wsl: { ...wsl, killGroup: opts.killGroup ?? killGroupAsync } } : {})
+        stop()
         return
       }
       // 앱 종료 경로 — 전부 동기로, 돌아오기 전에 끝나야 한다 (`cancelAll`의 주석).
@@ -363,13 +368,16 @@ export function createRunManager(opts: RunManagerOptions) {
     child.stdout?.on('data', (chunk: Buffer) => splitter(chunk))
 
     let stderr = ''
-    child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8') })
+    // 실패 이유로 쓰는 것은 앞부분뿐이다 — 끝없이 쓰는 agent의 stderr를 전부 쥐지 않는다
+    child.stderr?.on('data', (chunk: Buffer) => {
+      if (stderr.length < STDERR_KEEP_CHARS) stderr = (stderr + chunk.toString('utf8')).slice(0, STDERR_KEEP_CHARS)
+    })
 
     let timer: NodeJS.Timeout | null = null
     if (spec.timeoutMs) {
       timer = setTimeout(() => {
         timedOut = true
-        terminate(child)
+        stop()
       }, spec.timeoutMs)
     }
 
@@ -406,7 +414,7 @@ export function createRunManager(opts: RunManagerOptions) {
       canceled ? null
       : timedOut ? '실행 시간이 초과되어 중단했습니다.'
       : status !== 'failed' ? null
-      : lastError ?? (stderr ? stderr.slice(0, 2000) : null)
+      : lastError ?? (stderr || null)
 
     return {
       status, resultText, usage,
