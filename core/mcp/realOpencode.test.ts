@@ -106,6 +106,17 @@ function limited(out: string): boolean {
   return /provider\.(free-limit|quota)|Free usage limit|FreeUsageLimit/i.test(out)
 }
 
+/** stdout의 첫 오류 줄(`{"type":"error"}`) — 두 방언이 같은 `type`으로 낸다. 없으면 null */
+function errorLineOf(out: string): string | null {
+  for (const line of out.split('\n')) {
+    try {
+      const ev = JSON.parse(line) as { type?: string; error?: unknown }
+      if (ev.type === 'error') return JSON.stringify(ev.error).slice(0, 300)
+    } catch { /* JSON이 아닌 줄 */ }
+  }
+  return null
+}
+
 /**
  * 실행 서비스가 하는 그대로 한 턴을 돌린다 — 실행 직전 확인 → MCP 준비 → `buildCommand`. `project`는 그 작업 디렉토리의
  * `opencode.json`이다(우리 권한을 다시 열려는 남의 설정을 흉내 낸다).
@@ -147,6 +158,10 @@ async function runTurn(ctx: TestContext, permission: Permission, prompt: string,
   if (limited(out)) ctx.skip('무료 모델의 한도에 닿았다 — 이 run은 아무것도 증명하지 못한다')
   // 1.18.30은 한도에 걸리면 아무것도 찍지 않고 조용히 재시도한다(2026-11-19 실측) — 2.x는 오류 줄을 내고 끝난다
   if (hung && out.trim() === '') ctx.skip('출력 없이 매달렸다 — 1.x는 모델 한도에 걸리면 조용히 재시도한다. 증명한 것이 없다')
+  // 모델을 부르지 못한 run은 "아무 일도 일어나지 않았다"를 공짜로 통과시킨다(2026-11-20 실측 — provider 인증 401로
+  // 읽기 전용 넷이 초록이었다). 한도가 아닌 오류는 건너뛰지 않고 실패시킨다: 고칠 수 있는 설정 문제다
+  const failure = errorLineOf(out)
+  if (failure) throw new Error(`모델 호출이 실패했다 — 이 run은 아무것도 증명하지 못한다: ${failure}`)
 
   const completed = out.split('\n').flatMap((line) => {
     try {
