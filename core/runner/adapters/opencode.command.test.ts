@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { opencodeAdapter } from './opencode'
+import { opencodeV2Config } from '../permission'
 import type { ResolvedRunSpec } from '../types'
 import { ORIGINAL_LD_LIBRARY_PATH } from '../userEnv'
 import { asLinuxPackage, USER_LD_LIBRARY_PATH } from '../fixtures/linuxPackageEnv'
@@ -186,5 +187,81 @@ describe('opencodeAdapter.preflight', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('opencodeAdapter.buildCommand — 2.x 방언 (opencode-v2 spec FR-6·7·10·11·12)', () => {
+  const v2 = (over: Partial<ResolvedRunSpec> = {}) => opencodeAdapter.buildCommand(spec({ dialect: 'v2', ...over }))
+  const BASE = ['run', '--standalone', '--format', 'json', '--thinking', '--agent', 'build']
+
+  it.each(['read_only', 'edit', 'full'] as const)('%s: 인자는 권한과 무관하게 같다 — 권한은 규칙으로만 간다', (permission) => {
+    expect(v2({ permission }).args).toEqual(BASE)
+  })
+
+  it('사설 서버로 돌고 agent를 build로 못박는다', () => {
+    // --standalone이 없으면 백그라운드 서비스에 붙어 run의 프로세스 트리 밖에서 돈다(취소가 닿지 않고 서비스가 남는다).
+    // --agent build가 없으면 프로젝트의 default_agent가 느슨한 agent로 돌린다(spec 0-1의 구멍).
+    const { args } = v2()
+    expect(args).toContain('--standalone')
+    expect(args.slice(args.indexOf('--agent'), args.indexOf('--agent') + 2)).toEqual(['--agent', 'build'])
+  })
+
+  it('1.x의 옵션과 --auto를 붙이지 않는다 — 2.x는 모르는 옵션에 시작부터 죽는다', () => {
+    for (const permission of ['read_only', 'edit', 'full'] as const) {
+      const { args } = v2({ permission, model: 'opencode/big-pickle', effort: 'high' })
+      for (const banned of ['--variant', '--dangerously-skip-permissions', '--auto']) {
+        expect(args, `${permission}: ${banned}`).not.toContain(banned)
+      }
+    }
+  })
+
+  it('모델은 -m, variant는 모델 이름에 #으로 붙인다', () => {
+    expect(v2({ model: 'opencode/big-pickle' }).args).toEqual([...BASE, '-m', 'opencode/big-pickle'])
+    expect(v2({ model: 'opencode/big-pickle', effort: 'high' }).args).toEqual([...BASE, '-m', 'opencode/big-pickle#high'])
+  })
+
+  it('모델 없는 variant는 던진다 — 조용히 버리지 않는다(실행 직전 확인이 먼저 막는 자리다)', () => {
+    expect(() => v2({ model: null, effort: 'high' })).toThrow(/모델/)
+  })
+
+  it('이어 가면 --session을 붙인다', () => {
+    expect(v2({ resumeSessionId: 'ses_abc' }).args).toEqual([...BASE, '--session', 'ses_abc'])
+  })
+
+  it('권한은 OPENCODE_CONFIG_CONTENT로 가고 OPENCODE_PERMISSION은 싣지 않는다', () => {
+    // 2.x 바이너리에는 OPENCODE_PERMISSION이라는 글자가 없다 — 실으면 무시될 뿐 아니라 "걸었다"는 착각을 만든다.
+    for (const permission of ['read_only', 'edit', 'full'] as const) {
+      const { env } = v2({ permission })
+      expect(JSON.parse(env['OPENCODE_CONFIG_CONTENT']!)).toEqual(opencodeV2Config(permission))
+      expect(env['OPENCODE_PERMISSION']).toBeUndefined()
+    }
+  })
+
+  it('MCP 설정은 파일 경로로만 간다 — 토큰과 URL이 환경변수에 없다', () => {
+    // 환경변수는 agent의 셸 도구가 띄우는 자식에게 물려진다.
+    const { env } = v2({
+      mcp: { serverName: 'one-desk', configFile: '/tmp/mcp/run-1.json', token: 'SECRET-TOKEN', url: 'http://127.0.0.1:5555/mcp' }
+    })
+    expect(env['OPENCODE_CONFIG']).toBe('/tmp/mcp/run-1.json')
+    expect(JSON.stringify(env)).not.toContain('SECRET-TOKEN')
+    expect(env['OPENCODE_CONFIG_CONTENT']).not.toContain('5555')
+    expect(v2().env['OPENCODE_CONFIG']).toBeUndefined()
+  })
+
+  it('루프백 예외는 1.x와 같이 붙는다', () => {
+    expect(v2().env['NO_PROXY']).toContain('127.0.0.1')
+  })
+})
+
+describe('opencodeAdapter.buildCommand — 방언이 없으면', () => {
+  it('던진다 — 조용히 1.x로 떨어지면 2.x가 권한 없이 돈다', () => {
+    expect(() => opencodeAdapter.buildCommand(spec({ dialect: null }))).toThrow(/방언/)
+  })
+
+  it('1.x의 인자는 그대로다', () => {
+    const { args, env } = opencodeAdapter.buildCommand(spec({ dialect: 'v1', permission: 'full', model: 'a/b', effort: 'high' }))
+    expect(args).toEqual(['run', '--format', 'json', '--thinking', '--dangerously-skip-permissions', '-m', 'a/b', '--variant', 'high'])
+    expect(env['OPENCODE_PERMISSION']).toBeDefined()
+    expect(env['OPENCODE_CONFIG_CONTENT']).toBeUndefined()
   })
 })

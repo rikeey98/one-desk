@@ -612,7 +612,7 @@ function withScript(script: FakeScript, managerOptions: Parameters<typeof makeMa
     ...made,
     run: (agentKind: 'claude-code' | 'opencode', extra: { preEvents?: RunEventInit[] } = {}) =>
       made.manager.start({
-        ...spec('judge'), agentKind, extraArgs: [path],
+        ...spec('judge'), agentKind, dialect: agentKind === 'opencode' ? 'v1' : null, extraArgs: [path],
         ...(extra.preEvents ? { preEvents: extra.preEvents } : {})
       }),
     cleanup: () => {

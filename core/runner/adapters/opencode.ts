@@ -4,7 +4,7 @@ import { promisify } from 'node:util'
 import type {
   AgentAdapter, OpencodeDialect, PreflightResult, ResolvedRunSpec, SpawnSpec, VerifyRunnableInput
 } from '../types'
-import { opencodePermissionConfig } from '../permission'
+import { OPENCODE_V2_AGENT, opencodePermissionConfig, opencodeV2Config } from '../permission'
 import { agentCommand, findExecutable, isBatchShim, unwrapNpmShim, type LookupOptions } from '../executable'
 import { userProcessEnv } from '../userEnv'
 import { HOST_ENV } from '../../wsl/env'
@@ -12,6 +12,10 @@ import {
   emptyUsage, reasoningText, stripNeedsAnswer, summarize, toolResultText, withLoopbackBypass
 } from './common'
 import { opencodeDeniedNotice, opencodeToolDetail } from './opencode.detail'
+import {
+  createOpencodeV2Verifier, judgeV1Config, type OpencodeV2Verifier, type V2Capability
+} from './opencode.verify'
+import type { Permission } from '@shared/models'
 import type { RunEventInit, ToolEffect } from '@shared/events'
 
 type RawEvent = RunEventInit
@@ -313,6 +317,50 @@ export interface OpencodePreflightOptions extends LookupOptions {
   versionGate?: VersionGate
 }
 
+const NO_DIALECT = 'OpenCode의 버전 방언이 정해지지 않았습니다 — 실행 파일 확인(preflight)을 거치지 않은 실행입니다.'
+
+/** 앱 전체가 나눠 쓰는 2.x 확인기 — "확인할 수 없는 바이너리"의 기억을 실행과 설정 화면이 같이 쓴다 */
+const defaultV2Verifier = createOpencodeV2Verifier()
+
+/**
+ * 2.x run의 환경변수 (opencode-v2 spec FR-12). **권한은 `OPENCODE_CONFIG_CONTENT`의 규칙 목록으로 간다** — 2.x에는
+ * `OPENCODE_PERMISSION`이 없다(바이너리에 그 문자열이 없다). 실행 직전 확인도 이 함수를 쓴다 — 다른 환경으로 확인하면
+ * 확인이 무의미해진다.
+ */
+function v2Env(permission: Permission): Record<string, string> {
+  const env = withLoopbackBypass(userProcessEnv(process.env))
+  env['OPENCODE_CONFIG_CONTENT'] = JSON.stringify(opencodeV2Config(permission))
+  return env
+}
+
+/** 2.x 확인기에 run과 같은 환경으로 능력을 묻는다 — 설정 화면의 안내용 (FR-8a). 권한은 판정과 무관해 읽기 전용으로 묻는다 */
+export function opencodeV2Capability(executable: string, cwd: string): Promise<V2Capability | null> {
+  return defaultV2Verifier.capability(executable, cwd, v2Env('read_only'))
+}
+
+/**
+ * 2.x의 명령 (opencode-v2 spec FR-6·7·10·11).
+ *
+ * - `--standalone`: 그 run만의 사설 서버로 돈다. 없으면 백그라운드 서비스에 붙어 agent가 run의 프로세스 트리 밖에서 돌고,
+ *   one-desk가 서비스를 띄운 채 남긴다.
+ * - `--agent build`: 프로젝트의 `default_agent`가 느슨한 agent로 돌리지 못하게 못박는다. 우리 규칙은 그 agent 자리에도
+ *   들어 있다(`opencodeV2Config`).
+ * - `--auto`를 붙이지 않는다 — 전체 허용은 규칙의 `* allow`다. `--variant`·`--dangerously-skip-permissions`는 2.x에 없다.
+ * - variant는 `model#variant`로만 넘어간다. 모델 없는 variant는 실행 직전 확인이 먼저 막는다 — 여기 오면 버그다.
+ */
+function buildV2Command(spec: ResolvedRunSpec): SpawnSpec {
+  const args = ['run', '--standalone', '--format', 'json', '--thinking', '--agent', OPENCODE_V2_AGENT]
+  if (spec.model) args.push('-m', spec.effort ? `${spec.model}#${spec.effort}` : spec.model)
+  else if (spec.effort) throw new Error('OpenCode 2.x에서 variant를 쓰려면 모델을 지정해야 합니다')
+  if (spec.resumeSessionId) args.push('--session', spec.resumeSessionId)
+
+  const env = v2Env(spec.permission)
+  // MCP 설정만 파일로 간다 — 토큰이 든다. 환경변수는 agent의 셸 자식에게 물려지므로 거기 싣지 않는다 (FR-12·13)
+  if (spec.mcp) env['OPENCODE_CONFIG'] = spec.mcp.configFile
+
+  return { cmd: spec.executable, args, env, cwd: spec.cwd }
+}
+
 // `: AgentAdapter`가 아니라 `satisfies`인 이유는 claudeCode.ts와 같다 —
 // preflight의 두 번째 인자(opts)가 테스트의 이음매인데, 인터페이스로 표기하면
 // 타입에서 잘려 테스트가 부를 수 없다.
@@ -369,6 +417,10 @@ export const opencodeAdapter = {
   },
 
   buildCommand(spec: ResolvedRunSpec): SpawnSpec {
+    // 방언을 모르면 만들지 않는다 — 조용히 1.x로 떨어지면 2.x가 권한 없이 돈다 (opencode-v2 FR-3)
+    if (spec.dialect === null) throw new Error(NO_DIALECT)
+    if (spec.dialect === 'v2') return buildV2Command(spec)
+
     // --thinking이 없으면 1.18.30의 run 루프는 reasoning 줄을 내지 않는다(`run.ts`:766). **출력만
     // 가른다** — 모델 호출 인자·권한과 무관하다(conversation-events spec FR-21, NFR-5).
     const args = ['run', '--format', 'json', '--thinking']
@@ -418,11 +470,16 @@ export const opencodeAdapter = {
    */
   async verifyRunnable(
     input: VerifyRunnableInput,
-    probe: ConfigProbe = defaultProbe
+    probe: ConfigProbe = defaultProbe,
+    v2: OpencodeV2Verifier = defaultV2Verifier
   ): Promise<PreflightResult> {
+    if (input.dialect === null) return { ok: false, reason: NO_DIALECT }
+    // 실제로 실행에 쓸 환경변수를 그대로 실어야 검사가 의미를 갖는다 — buildCommand와 같은 함수다.
+    if (input.dialect === 'v2') return v2.verify(input, v2Env(input.permission))
+
+    const sent = opencodePermissionConfig(input.permission)
     const env = withLoopbackBypass(userProcessEnv(process.env))
-    // 실제로 실행에 쓸 환경변수를 그대로 실어야 검사가 의미를 갖는다.
-    env['OPENCODE_PERMISSION'] = JSON.stringify(opencodePermissionConfig(input.permission))
+    env['OPENCODE_PERMISSION'] = JSON.stringify(sent)
 
     let raw: string
     try {
@@ -433,28 +490,9 @@ export const opencodeAdapter = {
         reason: `OpenCode 설정을 확인하지 못했습니다. ${input.cwd} 에서 실행할 수 있는지 보세요.`
       }
     }
-
-    let permission: unknown
-    try {
-      permission = (JSON.parse(raw) as Record<string, unknown>)['permission']
-    } catch {
-      return { ok: false, reason: 'OpenCode 설정을 확인하지 못했습니다. 출력을 읽을 수 없습니다.' }
-    }
-
-    if (typeof permission !== 'object' || permission === null) return { ok: true }
-
-    const asking = Object.entries(permission as Record<string, unknown>)
-      .filter(([, value]) => value === 'ask')
-      .map(([key]) => key)
-    if (asking.length === 0) return { ok: true }
-
-    return {
-      ok: false,
-      reason:
-        `${asking.join(', ')} 권한이 '물어보기'로 남아 있어 실행할 수 없습니다. ` +
-        '헤드리스 실행에는 답할 사람이 없어 그 도구가 말없이 거부된 채 끝납니다. ' +
-        `${input.cwd}/opencode.json 에서 해당 항목을 지우거나 allow/deny로 바꾸세요.`
-    }
+    // **긍정 확인이다** (opencode-v2 spec §2-2·FR-9) — ask가 없는 것만으로는 통과하지 않는다. 버전을 못 읽어 2.x가 이 갈래로
+    // 오면 출력이 배열이라 여기서 막힌다.
+    return judgeV1Config(raw, sent, input.cwd)
   },
 
   parseLine(line: string, runId: string): RawEvent[] {
