@@ -190,7 +190,7 @@ export function createMcpHost(opts: McpHostOptions) {
             opts.toLinux(distro, opts.execPath),
             opts.toLinux(distro, join(opts.configDir, `${ctx.runId}.json`))
           ])
-          writeMcpConfig(opts.configDir, ctx.runId, target, ctx.agentKind, { command })
+          writeMcpConfig(opts.configDir, ctx.runId, target, ctx.agentKind, ctx.dialect, { command })
           // claude에 넘기는 `--mcp-config`는 WSL 안의 경로다
           return { token, url, configFile }
         } catch (err) {
@@ -198,7 +198,7 @@ export function createMcpHost(opts: McpHostOptions) {
           throw err
         }
       }
-      const configFile = writeMcpConfig(opts.configDir, ctx.runId, target, ctx.agentKind)
+      const configFile = writeMcpConfig(opts.configDir, ctx.runId, target, ctx.agentKind, ctx.dialect)
       return { token, url, configFile }
     },
 

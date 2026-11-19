@@ -163,6 +163,27 @@ describe('prepare — 브리지를 띄울 환경 (docs/sdlc/linux-launch-env/)',
   })
 })
 
+describe('prepare — opencode 방언 (docs/sdlc/opencode-v2/ FR-13)', () => {
+  it.each([['v1', false], ['v2', true]] as const)('%s: 받은 방언의 모양으로 설정 파일을 쓴다', async (dialect, nested) => {
+    const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-host-dialect-'))
+    const db = makeTestDb()
+    const workspaceId = createWorkspaceRepository(db).create({ name: 'ws' }).id
+    const host = createMcpHost({
+      deps: { repos: createRepoRepository(db), issues: createIssueRepository(db), memos: createMemoRepository(db), runs: createRunRepository(db), proposals: createProposalRepository(db, () => {}), workspaces: createWorkspaceRepository(db) },
+      configDir: resolve(dir, 'mcp'), execPath: '/app/one-desk', bridgePath: '/app/resources/mcp-bridge.mjs', execEnv: {}
+    })
+    try {
+      await host.prepare({ runId: 'r1', rootRunId: 'r1', workspaceId, permission: 'edit', agentKind: 'opencode', dialect, env: HOST_ENV })
+      const body = JSON.parse(readFileSync(resolve(dir, 'mcp', 'r1.json'), 'utf8'))
+      expect(body.mcp.servers !== undefined).toBe(nested)
+      expect((nested ? body.mcp.servers : body.mcp)[MCP_SERVER_NAME].type).toBe('local')
+    } finally {
+      host.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('prepare — WSL run (docs/sdlc/wsl-support/ FR-21·23)', () => {
   it('Electron 실행 파일과 설정 파일의 경로만 Linux로 바꾸고, 브리지·인자 파일은 Windows 경로로 인자에 남는다', async () => {
     const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-host-wsl-'))

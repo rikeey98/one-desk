@@ -205,6 +205,25 @@ describe('ExecutionService', () => {
       }
     })
 
+    it('방언이 MCP 준비에도 도착한다 — 설정 파일의 모양이 1.x와 2.x가 다르다', async () => {
+      const rec = recordingManager()
+      const fake = fakeHost()
+      const local = setup({
+        manager: rec.manager, mcp: fake.host,
+        preflight: async () => ({ ok: true, executable: process.execPath, dialect: 'v2' })
+      })
+      try {
+        const run = await local.service.start({
+          workspaceId: local.workspaceId, agentKind: 'opencode', cwd: process.cwd(),
+          permission: 'read_only', userPrompt: 'x', context: []
+        })
+        await vi.waitFor(() => expect(local.runs.get(run.id).status).toBe('succeeded'))
+        expect(fake.dialects).toEqual(['v2'])
+      } finally {
+        rmSync(local.logDir, { recursive: true, force: true })
+      }
+    })
+
     it('이어 가는 턴은 이미 아는 세션 id를 실행 직전 확인에 넘긴다', async () => {
       // 2.x의 --session은 없는 id로 새 세션을 만들 수 있다 — 확인이 그 id를 받아야 실행 전에 막는다.
       const rec = recordingManager()
@@ -1806,13 +1825,16 @@ function fakeHost() {
   const prepared: string[] = []
   /** prepare에 넘어온 (턴, 대화) — 토큰이 대화를 아는지 본다 (agent-proposals FR-6) */
   const turns: { runId: string; rootRunId: string }[] = []
+  /** prepare에 넘어온 방언 — 설정 파일의 모양을 가른다 (opencode-v2 FR-13) */
+  const dialects: unknown[] = []
   const released: string[] = []
   let failing = false
   let failingRelease = false
   const host = {
-    async prepare(ctx: { runId: string; rootRunId: string }) {
+    async prepare(ctx: { runId: string; rootRunId: string; dialect: unknown }) {
       if (failing) throw new Error('포트를 열지 못했습니다')
       prepared.push(ctx.runId)
+      dialects.push(ctx.dialect)
       turns.push({ runId: ctx.runId, rootRunId: ctx.rootRunId })
       return { token: `tok-${ctx.runId}`, url: 'http://127.0.0.1:1/mcp', configFile: `/tmp/${ctx.runId}.json` }
     },
@@ -1830,6 +1852,7 @@ function fakeHost() {
     host: host as unknown as McpHost,
     prepared,
     turns,
+    dialects,
     released,
     fail: () => { failing = true },
     failRelease: () => { failingRelease = true }

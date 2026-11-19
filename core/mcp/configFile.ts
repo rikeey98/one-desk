@@ -1,6 +1,7 @@
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentKind } from '@shared/models'
+import type { OpencodeDialect } from '../runner/types'
 
 /**
  * MCP 서버 이름. 설정 파일의 `mcpServers` 키이자 CLI가 도구 이름을 붙이는
@@ -127,11 +128,43 @@ function opencodeBody(target: McpConfigTarget): string {
   })
 }
 
+/**
+ * OpenCode 2.x의 모양 (`docs/sdlc/opencode-v2/` spec FR-13) — 서버가 `mcp.servers` 아래로 내려갔다. 2.3.2가
+ * `OPENCODE_CONFIG`가 가리키는 이 파일을 읽는 것을 실측했다(plan §0).
+ *
+ * **`codemode: false`는 필수다.** 기본값이면 2.x는 MCP 도구를 `execute` 도구의 JS 코드(`tools.<서버>.<도구>()`)로만
+ * 내놓는다 — 2.0.18은 읽기 전용·편집 허용에서 도구가 아예 사라지고(`execute`가 막혀 있다), 전체 허용에서는 두 버전 다
+ * 대화록에 `execute` 한 줄로 보인다. 끄면 어느 단계든 `<서버>_<도구>`로 직접 선다(두 버전 실측).
+ */
+function opencodeV2Body(target: McpConfigTarget): string {
+  return JSON.stringify({
+    mcp: {
+      servers: {
+        [MCP_SERVER_NAME]: {
+          type: 'local',
+          command: [target.execPath, target.bridgePath],
+          environment: {
+            ...target.execEnv,
+            ELECTRON_RUN_AS_NODE: '1',
+            ONE_DESK_MCP_URL: target.url,
+            ONE_DESK_MCP_TOKEN: target.token
+          },
+          codemode: false,
+          // 브리지가 앱 안의 HTTP 서버로 한 번 더 중계한다 — 뜨는 시간에 여유를 둔다(1.x의 timeout과 같은 이유)
+          timeout: { startup: 30_000 }
+        }
+      }
+    }
+  })
+}
+
 export function writeMcpConfig(
   dir: string,
   runId: string,
   target: McpConfigTarget,
   agentKind: AgentKind,
+  /** opencode면 그 방언 — 설정 파일의 모양이 갈린다. claude는 null. **필수다** (opencode-v2 FR-3) */
+  dialect: OpencodeDialect | null,
   wsl?: WslConfigTarget
 ): string {
   mkdirSync(dir, { recursive: true, mode: 0o700 })
@@ -143,7 +176,12 @@ export function writeMcpConfig(
     writeFileSync(bridgeFile, JSON.stringify({ url: target.url, token: target.token }), { mode: 0o600 })
     chmodSync(bridgeFile, 0o600)
   }
-  const body = wsl ? claudeWslBody(dir, runId, target, wsl) : agentKind === 'opencode' ? opencodeBody(target) : claudeBody(target)
+  // 방언 없는 opencode는 쓰지 않는다 — 조용히 1.x 모양으로 쓰면 2.x가 MCP 없이 "성공"한다
+  if (agentKind === 'opencode' && dialect === null) throw new Error('OpenCode의 버전 방언이 정해지지 않아 MCP 설정을 쓸 수 없습니다')
+  const body = wsl
+    ? claudeWslBody(dir, runId, target, wsl)
+    : agentKind !== 'opencode' ? claudeBody(target)
+      : dialect === 'v2' ? opencodeV2Body(target) : opencodeBody(target)
   // writeFileSync의 mode 옵션은 파일을 "새로" 만들 때만 적용된다 — 이미 존재하는
   // 파일(예: 이전 비정상 종료가 남긴 동명 파일)을 열 때는 기존 권한이 그대로
   // 남는다. chmodSync로 매번 명시적으로 0600을 강제해 그 경우까지 막는다.
