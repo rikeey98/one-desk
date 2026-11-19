@@ -1,12 +1,20 @@
 import type { AgentKind, Permission, PlanUsage } from '@shared/models'
 import type { RunEventInit } from '@shared/events'
 
+/**
+ * opencode CLI의 방언 (`docs/sdlc/opencode-v2/` spec §2-1). 1.x와 2.x는 권한을 넘기는 통로·인자·MCP 설정 모양이 다르다.
+ * **명령을 만드는 쪽만 가른다** — 줄을 읽는 쪽(parseLine)은 두 모양을 다 읽는다.
+ */
+export type OpencodeDialect = 'v1' | 'v2'
+
 export interface PreflightResult {
   ok: boolean
   /** 실행 파일의 절대 경로 (ok일 때) */
   executable?: string
   /** 실패 사유 (ok가 아닐 때) — 사용자에게 그대로 보여준다 */
   reason?: string
+  /** opencode만 싣는다 (ok일 때). 버전을 못 읽었으면 `v1`이다 — 틀린 방언은 실행 직전 확인이 잡는다 (spec FR-2·§2-2) */
+  dialect?: OpencodeDialect
 }
 
 /** run 하나에 발급된 MCP 접속 정보. 호스트가 만들고 실행 서비스가 실어 나른다. */

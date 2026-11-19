@@ -1190,7 +1190,7 @@ describe('core.workspaces.checkAgents', () => {
     })
   })
 
-  it('opencode 2.x는 설정 화면과 실행이 같은 이유로 막고, 버전은 한 번만 읽는다 (FR-17)', async () => {
+  it('지원 범위 밖의 opencode(3.x)는 설정 화면과 실행이 같은 이유로 막고, 버전은 한 번만 읽는다 (FR-17)', async () => {
     // `docs/sdlc/conversation-fixes/` spec FR-17. 버전 게이트를 preflight에 둔 것이 곧
     // "checkAgents와 실행이 같은 판정"이다 — 한쪽에만 있으면 설정 화면은 초록인데 실행은
     // 막히거나, 반대로 화면은 빨간데 2.x가 권한 정책 없이 돈다. 판정은 (경로, 크기, mtime)
@@ -1205,7 +1205,7 @@ describe('core.workspaces.checkAgents', () => {
         "process.stdin.on('end', () => {",
         "  if (!process.argv.includes('--version')) return",
         `  appendFileSync(${JSON.stringify(calls)}, 'x')`,
-        "  process.stdout.write('2.0.18\\n')",
+        "  process.stdout.write('3.0.0\\n')",
         '})'
       ].join('\n'), { mode: 0o755 })
 

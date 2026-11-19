@@ -162,13 +162,13 @@ describe('opencodeAdapter.preflight', () => {
     writeFileSync(exe, '')
     chmodSync(shim, 0o755)
     chmodSync(exe, 0o755)
-    const versionGate = async () => null
+    const versionGate = async () => ({ rejected: null, dialect: 'v1' as const })
     try {
-      await expect(opencodeAdapter.preflight(shim, { versionGate })).resolves.toEqual({ ok: true, executable: exe })
+      await expect(opencodeAdapter.preflight(shim, { versionGate })).resolves.toEqual({ ok: true, executable: exe, dialect: 'v1' })
       const found = await opencodeAdapter.preflight(null, {
         platform: 'win32', env: { PATH: dir, PATHEXT: '.EXE;.CMD' }, versionGate
       })
-      if (process.platform === 'win32') expect(found).toEqual({ ok: true, executable: exe })
+      if (process.platform === 'win32') expect(found).toEqual({ ok: true, executable: exe, dialect: 'v1' })
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -181,7 +181,7 @@ describe('opencodeAdapter.preflight', () => {
     chmodSync(bin, 0o755)
     try {
       const result = await opencodeAdapter.preflight(bin)
-      expect(result).toEqual({ ok: true, executable: bin })
+      expect(result).toEqual({ ok: true, executable: bin, dialect: 'v1' })
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

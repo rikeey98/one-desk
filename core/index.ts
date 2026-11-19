@@ -672,7 +672,10 @@ export function createCore(opts: CoreOptions) {
           // wsl 칸 (wsl-support FR-13) — 실행과 같은 판정(`preflightFor`)
           wsl ? preflightFor('claude-code', workspaceId, wsl.cwd) : Promise.resolve(null)
         ])
-        const statuses: AgentStatuses = { 'claude-code': claude, opencode }
+        // 방언은 화면에 나가지 않는다 — 실행 경로 안에서만 흐른다 (opencode-v2 NFR-1·NFR-4)
+        const opencodeStatus: PreflightResult = { ...opencode }
+        delete opencodeStatus.dialect
+        const statuses: AgentStatuses = { 'claude-code': claude, opencode: opencodeStatus }
         if (wsl && wslClaude) statuses.wsl = { ...wslClaude, distro: wsl.distro }
         return statuses
       },

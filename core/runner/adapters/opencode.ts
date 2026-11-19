@@ -2,7 +2,7 @@ import { access, constants, stat } from 'node:fs/promises'
 import { execFile, type ChildProcess } from 'node:child_process'
 import { promisify } from 'node:util'
 import type {
-  AgentAdapter, PreflightResult, ResolvedRunSpec, SpawnSpec, VerifyRunnableInput
+  AgentAdapter, OpencodeDialect, PreflightResult, ResolvedRunSpec, SpawnSpec, VerifyRunnableInput
 } from '../types'
 import { opencodePermissionConfig } from '../permission'
 import { agentCommand, findExecutable, isBatchShim, unwrapNpmShim, type LookupOptions } from '../executable'
@@ -126,11 +126,27 @@ const BATCH_SHIM_REASON =
  */
 export type VersionReader = (executable: string) => Promise<string | null>
 
-/** 실행 파일을 받아 거부 사유를 돌려준다. 통과면 null이다 */
-export type VersionGate = (executable: string) => Promise<string | null>
+/** 버전 게이트의 판정 — 거부 사유(통과면 null)와 그 바이너리의 방언 */
+export interface VersionVerdict {
+  rejected: string | null
+  /** major가 2면 `v2`, 그 밖에는(못 읽은 것 포함) `v1` (`docs/sdlc/opencode-v2/` spec FR-2) */
+  dialect: OpencodeDialect
+}
 
-/** 지원하지 않는 첫 major. 2.x부터 권한 환경변수를 따른다는 보장이 없다 (spec FR-17) */
-const FIRST_UNSUPPORTED_MAJOR = 2
+/** 실행 파일을 받아 판정을 돌려준다 */
+export type VersionGate = (executable: string) => Promise<VersionVerdict>
+
+/** 못 읽은 버전의 판정 — 막지 않고 v1 방언이다. 틀린 방언은 실행 직전 확인이 잡는다 (opencode-v2 spec §2-2) */
+const UNREAD: VersionVerdict = { rejected: null, dialect: 'v1' }
+
+/** 지원하지 않는 첫 major. 3.x의 권한 통로는 실측한 적이 없다 (opencode-v2 spec FR-1) */
+const FIRST_UNSUPPORTED_MAJOR = 3
+
+/**
+ * 지원하는 가장 낮은 2.x (opencode-v2 spec FR-1). 2.0.18(데스크톱 번들의 CLI)과 2.3.2를 실측했다 — 그 전 버전은
+ * `OPENCODE_CONFIG_CONTENT`의 규칙이 먹히는지 본 적이 없다. 내리려면 `realOpencode` 묶음을 그 바이너리로 돌린다.
+ */
+const MIN_SUPPORTED_V2: readonly [number, number, number] = [2, 0, 18]
 
 /**
  * 지원하는 가장 낮은 버전. `buildCommand`가 붙이는 옵션 중 가장 늦게 생긴 것이 정한다:
@@ -160,33 +176,53 @@ export function parseOpencodeVersion(
   return { version: m[1]!, major: Number(m[2]), minor: Number(m[3]), patch: Number(m[4]) }
 }
 
-/** 최소 버전보다 낮은가 — major·minor·patch를 차례로 비교한다 */
-function belowMinimum(v: { major: number; minor: number; patch: number }): boolean {
+/** `min`보다 낮은가 — major·minor·patch를 차례로 비교한다 */
+function below(
+  v: { major: number; minor: number; patch: number },
+  min: readonly [number, number, number]
+): boolean {
   const parts = [v.major, v.minor, v.patch]
   for (let i = 0; i < parts.length; i++) {
-    if (parts[i] !== MIN_SUPPORTED[i]) return parts[i]! < MIN_SUPPORTED[i]!
+    if (parts[i] !== min[i]) return parts[i]! < min[i]!
   }
   return false
 }
 
-function judgeVersion(executable: string, output: string | null): string | null {
+function judgeVersion(executable: string, output: string | null): VersionVerdict {
   const parsed = output === null ? null : parseOpencodeVersion(output)
   // 버전을 못 읽으면 막지 않는다 — 게이트 전의 동작 그대로다 (spec FR-17).
-  if (!parsed) return null
-  if (belowMinimum(parsed)) {
-    const min = MIN_SUPPORTED.join('.')
-    return (
-      `OpenCode ${parsed.version} CLI는 너무 오래됐습니다 — one-desk가 붙여 실행하는 옵션` +
-      `(--thinking·--dangerously-skip-permissions)을 ${min} 전 버전은 몰라 실행을 시작하자마자 거부합니다. ` +
-      `${min} 이상으로 올리거나 설정의 CLI 경로를 새 실행 파일로 바꾸세요: ${executable}`
-    )
+  if (!parsed) return UNREAD
+  const dialect: OpencodeDialect = parsed.major === 2 ? 'v2' : 'v1'
+  if (parsed.major >= FIRST_UNSUPPORTED_MAJOR) {
+    return {
+      dialect,
+      rejected:
+        `OpenCode ${parsed.version} CLI는 아직 지원하지 않습니다 — 지원하는 것은 1.x(${MIN_SUPPORTED.join('.')} 이상)와 ` +
+        `2.x(${MIN_SUPPORTED_V2.join('.')} 이상)입니다. 그 밖의 버전은 우리가 넘기는 권한 정책을 따르는지 확인한 적이 없어, ` +
+        `읽기 전용 실행이 파일을 고칠 수 있습니다. 설정의 CLI 경로를 지원하는 실행 파일로 바꾸세요: ${executable}`
+    }
   }
-  if (parsed.major < FIRST_UNSUPPORTED_MAJOR) return null
-  return (
-    `OpenCode ${parsed.version} CLI는 아직 지원하지 않습니다 — 2.x는 우리가 넘기는 권한 정책` +
-    '(OPENCODE_PERMISSION)을 따르지 않을 수 있어, 읽기 전용 실행이 파일을 고칠 수 있습니다. ' +
-    `1.x를 쓰거나 설정의 CLI 경로를 1.x 실행 파일로 바꾸세요: ${executable}`
-  )
+  if (dialect === 'v2') {
+    if (!below(parsed, MIN_SUPPORTED_V2)) return { rejected: null, dialect }
+    const min = MIN_SUPPORTED_V2.join('.')
+    return {
+      dialect,
+      rejected:
+        `OpenCode ${parsed.version} CLI는 지원하지 않습니다 — 2.x는 ${min} 이상이어야 합니다(그 전 버전은 권한 정책이 ` +
+        `걸리는지 확인한 적이 없습니다). ${min} 이상으로 올리거나 1.x를 쓰세요: ${executable}`
+    }
+  }
+  if (below(parsed, MIN_SUPPORTED)) {
+    const min = MIN_SUPPORTED.join('.')
+    return {
+      dialect,
+      rejected:
+        `OpenCode ${parsed.version} CLI는 너무 오래됐습니다 — one-desk가 붙여 실행하는 옵션` +
+        `(--thinking·--dangerously-skip-permissions)을 ${min} 전 버전은 몰라 실행을 시작하자마자 거부합니다. ` +
+        `${min} 이상으로 올리거나 설정의 CLI 경로를 새 실행 파일로 바꾸세요: ${executable}`
+    }
+  }
+  return { rejected: null, dialect }
 }
 
 /**
@@ -232,7 +268,7 @@ const readVersion: VersionReader = (executable) => new Promise((resolve) => {
  * 이미 봤고, 그 사이 사라졌다면 실제 spawn이 더 정확한 이유를 낸다.
  */
 export function createVersionGate(read: VersionReader): VersionGate {
-  interface Entry { size: number; mtimeMs: number; verdict: Promise<string | null> }
+  interface Entry { size: number; mtimeMs: number; verdict: Promise<VersionVerdict> }
   const cache = new Map<string, Entry>()
 
   return async (executable) => {
@@ -240,7 +276,7 @@ export function createVersionGate(read: VersionReader): VersionGate {
     try {
       info = await stat(executable)
     } catch {
-      return null
+      return UNREAD
     }
     const hit = cache.get(executable)
     if (hit && hit.size === info.size && hit.mtimeMs === info.mtimeMs) return hit.verdict
@@ -257,7 +293,7 @@ export function createVersionGate(read: VersionReader): VersionGate {
         },
         () => {
           forget()
-          return null
+          return UNREAD
         }
       )
     }
@@ -327,9 +363,9 @@ export const opencodeAdapter = {
       executable = unwrapped
     }
     // 버전 게이트도 합류한 뒤다 — 한쪽 갈래에만 두면 다른 쪽으로 2.x가 새어나간다.
-    const rejected = await (opts.versionGate ?? defaultVersionGate)(executable)
-    if (rejected) return { ok: false, reason: rejected }
-    return { ok: true, executable }
+    const verdict = await (opts.versionGate ?? defaultVersionGate)(executable)
+    if (verdict.rejected) return { ok: false, reason: verdict.rejected }
+    return { ok: true, executable, dialect: verdict.dialect }
   },
 
   buildCommand(spec: ResolvedRunSpec): SpawnSpec {
