@@ -186,7 +186,7 @@ describe('ExecutionService', () => {
     it('preflight가 정한 방언이 실행 직전 확인과 manager.start에 그대로 도착한다', async () => {
       // 한 자리라도 null이나 다른 값으로 바뀌면 그 길만 2.x를 1.x 방식으로 띄운다 — 권한이 통째로 무시된다.
       const rec = recordingManager()
-      const verifyRunnable = vi.fn(async (_kind: AgentKind, _input: VerifyRunnableInput) => ({ ok: true }))
+      const verifyRunnable = vi.fn<(kind: AgentKind, input: VerifyRunnableInput) => Promise<PreflightResult>>(async () => ({ ok: true }))
       const local = setup({
         manager: rec.manager, verifyRunnable,
         preflight: async () => ({ ok: true, executable: process.execPath, dialect: 'v2' })
@@ -208,7 +208,7 @@ describe('ExecutionService', () => {
     it('이어 가는 턴은 이미 아는 세션 id를 실행 직전 확인에 넘긴다', async () => {
       // 2.x의 --session은 없는 id로 새 세션을 만들 수 있다 — 확인이 그 id를 받아야 실행 전에 막는다.
       const rec = recordingManager()
-      const verifyRunnable = vi.fn(async (_kind: AgentKind, _input: VerifyRunnableInput) => ({ ok: true }))
+      const verifyRunnable = vi.fn<(kind: AgentKind, input: VerifyRunnableInput) => Promise<PreflightResult>>(async () => ({ ok: true }))
       const local = setup({
         manager: rec.manager, verifyRunnable,
         preflight: async () => ({ ok: true, executable: process.execPath, dialect: 'v2' })
