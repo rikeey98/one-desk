@@ -231,30 +231,30 @@ export function capabilityOf(result: { exitCode: number | null; stdout: string; 
   `docs/releases/<다음 태그>.md`(2.x 지원 · 2.0.18은 전체 허용만 · 데이터 폴더를 1.x와 같이 쓴다).
 - 이 plan에 "달라진 것"과 완료 증명(명령 출력 요약·변이 표·진짜 CLI 결과)을 적는다.
 
-## 3. 변이 표 (완료 때 채운다)
+## 3. 변이 표 (2026-11-19 — 돌린 전체는 §6)
 
 | # | 변이 | 잡아야 하는 테스트 | 결과 |
 |---|---|---|---|
-| 1 | `MIN_SUPPORTED_V2` → `[2,0,0]` | `opencode.version.test` | |
-| 2 | major 3 거부 삭제 | `opencode.version.test`, `index.test` | |
-| 3 | 방언을 늘 `v1` | `opencode.version.test`, `opencode-v2.e2e` | |
-| 4 | `execution.ts`가 `dialect: null` | `execution.test` | |
-| 5 | `agents.build` 권한 삭제 | `permission.test`, real #3 | |
-| 6 | 편집 허용에 `shell allow` | `permission.test`, real #5 | |
-| 7 | MCP 키 리터럴 | `permission.test` | |
-| 8 | `--agent build` 삭제 | `opencode.command.test`, e2e, real #4 | |
-| 9 | `--standalone` 삭제 | `opencode.command.test`, e2e | |
-| 10 | "뒤는 전부 deny" 삭제 | `opencode.verify.test` | |
-| 11 | v1 확인을 "ask 없음"으로 | `opencode.verify.test` | |
-| 12 | `unverifiable`에서 권한 안 봄 | `opencode.verify.test`, e2e | |
-| 13 | 판정 실패를 `unverifiable`로 | `opencode.verify.test` | |
-| 14 | 세션 확인 삭제 | `opencode.verify.test` | |
-| 15 | `codemode: false` 삭제 | `configFile.test` | |
-| 16 | 조회의 `--standalone` 삭제 | `auth.test`, `models.test` | |
-| 17 | `?? id` 삭제 | `opencode.parse.test` | |
-| 18 | `metadata.metadata` 무시 | `opencode.detail.test` | |
-| 19 | `execute`의 `error` 무시 | `opencode.parse.test` | |
-| 20 | `TOOL_LABELS.shell` 삭제 | `timeline.test` | |
+| 1 | `MIN_SUPPORTED_V2` → `[2,0,0]` | `opencode.version.test` | 잡힘 |
+| 2 | major 3 거부 삭제 | `opencode.version.test`, `index.test` | 잡힘 |
+| 3 | 방언을 늘 `v1` | `opencode.version.test`, `opencode-v2.e2e` | 잡힘 |
+| 4 | `execution.ts`가 `dialect: null` | `execution.test` | 잡힘 |
+| 5 | `agents.build` 권한 삭제 | `permission.test`, real #3 | 잡힘 |
+| 6 | 편집 허용에 `shell allow` | `permission.test`, real #5 | 잡힘 |
+| 7 | MCP 키 리터럴 | `permission.test` | 잡힘 |
+| 8 | `--agent build` 삭제 | `opencode.command.test`, e2e, real #4 | 잡힘 |
+| 9 | `--standalone` 삭제 | `opencode.command.test`, e2e | 잡힘 |
+| 10 | "뒤는 전부 deny" 삭제 | `opencode.verify.test` | 잡힘 |
+| 11 | v1 확인을 "ask 없음"으로 | `opencode.verify.test` | 잡힘 |
+| 12 | `unverifiable`에서 권한 안 봄 | `opencode.verify.test`, e2e | 잡힘 |
+| 13 | 판정 실패를 `unverifiable`로 | `opencode.verify.test` | 잡힘 |
+| 14 | 세션 확인 삭제 | `opencode.verify.test` | 잡힘 |
+| 15 | `codemode: false` 삭제 | `configFile.test` | 잡힘 |
+| 16 | 조회의 `--standalone` 삭제 | `auth.test`, `models.test` | 잡힘 |
+| 17 | `?? id` 삭제 | `opencode.parse.test` | 잡힘 |
+| 18 | `metadata.metadata` 무시 | `opencode.detail.test` | 잡힘 |
+| 19 | `execute`의 `error` 무시 | `opencode.parse.test` | 잡힘 |
+| 20 | `TOOL_LABELS.shell` 삭제 | `timeline.test` | 잡힘 |
 
 ## 4. 위험
 
@@ -275,3 +275,79 @@ export function capabilityOf(result: { exitCode: number | null; stdout: string; 
 - 변이 표 20줄이 전부 "잡힘".
 - spec §7의 성공 기준 전부.
 - 릴리스(버전 올림·태그)는 이 plan의 범위가 아니다 — 끝난 뒤 따로 묻는다.
+
+## 6. 구현 기록 (2026-11-19)
+
+### 달라진 것
+
+1. **세션 확인은 launch 시점에 이미 아는 세션만 본다** (FR-14). plan은 "이으면 확인한다"였는데, 세션 id는 `beginRun`(슬롯을
+   받은 뒤, 동기)에서 정해진다 — 앞 턴이 도는 중에 예약된 턴은 launch 때 세션이 아직 없다. 그래서 `knownSessionOf`가 그때 이미
+   남아 있는 세션만 실행 직전 확인에 넘기고, 없으면 건너뛴다(그 세션은 지금 쓰이는 중이라 없을 수 없다). 비동기 확인을
+   `beginRun` 뒤에 끼우면 "running인데 manager에는 없는" 틈이 하나 더 생겨 취소가 닿지 않는다.
+2. **화면도 `path`를 읽어야 했다.** plan은 "방언은 어댑터와 도구 이름 표 밖으로 나가지 않는다"였는데, 대화록의 한 줄 부제는
+   `renderer/timeline.ts`가 도구 입력에서 직접 뽑는다(`file_path`·`filePath`). 2.x의 `path`가 빠져 읽기 줄이 "읽기"뿐이었다 —
+   e2e가 찾았다. grep·glob의 `path`(찾는 자리)가 검색어를 가리지 않게 검색어 뒤에 본다.
+3. **인증·모델 조회가 방언을 받는다** (`core/agent/auth.ts`·`models.ts`). spec NFR-1의 파일 목록 밖이다 — 2.x의 조회에
+   `--standalone`을 붙일 자리가 거기뿐이다. 안내(`statusNote`)의 판정은 어댑터에 남겼다(`AgentAdapter.statusNote`).
+4. **방언은 설정 화면으로 나가지 않는다.** `checkAgents`가 preflight 결과를 그대로 IPC로 내보내므로 `dialect`를 떼고 보낸다
+   (IPC 모양이 안 바뀐다 — NFR-4).
+5. **e2e에서만 잡히던 배선을 통합 테스트로 옮겼다.** `core/index.ts`의 `checkAuth`·`listModels`·`statusNote` 세 줄은 단위
+   테스트가 못 본다. 가짜 opencode의 2.x 모드로 core를 통째로 띄우는 테스트 둘(`core/index.test.ts`의 "opencode 2.x")이 본다 —
+   e2e는 모델 목록이 비어도 초록이었다(변이 `i-models-dialect`가 살아남았다).
+6. **`docs/sdlc/**/probes/**`를 린트에서 뺐다** — 실측 스크립트는 CommonJS다.
+7. **1.x의 긍정 확인을 진짜 1.18.30으로 봤다** (`probes/probe10-v1-debug-config.cjs`, 모델 없음): 보낸 열일곱 키가 그대로
+   돌아오고, 프로젝트의 `bash: { … }` 객체도 우리 문자열이 덮는다. 우리가 안 보낸 `mytool: ask`는 남아 지금 문장으로 막힌다.
+
+### 단계별 결과
+
+| 단계 | 커밋 | 비고 |
+|---|---|---|
+| 문서 | `8f9efbe` | intent·spec·plan·probes |
+| 2 버전과 방언 | `aba1192` | |
+| 3 타입을 흐르게 | `751e29d` | 동작 변화 없음 |
+| 4 권한 규칙 | `06fa196` | |
+| 5 명령과 실행 직전 확인 | `648f144` | 진짜 1.18.30·2.0.18·2.3.2로 확인(모델 없음) — 아래 |
+| 6 MCP 설정·설정 화면 | 둘 (`feat(mcp)`, `c779a19`) | |
+| 7 파서와 세부 | `aac7acc` | 픽스처는 진짜 2.0.18·2.3.2의 출력 |
+| 8 가짜 CLI와 e2e | `59e522c` | |
+| 9 진짜 CLI 테스트 | `5257351` | **모델이 필요한 것은 아직 못 돌렸다** — 아래 |
+
+**진짜 바이너리로 본 실행 직전 확인** (5단계, 모델 호출 없음):
+
+| | 빈 프로젝트 | 프로젝트 `agents.build` allow | 없는 세션 |
+|---|---|---|---|
+| 1.18.30 | 세 권한 통과 (1.3초) | 거부 — 1.x가 2.x 모양의 설정을 못 읽는다 | (1.x는 보지 않는다) |
+| 2.0.18 | 읽기 전용·편집 허용 거부(FR-8a) · 전체 허용 통과 | 같다 | 거부 |
+| 2.3.2 | 세 권한 통과 (1.2초) | 세 권한 통과 — 우리 규칙이 뒤에 있다 | 거부 |
+
+### 아직 못 한 것 — 무료 모델의 한도
+
+`opencode/*` 무료 모델이 계정 단위 한도에 걸려(2026-11-19 오후, 모델을 바꿔도 같다) **모델이 필요한 검증이 남았다.** 한도가
+풀리면 아래를 돌린다 — 코드는 준비돼 있다.
+
+```
+ONE_DESK_REAL_CLI=1 ONE_DESK_REAL_OPENCODE_MODEL=opencode/big-pickle ONE_DESK_REAL_OPENCODE_PATH=<2.3.2> pnpm test realOpencode
+ONE_DESK_REAL_CLI=1 ONE_DESK_REAL_OPENCODE_MODEL=opencode/big-pickle ONE_DESK_REAL_OPENCODE_PATH=<2.0.18> pnpm test realOpencode
+ONE_DESK_REAL_CLI=1 ONE_DESK_REAL_OPENCODE_MODEL=opencode/big-pickle ONE_DESK_REAL_OPENCODE_PATH=<1.18.30> pnpm test realOpencode
+```
+
+- **`realOpencode`의 2.3.2 여섯 가지와 1.x 둘**: 한도 때문에 전부 건너뛴 것으로 남았다. 2.0.18은 모델이 필요 없는 둘(읽기
+  전용·편집 허용이 실행 전에 막힌다)만 통과했다. 같은 시나리오를 spec 단계에서 **손으로 쓴 인자로는** 돌려 봤다
+  (`probe5`·`probe7` — 구멍 둘과 막는 방법, MCP 직접 호출). 어댑터가 만든 명령으로는 아직이다.
+- **2.0.18이 `OPENCODE_CONFIG` 파일을 읽는가** (plan 1단계의 관문). 2.3.2는 읽는다. 2.0.18은 못 쟀다 — 위 둘째 명령의
+  "전체 허용에서 one-desk MCP 도구가 직접 불린다"가 그 답이다. 안 읽으면 2.0.18에서 MCP가 조용히 빠진다.
+- **10단계**: 진짜 2.x로 긴 셸 명령을 시키고 one-desk의 `실행 중인 턴 멈추기`·앱 종료 뒤 남는 프로세스. 손으로 부른
+  `taskkill /T`로는 2.0.18·2.3.2 둘 다 자식까지 끝나는 것을 봤다(spec 0-4·0-5).
+- 편집 `files[].status`의 `added`·`deleted`는 이름으로 미루어 받는다(실측은 `modified`뿐). 로그인된 `auth list`의 모양.
+- 릴리스 노트(`docs/releases/<태그>.md`)는 버전을 정할 때 쓴다.
+
+### 변이
+
+변이 54개를 돌렸다(단위 44 · 통합 4 · e2e 3 · 배선 3). **처음에 둘이 살아남았고, 테스트를 더해 둘 다 잡았다.**
+
+- `m13` — 확인기의 "판정 실패면 거부" 줄을 지워도 초록이었다. 빈 출력은 뒤의 규칙 판정이 어차피 거부했기 때문이다. 실패한
+  명령이 **그럴듯한 목록을 찍은** 경우를 테스트에 더하니 잡혔다(그때는 그 줄만이 막는다).
+- `e2e-index-models-dialect` — `core/index.ts`가 모델 조회에 방언을 안 넘겨도 e2e가 초록이었다(목록이 비어도 화면은
+  멀쩡하다). 가짜 2.x로 core를 띄우는 통합 테스트를 더해 잡았다.
+
+§3의 표 20줄은 전부 "잡힘"이다. 5·6·8의 "real #n" 칸만 위 한도 때문에 비어 있다 — 단위 테스트와 가짜 CLI(exit 2)는 잡는다.
