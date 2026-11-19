@@ -320,6 +320,12 @@ export function capabilityOf(result: { exitCode: number | null; stdout: string; 
 | 2.0.18 | 읽기 전용·편집 허용 거부(FR-8a) · 전체 허용 통과 | 같다 | 거부 |
 | 2.3.2 | 세 권한 통과 (1.2초) | 세 권한 통과 — 우리 규칙이 뒤에 있다 | 거부 |
 
+### 완료 증명 (모델 없이 되는 것)
+
+- `pnpm test` — 216 파일 · 3,840 통과 · 52 건너뜀(선택 실행).
+- `pnpm typecheck` · `pnpm lint` — 오류 0.
+- `pnpm test:e2e` — 42 파일 · 92 통과 · 4 건너뜀(선택 실행). `e2e/opencode-v2.e2e.ts` 둘 포함.
+
 ### 아직 못 한 것 — 무료 모델의 한도
 
 `opencode/*` 무료 모델이 계정 단위 한도에 걸려(2026-11-19 오후, 모델을 바꿔도 같다) **모델이 필요한 검증이 남았다.** 한도가
