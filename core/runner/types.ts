@@ -117,4 +117,9 @@ export interface AgentAdapter {
    * 이길 수 없어(설계 §2-3) 이 단계가 필요하다.
    */
   verifyRunnable?(input: VerifyRunnableInput): Promise<PreflightResult>
+  /**
+   * 통과한 preflight에 붙일 안내 (docs/sdlc/opencode-v2/ spec FR-8a). 실행은 되지만 사람이 미리 알아야 하는 제약이 있으면
+   * 그 문장, 없으면 null. 설정 화면의 느린 칸이 부른다 — 프로세스를 띄울 수 있다.
+   */
+  statusNote?(preflight: PreflightResult): Promise<string | null>
 }

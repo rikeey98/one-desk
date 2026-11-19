@@ -424,12 +424,14 @@ export function createCore(opts: CoreOptions) {
     preflight: (kind, workspaceId, cwd) => cwd
       ? preflightFor(kind, workspaceId, cwd)
       : adapters[kind].preflight(agentPathOf(kind, HOST_ENV, workspaceOf(workspaceId))),
-    checkAuth: (kind, executable, env) => checkAuth(kind, executable, runCliIn(env)),
+    checkAuth: (kind, executable, env, dialect) => checkAuth(kind, executable, runCliIn(env), dialect),
+    // 실행 직전 확인을 못 하는 opencode 2.x의 안내 — 판정은 어댑터의 몫이다 (opencode-v2 FR-8a·NFR-1)
+    statusNote: async (kind, pre) => (await adapters[kind].statusNote?.(pre)) ?? null,
     wslRepo: firstWslRepo,
     // 슬래시 커맨드 probe와 **같은 캐시**다 — 실행 패널이 이미 돌렸으면 CLI가
     // 새로 뜨지 않는다(spec NFR-3).
     agentInfo: (target) => commands.agentInfo(target),
-    listModels: (kind, executable) => modelCatalog.list(kind, executable),
+    listModels: (kind, executable, dialect) => modelCatalog.list(kind, executable, dialect),
     // 실행 패널이 cwd를 고르는 규칙과 같다 (StartRunInput.cwd의 주석).
     firstRepoPath: (workspaceId) => repos.list(workspaceId)[0]?.path ?? null
   })

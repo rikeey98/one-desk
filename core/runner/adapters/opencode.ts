@@ -1,4 +1,5 @@
 import { access, constants, stat } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { execFile, type ChildProcess } from 'node:child_process'
 import { promisify } from 'node:util'
 import type {
@@ -13,7 +14,7 @@ import {
 } from './common'
 import { opencodeDeniedNotice, opencodeToolDetail } from './opencode.detail'
 import {
-  createOpencodeV2Verifier, judgeV1Config, type OpencodeV2Verifier, type V2Capability
+  createOpencodeV2Verifier, judgeV1Config, UNVERIFIABLE_NOTE, type OpencodeV2Verifier
 } from './opencode.verify'
 import type { Permission } from '@shared/models'
 import type { RunEventInit, ToolEffect } from '@shared/events'
@@ -333,11 +334,6 @@ function v2Env(permission: Permission): Record<string, string> {
   return env
 }
 
-/** 2.x 확인기에 run과 같은 환경으로 능력을 묻는다 — 설정 화면의 안내용 (FR-8a). 권한은 판정과 무관해 읽기 전용으로 묻는다 */
-export function opencodeV2Capability(executable: string, cwd: string): Promise<V2Capability | null> {
-  return defaultV2Verifier.capability(executable, cwd, v2Env('read_only'))
-}
-
 /**
  * 2.x의 명령 (opencode-v2 spec FR-6·7·10·11).
  *
@@ -493,6 +489,18 @@ export const opencodeAdapter = {
     // **긍정 확인이다** (opencode-v2 spec §2-2·FR-9) — ask가 없는 것만으로는 통과하지 않는다. 버전을 못 읽어 2.x가 이 갈래로
     // 오면 출력이 배열이라 여기서 막힌다.
     return judgeV1Config(raw, sent, input.cwd)
+  },
+
+  /**
+   * 설정 화면의 안내 (opencode-v2 spec FR-8a). 실행 직전 확인을 못 하는 2.x면 "전체 허용만 실행됩니다"를 미리 말한다 —
+   * 실행 버튼을 누른 뒤에야 막힌 것을 알면 안 된다. 판정은 실행과 **같은 확인기**(같은 기억)다. 1.x와 확인할 수 있는 2.x,
+   * 판정하지 못한 경우는 안내가 없다. cwd는 판정과 무관해 임시 폴더를 쓴다(프로젝트 설정이 깨져 있어도 옵션을 받는지는
+   * 그대로 답한다).
+   */
+  async statusNote(pre: PreflightResult, v2: OpencodeV2Verifier = defaultV2Verifier): Promise<string | null> {
+    if (!pre.ok || !pre.executable || pre.dialect !== 'v2') return null
+    const capability = await v2.capability(pre.executable, tmpdir(), v2Env('read_only'))
+    return capability === 'unverifiable' ? UNVERIFIABLE_NOTE : null
   },
 
   parseLine(line: string, runId: string): RawEvent[] {

@@ -116,3 +116,13 @@ describe('createModelCatalog', () => {
     expect(run).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('createModelCatalog — opencode 2.x (docs/sdlc/opencode-v2/ FR-11)', () => {
+  it('2.x는 사설 서버로 묻는다 — 1.x는 옵션 없이', async () => {
+    const run = vi.fn<RunCli>(async () => ok('opencode/big-pickle\n'))
+    const catalog = createModelCatalog(run)
+    await catalog.list('opencode', '/bin/opencode-2', 'v2')
+    await catalog.list('opencode', '/bin/opencode-1', 'v1')
+    expect(run.mock.calls.map((c) => c[0].args)).toEqual([['models', '--standalone'], ['models']])
+  })
+})

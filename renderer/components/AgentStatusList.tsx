@@ -96,6 +96,8 @@ export function AgentStatusRow({
       {blocked && <span className="settings-status-detail">{status.reason ?? '확인할 수 없습니다'}</span>}
       {status?.ok && probe && <AuthLine probe={probe} />}
       {status?.ok && probe && <ModelLine probe={probe} />}
+      {/* 실행은 되지만 미리 알아야 하는 제약 — 오류가 아니다 (docs/sdlc/opencode-v2/ FR-8a) */}
+      {status?.ok && probe?.note && <span className="settings-status-detail">{probe.note}</span>}
     </li>
   )
 }

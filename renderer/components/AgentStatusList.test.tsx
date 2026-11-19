@@ -17,6 +17,7 @@ function probe(over: Partial<AgentProbe> = {}): AgentProbe {
     model: { state: 'resolved', model: 'claude-opus-5[1m]' },
     version: '2.1.278',
     models: [],
+    note: null,
     ...over
   }
 }
@@ -46,6 +47,18 @@ function rowText(name: string): string {
 }
 
 describe('AgentStatusList — 빠른 칸이 먼저 그려진다 (FR-7)', () => {
+  it('probe의 안내를 그 agent 줄에 보인다 — 실행 전에 알아야 하는 제약이다 (opencode-v2 FR-8a)', () => {
+    renderList({ probes: probes({ opencode: probe({ note: '전체 허용만 실행됩니다 — 읽기 전용·편집 허용은 2.3.2 이상' }) }) })
+    const notes = screen.getAllByText(/전체 허용만 실행됩니다/)
+    expect(notes).toHaveLength(1)
+    expect(notes[0]!.closest('li')).toHaveTextContent('OpenCode')
+  })
+
+  it('안내가 없으면 그 줄이 없다', () => {
+    renderList()
+    expect(screen.queryByText(/전체 허용만/)).toBeNull()
+  })
+
   it('느린 칸이 아직 안 와도 실행 파일 줄은 이미 보인다', () => {
     // 합쳐 기다리면 workspace를 고를 때마다 이 블록이 통째로 1초씩 비어 있다.
     renderList({ probes: null })

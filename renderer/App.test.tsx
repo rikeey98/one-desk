@@ -230,9 +230,9 @@ function makeClient(runsOver: Record<string, unknown> = {}, seed: Seed = {}): On
       // 홈의 준비 단계가 묻는다 (docs/sdlc/home/ FR-15). 기본은 로그인된 claude — 준비가 끝난 홈을 보려면 이것이 초록이어야 한다
       probeAgents: vi.fn(async (): Promise<AgentProbes> => ({
         'claude-code': seed.cliReady === false
-          ? { auth: { state: 'none', hint: 'claude login' }, model: { state: 'skipped', reason: '인증 없음' }, version: null, models: [] }
-          : { auth: { state: 'ok', method: null, plan: null }, model: { state: 'resolved', model: 'claude-sonnet-5' }, version: null, models: [] },
-        opencode: { auth: { state: 'unknown', reason: '실행 파일 없음' }, model: { state: 'skipped', reason: '없음' }, version: null, models: [] }
+          ? { auth: { state: 'none', hint: 'claude login' }, model: { state: 'skipped', reason: '인증 없음' }, version: null, models: [], note: null }
+          : { auth: { state: 'ok', method: null, plan: null }, model: { state: 'resolved', model: 'claude-sonnet-5' }, version: null, models: [], note: null },
+        opencode: { auth: { state: 'unknown', reason: '실행 파일 없음' }, model: { state: 'skipped', reason: '없음' }, version: null, models: [], note: null }
       }))
     },
     repos: {

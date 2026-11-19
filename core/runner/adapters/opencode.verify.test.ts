@@ -433,3 +433,27 @@ describe('opencodeAdapter.verifyRunnable — 기본 probe', () => {
     }
   })
 })
+
+describe('opencodeAdapter.statusNote — 설정 화면의 안내 (opencode-v2 spec FR-8a)', () => {
+  const verifier = (capability: 'verifiable' | 'unverifiable' | null) => ({
+    verify: vi.fn(async () => ({ ok: true })),
+    capability: vi.fn(async () => capability)
+  })
+  const V2 = { ok: true, executable: '/bin/opencode', dialect: 'v2' as const }
+
+  it('확인할 수 없는 2.x면 전체 허용만 된다고 미리 말한다', async () => {
+    await expect(opencodeAdapter.statusNote(V2, verifier('unverifiable'))).resolves.toContain('전체 허용만')
+  })
+
+  it('확인할 수 있거나 판정하지 못했으면 안내가 없다', async () => {
+    await expect(opencodeAdapter.statusNote(V2, verifier('verifiable'))).resolves.toBeNull()
+    await expect(opencodeAdapter.statusNote(V2, verifier(null))).resolves.toBeNull()
+  })
+
+  it('1.x와 실패한 preflight에는 묻지도 않는다', async () => {
+    const v = verifier('unverifiable')
+    await expect(opencodeAdapter.statusNote({ ok: true, executable: '/bin/opencode', dialect: 'v1' }, v)).resolves.toBeNull()
+    await expect(opencodeAdapter.statusNote({ ok: false, reason: '없음' }, v)).resolves.toBeNull()
+    expect(v.capability).not.toHaveBeenCalled()
+  })
+})

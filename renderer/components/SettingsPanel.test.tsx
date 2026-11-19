@@ -119,13 +119,15 @@ const PROBES_OK: AgentProbes = {
     auth: { state: 'ok', method: 'claude.ai', plan: 'max' },
     model: { state: 'resolved', model: 'claude-opus-5[1m]' },
     version: '2.1.278',
-    models: []
+    models: [],
+    note: null
   },
   opencode: {
     auth: { state: 'ok', method: null, plan: null },
     model: { state: 'skipped', reason: 'OpenCode는 실제로 쓰인 모델을 알려주지 않습니다.' },
     version: null,
-    models: ['openrouter/anthropic/claude-sonnet-4.5']
+    models: ['openrouter/anthropic/claude-sonnet-4.5'],
+    note: null
   }
 }
 
@@ -338,7 +340,8 @@ describe('SettingsPanel — 실행 기본값', () => {
         auth: { state: 'none', hint: '`opencode auth login`으로 provider에 로그인하세요.' },
         model: { state: 'skipped', reason: 'OpenCode는 실제로 쓰인 모델을 알려주지 않습니다.' },
         version: null,
-        models: []
+        models: [],
+        note: null
       }
     }))
     renderPanel(makeClient({}, { probeAgents }))
@@ -1021,6 +1024,7 @@ describe('SettingsPanel — WSL 탭 (docs/sdlc/wsl-repo-setup/ FR-7~10)', () => 
       model: { state: 'resolved', model: 'claude-opus-5-5' },
       version: '2.1.299',
       models: [],
+      note: null,
       distro: 'Ubuntu'
     }
   }

@@ -5,7 +5,7 @@ import { cliReadinessOf, setupStateOf } from './setup'
 const ok = { ok: true, executable: '/bin/claude' }
 const no = { ok: false, reason: '없음' }
 function probe(over: Partial<AgentProbe> = {}): AgentProbe {
-  return { auth: { state: 'ok', method: null, plan: null }, model: { state: 'resolved', model: 'sonnet' }, version: null, models: [], ...over }
+  return { auth: { state: 'ok', method: null, plan: null }, model: { state: 'resolved', model: 'sonnet' }, version: null, models: [], note: null, ...over }
 }
 
 describe('cliReadinessOf (FR-15)', () => {

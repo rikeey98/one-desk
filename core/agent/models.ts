@@ -1,5 +1,6 @@
 import type { AgentKind } from '@shared/models'
 import type { RunCli } from './types'
+import type { OpencodeDialect } from '../runner/types'
 import { stripAnsi } from './auth'
 
 /** 목록 조회는 실측 1.6초다. 느린 장비를 감안해 넉넉히 준다. */
@@ -25,9 +26,11 @@ export function createModelCatalog(run: RunCli) {
   /** 아직 돌고 있는 조회. 동시에 부르면 CLI를 두 번 띄우지 않고 나눠 쓴다 */
   const loading = new Map<string, Promise<string[]>>()
 
-  async function load(executable: string): Promise<string[]> {
+  async function load(executable: string, dialect: OpencodeDialect | null): Promise<string[]> {
     try {
-      const out = await run({ executable, args: ['models'], timeoutMs: TIMEOUT_MS })
+      // 2.x는 `--standalone` 없이 부르면 백그라운드 서비스를 띄운다 (docs/sdlc/opencode-v2/ spec FR-11)
+      const args = dialect === 'v2' ? ['models', '--standalone'] : ['models']
+      const out = await run({ executable, args, timeoutMs: TIMEOUT_MS })
       // 제안이 없을 뿐 칸은 그대로 쓸 수 있다(FR-8) — 실패를 던지지 않는다.
       if (out.failure || out.code !== 0) return []
       return stripAnsi(out.stdout)
@@ -39,11 +42,11 @@ export function createModelCatalog(run: RunCli) {
     }
   }
 
-  function fetchOnce(executable: string): Promise<string[]> {
+  function fetchOnce(executable: string, dialect: OpencodeDialect | null): Promise<string[]> {
     const running = loading.get(executable)
     if (running) return running
 
-    const started = load(executable)
+    const started = load(executable, dialect)
       .then((models) => {
         // **실패(빈 목록)도 캐시한다.** 화면을 오갈 때마다 프로세스를 띄우지
         // 않기 위해서다 — 슬래시 커맨드가 같은 이유로 실패를 캐시한다.
@@ -57,12 +60,12 @@ export function createModelCatalog(run: RunCli) {
   }
 
   return {
-    list(kind: AgentKind, executable: string): Promise<string[]> {
+    list(kind: AgentKind, executable: string, dialect: OpencodeDialect | null = null): Promise<string[]> {
       // claude에는 목록을 얻을 수단이 없다 — 괜히 띄우지 않는다.
       if (kind !== 'opencode') return Promise.resolve([])
       const cached = cache.get(executable)
       if (cached) return Promise.resolve(cached)
-      return fetchOnce(executable)
+      return fetchOnce(executable, dialect)
     },
 
     /** 캐시를 버린다. 화면의 `다시 확인`이 부른다 */

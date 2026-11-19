@@ -12,6 +12,7 @@ function deps(over: Partial<AgentProbeDeps> = {}): AgentProbeDeps {
     checkAuth: async () => LOGGED_IN,
     agentInfo: async () => ({ model: 'claude-opus-5[1m]', version: '2.1.278', error: null }),
     listModels: async () => [],
+    statusNote: async () => null,
     firstRepoPath: () => '/tmp/api',
     ...over
   }
@@ -184,7 +185,7 @@ describe('WSL 칸 (docs/sdlc/wsl-support/ FR-13)', () => {
     expect(preflight).toHaveBeenCalledWith('claude-code', 'ws-1', WSL_CWD)
     expect(agentInfo).toHaveBeenCalledWith({ workspaceId: 'ws-1', cwd: WSL_CWD })
     expect(agentInfo).toHaveBeenCalledWith({ workspaceId: 'ws-1', cwd: '/tmp/api' })
-    expect(checkAuth).toHaveBeenCalledWith('claude-code', '/bin/agent', { kind: 'wsl', distro: 'Ubuntu' })
+    expect(checkAuth).toHaveBeenCalledWith('claude-code', '/bin/agent', { kind: 'wsl', distro: 'Ubuntu' }, null)
   })
 
   it('WSL repo가 없으면 wsl 키 자체가 없다', async () => {
@@ -201,5 +202,46 @@ describe('WSL 칸 (docs/sdlc/wsl-support/ FR-13)', () => {
     const probes = await service.probeAgents('ws-1')
     expect(probes['claude-code'].auth).toEqual(LOGGED_IN)
     expect(probes.wsl?.auth.state).toBe('unknown')
+  })
+})
+
+describe('createAgentProbeService — opencode 방언과 안내 (docs/sdlc/opencode-v2/ FR-8a·11)', () => {
+  const V2: PreflightResult = { ok: true, executable: '/bin/opencode', dialect: 'v2' }
+
+  it('preflight의 방언을 인증·모델 조회에 넘긴다', async () => {
+    // 빠지면 2.x에 --standalone 없이 물어 백그라운드 서비스가 뜬다
+    const checkAuth = vi.fn<AgentProbeDeps['checkAuth']>(async () => LOGGED_IN)
+    const listModels = vi.fn<AgentProbeDeps['listModels']>(async () => [])
+    await probe({ preflight: async () => V2, checkAuth, listModels }, 'opencode')
+    expect(checkAuth.mock.calls.find((c) => c[0] === 'opencode')![3]).toBe('v2')
+    expect(listModels.mock.calls.find((c) => c[0] === 'opencode')![2]).toBe('v2')
+  })
+
+  it('방언 없는 preflight(claude)는 null을 넘긴다', async () => {
+    const checkAuth = vi.fn<AgentProbeDeps['checkAuth']>(async () => LOGGED_IN)
+    await probe({ checkAuth })
+    expect(checkAuth.mock.calls.find((c) => c[0] === 'claude-code')![3]).toBeNull()
+  })
+
+  it('안내를 preflight 결과로 묻고 그대로 싣는다', async () => {
+    const statusNote = vi.fn(async (kind: AgentKind) => (kind === 'opencode' ? '전체 허용만 실행됩니다' : null))
+    const service = createAgentProbeService(deps({ preflight: async () => V2, statusNote }))
+    const probes = await service.probeAgents('ws-1')
+    expect(probes.opencode.note).toBe('전체 허용만 실행됩니다')
+    expect(probes['claude-code'].note).toBeNull()
+    expect(statusNote).toHaveBeenCalledWith('opencode', V2)
+  })
+
+  it('안내 조회가 터져도 다른 칸은 그대로다', async () => {
+    const result = await probe({ statusNote: async () => { throw new Error('boom') } })
+    expect(result.note).toBeNull()
+    expect(result.auth).toEqual(LOGGED_IN)
+  })
+
+  it('실행 파일이 없으면 안내를 묻지 않는다', async () => {
+    const statusNote = vi.fn(async () => 'x')
+    const result = await probe({ preflight: async () => ({ ok: false, reason: '없음' }), statusNote })
+    expect(result.note).toBeNull()
+    expect(statusNote).not.toHaveBeenCalled()
   })
 })
