@@ -8,6 +8,149 @@ import { join } from 'node:path'
 const sessionId = 'ses_fake000000000000000000000'
 const delay = Number(process.env.ONE_DESK_FAKE_DELAY_MS ?? 0)
 
+// ── 2.x 흉내 (docs/sdlc/opencode-v2/ spec FR-26) ───────────────────────────────
+// `ONE_DESK_FAKE_OPENCODE_VERSION`이 2로 시작할 때만 켜진다. 없으면 아래의 1.x 갈래 그대로다 — 기존 e2e가 거기 기댄다.
+//
+// **진짜와 뜻이 다른 호출은 조용히 받아 주지 않고 exit 2로 실패한다**(가짜 wsl.exe가 `--`를 거부하는 것과 같은 이유):
+// `--standalone` 없는 호출은 진짜 2.x에서 백그라운드 서비스를 띄우고, `--agent build` 없는 run은 프로젝트의 default_agent에
+// 휘둘린다. 받아 주면 그 인자를 빼는 변이가 e2e에서 초록이다. 1.x의 옵션은 진짜처럼 "모르는 옵션"으로 거부한다.
+const fakeVersion = process.env.ONE_DESK_FAKE_OPENCODE_VERSION ?? ''
+if (fakeVersion.startsWith('2.')) runV2(process.argv.slice(2))
+
+function runV2(args) {
+  const has = (flag) => args.includes(flag)
+  const fail = (code, message) => {
+    process.stderr.write(`${message}\n`)
+    process.exit(code)
+  }
+  const needStandalone = (what) => {
+    if (!has('--standalone')) fail(2, `가짜 opencode 2.x: ${what}에 --standalone이 없다 — 진짜는 백그라운드 서비스를 띄운다`)
+  }
+
+  if (has('--version')) {
+    process.stdout.write(`opencode v${fakeVersion}\n`)
+    process.exit(0)
+  }
+
+  if (args[0] === 'debug' && args[1] === 'agents') {
+    // 2.0.18은 이 옵션을 모른다(실측 문구) — 실행 직전 확인을 할 수 없는 바이너리다
+    if (process.env.ONE_DESK_FAKE_OPENCODE_UNVERIFIABLE === '1') {
+      fail(1, 'ERROR\n  Unrecognized flag: --standalone in command opencode debug agents')
+    }
+    needStandalone('debug agents')
+    // 진짜가 규칙을 붙이는 순서 그대로: agent 기본값 → 환경변수 최상위 → 환경변수 agents.build → 꼬리
+    const sent = process.env.OPENCODE_CONFIG_CONTENT ? JSON.parse(process.env.OPENCODE_CONFIG_CONTENT) : {}
+    const rule = (action, resource, effect) => ({ action, resource, effect })
+    const permissions = [
+      rule('*', '*', 'allow'), rule('read', '*.env', 'ask'), rule('question', '*', 'allow'),
+      ...(sent.permissions ?? []),
+      ...(sent.agents?.build?.permissions ?? []),
+      rule('browser', '*', 'deny'), rule('skill', 'browser', 'deny')
+    ]
+    process.stdout.write(JSON.stringify([{ id: 'build', name: 'Build', mode: 'primary', permissions }]))
+    process.exit(0)
+  }
+
+  if (args[0] === 'api') {
+    needStandalone('api')
+    const id = (args.find((a) => a.startsWith('sessionID=')) ?? '').slice('sessionID='.length)
+    if (args[2] === 'session.get' && id === sessionId) {
+      process.stdout.write(JSON.stringify({ data: { id } }))
+      process.exit(0)
+    }
+    process.stdout.write(JSON.stringify({ _tag: 'SessionNotFoundError', sessionID: id, message: `Session not found: ${id}` }))
+    fail(1, 'HTTP 404 Not Found')
+  }
+
+  if (args[0] === 'auth' && args[1] === 'list') {
+    needStandalone('auth list')
+    process.stdout.write('No authenticated integrations\n')
+    process.exit(0)
+  }
+
+  if (args[0] === 'models') {
+    needStandalone('models')
+    process.stdout.write('opencode/big-pickle\nopencode/beam-free\n')
+    process.exit(0)
+  }
+
+  if (args[0] !== 'run') fail(2, `가짜 opencode 2.x: 흉내 내지 않는 명령이다 — ${args.join(' ')}`)
+  needStandalone('run')
+  for (const flag of ['--variant', '--dangerously-skip-permissions', '--port']) {
+    if (has(flag)) fail(1, `ERROR\n  Unrecognized flag: ${flag} in command opencode run`)
+  }
+  if (args[args.indexOf('--agent') + 1] !== 'build' || !has('--agent')) {
+    fail(2, '가짜 opencode 2.x: run에 --agent build가 없다 — 진짜는 프로젝트의 default_agent를 따른다')
+  }
+  if (!process.env.OPENCODE_CONFIG_CONTENT) fail(2, '가짜 opencode 2.x: OPENCODE_CONFIG_CONTENT가 없다 — 권한 없이 도는 run이다')
+
+  let input = ''
+  process.stdin.on('data', (chunk) => { input += chunk })
+  process.stdin.on('end', () => emitV2(input, has('--thinking')))
+  // 1.x 갈래로 내려가지 않는다 — stdin이 닫힐 때까지 여기서 산다
+  runV2.active = true
+}
+
+/**
+ * 2.x의 줄 모양(2.0.18·2.3.2 실측 — `fixtures/opencode-v2/`와 같다): 호출 id가 `part.id`, 경로가 `input.path`, 세부가
+ * `state.metadata.metadata`. 셸은 0이 아닌 종료 코드도 `completed`로 온다.
+ */
+function emitV2(input, thinking) {
+  const stepMs = Number(process.env.ONE_DESK_FAKE_STEP_MS ?? 100)
+  const out = (obj) => process.stdout.write(`${JSON.stringify(obj)}\n`)
+  let partNo = 0
+  const line = (type, part) => ({
+    type, timestamp: Date.now(), sessionID: sessionId,
+    part: { sessionID: sessionId, messageID: 'msg_fake_v2', ...part }
+  })
+  const tool = (name, id, stateInput, output, meta) => line('tool_use', {
+    partID: `prt_fake_${++partNo}`, type: 'tool', id, tool: name,
+    state: {
+      status: 'completed', input: stateInput, output, title: name,
+      metadata: { metadata: meta, content: [{ type: 'text', text: output }], rawInput: JSON.stringify(stateInput) },
+      time: { start: Date.now() - 20, end: Date.now() }
+    }
+  })
+  const patch = [
+    'Index: src/auth.ts', '===================================================================',
+    '--- src/auth.ts', '+++ src/auth.ts', '@@ -41,3 +41,3 @@',
+    ' export function isExpired(token) {', '-  return now > token.expiresAt', '+  return now >= token.expiresAt', ' }', ''
+  ].join('\n')
+
+  const steps = [
+    () => line('step_start', { id: `prt_fake_${++partNo}`, type: 'step-start' }),
+    () => thinking
+      ? line('reasoning', {
+        id: `prt_fake_${++partNo}`, type: 'reasoning', text: '2.x의 생각 줄이다.',
+        metadata: { openai: { encrypted: 'CIPHERTEXT' } }, time: { start: Date.now() - 1000, end: Date.now() }
+      })
+      : null,
+    () => tool('shell', 'call-v2-shell', { command: 'npm test' }, ' FAIL  src/auth.test.ts\n', { status: 'completed', truncated: false, exit: 3 }),
+    () => tool('read', 'call-v2-read', { path: 'src/auth.ts' }, 'Read file src/auth.ts, lines 1-3', { truncated: false }),
+    () => tool('edit', 'call-v2-edit', { path: 'src/auth.ts', oldString: 'now > token', newString: 'now >= token' }, 'Edited src/auth.ts (1 replacement)', {
+      files: [{ file: 'src/auth.ts', patch, status: 'modified', additions: 1, deletions: 1 }], truncated: false
+    }),
+    () => line('text', {
+      id: `prt_fake_${++partNo}`, type: 'text',
+      text: `가짜 OpenCode 2.x가 처리했습니다: ${input.trim().slice(0, 40)}`, time: { start: Date.now() - 100, end: Date.now() }
+    }),
+    () => line('step_finish', {
+      id: `prt_fake_${++partNo}`, type: 'step-finish', reason: 'stop', cost: 0,
+      tokens: { input: 110, output: 4, reasoning: 10, cache: { read: 10496, write: 0 } }
+    })
+  ]
+  const next = (i) => {
+    if (i >= steps.length) {
+      process.exitCode = 0
+      return
+    }
+    const obj = steps[i]()
+    if (obj) out(obj)
+    setTimeout(() => next(i + 1), obj ? stepMs : 0)
+  }
+  next(0)
+}
+
 // `opencode debug config` 흉내. verifyRunnable이 실행 직전에 이걸 부른다 —
 // 여기서 NDJSON을 뱉으면 JSON.parse가 깨져 모든 run이 거부된다.
 if (process.argv.includes('debug') && process.argv.includes('config')) {
@@ -32,6 +175,8 @@ const at = () => Date.now()
 let prompt = ''
 process.stdin.on('data', (chunk) => { prompt += chunk })
 process.stdin.on('end', () => {
+  // 2.x 모드의 run은 위(runV2)가 맡았다 — 1.x의 줄을 같이 내지 않는다
+  if (runV2.active) return
   if (process.env.ONE_DESK_FAKE_SCRIPT === 'events') {
     runEvents()
     return

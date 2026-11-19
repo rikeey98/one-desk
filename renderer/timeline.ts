@@ -151,6 +151,10 @@ function subtitleOf(input: unknown, cwd: string): { text: string; path: boolean 
     const value = stringAt(record, key)
     if (value !== null) return { text: value, path: false }
   }
+  // opencode 2.x는 read·edit·write의 경로를 `path`로 준다 (docs/sdlc/opencode-v2/ FR-15). **검색어 뒤에 본다** — grep·glob의
+  // `path`는 찾는 자리이고 줄의 주어는 검색어다(claude의 Grep·Glob도 `path`를 같이 준다).
+  const where = stringAt(record, 'path')
+  if (where !== null) return { text: relativePath(where, cwd), path: true }
   return { text: '', path: false }
 }
 

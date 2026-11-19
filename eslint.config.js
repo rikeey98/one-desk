@@ -1,7 +1,8 @@
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
-  { ignores: ['out/**', 'dist/**', 'node_modules/**', 'drizzle/**'] },
+  // docs의 probes는 한 번 돌려 실측한 CommonJS 스크립트다 — 제품 코드가 아니다
+  { ignores: ['out/**', 'dist/**', 'node_modules/**', 'drizzle/**', 'docs/sdlc/**/probes/**'] },
   ...tseslint.configs.recommended,
   {
     files: ['core/**/*.ts'],
