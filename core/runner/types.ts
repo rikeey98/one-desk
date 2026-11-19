@@ -48,6 +48,11 @@ export interface ResolvedRunSpec {
   executable: string
   /** MCP를 쓰지 않는 실행(테스트 등)이면 null */
   mcp: McpRunConfig | null
+  /**
+   * opencode의 방언 — preflight가 정한 것 (opencode-v2 spec FR-3). claude는 null이다. **필수다** — 선택이면 한 자리를 빠뜨려도
+   * 컴파일되고 그 길만 2.x를 1.x 방식으로 띄운다(권한이 통째로 무시된다).
+   */
+  dialect: OpencodeDialect | null
 }
 
 /** 실행 직전 마지막 확인에 필요한 것. preflight는 cwd를 받지 않는다. */
@@ -55,6 +60,16 @@ export interface VerifyRunnableInput {
   executable: string
   cwd: string
   permission: Permission
+  /** opencode의 방언 (opencode-v2 spec FR-3). claude는 null이다. 필수다 — `ResolvedRunSpec.dialect`와 같은 이유 */
+  dialect: OpencodeDialect | null
+  /** 모델과 variant — 2.x는 variant를 `model#variant`로만 넘길 수 있어, 모델 없는 variant를 실행 전에 막는다 (FR-10) */
+  model: string | null
+  effort: string | null
+  /**
+   * 이어 갈 세션 — **launch 시점에 이미 아는 것만** (FR-14). 앞 턴이 아직 돌고 있어 세션이 없으면 null이다(그 세션은 지금
+   * 쓰이는 중이라 없을 수 없다). 2.x의 `--session`은 없는 id로 새 세션을 만들 수 있어 실행 전에 있는지 본다.
+   */
+  resumeSessionId: string | null
 }
 
 export interface SpawnSpec {

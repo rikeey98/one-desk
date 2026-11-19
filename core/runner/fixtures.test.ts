@@ -121,7 +121,7 @@ describe('fake-opencode.mjs — events 스크립트', () => {
   function spec(): ResolvedRunSpec {
     return {
       runId: 'run-1', cwd: process.cwd(), model: null, effort: null, permission: 'edit',
-      prompt: '', resumeSessionId: null, executable: FAKE_OPENCODE, mcp: null
+      prompt: '', resumeSessionId: null, executable: FAKE_OPENCODE, mcp: null, dialect: 'v1'
     }
   }
 

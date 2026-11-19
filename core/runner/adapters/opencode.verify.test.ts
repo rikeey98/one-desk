@@ -6,7 +6,10 @@ import { opencodeAdapter, type ConfigProbe } from './opencode'
 import { ORIGINAL_LD_LIBRARY_PATH } from '../userEnv'
 import { asLinuxPackage, USER_LD_LIBRARY_PATH } from '../fixtures/linuxPackageEnv'
 
-const input = { executable: '/bin/opencode', cwd: '/tmp/work', permission: 'edit' as const }
+const input = {
+  executable: '/bin/opencode', cwd: '/tmp/work', permission: 'edit' as const,
+  dialect: 'v1' as const, model: null, effort: null, resumeSessionId: null
+}
 
 function probeReturning(permission: unknown) {
   return vi.fn<ConfigProbe>(async () => JSON.stringify({ permission }))
@@ -102,7 +105,7 @@ describe('opencodeAdapter.verifyRunnable — 기본 probe', () => {
     try {
       // cwd는 지우지 않는 곳을 준다 — 자식이 잡으면 Windows에서 rmSync가 EBUSY로 죽는다.
       const result = await opencodeAdapter.verifyRunnable({
-        executable: file, cwd: tmpdir(), permission: 'edit'
+        executable: file, cwd: tmpdir(), permission: 'edit', dialect: 'v1', model: null, effort: null, resumeSessionId: null
       })
       expect(result.ok).toBe(false)
       expect(result.reason).toContain('webfetch')

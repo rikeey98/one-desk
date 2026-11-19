@@ -148,11 +148,88 @@ describe('ExecutionService', () => {
       expect(verifyRunnable).toHaveBeenCalledWith('opencode', {
         executable: process.execPath,
         cwd: process.cwd(),
-        permission: 'read_only'
+        permission: 'read_only',
+        // preflight가 방언을 싣지 않았다 — null이다 (opencode-v2 FR-3)
+        dialect: null,
+        model: null,
+        effort: null,
+        resumeSessionId: null
       })
     } finally {
       rmSync(local.logDir, { recursive: true, force: true })
     }
+  })
+
+  describe('방언과 세션이 preflight에서 실행까지 흐른다 (opencode-v2 FR-3·FR-14)', () => {
+    /** 받은 StartSpec을 적어 두고 곧바로 끝나는 manager */
+    function recordingManager() {
+      const specs: { dialect: unknown; resumeSessionId: string | null }[] = []
+      return {
+        specs,
+        manager: {
+          logPathFor: (id: string) => resolve(tmpdir(), `one-desk-dialect-${id}.jsonl`),
+          rawLogPathFor: (id: string) => resolve(tmpdir(), `one-desk-dialect-${id}.raw.jsonl`),
+          start: async (spec: { dialect: unknown; resumeSessionId: string | null }) => {
+            specs.push({ dialect: spec.dialect, resumeSessionId: spec.resumeSessionId })
+            return {
+              status: 'succeeded' as const, resultText: '끝', externalSessionId: 'ses-known',
+              needsAnswer: false, exitCode: 0, errorMessage: null, logPath: 'x', usage: null
+            }
+          },
+          cancel: () => {},
+          cancelAll: () => {},
+          isRunning: () => false
+        }
+      }
+    }
+
+    it('preflight가 정한 방언이 실행 직전 확인과 manager.start에 그대로 도착한다', async () => {
+      // 한 자리라도 null이나 다른 값으로 바뀌면 그 길만 2.x를 1.x 방식으로 띄운다 — 권한이 통째로 무시된다.
+      const rec = recordingManager()
+      const verifyRunnable = vi.fn(async (_kind: AgentKind, _input: VerifyRunnableInput) => ({ ok: true }))
+      const local = setup({
+        manager: rec.manager, verifyRunnable,
+        preflight: async () => ({ ok: true, executable: process.execPath, dialect: 'v2' })
+      })
+      try {
+        const run = await local.service.start({
+          workspaceId: local.workspaceId, agentKind: 'opencode', cwd: process.cwd(),
+          permission: 'read_only', model: 'opencode/big-pickle', effort: 'high', userPrompt: 'x', context: []
+        })
+        await vi.waitFor(() => expect(local.runs.get(run.id).status).toBe('succeeded'))
+
+        expect(verifyRunnable.mock.calls[0]![1]).toMatchObject({ dialect: 'v2', model: 'opencode/big-pickle', effort: 'high' })
+        expect(rec.specs).toEqual([{ dialect: 'v2', resumeSessionId: null }])
+      } finally {
+        rmSync(local.logDir, { recursive: true, force: true })
+      }
+    })
+
+    it('이어 가는 턴은 이미 아는 세션 id를 실행 직전 확인에 넘긴다', async () => {
+      // 2.x의 --session은 없는 id로 새 세션을 만들 수 있다 — 확인이 그 id를 받아야 실행 전에 막는다.
+      const rec = recordingManager()
+      const verifyRunnable = vi.fn(async (_kind: AgentKind, _input: VerifyRunnableInput) => ({ ok: true }))
+      const local = setup({
+        manager: rec.manager, verifyRunnable,
+        preflight: async () => ({ ok: true, executable: process.execPath, dialect: 'v2' })
+      })
+      try {
+        const first = await local.service.start({
+          workspaceId: local.workspaceId, agentKind: 'opencode', cwd: process.cwd(),
+          permission: 'full', userPrompt: '첫 턴', context: []
+        })
+        await vi.waitFor(() => expect(local.runs.get(first.id).externalSessionId).toBe('ses-known'))
+
+        const second = await local.service.resume({ conversationId: first.id, permission: 'full', userPrompt: '이어서', context: [] })
+        await vi.waitFor(() => expect(local.runs.get(second.id).status).toBe('succeeded'))
+
+        expect(verifyRunnable.mock.calls[0]![1]).toMatchObject({ resumeSessionId: null })
+        expect(verifyRunnable.mock.calls[1]![1]).toMatchObject({ resumeSessionId: 'ses-known', dialect: 'v2' })
+        expect(rec.specs[1]).toEqual({ dialect: 'v2', resumeSessionId: 'ses-known' })
+      } finally {
+        rmSync(local.logDir, { recursive: true, force: true })
+      }
+    })
   })
 
   it('verifyRunnable이 없으면 그대로 진행한다', async () => {

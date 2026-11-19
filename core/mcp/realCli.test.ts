@@ -58,7 +58,7 @@ afterEach(() => {
 
 describe.skipIf(!ENABLED)('진짜 claude CLI', () => {
   it('우리 설정 파일로 MCP 서버에 붙고 도구 열두 개를 노출한다', async () => {
-    const p = await host.prepare({ runId: 'probe', rootRunId: 'probe', workspaceId, permission: 'edit', agentKind: 'claude-code', env: HOST_ENV })
+    const p = await host.prepare({ runId: 'probe', rootRunId: 'probe', workspaceId, permission: 'edit', agentKind: 'claude-code', dialect: null, env: HOST_ENV })
     const { args } = claudeCodeAdapter.buildCommand({
       runId: 'probe',
       cwd: dir,
@@ -68,7 +68,8 @@ describe.skipIf(!ENABLED)('진짜 claude CLI', () => {
       prompt: '무시',
       resumeSessionId: null,
       executable: 'claude',
-      mcp: { serverName: MCP_SERVER_NAME, configFile: p.configFile, token: p.token, url: p.url }
+      mcp: { serverName: MCP_SERVER_NAME, configFile: p.configFile, token: p.token, url: p.url },
+      dialect: null
     })
 
     // **동기 spawn을 쓰면 안 된다.** execFileSync는 이벤트 루프를 막아

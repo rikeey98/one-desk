@@ -16,6 +16,7 @@ function spec(over: Partial<ResolvedRunSpec> = {}): ResolvedRunSpec {
     resumeSessionId: null,
     executable: '/usr/local/bin/claude',
     mcp: null,
+    dialect: null,
     ...over
   }
 }

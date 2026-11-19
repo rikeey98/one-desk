@@ -18,6 +18,7 @@ function spec(over: Partial<ResolvedRunSpec> = {}): ResolvedRunSpec {
     resumeSessionId: null,
     executable: '/usr/local/bin/opencode',
     mcp: null,
+    dialect: 'v1',
     ...over
   }
 }

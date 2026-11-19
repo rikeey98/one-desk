@@ -62,11 +62,12 @@ afterEach(() => {
 /** 우리 권한 설정으로 opencode를 한 번 돌린 원본 출력 */
 async function runOpencode(prompt: string): Promise<string> {
   await host.start()
-  const p = await host.prepare({ runId: 'probe', rootRunId: 'probe', workspaceId, permission: PERMISSION, agentKind: 'opencode', env: HOST_ENV })
+  const p = await host.prepare({ runId: 'probe', rootRunId: 'probe', workspaceId, permission: PERMISSION, agentKind: 'opencode', dialect: 'v1', env: HOST_ENV })
   const spec = opencodeAdapter.buildCommand({
     runId: 'probe', cwd: dir, model: MODEL, effort: null, permission: PERMISSION,
     prompt: '', resumeSessionId: null, executable: 'opencode',
-    mcp: { serverName: MCP_SERVER_NAME, configFile: p.configFile, token: p.token, url: p.url }
+    mcp: { serverName: MCP_SERVER_NAME, configFile: p.configFile, token: p.token, url: p.url },
+    dialect: 'v1'
   })
   const out = await new Promise<string>((done) => {
     const child = spawn(spec.cmd, spec.args, { cwd: dir, env: spec.env })

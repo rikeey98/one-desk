@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
 import type { AgentKind, Permission, PlanUsage, RunStatus } from '@shared/models'
 import type { RunEvent, RunEventInit, RunUsage } from '@shared/events'
-import type { AgentAdapter, McpRunConfig } from './types'
+import type { AgentAdapter, McpRunConfig, OpencodeDialect } from './types'
 import { createLineSplitter } from './stream'
 import { createLogWriter, createRawLogWriter, RAW_LOG_MAX_BYTES } from './logWriter'
 import { taskkillTreeSync, terminate, readPgid } from './terminate'
@@ -57,6 +57,8 @@ export interface StartSpec {
   prompt: string
   resumeSessionId: string | null
   executable: string
+  /** opencode의 방언 — 실행 서비스가 preflight 결과에서 옮긴다 (opencode-v2 FR-3). **나르기만 한다.** 필수다 */
+  dialect: OpencodeDialect | null
   /**
    * 프로세스를 어디서 띄우나 (`docs/sdlc/wsl-support/` spec FR-8). **필수다** — 선택이면 실행 서비스가
    * 빠뜨려도 조용히 컴파일되고 WSL repo의 run이 Windows에서 돈다. 실행 서비스가 cwd의 repo에서 만든다.
@@ -230,7 +232,8 @@ export function createRunManager(opts: RunManagerOptions) {
       resumeSessionId: spec.resumeSessionId,
       executable: spec.executable,
       // 이 한 줄이 빠지면 MCP가 통째로 꺼진다. 각 계층의 단위 테스트는 전부 초록이다.
-      mcp: spec.mcp ?? null
+      mcp: spec.mcp ?? null,
+      dialect: spec.dialect
     })
 
     // extraArgs가 있으면 그것을 앞에 붙인다 (테스트에서 가짜 CLI 주입)
