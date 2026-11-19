@@ -109,7 +109,9 @@ describe('toolLabelOf', () => {
       ['task', '하위 에이전트', 'subagent'], ['agent', '하위 에이전트', 'subagent'],
       ['skill', '스킬', 'other'],
       // conversation-events FR-42 — Windows의 claude 셸, opencode의 패치
-      ['powershell', '셸', 'shell'], ['apply_patch', '패치', 'edit']
+      ['powershell', '셸', 'shell'], ['apply_patch', '패치', 'edit'],
+      // opencode 2.x (docs/sdlc/opencode-v2/ FR-17) — 셸의 이름이 shell이다. 빠지면 2.x의 셸 줄만 영어 이름으로 묶음 밖에 선다
+      ['shell', '셸', 'shell'], ['execute', '코드 실행', 'other'], ['subagent', '하위 에이전트', 'subagent']
     ]
     for (const [name, label, category] of table) {
       expect(toolLabelOf(name), name).toEqual({ label, category })

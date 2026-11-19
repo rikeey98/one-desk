@@ -12,7 +12,9 @@ import { HOST_ENV } from '../../wsl/env'
 import {
   emptyUsage, reasoningText, stripNeedsAnswer, summarize, toolResultText, withLoopbackBypass
 } from './common'
-import { opencodeDeniedNotice, opencodeToolDetail } from './opencode.detail'
+import {
+  opencodeDeniedNotice, opencodeInnerFailure, opencodeInputPath, opencodeToolDetail
+} from './opencode.detail'
 import {
   createOpencodeV2Verifier, judgeV1Config, UNVERIFIABLE_NOTE, type OpencodeV2Verifier
 } from './opencode.verify'
@@ -30,7 +32,9 @@ const TOOL_EFFECTS: Record<string, ToolEffect> = {
   read: 'read', glob: 'read', grep: 'read', list: 'read',
   webfetch: 'read', websearch: 'read', lsp: 'read',
   write: 'write', edit: 'write', patch: 'write', apply_patch: 'write',
-  bash: 'execute'
+  bash: 'execute',
+  // 2.x (opencode-v2 spec FR-17): 셸의 이름이 shell이고, execute는 도구를 부르는 JS 코드를 돌린다
+  shell: 'execute', execute: 'execute'
 }
 
 function toolEffect(name: string): ToolEffect {
@@ -93,11 +97,23 @@ function resultText(name: string, state: Record<string, unknown>): unknown {
   return name === 'read' ? undefined : state['output']
 }
 
-/** 도구 입력에서 파일 경로를 뽑는다. claude의 file_path와 달리 filePath다. */
+/** 도구 입력에서 파일 경로를 뽑는다. claude의 file_path와 달리 1.x는 filePath, 2.x는 path다 (opencode-v2 FR-15) */
 function targetPaths(input: unknown): string[] {
-  if (typeof input !== 'object' || input === null) return []
-  const path = (input as Record<string, unknown>)['filePath']
-  return typeof path === 'string' ? [path] : []
+  const path = opencodeInputPath(input)
+  return path === null ? [] : [path]
+}
+
+/**
+ * 도구 호출의 id (opencode-v2 spec FR-15). 1.x는 `part.callID`, 2.x는 `part.id`다(2.x의 part 자신의 id는 `partID`).
+ * **빈 문자열로 두지 않는다** — 한 턴의 모든 도구가 같은 호출로 묶여, 결과가 엉뚱한 도구에 붙고 열어 둔 줄이 같이 열린다.
+ * 어디에도 없으면 그 줄의 part id로 떨어진다(줄마다 다르다).
+ */
+function toolUseIdOf(part: Record<string, unknown>): string {
+  for (const key of ['callID', 'id', 'partID']) {
+    const value = part[key]
+    if (typeof value === 'string' && value !== '') return value
+  }
+  return ''
 }
 
 const execFileAsync = promisify(execFile)
@@ -531,10 +547,14 @@ export const opencodeAdapter = {
         if (!part) return []
         const name = String(part['tool'] ?? '')
         const state = record(part['state']) ?? {}
-        const toolUseId = String(part['callID'] ?? '')
+        const toolUseId = toolUseIdOf(part)
         const src = messageOrigin(part)
-        const failed = state['status'] === 'error'
+        // 2.x의 execute는 안쪽 도구가 막히거나 코드가 던져도 `completed`로 온다 — 세부의 error만 참이다 (FR-20)
+        const innerFailed = opencodeInnerFailure(state)
+        const failed = state['status'] === 'error' || innerFailed
         const output = resultText(name, state)
+        // 모델이 본 오류 글. 1.x·2.x의 실패는 `state.error`, execute의 안쪽 실패는 `output`에 있다
+        const errorText = state['error'] ?? (innerFailed ? state['output'] : undefined)
         const detail = opencodeToolDetail(name, state)
         // 한 줄에 입력과 결과가 함께 온다 — 이미 끝난 도구를 보고받는 것이다.
         // (그래서 diff 뷰어의 before 스냅샷을 여기서 걸 수 없다. 설계 §10-1)
@@ -549,16 +569,16 @@ export const opencodeAdapter = {
           },
           {
             type: 'tool_result', runId, at, toolUseId,
-            ok: state['status'] === 'completed',
+            ok: state['status'] === 'completed' && !innerFailed,
             // 실패하면 output이 없다 — 오류 글로 요약한다(FR-25; 전에는 `""` 두 글자였다)
-            summary: summarize(failed ? state['error'] ?? state['output'] ?? '' : state['output']),
+            summary: summarize(failed ? errorText ?? state['output'] ?? '' : state['output']),
             ...toolResultText(typeof output === 'string' ? output : null),
             ...(detail ? { detail } : {}),
             ...src
           }
         ]
         // 권한 거부는 run의 상태를 건드리지 않는 공지다(FR-8·26). 도구 실패 줄은 그대로 남는다.
-        const denied = failed ? opencodeDeniedNotice(name, state['error'], toolUseId) : null
+        const denied = failed ? opencodeDeniedNotice(name, errorText, toolUseId) : null
         if (denied) events.push({ type: 'notice', runId, at, ...denied, ...src })
         return events
       }
