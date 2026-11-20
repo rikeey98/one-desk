@@ -310,7 +310,7 @@ export function capabilityOf(result: { exitCode: number | null; stdout: string; 
 | 6 MCP 설정·설정 화면 | 둘 (`feat(mcp)`, `c779a19`) | |
 | 7 파서와 세부 | `aac7acc` | 픽스처는 진짜 2.0.18·2.3.2의 출력 |
 | 8 가짜 CLI와 e2e | `59e522c` | |
-| 9 진짜 CLI 테스트 | `5257351` | **모델이 필요한 것은 아직 못 돌렸다** — 아래 |
+| 9 진짜 CLI 테스트 | `5257351` | 2026-11-20에 세 바이너리로 돌렸다 — 아래 |
 
 **진짜 바이너리로 본 실행 직전 확인** (5단계, 모델 호출 없음):
 
@@ -326,24 +326,29 @@ export function capabilityOf(result: { exitCode: number | null; stdout: string; 
 - `pnpm typecheck` · `pnpm lint` — 오류 0.
 - `pnpm test:e2e` — 42 파일 · 92 통과 · 4 건너뜀(선택 실행). `e2e/opencode-v2.e2e.ts` 둘 포함.
 
-### 아직 못 한 것 — 무료 모델의 한도
+### 진짜 CLI 검증 — 2026-11-20에 돌렸다
 
-`opencode/*` 무료 모델이 계정 단위 한도에 걸려(2026-11-19 오후, 모델을 바꿔도 같다) **모델이 필요한 검증이 남았다.** 한도가
-풀리면 아래를 돌린다 — 코드는 준비돼 있다.
+11-19에는 `opencode/*` 무료 모델이 계정 단위 한도에 걸려 못 돌렸고, 한도가 풀린 11-20 09:49에 `opencode/big-pickle`로 돌렸다.
 
 ```
-ONE_DESK_REAL_CLI=1 ONE_DESK_REAL_OPENCODE_MODEL=opencode/big-pickle ONE_DESK_REAL_OPENCODE_PATH=<2.3.2> pnpm test realOpencode
-ONE_DESK_REAL_CLI=1 ONE_DESK_REAL_OPENCODE_MODEL=opencode/big-pickle ONE_DESK_REAL_OPENCODE_PATH=<2.0.18> pnpm test realOpencode
-ONE_DESK_REAL_CLI=1 ONE_DESK_REAL_OPENCODE_MODEL=opencode/big-pickle ONE_DESK_REAL_OPENCODE_PATH=<1.18.30> pnpm test realOpencode
+ONE_DESK_REAL_CLI=1 ONE_DESK_REAL_OPENCODE_MODEL=opencode/big-pickle ONE_DESK_REAL_OPENCODE_PATH=<바이너리> pnpm test realOpencode
 ```
 
-- **`realOpencode`의 2.3.2 여섯 가지와 1.x 둘**: 한도 때문에 전부 건너뛴 것으로 남았다. 2.0.18은 모델이 필요 없는 둘(읽기
-  전용·편집 허용이 실행 전에 막힌다)만 통과했다. 같은 시나리오를 spec 단계에서 **손으로 쓴 인자로는** 돌려 봤다
-  (`probe5`·`probe7` — 구멍 둘과 막는 방법, MCP 직접 호출). 어댑터가 만든 명령으로는 아직이다.
-- **2.0.18이 `OPENCODE_CONFIG` 파일을 읽는가** (plan 1단계의 관문). 2.3.2는 읽는다. 2.0.18은 못 쟀다 — 위 둘째 명령의
-  "전체 허용에서 one-desk MCP 도구가 직접 불린다"가 그 답이다. 안 읽으면 2.0.18에서 MCP가 조용히 빠진다.
-- **10단계**: 진짜 2.x로 긴 셸 명령을 시키고 one-desk의 `실행 중인 턴 멈추기`·앱 종료 뒤 남는 프로세스. 손으로 부른
-  `taskkill /T`로는 2.0.18·2.3.2 둘 다 자식까지 끝나는 것을 봤다(spec 0-4·0-5).
+| 바이너리 | 결과 |
+|---|---|
+| 2.3.2 | 6 통과 — 읽기 전용 넷(빈 프로젝트 · 최상위 permissions · `agents.build.permissions` · `default_agent`), 편집 허용, MCP 직접 호출 |
+| 2.0.18 | 4 통과 — 읽기 전용·편집 허용이 실행 전에 막힌다, 전체 허용에서 셸·파일 생성, one-desk MCP 도구 직접 호출 |
+| 1.18.30 | 2 통과 — 읽기 전용에서 MCP `list_repos`, 셸은 막힘 |
+
+- **2.0.18은 `OPENCODE_CONFIG` 파일(MCP)과 `codemode: false`를 읽는다** — `one-desk_list_repos`가 직접 불렸다. 다만 전체 허용에서는
+  `execute` 도구가 살아 있어(사용자 설정의 다른 codemode 도구용) 모델이 도구를 찾으려고 먼저 부르기도 한다. 그 테스트가
+  "`execute`가 없다"를 단언하던 것은 뺐다 — 증명은 직접 불린 도구 줄이다.
+- **모델을 부르지 못한 run이 통과로 찍히던 구멍을 막았다.** OpenRouter 모델로 돌렸을 때 provider 인증 401로 끝난 run이 읽기 전용
+  넷을 공짜로 통과시켰다("아무 일도 일어나지 않았다"). 한도가 아닌 오류 줄(`{"type":"error"}`)은 이제 실패다.
+- **취소**: 도는 2.3.2 run(`--standalone`)을 `taskkill /PID /T /F`로 끊었다 — 도는 동안 opencode 프로세스 2개, 끊은 3초 뒤 0개.
+  백그라운드 서비스가 남지 않는다. 테스트 세 벌이 끝난 뒤에도 남은 프로세스는 없었다.
+- **못 한 것**: one-desk 앱 화면의 `실행 중인 턴 멈추기`·앱 종료를 진짜 2.x로 눌러 보는 것. 그 길(manager의 `taskkill /T /F`)은
+  위에서 같은 명령으로 봤고, 가짜 CLI의 e2e가 화면 쪽을 본다.
 - 편집 `files[].status`의 `added`·`deleted`는 이름으로 미루어 받는다(실측은 `modified`뿐). 로그인된 `auth list`의 모양.
 - 릴리스 노트(`docs/releases/<태그>.md`)는 버전을 정할 때 쓴다.
 

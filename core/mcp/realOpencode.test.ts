@@ -259,11 +259,14 @@ describe.skipIf(!ENABLED)('진짜 opencode CLI', () => {
       expect(existsSync(join(dir, 'made.txt'))).toBe(true)
     }, 180_000)
 
-    it('전체 허용에서 one-desk MCP 도구가 execute가 아니라 직접 불린다 — codemode: false', async (ctx) => {
+    it('전체 허용에서 one-desk MCP 도구가 직접 불린다 — codemode: false', async (ctx) => {
       if (flavor !== 'v2-unverifiable') ctx.skip('확인할 수 없는 2.x 바이너리가 아니다')
       const turn = await runTurn(ctx, 'full', `Call the list_repos tool of the ${MCP_SERVER_NAME} MCP server and reply with the repo names only.`)
+      // 직접 불린 도구 줄이 있다는 것이 증명이다(2.0.18도 OPENCODE_CONFIG의 MCP 파일과 codemode: false를 읽는다).
+      // `execute`가 없다고는 단언하지 않는다 — 전체 허용에서는 그 도구가 살아 있고(사용자 설정의 다른 codemode 도구용),
+      // 모델이 도구를 찾으려고 먼저 부르기도 한다(2026-11-20 실측: execute로 search → one-desk_list_repos 직접 호출)
       expect(turn.completed).toContain(`${MCP_SERVER_NAME}_list_repos`)
-      expect(turn.completed).not.toContain('execute')
+      expect(turn.out).toContain('probe-repo-zebra')
     }, 180_000)
   })
 })
