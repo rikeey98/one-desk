@@ -424,12 +424,14 @@ export function createCore(opts: CoreOptions) {
     preflight: (kind, workspaceId, cwd) => cwd
       ? preflightFor(kind, workspaceId, cwd)
       : adapters[kind].preflight(agentPathOf(kind, HOST_ENV, workspaceOf(workspaceId))),
-    checkAuth: (kind, executable, env) => checkAuth(kind, executable, runCliIn(env)),
+    checkAuth: (kind, executable, env, dialect) => checkAuth(kind, executable, runCliIn(env), dialect),
+    // 실행 직전 확인을 못 하는 opencode 2.x의 안내 — 판정은 어댑터의 몫이다 (opencode-v2 FR-8a·NFR-1)
+    statusNote: async (kind, pre) => (await adapters[kind].statusNote?.(pre)) ?? null,
     wslRepo: firstWslRepo,
     // 슬래시 커맨드 probe와 **같은 캐시**다 — 실행 패널이 이미 돌렸으면 CLI가
     // 새로 뜨지 않는다(spec NFR-3).
     agentInfo: (target) => commands.agentInfo(target),
-    listModels: (kind, executable) => modelCatalog.list(kind, executable),
+    listModels: (kind, executable, dialect) => modelCatalog.list(kind, executable, dialect),
     // 실행 패널이 cwd를 고르는 규칙과 같다 (StartRunInput.cwd의 주석).
     firstRepoPath: (workspaceId) => repos.list(workspaceId)[0]?.path ?? null
   })
@@ -672,7 +674,10 @@ export function createCore(opts: CoreOptions) {
           // wsl 칸 (wsl-support FR-13) — 실행과 같은 판정(`preflightFor`)
           wsl ? preflightFor('claude-code', workspaceId, wsl.cwd) : Promise.resolve(null)
         ])
-        const statuses: AgentStatuses = { 'claude-code': claude, opencode }
+        // 방언은 화면에 나가지 않는다 — 실행 경로 안에서만 흐른다 (opencode-v2 NFR-1·NFR-4)
+        const opencodeStatus: PreflightResult = { ...opencode }
+        delete opencodeStatus.dialect
+        const statuses: AgentStatuses = { 'claude-code': claude, opencode: opencodeStatus }
         if (wsl && wslClaude) statuses.wsl = { ...wslClaude, distro: wsl.distro }
         return statuses
       },

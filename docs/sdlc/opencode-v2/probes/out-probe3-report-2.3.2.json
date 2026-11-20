@@ -1,0 +1,352 @@
+{
+ "askAll": {
+  "exit": 0,
+  "tools": [
+   "execute:completed",
+   "read:error (This non-interactive run cannot ask the user for permission, so the request was rejected. Continue without this action.)",
+   "grep:error (This non-interactive run cannot ask the user for permission, so the request was rejected. Continue without this action.)",
+   "glob:error (This non-interactive run cannot ask the user for permission, so the request was rejected. Continue without this action.)",
+   "edit:error (This non-interactive run cannot ask the user for permission, so the request was rejected. Continue without this action.)",
+   "write:error (This non-interactive run cannot ask the user for permission, so the request was rejected. Continue without this action.)",
+   "shell:error (This non-interactive run cannot ask the user for permission, so the request was rejected. Continue without this action.)",
+   "shell:completed"
+  ],
+  "requested": [
+   "! permission requested: onedesk_ping (*); auto-rejecting",
+   "! permission requested: read (a.txt); auto-rejecting",
+   "! permission requested: grep (hello); auto-rejecting",
+   "! permission requested: glob (*.txt); auto-rejecting",
+   "! permission requested: edit (a.txt); auto-rejecting",
+   "! permission requested: edit (b.txt); auto-rejecting",
+   "! permission requested: shell (echo SHELL-OK); auto-rejecting"
+  ]
+ },
+ "shapes": {
+  "exit": 0,
+  "types": [
+   "step_start",
+   "reasoning",
+   "tool_use",
+   "step_finish",
+   "text"
+  ],
+  "tools": [
+   "execute:completed",
+   "read:completed",
+   "grep:completed",
+   "glob:completed",
+   "edit:completed",
+   "write:completed",
+   "shell:completed",
+   "shell:completed"
+  ],
+  "lastText": "DONE",
+  "reasoning": [
+   {
+    "partKeys": [
+     "id",
+     "sessionID",
+     "messageID",
+     "type",
+     "text",
+     "metadata",
+     "time"
+    ],
+    "text": "Let me follow the instructions. Each step must be done with tools, one tool call",
+    "time": {
+     "start": 1795067318003,
+     "end": 1795067318755
+    }
+   }
+  ],
+  "detail": [
+   {
+    "tool": "execute",
+    "partKeys": [
+     "partID",
+     "sessionID",
+     "messageID",
+     "type",
+     "id",
+     "tool",
+     "state"
+    ],
+    "stateKeys": [
+     "status",
+     "input",
+     "output",
+     "title",
+     "metadata",
+     "time"
+    ],
+    "status": "completed",
+    "input": "{\"code\":\"return await tools.onedesk.ping()\"}",
+    "metadata": "{\"metadata\":{\"toolCalls\":[{\"tool\":\"onedesk.ping\",\"status\":\"completed\"}],\"truncated\":false},\"content\":[{\"type\":\"text\",\"text\":\"PONG-7731\"}],\"providerCall\":{\"executed\":false},\"providerResult\":{\"executed\":false},\"rawInput\":\"{\\\"code\\\": \\\"return await tools.onedesk.ping()\\\"}\"}",
+    "output": "PONG-7731"
+   },
+   {
+    "tool": "read",
+    "partKeys": [
+     "partID",
+     "sessionID",
+     "messageID",
+     "type",
+     "id",
+     "tool",
+     "state"
+    ],
+    "stateKeys": [
+     "status",
+     "input",
+     "output",
+     "title",
+     "metadata",
+     "time"
+    ],
+    "status": "completed",
+    "input": "{\"path\":\"a.txt\"}",
+    "metadata": "{\"metadata\":{\"truncated\":false},\"content\":[{\"type\":\"text\",\"text\":\"Read file a.txt, lines 1-3\\n1: line one\\n2: hello world\\n3: line three\"}],\"providerCall\":{\"executed\":false},\"providerResult\":{\"executed\":false},\"rawInput\":\"{\\\"path\\\": \\\"a.txt\\\"}\"}",
+    "output": "Read file a.txt, lines 1-3\n1: line one\n2: hello world\n3: line three"
+   },
+   {
+    "tool": "grep",
+    "partKeys": [
+     "partID",
+     "sessionID",
+     "messageID",
+     "type",
+     "id",
+     "tool",
+     "state"
+    ],
+    "stateKeys": [
+     "status",
+     "input",
+     "output",
+     "title",
+     "metadata",
+     "time"
+    ],
+    "status": "completed",
+    "input": "{\"pattern\":\"hello\",\"path\":\"a.txt\",\"literal\":true}",
+    "metadata": "{\"metadata\":{\"matches\":1,\"truncated\":false},\"content\":[{\"type\":\"text\",\"text\":\"Found 1 matches\\nC:\\\\Users\\\\rikee\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\3ddbb78e3c6a4ffa\\\\26bdf74c-fede-4386-935e-8232104be667\\\\scratchpad\\\\perm3\\\\shapes\\\\a.txt:\\n  Line 2: hello world\\n\"}],\"providerCall\":{\"executed\":false},\"providerResult\":{\"executed\":false},\"rawInput\":\"{\\\"pattern\\\": \\\"hello\\\", \\\"path\\\": \\\"a.txt\\\", \\\"literal\\\": true}\"}",
+    "output": "Found 1 matches\nC:\\Users\\rikee\\AppData\\Local\\Temp\\claude\\3ddbb78e3c6a4ffa\\26bdf74c-fede-4386-935e-8232104be667\\scratchpad\\perm3\\shapes\\a.txt:\n  Line 2: hello wo"
+   },
+   {
+    "tool": "glob",
+    "partKeys": [
+     "partID",
+     "sessionID",
+     "messageID",
+     "type",
+     "id",
+     "tool",
+     "state"
+    ],
+    "stateKeys": [
+     "status",
+     "input",
+     "output",
+     "title",
+     "metadata",
+     "time"
+    ],
+    "status": "completed",
+    "input": "{\"pattern\":\"*.txt\"}",
+    "metadata": "{\"metadata\":{\"count\":1,\"truncated\":false},\"content\":[{\"type\":\"text\",\"text\":\"C:\\\\Users\\\\rikee\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\3ddbb78e3c6a4ffa\\\\26bdf74c-fede-4386-935e-8232104be667\\\\scratchpad\\\\perm3\\\\shapes\\\\a.txt\"}],\"providerCall\":{\"executed\":false},\"providerResult\":{\"executed\":false},\"rawInput\":\"{\\\"pattern\\\": \\\"*.txt\\\"}\"}",
+    "output": "C:\\Users\\rikee\\AppData\\Local\\Temp\\claude\\3ddbb78e3c6a4ffa\\26bdf74c-fede-4386-935e-8232104be667\\scratchpad\\perm3\\shapes\\a.txt"
+   },
+   {
+    "tool": "edit",
+    "partKeys": [
+     "partID",
+     "sessionID",
+     "messageID",
+     "type",
+     "id",
+     "tool",
+     "state"
+    ],
+    "stateKeys": [
+     "status",
+     "input",
+     "output",
+     "title",
+     "metadata",
+     "time"
+    ],
+    "status": "completed",
+    "input": "{\"path\":\"a.txt\",\"oldString\":\"hello\",\"newString\":\"bye\"}",
+    "metadata": "{\"metadata\":{\"files\":[{\"file\":\"a.txt\",\"patch\":\"Index: a.txt\\n===================================================================\\n--- a.txt\\n+++ a.txt\\n@@ -1,3 +1,3 @@\\n line one\\n-hello world\\n+bye world\\n line three\\n\",\"status\":\"modified\",\"additions\":1,\"deletions\":1}],\"truncated\":false},\"content\":[{\"type\":\"text\",\"text\":\"Edited a.txt (1 replacement)\"}],\"providerCall\":{\"executed\":false},\"providerResult\":{\"executed\":false},\"rawInput\":\"{\\\"path\\\": \\\"a.txt\\\", \\\"oldString\\\": \\\"hello\\\", \\\"newString\\\": \\\"bye\\\"}\"}",
+    "output": "Edited a.txt (1 replacement)"
+   },
+   {
+    "tool": "write",
+    "partKeys": [
+     "partID",
+     "sessionID",
+     "messageID",
+     "type",
+     "id",
+     "tool",
+     "state"
+    ],
+    "stateKeys": [
+     "status",
+     "input",
+     "output",
+     "title",
+     "metadata",
+     "time"
+    ],
+    "status": "completed",
+    "input": "{\"path\":\"b.txt\",\"content\":\"hi\"}",
+    "metadata": "{\"metadata\":{\"truncated\":false},\"content\":[{\"type\":\"text\",\"text\":\"Created file successfully: b.txt\"}],\"providerCall\":{\"executed\":false},\"providerResult\":{\"executed\":false},\"rawInput\":\"{\\\"path\\\": \\\"b.txt\\\", \\\"content\\\": \\\"hi\\\"}\"}",
+    "output": "Created file successfully: b.txt"
+   },
+   {
+    "tool": "shell",
+    "partKeys": [
+     "partID",
+     "sessionID",
+     "messageID",
+     "type",
+     "id",
+     "tool",
+     "state"
+    ],
+    "stateKeys": [
+     "status",
+     "input",
+     "output",
+     "title",
+     "metadata",
+     "time"
+    ],
+    "status": "completed",
+    "input": "{\"command\":\"echo SHELL-OK\"}",
+    "metadata": "{\"metadata\":{\"status\":\"completed\",\"truncated\":false,\"exit\":0},\"content\":[{\"type\":\"text\",\"text\":\"SHELL-OK\\r\\n\"}],\"providerCall\":{\"executed\":false},\"providerResult\":{\"executed\":false},\"rawInput\":\"{\\\"command\\\": \\\"echo SHELL-OK\\\"}\"}",
+    "output": "SHELL-OK\r\n"
+   },
+   {
+    "tool": "shell",
+    "partKeys": [
+     "partID",
+     "sessionID",
+     "messageID",
+     "type",
+     "id",
+     "tool",
+     "state"
+    ],
+    "stateKeys": [
+     "status",
+     "input",
+     "output",
+     "title",
+     "metadata",
+     "time"
+    ],
+    "status": "completed",
+    "input": "{\"command\":\"exit 3\"}",
+    "metadata": "{\"metadata\":{\"status\":\"completed\",\"truncated\":false,\"exit\":3},\"content\":[{\"type\":\"text\",\"text\":\"(no output)\"},{\"type\":\"text\",\"text\":\"Exit code: 3\"}],\"providerCall\":{\"executed\":false},\"providerResult\":{\"executed\":false},\"rawInput\":\"{\\\"command\\\": \\\"exit 3\\\"}\"}",
+    "output": "(no output)"
+   }
+  ],
+  "stepFinish": [
+   {
+    "id": "prt_1f259fba0001f2kgpJfzmcROKP",
+    "sessionID": "ses_e0da68018ffeYKeT0ynkF6sJ9j",
+    "messageID": "msg_1f259ef8e001XP0dRkayX9XqaA",
+    "type": "step-finish",
+    "reason": "stop",
+    "snapshot": "2eacbc69629a8a4560704060d01b5d6d1e5ebc69",
+    "cost": 0,
+    "tokens": {
+     "input": 110,
+     "output": 4,
+     "reasoning": 10,
+     "cache": {
+      "read": 10496,
+      "write": 0
+     }
+    }
+   }
+  ]
+ },
+ "variant": {
+  "exit": 1,
+  "lastText": null,
+  "errors": [
+   "{\"type\":\"provider.no-route\",\"message\":\"Variant unavailable for opencode/big-pickle: high\"}"
+  ],
+  "stderr": ""
+ },
+ "tree": {
+  "rootPid": 7852,
+  "descendantsBeforeKill": [
+   "conhost.exe(13860)",
+   "opencode.exe(28908)",
+   "conhost.exe(11188)",
+   "opencode-pty.exe(15564)",
+   "powershell.exe(19836)",
+   "conhost.exe(28708)",
+   "PING.EXE(28008)"
+  ],
+  "stillAliveAfterKill": []
+ },
+ "roMcp": {
+  "exit": 0,
+  "mcpAction": "onedesk_ping",
+  "tools": [
+   "onedesk_ping:completed",
+   "read:completed",
+   "grep:completed",
+   "glob:completed"
+  ],
+  "lastText": "Steps 1–4 completed successfully. Steps 5–8 require an edit/write tool and a shell/execute tool, which are not available in my toolset (only `glob`, `grep`, `on",
+  "aTxt": "untouched",
+  "bTxt": false,
+  "stderr": ""
+ },
+ "roMcpWild": {
+  "exit": 0,
+  "tools": [
+   "onedesk_ping:completed",
+   "read:completed",
+   "grep:completed",
+   "glob:completed",
+   "skill:error (Unable to load skill edit)",
+   "skill:error (Unable to load skill write)",
+   "skill:error (Unable to load skill shell)",
+   "skill:error (Unable to load skill execute)"
+  ],
+  "lastText": "DONE",
+  "aTxt": "untouched",
+  "bTxt": false,
+  "stderr": ""
+ },
+ "editLevel": {
+  "exit": 0,
+  "tools": [
+   "read:completed",
+   "grep:completed",
+   "glob:completed",
+   "edit:completed",
+   "write:completed"
+  ],
+  "lastText": "Steps 1, 7, and 8 could not be executed: this session has no `onedesk` MCP `ping` tool and no shell/command-execution tool. All other steps completed.\n\nDONE",
+  "aTxt": "edited",
+  "bTxt": true,
+  "stderr": ""
+ },
+ "oldCli": {
+  "exit": 1,
+  "tools": [],
+  "lastText": null,
+  "errors": [],
+  "aTxt": "untouched",
+  "bTxt": false,
+  "stderr": "ERROR\n  Unrecognized flag: --archived in command opencode run"
+ }
+}

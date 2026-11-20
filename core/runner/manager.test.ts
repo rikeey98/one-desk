@@ -67,6 +67,7 @@ function spec(scenario: string) {
     permission: 'edit' as const,
     prompt: '테스트',
     resumeSessionId: null,
+    dialect: null,
     env: HOST_ENV,
     // 가짜 CLI를 실행 파일로 주입한다
     executable: process.execPath,
@@ -611,7 +612,7 @@ function withScript(script: FakeScript, managerOptions: Parameters<typeof makeMa
     ...made,
     run: (agentKind: 'claude-code' | 'opencode', extra: { preEvents?: RunEventInit[] } = {}) =>
       made.manager.start({
-        ...spec('judge'), agentKind, extraArgs: [path],
+        ...spec('judge'), agentKind, dialect: agentKind === 'opencode' ? 'v1' : null, extraArgs: [path],
         ...(extra.preEvents ? { preEvents: extra.preEvents } : {})
       }),
     cleanup: () => {
@@ -963,5 +964,36 @@ describe('mergeUsage', () => {
 
   it('아무것도 없으면 null이다 — 빈 껍데기를 만들지 않는다', () => {
     expect(mergeUsage(null, null)).toBeNull()
+  })
+})
+
+describe('manager는 방언을 나르기만 한다 (opencode-v2 FR-3)', () => {
+  it('StartSpec의 dialect가 어댑터의 buildCommand에 그대로 도착한다', async () => {
+    // 이 한 줄이 빠지면 opencode 어댑터가 방언을 모른 채 명령을 만든다 — 2.x에 1.x의 권한 통로를 쓰면 권한이 무시된다.
+    const dir = mkdtempSync(resolve(tmpdir(), 'one-desk-run-'))
+    const seen: unknown[] = []
+    const manager = createRunManager({
+      adapters: {
+        'claude-code': claudeCodeAdapter,
+        opencode: {
+          ...opencodeAdapter,
+          buildCommand: (built) => {
+            seen.push(built.dialect)
+            // 가짜 CLI로 곧바로 끝낸다 — 여기서 보는 것은 인자가 도착했는가뿐이다
+            return { cmd: process.execPath, args: [FAKE, '--scenario', 'ok'], env: { ...process.env } as Record<string, string>, cwd: process.cwd() }
+          }
+        }
+      },
+      logDir: dir,
+      onEvent: () => {},
+      onError: consoleErrorSink,
+      onPlanUsage: () => {}
+    })
+    try {
+      await manager.start({ ...spec('ok'), agentKind: 'opencode', dialect: 'v2', extraArgs: undefined })
+      expect(seen).toEqual(['v2'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

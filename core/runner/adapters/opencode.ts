@@ -1,17 +1,24 @@
 import { access, constants, stat } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { execFile, type ChildProcess } from 'node:child_process'
 import { promisify } from 'node:util'
 import type {
-  AgentAdapter, PreflightResult, ResolvedRunSpec, SpawnSpec, VerifyRunnableInput
+  AgentAdapter, OpencodeDialect, PreflightResult, ResolvedRunSpec, SpawnSpec, VerifyRunnableInput
 } from '../types'
-import { opencodePermissionConfig } from '../permission'
+import { OPENCODE_V2_AGENT, opencodePermissionConfig, opencodeV2Config } from '../permission'
 import { agentCommand, findExecutable, isBatchShim, unwrapNpmShim, type LookupOptions } from '../executable'
 import { userProcessEnv } from '../userEnv'
 import { HOST_ENV } from '../../wsl/env'
 import {
   emptyUsage, reasoningText, stripNeedsAnswer, summarize, toolResultText, withLoopbackBypass
 } from './common'
-import { opencodeDeniedNotice, opencodeToolDetail } from './opencode.detail'
+import {
+  opencodeDeniedNotice, opencodeInnerFailure, opencodeInputPath, opencodeToolDetail
+} from './opencode.detail'
+import {
+  createOpencodeV2Verifier, judgeV1Config, UNVERIFIABLE_NOTE, type OpencodeV2Verifier
+} from './opencode.verify'
+import type { Permission } from '@shared/models'
 import type { RunEventInit, ToolEffect } from '@shared/events'
 
 type RawEvent = RunEventInit
@@ -25,7 +32,9 @@ const TOOL_EFFECTS: Record<string, ToolEffect> = {
   read: 'read', glob: 'read', grep: 'read', list: 'read',
   webfetch: 'read', websearch: 'read', lsp: 'read',
   write: 'write', edit: 'write', patch: 'write', apply_patch: 'write',
-  bash: 'execute'
+  bash: 'execute',
+  // 2.x (opencode-v2 spec FR-17): 셸의 이름이 shell이고, execute는 도구를 부르는 JS 코드를 돌린다
+  shell: 'execute', execute: 'execute'
 }
 
 function toolEffect(name: string): ToolEffect {
@@ -88,11 +97,23 @@ function resultText(name: string, state: Record<string, unknown>): unknown {
   return name === 'read' ? undefined : state['output']
 }
 
-/** 도구 입력에서 파일 경로를 뽑는다. claude의 file_path와 달리 filePath다. */
+/** 도구 입력에서 파일 경로를 뽑는다. claude의 file_path와 달리 1.x는 filePath, 2.x는 path다 (opencode-v2 FR-15) */
 function targetPaths(input: unknown): string[] {
-  if (typeof input !== 'object' || input === null) return []
-  const path = (input as Record<string, unknown>)['filePath']
-  return typeof path === 'string' ? [path] : []
+  const path = opencodeInputPath(input)
+  return path === null ? [] : [path]
+}
+
+/**
+ * 도구 호출의 id (opencode-v2 spec FR-15). 1.x는 `part.callID`, 2.x는 `part.id`다(2.x의 part 자신의 id는 `partID`).
+ * **빈 문자열로 두지 않는다** — 한 턴의 모든 도구가 같은 호출로 묶여, 결과가 엉뚱한 도구에 붙고 열어 둔 줄이 같이 열린다.
+ * 어디에도 없으면 그 줄의 part id로 떨어진다(줄마다 다르다).
+ */
+function toolUseIdOf(part: Record<string, unknown>): string {
+  for (const key of ['callID', 'id', 'partID']) {
+    const value = part[key]
+    if (typeof value === 'string' && value !== '') return value
+  }
+  return ''
 }
 
 const execFileAsync = promisify(execFile)
@@ -126,11 +147,27 @@ const BATCH_SHIM_REASON =
  */
 export type VersionReader = (executable: string) => Promise<string | null>
 
-/** 실행 파일을 받아 거부 사유를 돌려준다. 통과면 null이다 */
-export type VersionGate = (executable: string) => Promise<string | null>
+/** 버전 게이트의 판정 — 거부 사유(통과면 null)와 그 바이너리의 방언 */
+export interface VersionVerdict {
+  rejected: string | null
+  /** major가 2면 `v2`, 그 밖에는(못 읽은 것 포함) `v1` (`docs/sdlc/opencode-v2/` spec FR-2) */
+  dialect: OpencodeDialect
+}
 
-/** 지원하지 않는 첫 major. 2.x부터 권한 환경변수를 따른다는 보장이 없다 (spec FR-17) */
-const FIRST_UNSUPPORTED_MAJOR = 2
+/** 실행 파일을 받아 판정을 돌려준다 */
+export type VersionGate = (executable: string) => Promise<VersionVerdict>
+
+/** 못 읽은 버전의 판정 — 막지 않고 v1 방언이다. 틀린 방언은 실행 직전 확인이 잡는다 (opencode-v2 spec §2-2) */
+const UNREAD: VersionVerdict = { rejected: null, dialect: 'v1' }
+
+/** 지원하지 않는 첫 major. 3.x의 권한 통로는 실측한 적이 없다 (opencode-v2 spec FR-1) */
+const FIRST_UNSUPPORTED_MAJOR = 3
+
+/**
+ * 지원하는 가장 낮은 2.x (opencode-v2 spec FR-1). 2.0.18(데스크톱 번들의 CLI)과 2.3.2를 실측했다 — 그 전 버전은
+ * `OPENCODE_CONFIG_CONTENT`의 규칙이 먹히는지 본 적이 없다. 내리려면 `realOpencode` 묶음을 그 바이너리로 돌린다.
+ */
+const MIN_SUPPORTED_V2: readonly [number, number, number] = [2, 0, 18]
 
 /**
  * 지원하는 가장 낮은 버전. `buildCommand`가 붙이는 옵션 중 가장 늦게 생긴 것이 정한다:
@@ -160,33 +197,53 @@ export function parseOpencodeVersion(
   return { version: m[1]!, major: Number(m[2]), minor: Number(m[3]), patch: Number(m[4]) }
 }
 
-/** 최소 버전보다 낮은가 — major·minor·patch를 차례로 비교한다 */
-function belowMinimum(v: { major: number; minor: number; patch: number }): boolean {
+/** `min`보다 낮은가 — major·minor·patch를 차례로 비교한다 */
+function below(
+  v: { major: number; minor: number; patch: number },
+  min: readonly [number, number, number]
+): boolean {
   const parts = [v.major, v.minor, v.patch]
   for (let i = 0; i < parts.length; i++) {
-    if (parts[i] !== MIN_SUPPORTED[i]) return parts[i]! < MIN_SUPPORTED[i]!
+    if (parts[i] !== min[i]) return parts[i]! < min[i]!
   }
   return false
 }
 
-function judgeVersion(executable: string, output: string | null): string | null {
+function judgeVersion(executable: string, output: string | null): VersionVerdict {
   const parsed = output === null ? null : parseOpencodeVersion(output)
   // 버전을 못 읽으면 막지 않는다 — 게이트 전의 동작 그대로다 (spec FR-17).
-  if (!parsed) return null
-  if (belowMinimum(parsed)) {
-    const min = MIN_SUPPORTED.join('.')
-    return (
-      `OpenCode ${parsed.version} CLI는 너무 오래됐습니다 — one-desk가 붙여 실행하는 옵션` +
-      `(--thinking·--dangerously-skip-permissions)을 ${min} 전 버전은 몰라 실행을 시작하자마자 거부합니다. ` +
-      `${min} 이상으로 올리거나 설정의 CLI 경로를 새 실행 파일로 바꾸세요: ${executable}`
-    )
+  if (!parsed) return UNREAD
+  const dialect: OpencodeDialect = parsed.major === 2 ? 'v2' : 'v1'
+  if (parsed.major >= FIRST_UNSUPPORTED_MAJOR) {
+    return {
+      dialect,
+      rejected:
+        `OpenCode ${parsed.version} CLI는 아직 지원하지 않습니다 — 지원하는 것은 1.x(${MIN_SUPPORTED.join('.')} 이상)와 ` +
+        `2.x(${MIN_SUPPORTED_V2.join('.')} 이상)입니다. 그 밖의 버전은 우리가 넘기는 권한 정책을 따르는지 확인한 적이 없어, ` +
+        `읽기 전용 실행이 파일을 고칠 수 있습니다. 설정의 CLI 경로를 지원하는 실행 파일로 바꾸세요: ${executable}`
+    }
   }
-  if (parsed.major < FIRST_UNSUPPORTED_MAJOR) return null
-  return (
-    `OpenCode ${parsed.version} CLI는 아직 지원하지 않습니다 — 2.x는 우리가 넘기는 권한 정책` +
-    '(OPENCODE_PERMISSION)을 따르지 않을 수 있어, 읽기 전용 실행이 파일을 고칠 수 있습니다. ' +
-    `1.x를 쓰거나 설정의 CLI 경로를 1.x 실행 파일로 바꾸세요: ${executable}`
-  )
+  if (dialect === 'v2') {
+    if (!below(parsed, MIN_SUPPORTED_V2)) return { rejected: null, dialect }
+    const min = MIN_SUPPORTED_V2.join('.')
+    return {
+      dialect,
+      rejected:
+        `OpenCode ${parsed.version} CLI는 지원하지 않습니다 — 2.x는 ${min} 이상이어야 합니다(그 전 버전은 권한 정책이 ` +
+        `걸리는지 확인한 적이 없습니다). ${min} 이상으로 올리거나 1.x를 쓰세요: ${executable}`
+    }
+  }
+  if (below(parsed, MIN_SUPPORTED)) {
+    const min = MIN_SUPPORTED.join('.')
+    return {
+      dialect,
+      rejected:
+        `OpenCode ${parsed.version} CLI는 너무 오래됐습니다 — one-desk가 붙여 실행하는 옵션` +
+        `(--thinking·--dangerously-skip-permissions)을 ${min} 전 버전은 몰라 실행을 시작하자마자 거부합니다. ` +
+        `${min} 이상으로 올리거나 설정의 CLI 경로를 새 실행 파일로 바꾸세요: ${executable}`
+    }
+  }
+  return { rejected: null, dialect }
 }
 
 /**
@@ -232,7 +289,7 @@ const readVersion: VersionReader = (executable) => new Promise((resolve) => {
  * 이미 봤고, 그 사이 사라졌다면 실제 spawn이 더 정확한 이유를 낸다.
  */
 export function createVersionGate(read: VersionReader): VersionGate {
-  interface Entry { size: number; mtimeMs: number; verdict: Promise<string | null> }
+  interface Entry { size: number; mtimeMs: number; verdict: Promise<VersionVerdict> }
   const cache = new Map<string, Entry>()
 
   return async (executable) => {
@@ -240,7 +297,7 @@ export function createVersionGate(read: VersionReader): VersionGate {
     try {
       info = await stat(executable)
     } catch {
-      return null
+      return UNREAD
     }
     const hit = cache.get(executable)
     if (hit && hit.size === info.size && hit.mtimeMs === info.mtimeMs) return hit.verdict
@@ -257,7 +314,7 @@ export function createVersionGate(read: VersionReader): VersionGate {
         },
         () => {
           forget()
-          return null
+          return UNREAD
         }
       )
     }
@@ -275,6 +332,45 @@ const defaultVersionGate = createVersionGate(readVersion)
 export interface OpencodePreflightOptions extends LookupOptions {
   /** 버전 게이트. 테스트가 갈아끼우는 이음매다 — 기본은 앱 전체가 나눠 쓰는 캐시다 */
   versionGate?: VersionGate
+}
+
+const NO_DIALECT = 'OpenCode의 버전 방언이 정해지지 않았습니다 — 실행 파일 확인(preflight)을 거치지 않은 실행입니다.'
+
+/** 앱 전체가 나눠 쓰는 2.x 확인기 — "확인할 수 없는 바이너리"의 기억을 실행과 설정 화면이 같이 쓴다 */
+const defaultV2Verifier = createOpencodeV2Verifier()
+
+/**
+ * 2.x run의 환경변수 (opencode-v2 spec FR-12). **권한은 `OPENCODE_CONFIG_CONTENT`의 규칙 목록으로 간다** — 2.x에는
+ * `OPENCODE_PERMISSION`이 없다(바이너리에 그 문자열이 없다). 실행 직전 확인도 이 함수를 쓴다 — 다른 환경으로 확인하면
+ * 확인이 무의미해진다.
+ */
+function v2Env(permission: Permission): Record<string, string> {
+  const env = withLoopbackBypass(userProcessEnv(process.env))
+  env['OPENCODE_CONFIG_CONTENT'] = JSON.stringify(opencodeV2Config(permission))
+  return env
+}
+
+/**
+ * 2.x의 명령 (opencode-v2 spec FR-6·7·10·11).
+ *
+ * - `--standalone`: 그 run만의 사설 서버로 돈다. 없으면 백그라운드 서비스에 붙어 agent가 run의 프로세스 트리 밖에서 돌고,
+ *   one-desk가 서비스를 띄운 채 남긴다.
+ * - `--agent build`: 프로젝트의 `default_agent`가 느슨한 agent로 돌리지 못하게 못박는다. 우리 규칙은 그 agent 자리에도
+ *   들어 있다(`opencodeV2Config`).
+ * - `--auto`를 붙이지 않는다 — 전체 허용은 규칙의 `* allow`다. `--variant`·`--dangerously-skip-permissions`는 2.x에 없다.
+ * - variant는 `model#variant`로만 넘어간다. 모델 없는 variant는 실행 직전 확인이 먼저 막는다 — 여기 오면 버그다.
+ */
+function buildV2Command(spec: ResolvedRunSpec): SpawnSpec {
+  const args = ['run', '--standalone', '--format', 'json', '--thinking', '--agent', OPENCODE_V2_AGENT]
+  if (spec.model) args.push('-m', spec.effort ? `${spec.model}#${spec.effort}` : spec.model)
+  else if (spec.effort) throw new Error('OpenCode 2.x에서 variant를 쓰려면 모델을 지정해야 합니다')
+  if (spec.resumeSessionId) args.push('--session', spec.resumeSessionId)
+
+  const env = v2Env(spec.permission)
+  // MCP 설정만 파일로 간다 — 토큰이 든다. 환경변수는 agent의 셸 자식에게 물려지므로 거기 싣지 않는다 (FR-12·13)
+  if (spec.mcp) env['OPENCODE_CONFIG'] = spec.mcp.configFile
+
+  return { cmd: spec.executable, args, env, cwd: spec.cwd }
 }
 
 // `: AgentAdapter`가 아니라 `satisfies`인 이유는 claudeCode.ts와 같다 —
@@ -327,12 +423,16 @@ export const opencodeAdapter = {
       executable = unwrapped
     }
     // 버전 게이트도 합류한 뒤다 — 한쪽 갈래에만 두면 다른 쪽으로 2.x가 새어나간다.
-    const rejected = await (opts.versionGate ?? defaultVersionGate)(executable)
-    if (rejected) return { ok: false, reason: rejected }
-    return { ok: true, executable }
+    const verdict = await (opts.versionGate ?? defaultVersionGate)(executable)
+    if (verdict.rejected) return { ok: false, reason: verdict.rejected }
+    return { ok: true, executable, dialect: verdict.dialect }
   },
 
   buildCommand(spec: ResolvedRunSpec): SpawnSpec {
+    // 방언을 모르면 만들지 않는다 — 조용히 1.x로 떨어지면 2.x가 권한 없이 돈다 (opencode-v2 FR-3)
+    if (spec.dialect === null) throw new Error(NO_DIALECT)
+    if (spec.dialect === 'v2') return buildV2Command(spec)
+
     // --thinking이 없으면 1.18.30의 run 루프는 reasoning 줄을 내지 않는다(`run.ts`:766). **출력만
     // 가른다** — 모델 호출 인자·권한과 무관하다(conversation-events spec FR-21, NFR-5).
     const args = ['run', '--format', 'json', '--thinking']
@@ -382,11 +482,16 @@ export const opencodeAdapter = {
    */
   async verifyRunnable(
     input: VerifyRunnableInput,
-    probe: ConfigProbe = defaultProbe
+    probe: ConfigProbe = defaultProbe,
+    v2: OpencodeV2Verifier = defaultV2Verifier
   ): Promise<PreflightResult> {
+    if (input.dialect === null) return { ok: false, reason: NO_DIALECT }
+    // 실제로 실행에 쓸 환경변수를 그대로 실어야 검사가 의미를 갖는다 — buildCommand와 같은 함수다.
+    if (input.dialect === 'v2') return v2.verify(input, v2Env(input.permission))
+
+    const sent = opencodePermissionConfig(input.permission)
     const env = withLoopbackBypass(userProcessEnv(process.env))
-    // 실제로 실행에 쓸 환경변수를 그대로 실어야 검사가 의미를 갖는다.
-    env['OPENCODE_PERMISSION'] = JSON.stringify(opencodePermissionConfig(input.permission))
+    env['OPENCODE_PERMISSION'] = JSON.stringify(sent)
 
     let raw: string
     try {
@@ -397,28 +502,21 @@ export const opencodeAdapter = {
         reason: `OpenCode 설정을 확인하지 못했습니다. ${input.cwd} 에서 실행할 수 있는지 보세요.`
       }
     }
+    // **긍정 확인이다** (opencode-v2 spec §2-2·FR-9) — ask가 없는 것만으로는 통과하지 않는다. 버전을 못 읽어 2.x가 이 갈래로
+    // 오면 출력이 배열이라 여기서 막힌다.
+    return judgeV1Config(raw, sent, input.cwd)
+  },
 
-    let permission: unknown
-    try {
-      permission = (JSON.parse(raw) as Record<string, unknown>)['permission']
-    } catch {
-      return { ok: false, reason: 'OpenCode 설정을 확인하지 못했습니다. 출력을 읽을 수 없습니다.' }
-    }
-
-    if (typeof permission !== 'object' || permission === null) return { ok: true }
-
-    const asking = Object.entries(permission as Record<string, unknown>)
-      .filter(([, value]) => value === 'ask')
-      .map(([key]) => key)
-    if (asking.length === 0) return { ok: true }
-
-    return {
-      ok: false,
-      reason:
-        `${asking.join(', ')} 권한이 '물어보기'로 남아 있어 실행할 수 없습니다. ` +
-        '헤드리스 실행에는 답할 사람이 없어 그 도구가 말없이 거부된 채 끝납니다. ' +
-        `${input.cwd}/opencode.json 에서 해당 항목을 지우거나 allow/deny로 바꾸세요.`
-    }
+  /**
+   * 설정 화면의 안내 (opencode-v2 spec FR-8a). 실행 직전 확인을 못 하는 2.x면 "전체 허용만 실행됩니다"를 미리 말한다 —
+   * 실행 버튼을 누른 뒤에야 막힌 것을 알면 안 된다. 판정은 실행과 **같은 확인기**(같은 기억)다. 1.x와 확인할 수 있는 2.x,
+   * 판정하지 못한 경우는 안내가 없다. cwd는 판정과 무관해 임시 폴더를 쓴다(프로젝트 설정이 깨져 있어도 옵션을 받는지는
+   * 그대로 답한다).
+   */
+  async statusNote(pre: PreflightResult, v2: OpencodeV2Verifier = defaultV2Verifier): Promise<string | null> {
+    if (!pre.ok || !pre.executable || pre.dialect !== 'v2') return null
+    const capability = await v2.capability(pre.executable, tmpdir(), v2Env('read_only'))
+    return capability === 'unverifiable' ? UNVERIFIABLE_NOTE : null
   },
 
   parseLine(line: string, runId: string): RawEvent[] {
@@ -449,10 +547,14 @@ export const opencodeAdapter = {
         if (!part) return []
         const name = String(part['tool'] ?? '')
         const state = record(part['state']) ?? {}
-        const toolUseId = String(part['callID'] ?? '')
+        const toolUseId = toolUseIdOf(part)
         const src = messageOrigin(part)
-        const failed = state['status'] === 'error'
+        // 2.x의 execute는 안쪽 도구가 막히거나 코드가 던져도 `completed`로 온다 — 세부의 error만 참이다 (FR-20)
+        const innerFailed = opencodeInnerFailure(state)
+        const failed = state['status'] === 'error' || innerFailed
         const output = resultText(name, state)
+        // 모델이 본 오류 글. 1.x·2.x의 실패는 `state.error`, execute의 안쪽 실패는 `output`에 있다
+        const errorText = state['error'] ?? (innerFailed ? state['output'] : undefined)
         const detail = opencodeToolDetail(name, state)
         // 한 줄에 입력과 결과가 함께 온다 — 이미 끝난 도구를 보고받는 것이다.
         // (그래서 diff 뷰어의 before 스냅샷을 여기서 걸 수 없다. 설계 §10-1)
@@ -467,16 +569,16 @@ export const opencodeAdapter = {
           },
           {
             type: 'tool_result', runId, at, toolUseId,
-            ok: state['status'] === 'completed',
+            ok: state['status'] === 'completed' && !innerFailed,
             // 실패하면 output이 없다 — 오류 글로 요약한다(FR-25; 전에는 `""` 두 글자였다)
-            summary: summarize(failed ? state['error'] ?? state['output'] ?? '' : state['output']),
+            summary: summarize(failed ? errorText ?? state['output'] ?? '' : state['output']),
             ...toolResultText(typeof output === 'string' ? output : null),
             ...(detail ? { detail } : {}),
             ...src
           }
         ]
         // 권한 거부는 run의 상태를 건드리지 않는 공지다(FR-8·26). 도구 실패 줄은 그대로 남는다.
-        const denied = failed ? opencodeDeniedNotice(name, state['error'], toolUseId) : null
+        const denied = failed ? opencodeDeniedNotice(name, errorText, toolUseId) : null
         if (denied) events.push({ type: 'notice', runId, at, ...denied, ...src })
         return events
       }

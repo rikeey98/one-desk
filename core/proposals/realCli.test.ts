@@ -79,12 +79,13 @@ async function turn(userPrompt: string): Promise<{ tools: string[]; proposals: n
     userPrompt, assembledPrompt: '', logPath: resolve(dir, 'x'), context: []
   })
   const p = await host.prepare({
-    runId: root.id, rootRunId: root.id, workspaceId, permission: 'read_only', agentKind: 'claude-code', env: HOST_ENV
+    runId: root.id, rootRunId: root.id, workspaceId, permission: 'read_only', agentKind: 'claude-code', dialect: null, env: HOST_ENV
   })
   const prompt = assemblePrompt({ repos: [repo], issues: [], memos: [], assets: [], userPrompt, proposeIssue: true })
   const { args } = claudeCodeAdapter.buildCommand({
     runId: root.id, cwd: dir, model: null, effort: null, permission: 'read_only', prompt, resumeSessionId: null,
-    executable: 'claude', mcp: { serverName: MCP_SERVER_NAME, configFile: p.configFile, token: p.token, url: p.url }
+    executable: 'claude', mcp: { serverName: MCP_SERVER_NAME, configFile: p.configFile, token: p.token, url: p.url },
+    dialect: null
   })
   // **동기 spawn을 쓰면 안 된다** — 같은 프로세스의 MCP 서버가 연결을 받지 못한다(CLAUDE.md의 execFileSync 함정)
   const out = await new Promise<string>((done) => {

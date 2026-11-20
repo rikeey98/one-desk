@@ -42,6 +42,8 @@ export const TOOL_LABELS: Record<string, { label: string; category: ToolCategory
   // opencode의 여러 파일 패치 (events FR-42) — 빠지면 파일을 쓰는데도 편집 블록에 서지 않는다
   apply_patch: { label: '패치', category: 'edit' },
   bash: { label: '셸', category: 'shell' },
+  // opencode 2.x의 셸 (docs/sdlc/opencode-v2/ FR-17) — 이름만 다르다. 빠지면 2.x의 셸 줄이 표에 없는 도구로 떨어진다
+  shell: { label: '셸', category: 'shell' },
   // Windows의 claude 셸 (events FR-42)
   powershell: { label: '셸', category: 'shell' },
   bashoutput: { label: '셸', category: 'shell' },
@@ -61,6 +63,9 @@ export const TOOL_LABELS: Record<string, { label: string; category: ToolCategory
   tasklist: { label: '할 일', category: 'todo' },
   task: { label: '하위 에이전트', category: 'subagent' },
   agent: { label: '하위 에이전트', category: 'subagent' },
+  // opencode 2.x: 하위 에이전트 도구의 이름이 subagent이고, execute는 도구를 부르는 JS 코드를 돌린다
+  subagent: { label: '하위 에이전트', category: 'subagent' },
+  execute: { label: '코드 실행', category: 'other' },
   skill: { label: '스킬', category: 'other' }
 }
 
@@ -146,6 +151,10 @@ function subtitleOf(input: unknown, cwd: string): { text: string; path: boolean 
     const value = stringAt(record, key)
     if (value !== null) return { text: value, path: false }
   }
+  // opencode 2.x는 read·edit·write의 경로를 `path`로 준다 (docs/sdlc/opencode-v2/ FR-15). **검색어 뒤에 본다** — grep·glob의
+  // `path`는 찾는 자리이고 줄의 주어는 검색어다(claude의 Grep·Glob도 `path`를 같이 준다).
+  const where = stringAt(record, 'path')
+  if (where !== null) return { text: relativePath(where, cwd), path: true }
   return { text: '', path: false }
 }
 

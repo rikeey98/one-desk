@@ -297,6 +297,11 @@ export interface AgentProbe {
    * claude는 조회 수단이 없어 **항상 빈 배열**이다 — 화면이 자기 별칭 표를 쓴다.
    */
   models: string[]
+  /**
+   * 통과한 실행 파일에 붙는 안내 (docs/sdlc/opencode-v2/ FR-8a) — 실행은 되지만 미리 알아야 하는 제약이다
+   * ("전체 허용만 실행됩니다"). 없으면 null. 오류가 아니다.
+   */
+  note: string | null
 }
 
 export interface WslAgentProbe extends AgentProbe {

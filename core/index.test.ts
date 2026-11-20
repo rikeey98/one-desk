@@ -1190,7 +1190,7 @@ describe('core.workspaces.checkAgents', () => {
     })
   })
 
-  it('opencode 2.x는 설정 화면과 실행이 같은 이유로 막고, 버전은 한 번만 읽는다 (FR-17)', async () => {
+  it('지원 범위 밖의 opencode(3.x)는 설정 화면과 실행이 같은 이유로 막고, 버전은 한 번만 읽는다 (FR-17)', async () => {
     // `docs/sdlc/conversation-fixes/` spec FR-17. 버전 게이트를 preflight에 둔 것이 곧
     // "checkAgents와 실행이 같은 판정"이다 — 한쪽에만 있으면 설정 화면은 초록인데 실행은
     // 막히거나, 반대로 화면은 빨간데 2.x가 권한 정책 없이 돈다. 판정은 (경로, 크기, mtime)
@@ -1205,7 +1205,7 @@ describe('core.workspaces.checkAgents', () => {
         "process.stdin.on('end', () => {",
         "  if (!process.argv.includes('--version')) return",
         `  appendFileSync(${JSON.stringify(calls)}, 'x')`,
-        "  process.stdout.write('2.0.18\\n')",
+        "  process.stdout.write('3.0.0\\n')",
         '})'
       ].join('\n'), { mode: 0o755 })
 
@@ -1267,6 +1267,82 @@ describe('core.workspaces.checkAgents', () => {
         else process.env['ONE_DESK_AGENT_LAUNCHER'] = previousLauncher
       }
     })
+  })
+
+  describe('opencode 2.x — 설정 화면과 실행이 같은 방언을 쓴다 (docs/sdlc/opencode-v2/)', () => {
+    const FAKE_OPENCODE = resolve(HERE, 'runner/fixtures/fake-opencode.mjs')
+
+    /**
+     * 가짜 opencode를 2.x 모드로 물린 core. 가짜는 진짜 2.x의 계약을 요구한다 — `--standalone` 없는 조회·run,
+     * `--agent build` 없는 run, `OPENCODE_CONFIG_CONTENT` 없는 run을 exit 2로 거부한다. 그래서 여기서 조회가 읽히고
+     * run이 성공했다는 것은 core의 배선(preflight의 방언 → 인증·모델 조회·실행 직전 확인·명령)이 이어졌다는 뜻이다.
+     *
+     * 가짜를 데이터 폴더로 **복사해** 쓴다 — "확인할 수 없는 바이너리"의 기억이 (경로, 크기, mtime)이라 같은 경로를 두
+     * 테스트가 나눠 쓰면 앞 테스트의 판정이 뒤로 샌다.
+     */
+    async function withV2(env: Record<string, string>, fn: (core: Core, ws: string, dataDir: string) => Promise<void>) {
+      await withoutOverride(async () => {
+        const dataDir = makeDataDir()
+        const script = join(dataDir, 'fake-opencode.mjs')
+        writeFileSync(script, readFileSync(FAKE_OPENCODE, 'utf8'), { mode: 0o755 })
+        const vars = { ONE_DESK_AGENT_LAUNCHER: process.execPath, ONE_DESK_FAKE_STEP_MS: '1', ...env }
+        const previous = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]))
+        Object.assign(process.env, vars)
+        try {
+          const core = open(dataDir)
+          const ws = core.workspaces.create({ name: 'ws' }).id
+          core.workspaces.updatePaths({ id: ws, claudePath: null, opencodePath: script })
+          await fn(core, ws, dataDir)
+          close(core)
+        } finally {
+          for (const [k, v] of Object.entries(previous)) {
+            if (v === undefined) delete process.env[k]
+            else process.env[k] = v
+          }
+        }
+      })
+    }
+
+    const finished = async (core: Core, id: string): Promise<Run> => {
+      await vi.waitFor(() => expect(core.runs.get(id).endedAt).not.toBeNull(), { timeout: 15_000 })
+      return core.runs.get(id)
+    }
+    const start = (core: Core, ws: string, cwd: string, permission: 'read_only' | 'full') => core.execution.start({
+      workspaceId: ws, agentKind: 'opencode', cwd, permission, userPrompt: 'x', context: []
+    })
+
+    it('확인할 수 있는 2.x — 조회가 사설 서버로 가고, 읽기 전용 run이 2.x의 명령으로 돈다', async () => {
+      await withV2({ ONE_DESK_FAKE_OPENCODE_VERSION: '2.3.2' }, async (core, ws, dataDir) => {
+        expect((await core.workspaces.checkAgents(ws)).opencode.ok).toBe(true)
+
+        const probe = (await core.workspaces.probeAgents(ws)).opencode
+        // --standalone 없이 물으면 가짜가 exit 2를 낸다 — 그러면 인증은 unknown, 모델 목록은 비어 온다
+        expect(probe.auth.state).toBe('none')
+        expect(probe.models).toContain('opencode/big-pickle')
+        expect(probe.note).toBeNull()
+
+        const run = await finished(core, (await start(core, ws, dataDir, 'read_only')).id)
+        expect(run.errorMessage).toBeNull()
+        expect(run.status).toBe('succeeded')
+        expect(run.resultText).toContain('가짜 OpenCode 2.x가 처리했습니다')
+      })
+    }, 30_000)
+
+    it('확인할 수 없는 2.x — 화면이 미리 말하고, 읽기 전용은 실행 전에 막히고, 전체 허용은 돈다', async () => {
+      await withV2({ ONE_DESK_FAKE_OPENCODE_VERSION: '2.0.18', ONE_DESK_FAKE_OPENCODE_UNVERIFIABLE: '1' }, async (core, ws, dataDir) => {
+        const probe = (await core.workspaces.probeAgents(ws)).opencode
+        expect(probe.note).toBe('전체 허용만 실행됩니다 — 읽기 전용·편집 허용은 2.3.2 이상')
+
+        const blocked = await finished(core, (await start(core, ws, dataDir, 'read_only')).id)
+        expect(blocked.status).toBe('failed')
+        expect(blocked.startedAt).toBeNull()
+        expect(blocked.errorMessage).toContain('실행 전에 권한을 확인할 수 없어')
+
+        const full = await finished(core, (await start(core, ws, dataDir, 'full')).id)
+        expect(full.errorMessage).toBeNull()
+        expect(full.status).toBe('succeeded')
+      })
+    }, 30_000)
   })
 
   it('ONE_DESK_AGENT_PATH가 workspace 설정을 이긴다 — 실행과 같은 규칙이다', async () => {

@@ -131,8 +131,32 @@ function search(count: unknown, unit: 'matches' | 'files', truncated: unknown): 
   return isCount(count) ? { kind: 'search', count, unit, truncated: truncated === true } : undefined
 }
 
+/** 도구 입력의 파일 경로 — 1.x는 `filePath`, 2.x는 `path`다 (opencode-v2 spec FR-15). 없으면 null */
+export function opencodeInputPath(input: unknown): string | null {
+  const obj = record(input)
+  return str(obj?.['filePath']) ?? str(obj?.['path'])
+}
+
 function inputPath(state: Record<string, unknown>): string | null {
-  return str(record(state['input'])?.['filePath'])
+  return opencodeInputPath(state['input'])
+}
+
+/**
+ * 세부가 든 객체 (opencode-v2 spec FR-16). 1.x는 `state.metadata` 자신이고, 2.x는 그 안에 **한 겹 더** 있다 —
+ * `state.metadata.metadata`(바깥에는 `content`·`rawInput`·`providerCall`이 있다). 안쪽이 객체면 그것이 세부다.
+ */
+function detailMeta(state: Record<string, unknown>): Record<string, unknown> | null {
+  const outer = record(state['metadata'])
+  if (!outer) return null
+  return record(outer['metadata']) ?? outer
+}
+
+/**
+ * 끝난 것으로 보고됐지만 안에서 실패했는가 (opencode-v2 spec FR-20). 2.x의 `execute`는 안쪽 도구 호출이 권한에
+ * 막히거나 코드가 던져도 `status: completed`로 온다 — 세부의 `error`만 참이다. 1.x에는 이 모양이 없다.
+ */
+export function opencodeInnerFailure(state: Record<string, unknown>): boolean {
+  return state['status'] === 'completed' && record(record(state['metadata'])?.['metadata'])?.['error'] === true
 }
 
 /** 편집 detail 하나. 파일마다 상한(capEditFiles)을 씌운다 */
@@ -149,6 +173,8 @@ function edit(files: EditFileInput[]): ToolDetail {
  * 같다. diff 뷰어가 이 hunk를 원본 재료로 쓰려면 따로 다뤄야 한다(spec "리뷰가 남긴 과제").
  */
 function editDetail(meta: Record<string, unknown>, state: Record<string, unknown>): ToolDetail | undefined {
+  // 2.x는 `filediff` 대신 `files[]`를 준다 — 편집 하나도 배열이다 (opencode-v2 spec FR-18)
+  if (meta['filediff'] === undefined && meta['files'] !== undefined) return editFilesDetail(meta)
   const filediff = meta['filediff'] === undefined ? {} : record(meta['filediff'])
   if (!filediff) return undefined
   const file = optStr(filediff['file'])
@@ -168,7 +194,46 @@ function editDetail(meta: Record<string, unknown>, state: Record<string, unknown
   }])
 }
 
-/** write — hunk가 없다. `exists`가 false일 때만 새 파일이다 */
+const V2_FILE_OPERATIONS: Record<string, EditFileInput['operation']> = { added: 'create', deleted: 'delete' }
+
+/**
+ * 2.x의 edit — `files[]`마다 `{file, patch, status, additions, deletions}` (2.0.18·2.3.2 실측, opencode-v2 spec FR-18).
+ * `status`는 `modified`만 실측했다 — `added`·`deleted`는 이름으로 미루어 받고, 모르는 값은 편집이다.
+ * **항목 하나라도 모양이 다르면 세부 전체를 버린다**(apply_patch와 같은 규칙). 이전 내용은 여전히 없다.
+ */
+function editFilesDetail(meta: Record<string, unknown>): ToolDetail | undefined {
+  const list = meta['files']
+  if (!Array.isArray(list) || list.length === 0) return undefined
+  const files: EditFileInput[] = []
+  for (const item of list) {
+    const f = record(item)
+    if (!f) return undefined
+    const path = str(f['file'])
+    const added = optCount(f['additions'])
+    const removed = optCount(f['deletions'])
+    const patch = f['patch']
+    if (path === null || added === BAD || removed === BAD || typeof patch !== 'string') return undefined
+    const status = f['status']
+    const operation = typeof status === 'string' && Object.hasOwn(V2_FILE_OPERATIONS, status)
+      ? V2_FILE_OPERATIONS[status]!
+      : 'edit'
+    files.push({
+      path,
+      operation,
+      hunks: parseUnifiedDiff(patch),
+      added,
+      removed,
+      before: null,
+      beforeMissing: operation === 'create' ? null : 'unavailable'
+    })
+  }
+  return edit(files)
+}
+
+/**
+ * write — hunk가 없다. `exists`가 false일 때만 새 파일이다. **2.x에는 그 표식이 없어 늘 덮어쓰기로 싣는다**
+ * (opencode-v2 spec FR-19) — 출력 글자(`Created file successfully`)로 판정하지 않는다. 문구가 바뀌면 조용히 틀린다.
+ */
 function writeDetail(meta: Record<string, unknown>, state: Record<string, unknown>): ToolDetail | undefined {
   const filepath = optStr(meta['filepath'])
   if (filepath === BAD) return undefined
@@ -252,7 +317,7 @@ function taskDetail(meta: Record<string, unknown>, state: Record<string, unknown
  * - `metadata`가 없으면 아무것도 싣지 않는다 — 새 파일인지 덮어쓰기인지조차 모른다.
  */
 export function opencodeToolDetail(tool: string, state: Record<string, unknown>): ToolDetail | undefined {
-  const meta = record(state['metadata'])
+  const meta = detailMeta(state)
   if (!meta) return undefined
   const isShell = tool === 'bash' || tool === 'shell'
 
@@ -286,6 +351,11 @@ export function opencodeToolDetail(tool: string, state: Record<string, unknown>)
  */
 /** `ask`로 남은 권한의 자동 거부 — 헤드리스에는 답할 사람이 없다 */
 export const OPENCODE_DENIED_BY_ASK = 'The user rejected permission to use this specific tool call'
+/**
+ * 2.x의 자동 거부 (2.0.18·2.3.2 실측, opencode-v2 spec FR-22) — 뜻은 1.x의 `OPENCODE_DENIED_BY_ASK`와 같다. 2.x의 deny
+ * 규칙은 도구를 모델에게서 지우므로 "규칙에 막힘"에 해당하는 문구가 없다.
+ */
+export const OPENCODE_V2_DENIED_BY_ASK = 'This non-interactive run cannot ask the user for permission'
 /** `deny` 규칙에 걸린 호출 */
 export const OPENCODE_DENIED_BY_RULE = 'The user has specified a rule which prevents you from using this specific tool call'
 
@@ -296,7 +366,7 @@ export const OPENCODE_DENIED_BY_RULE = 'The user has specified a rule which prev
 export function opencodeDeniedNotice(tool: string, error: unknown, toolUseId: string): OpencodeNotice | null {
   if (typeof error !== 'string' || tool === '') return null
   let text: string
-  if (error.startsWith(OPENCODE_DENIED_BY_ASK)) {
+  if (error.startsWith(OPENCODE_DENIED_BY_ASK) || error.startsWith(OPENCODE_V2_DENIED_BY_ASK)) {
     text = `권한 때문에 막힘: ${tool} (묻는 권한은 헤드리스에서 자동으로 거부됩니다)`
   } else if (error.startsWith(OPENCODE_DENIED_BY_RULE)) {
     text = `권한 때문에 막힘: ${tool}`

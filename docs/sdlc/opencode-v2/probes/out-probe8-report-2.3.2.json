@@ -1,0 +1,115 @@
+{
+ "service": {
+  "before": 0,
+  "steps": [
+   {
+    "args": "--version",
+    "exit": 0,
+    "ms": 96,
+    "procsAfter": 0,
+    "head": "opencode v2.3.2"
+   },
+   {
+    "args": "models --standalone",
+    "exit": 0,
+    "ms": 1519,
+    "procsAfter": 0,
+    "head": "opencode/beam-free"
+   },
+   {
+    "args": "models",
+    "exit": 0,
+    "ms": 1633,
+    "procsAfter": 1,
+    "head": "opencode/beam-free"
+   },
+   {
+    "args": "auth list --standalone",
+    "exit": 0,
+    "ms": 1518,
+    "procsAfter": 0,
+    "head": "No authenticated integrations"
+   },
+   {
+    "args": "auth list",
+    "exit": 0,
+    "ms": 1334,
+    "procsAfter": 1,
+    "head": "No authenticated integrations"
+   },
+   {
+    "args": "debug config --standalone",
+    "exit": 0,
+    "ms": 742,
+    "procsAfter": 0,
+    "head": "["
+   },
+   {
+    "args": "debug config",
+    "exit": 0,
+    "ms": 623,
+    "procsAfter": 1,
+    "head": "["
+   }
+  ]
+ },
+ "mcpFile": {
+  "ask": {
+   "tools": [
+    "one-desk_ping:error"
+   ],
+   "text": "{\"error\":{\"type\":\"permission.rejected\",\"message\":\"This non-interactive run cannot ask the user for permission, so the request was rejected. Continue without this action.\"},\"content\":[]}",
+   "stderr": "! permission requested: one-desk_ping (*); auto-rejecting"
+  },
+  "wildcard": {
+   "tools": [
+    "one-desk_ping:completed"
+   ],
+   "text": "PONG-7731"
+  }
+ },
+ "toolNames": "edit, experimental_image_generate, glob, grep, question, read, shell, skill, subagent, webfetch, websearch, write, execute, opencode.session_move, opencode.worktree_create, opencode.worktree_list, opencode.worktree_remove, opencode.list_mcp_resources, opencode.models, opencode.read_mcp_resource, opencode.session_rename",
+ "skillUnderDeny": {
+  "tools": [
+   "skill:error"
+  ],
+  "text": "NO-SKILL"
+ },
+ "skillExplicitDeny": {
+  "tools": [],
+  "text": "ERROR {\"type\":\"provider.free-limit\",\"message\":\"Free usage limit reached. Connect a provider or subscribe to OpenCode Go to keep going, or switch models.\",\"status\":429,\"response\":{\"body\":\"{\\\"type\\\":\\\"error\\\""
+ },
+ "session": {
+  "created": "ses_e0d898176ffe2PPEAcviOXGCk6",
+  "checks": [
+   {
+    "args": "session list --format json --standalone -n 3",
+    "exit": 0,
+    "ms": 780,
+    "out": "[\n  {\n    \"id\": \"ses_e0d898176ffe2PPEAcviOXGCk6\",\n    \"updated\": 1795069215554,\n    \"created\": 1795069214726,\n    \"projectId\": \"global\",\n    \"directory\": \"C:\\\\Users\\\\rikee\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\3ddbb78e3c6a4ffa\\",
+    "err": ""
+   },
+   {
+    "args": "api --standalone session.get --param sessionID=ses_e0d898176ffe2PPEAcviOXGCk6",
+    "exit": 0,
+    "ms": 571,
+    "out": "{\"data\":{\"id\":\"ses_e0d898176ffe2PPEAcviOXGCk6\",\"projectID\":\"global\",\"agent\":\"build\",\"model\":{\"id\":\"big-pickle\",\"providerID\":\"opencode\",\"variant\":\"default\"},\"cost\":0,\"tokens\":{\"input\":0,\"output\":0,\"reasoning\":0,\"cache\":{\"",
+    "err": ""
+   },
+   {
+    "args": "api --standalone session.get --param sessionID=ses_nosuchsession0000000000000",
+    "exit": 1,
+    "ms": 565,
+    "out": "{\"_tag\":\"SessionNotFoundError\",\"sessionID\":\"ses_nosuchsession0000000000000\",\"message\":\"Session not found: ses_nosuchsession0000000000000\"}",
+    "err": "HTTP 404 Not Found"
+   }
+  ],
+  "bogusRun": {
+   "exit": 1,
+   "text": "ERROR {\"type\":\"provider.free-limit\",\"message\":\"Free usage limit reached. Connect a provider or subscribe to OpenCode Go to keep going, or switch models.\",\"status\":429,\"response\":{\"body\":\"{\\\"type\\\":\\\"error\\\"",
+   "session": "ses_nosuchsession0000000000000",
+   "stderr": ""
+  }
+ },
+ "procsAtEnd": 0
+}

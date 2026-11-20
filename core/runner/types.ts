@@ -1,12 +1,20 @@
 import type { AgentKind, Permission, PlanUsage } from '@shared/models'
 import type { RunEventInit } from '@shared/events'
 
+/**
+ * opencode CLI의 방언 (`docs/sdlc/opencode-v2/` spec §2-1). 1.x와 2.x는 권한을 넘기는 통로·인자·MCP 설정 모양이 다르다.
+ * **명령을 만드는 쪽만 가른다** — 줄을 읽는 쪽(parseLine)은 두 모양을 다 읽는다.
+ */
+export type OpencodeDialect = 'v1' | 'v2'
+
 export interface PreflightResult {
   ok: boolean
   /** 실행 파일의 절대 경로 (ok일 때) */
   executable?: string
   /** 실패 사유 (ok가 아닐 때) — 사용자에게 그대로 보여준다 */
   reason?: string
+  /** opencode만 싣는다 (ok일 때). 버전을 못 읽었으면 `v1`이다 — 틀린 방언은 실행 직전 확인이 잡는다 (spec FR-2·§2-2) */
+  dialect?: OpencodeDialect
 }
 
 /** run 하나에 발급된 MCP 접속 정보. 호스트가 만들고 실행 서비스가 실어 나른다. */
@@ -40,6 +48,11 @@ export interface ResolvedRunSpec {
   executable: string
   /** MCP를 쓰지 않는 실행(테스트 등)이면 null */
   mcp: McpRunConfig | null
+  /**
+   * opencode의 방언 — preflight가 정한 것 (opencode-v2 spec FR-3). claude는 null이다. **필수다** — 선택이면 한 자리를 빠뜨려도
+   * 컴파일되고 그 길만 2.x를 1.x 방식으로 띄운다(권한이 통째로 무시된다).
+   */
+  dialect: OpencodeDialect | null
 }
 
 /** 실행 직전 마지막 확인에 필요한 것. preflight는 cwd를 받지 않는다. */
@@ -47,6 +60,16 @@ export interface VerifyRunnableInput {
   executable: string
   cwd: string
   permission: Permission
+  /** opencode의 방언 (opencode-v2 spec FR-3). claude는 null이다. 필수다 — `ResolvedRunSpec.dialect`와 같은 이유 */
+  dialect: OpencodeDialect | null
+  /** 모델과 variant — 2.x는 variant를 `model#variant`로만 넘길 수 있어, 모델 없는 variant를 실행 전에 막는다 (FR-10) */
+  model: string | null
+  effort: string | null
+  /**
+   * 이어 갈 세션 — **launch 시점에 이미 아는 것만** (FR-14). 앞 턴이 아직 돌고 있어 세션이 없으면 null이다(그 세션은 지금
+   * 쓰이는 중이라 없을 수 없다). 2.x의 `--session`은 없는 id로 새 세션을 만들 수 있어 실행 전에 있는지 본다.
+   */
+  resumeSessionId: string | null
 }
 
 export interface SpawnSpec {
@@ -94,4 +117,9 @@ export interface AgentAdapter {
    * 이길 수 없어(설계 §2-3) 이 단계가 필요하다.
    */
   verifyRunnable?(input: VerifyRunnableInput): Promise<PreflightResult>
+  /**
+   * 통과한 preflight에 붙일 안내 (docs/sdlc/opencode-v2/ spec FR-8a). 실행은 되지만 사람이 미리 알아야 하는 제약이 있으면
+   * 그 문장, 없으면 null. 설정 화면의 느린 칸이 부른다 — 프로세스를 띄울 수 있다.
+   */
+  statusNote?(preflight: PreflightResult): Promise<string | null>
 }

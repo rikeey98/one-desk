@@ -204,3 +204,34 @@ describe('checkAuth — 공통', () => {
     expect(spy).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('checkAuth — opencode 2.x (docs/sdlc/opencode-v2/ FR-11·23)', () => {
+  it('사설 서버로 묻는다 — --standalone이 없으면 2.x가 백그라운드 서비스를 띄우고 남긴다', async () => {
+    const { run, calls } = stub(ok('No authenticated integrations\n'))
+    await checkAuth('opencode', '/bin/opencode', run, 'v2')
+    expect(calls[0]!.args).toEqual(['auth', 'list', '--standalone'])
+  })
+
+  it('"No authenticated integrations"는 none이다 (2.0.18·2.3.2 실측 문구)', async () => {
+    const { run } = stub(ok('No authenticated integrations\n'))
+    const auth = await checkAuth('opencode', '/bin/opencode', run, 'v2')
+    expect(auth.state).toBe('none')
+    if (auth.state === 'none') expect(auth.hint).toContain('opencode auth login')
+  })
+
+  it('읽지 못한 출력은 unknown이다 — 로그인된 2.x의 모양은 실측하지 못했다', async () => {
+    const { run } = stub(ok('OpenRouter  api key\nAnthropic  oauth\n'))
+    expect((await checkAuth('opencode', '/bin/opencode', run, 'v2')).state).toBe('unknown')
+  })
+
+  it('1.x는 그대로 옵션 없이 묻는다', async () => {
+    const { run, calls } = stub(ok(OPENCODE_EMPTY))
+    await checkAuth('opencode', '/bin/opencode', run, 'v1')
+    expect(calls[0]!.args).toEqual(['auth', 'list'])
+  })
+
+  it('1.x 방언에서는 2.x 문구를 none으로 읽지 않는다 — 방언이 판정을 가른다', async () => {
+    const { run } = stub(ok('No authenticated integrations\n'))
+    expect((await checkAuth('opencode', '/bin/opencode', run, 'v1')).state).toBe('unknown')
+  })
+})

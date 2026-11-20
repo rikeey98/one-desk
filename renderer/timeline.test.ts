@@ -109,7 +109,9 @@ describe('toolLabelOf', () => {
       ['task', '하위 에이전트', 'subagent'], ['agent', '하위 에이전트', 'subagent'],
       ['skill', '스킬', 'other'],
       // conversation-events FR-42 — Windows의 claude 셸, opencode의 패치
-      ['powershell', '셸', 'shell'], ['apply_patch', '패치', 'edit']
+      ['powershell', '셸', 'shell'], ['apply_patch', '패치', 'edit'],
+      // opencode 2.x (docs/sdlc/opencode-v2/ FR-17) — 셸의 이름이 shell이다. 빠지면 2.x의 셸 줄만 영어 이름으로 묶음 밖에 선다
+      ['shell', '셸', 'shell'], ['execute', '코드 실행', 'other'], ['subagent', '하위 에이전트', 'subagent']
     ]
     for (const [name, label, category] of table) {
       expect(toolLabelOf(name), name).toEqual({ label, category })
@@ -151,6 +153,14 @@ describe('toolSubtitleOf', () => {
     expect(toolSubtitleOf({ file_path: '/repo/src/auth.ts' }, '/repo')).toBe('src/auth.ts')
     expect(toolSubtitleOf({ filePath: '/repo/src/auth.ts' }, '/repo/')).toBe('src/auth.ts')
     expect(toolSubtitleOf({ notebook_path: '/repo/a.ipynb' }, '/repo')).toBe('a.ipynb')
+  })
+
+  it('opencode 2.x의 path도 파일 경로다 — 다만 검색어가 있으면 검색어가 먼저다 (docs/sdlc/opencode-v2/ FR-15)', () => {
+    // 2.x의 read·edit·write는 경로를 `path`로 준다. 빠지면 읽기 줄이 "읽기"뿐이다(e2e로 찾았다).
+    expect(toolSubtitleOf({ path: 'src/auth.ts' }, '/repo')).toBe('src/auth.ts')
+    expect(toolSubtitleOf({ path: '/repo/src/auth.ts', oldString: 'a', newString: 'b' }, '/repo')).toBe('src/auth.ts')
+    // grep·glob의 `path`는 찾는 자리다 — 줄의 주어는 검색어다(claude의 Grep·Glob도 같은 모양이다)
+    expect(toolSubtitleOf({ pattern: 'expiresAt', path: '/repo/src' }, '/repo')).toBe('expiresAt')
   })
 
   it('Windows 경로 — 구분자와 드라이브 글자의 대소문자를 같게 본다', () => {

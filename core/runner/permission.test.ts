@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { claudeCodePermissionArgs, opencodePermissionConfig, OPENCODE_PERMISSION_KEYS } from './permission'
+import {
+  claudeCodePermissionArgs, opencodePermissionConfig, opencodeV2Config, opencodeV2Rules, OPENCODE_PERMISSION_KEYS
+} from './permission'
 import { MCP_SERVER_NAME } from '../mcp/configFile'
 import type { Permission } from '@shared/models'
 
@@ -195,5 +197,63 @@ describe('opencodePermissionConfig', () => {
     expect(opencodePermissionConfig('read_only')['question']).toBe('deny')
     expect(opencodePermissionConfig('edit')['question']).toBe('deny')
     expect(opencodePermissionConfig('full')['question']).toBe('allow')
+  })
+})
+
+describe('opencodeV2Rules — 2.x의 규칙 목록 (opencode-v2 spec FR-4)', () => {
+  const show = (p: Permission) => opencodeV2Rules(p).map((r) => `${r.action} ${r.resource} ${r.effect}`)
+  const MCP = `${MCP_SERVER_NAME}_*`
+
+  it('읽기 전용은 전부 막고 읽는 도구와 one-desk MCP만 연다', () => {
+    expect(show('read_only')).toEqual([
+      '* * deny',
+      'read * allow', 'grep * allow', 'glob * allow', 'webfetch * allow', 'websearch * allow',
+      `${MCP} * allow`
+    ])
+  })
+
+  it('편집 허용은 읽기 전용에 edit 하나만 더한다 — 셸은 여전히 없다', () => {
+    // 2.x의 edit action은 edit·write 두 도구를 연다(실측). shell·execute·subagent는 첫 규칙의 deny에 남는다.
+    expect(show('edit')).toEqual([...show('read_only'), 'edit * allow'])
+    for (const action of ['shell', 'execute', 'subagent', 'skill', 'external_directory']) {
+      expect(show('edit').some((r) => r.startsWith(`${action} `)), action).toBe(false)
+    }
+  })
+
+  it('전체 허용은 규칙 하나다 — --auto에 기대지 않는다 (FR-7)', () => {
+    expect(show('full')).toEqual(['* * allow'])
+  })
+
+  it.each(ALL)('%s: ask가 없고 resource는 전부 *다', (p) => {
+    // 2.x의 ask는 샌다 — 셸이 명령에서 resource를 못 뽑으면 묻지 않고 실행한다(spec 0-2). resource를 좁힌 deny도 같은 길로 샌다.
+    for (const rule of opencodeV2Rules(p)) {
+      expect(rule.effect === 'allow' || rule.effect === 'deny', `${p}: ${rule.action}`).toBe(true)
+      expect(rule.resource).toBe('*')
+    }
+  })
+
+  it.each(['read_only', 'edit'] as const)('%s의 첫 규칙이 * deny다 — 뒤가 이기는 목록이라 앞의 것을 전부 덮는다', (p) => {
+    expect(opencodeV2Rules(p)[0]).toEqual({ action: '*', resource: '*', effect: 'deny' })
+  })
+
+  it('MCP 키는 서버 이름에서 만든다 — 리터럴이면 이름을 바꾼 날 조용히 닫힌다', () => {
+    const actions = opencodeV2Rules('read_only').map((r) => r.action)
+    expect(actions).toContain(`${MCP_SERVER_NAME}_*`)
+    expect(actions.filter((a) => a.endsWith('_*'))).toHaveLength(1)
+  })
+})
+
+describe('opencodeV2Config — 두 자리 (opencode-v2 spec FR-5)', () => {
+  it.each(ALL)('%s: 최상위와 agents.build에 같은 목록을 넣는다', (p) => {
+    // 프로젝트의 agents.build.permissions는 환경변수의 최상위 규칙 뒤에 붙는다(spec 0-1 — 실측한 구멍).
+    // 같은 목록을 agent 자리에도 넣어야 그 뒤에 다시 붙어 덮는다.
+    const config = opencodeV2Config(p)
+    expect(config.permissions).toEqual(opencodeV2Rules(p))
+    expect(config.agents.build.permissions).toEqual(opencodeV2Rules(p))
+    expect(Object.keys(config.agents)).toEqual(['build'])
+  })
+
+  it('규칙 말고는 아무것도 싣지 않는다 — 환경변수는 agent의 셸 자식에게 물려진다 (FR-12)', () => {
+    expect(Object.keys(opencodeV2Config('read_only')).sort()).toEqual(['agents', 'permissions'])
   })
 })

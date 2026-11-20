@@ -75,7 +75,7 @@ async function call(
   workspaceId: string, name: string, args: unknown = {}, permission: Permission = 'read_only'
 ): Promise<{ text: string; isError: boolean }> {
   const runId = `run-${name}-${Math.random()}`
-  const p = await f.host.prepare({ runId, rootRunId: runId, workspaceId, permission, agentKind: 'claude-code', env: HOST_ENV })
+  const p = await f.host.prepare({ runId, rootRunId: runId, workspaceId, permission, agentKind: 'claude-code', dialect: null, env: HOST_ENV })
   const res = await rpc(p.url, p.token, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })
   const result = res.json.result
   return { text: result.content[0].text, isError: result.isError === true }
@@ -88,7 +88,7 @@ const rows = async (name: string, args: unknown = {}) => {
 }
 
 async function toolNames(workspaceId: string, permission: Permission): Promise<string[]> {
-  const p = await f.host.prepare({ runId: `list-${permission}`, rootRunId: `list-${permission}`, workspaceId, permission, agentKind: 'claude-code', env: HOST_ENV })
+  const p = await f.host.prepare({ runId: `list-${permission}`, rootRunId: `list-${permission}`, workspaceId, permission, agentKind: 'claude-code', dialect: null, env: HOST_ENV })
   const res = await rpc(p.url, p.token, { jsonrpc: '2.0', id: 1, method: 'tools/list' })
   return res.json.result.tools.map((t: { name: string }) => t.name).sort()
 }

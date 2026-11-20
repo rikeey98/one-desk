@@ -7,6 +7,7 @@ import { buildWorkspaceServer, type McpHostDeps } from './tools'
 import { buildAllServer } from './allTools'
 import { clearMcpConfigs, MCP_SERVER_NAME, removeMcpConfig, writeMcpConfig } from './configFile'
 import type { ProcessEnvSpec } from '../wsl/env'
+import type { OpencodeDialect } from '../runner/types'
 import { consoleErrorSink, type ErrorSink } from '../errors'
 import type { AgentKind, McpStatus, Permission } from '@shared/models'
 
@@ -26,6 +27,8 @@ export interface RunContext {
   permission: Permission
   /** 설정 파일 형식이 CLI마다 다르다. */
   agentKind: AgentKind
+  /** opencode면 그 방언 — 설정 파일의 모양이 1.x와 2.x가 다르다 (opencode-v2 FR-13). claude는 null. 필수다 */
+  dialect: OpencodeDialect | null
   /** 어디서 뜨나 — wsl이면 설정 파일의 경로가 전부 Linux 경로다 (wsl-support FR-21). 필수다 */
   env: ProcessEnvSpec
 }
@@ -187,7 +190,7 @@ export function createMcpHost(opts: McpHostOptions) {
             opts.toLinux(distro, opts.execPath),
             opts.toLinux(distro, join(opts.configDir, `${ctx.runId}.json`))
           ])
-          writeMcpConfig(opts.configDir, ctx.runId, target, ctx.agentKind, { command })
+          writeMcpConfig(opts.configDir, ctx.runId, target, ctx.agentKind, ctx.dialect, { command })
           // claude에 넘기는 `--mcp-config`는 WSL 안의 경로다
           return { token, url, configFile }
         } catch (err) {
@@ -195,7 +198,7 @@ export function createMcpHost(opts: McpHostOptions) {
           throw err
         }
       }
-      const configFile = writeMcpConfig(opts.configDir, ctx.runId, target, ctx.agentKind)
+      const configFile = writeMcpConfig(opts.configDir, ctx.runId, target, ctx.agentKind, ctx.dialect)
       return { token, url, configFile }
     },
 

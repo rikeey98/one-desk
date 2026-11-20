@@ -8,7 +8,7 @@ import type { FileService, ResolvedMentions } from './files/service'
 import type { FinishRunInput, RunRepository } from './db/repositories/run'
 import type { RunManager, StartSpec } from './runner/manager'
 import type { RunQueue } from './runner/queue'
-import type { McpRunConfig, PreflightResult, VerifyRunnableInput } from './runner/types'
+import type { McpRunConfig, OpencodeDialect, PreflightResult, VerifyRunnableInput } from './runner/types'
 import { MCP_SERVER_NAME, type McpHost } from './mcp/host'
 import { consoleErrorSink, NotFoundError, type ErrorSink } from './errors'
 import type { AgentKind, Asset, ContextItemRef, Permission, ResumeRunInput, Run, StartRunInput } from '@shared/models'
@@ -215,6 +215,8 @@ export function createExecutionService(opts: ExecutionOptions) {
     permission: Permission
     prompt: string
     executable: string
+    /** opencode의 방언 — preflight가 정한 것 (opencode-v2 FR-3) */
+    dialect: OpencodeDialect | null
     /** 어디서 띄우나 — cwd의 repo가 정한다 (wsl-support FR-8) */
     env: ProcessEnvSpec
     /** wsl이면 런처 둘의 Linux 경로와 pidfile의 Windows 경로 (FR-10·18) */
@@ -304,6 +306,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       prompt: spec.prompt,
       resumeSessionId,
       executable: spec.executable,
+      dialect: spec.dialect,
       env: spec.env,
       ...(spec.launcher ? { launcher: spec.launcher } : {}),
       // 이 한 줄이 빠지면 MCP가 통째로 꺼진다.
@@ -465,6 +468,20 @@ export function createExecutionService(opts: ExecutionOptions) {
   }
 
   /**
+   * 이어 갈 대화의 세션 id — **지금 이미 아는 것만** (opencode-v2 FR-14). 실행 직전 확인이 "그 세션이 CLI에 있는가"를 보는
+   * 재료다. 앞 턴이 아직 돌고 있어 세션을 못 남겼으면 null이고, 그때는 확인을 건너뛴다(그 세션은 지금 쓰이는 중이다). 세션을
+   * 실제로 고르는 자리는 여전히 beginRun이다 — 조회가 실패해도 여기서는 삼킨다(그쪽이 같은 조회를 하고 이유를 남긴다).
+   */
+  function knownSessionOf(rootRunId: string | null): string | null {
+    if (!rootRunId) return null
+    try {
+      return opts.runs.latestSessionRun(rootRunId)?.externalSessionId ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /**
    * launch의 뒷부분 — 행을 만든 뒤 실행 파일 확인·실행 전 확인·MCP 준비를 거쳐 큐에 넣는다.
    *
    * **await 뒤마다(그리고 enqueue 직전에) 취소 요청을 먼저 본다** (spec FR-7). 요청이
@@ -494,6 +511,8 @@ export function createExecutionService(opts: ExecutionOptions) {
     }
 
     const executable = preflight.executable
+    // 방언은 preflight가 정하고 여기서부터 필수로 흐른다 (opencode-v2 FR-3). claude와 WSL 판정은 싣지 않는다 — null.
+    const dialect = preflight.dialect ?? null
 
     // preflight와 같은 자리에 두는 이유도 같다 — 확인되지 않은 run이 포트를
     // 열거나 슬롯을 잡았다 놓는 낭비를 만들지 않고, startedAt이 null인 실패로 남는다.
@@ -501,7 +520,11 @@ export function createExecutionService(opts: ExecutionOptions) {
       const verified = await opts.verifyRunnable(spec.agentKind, {
         executable,
         cwd: spec.cwd,
-        permission: spec.permission
+        permission: spec.permission,
+        dialect,
+        model: spec.model,
+        effort: spec.effort,
+        resumeSessionId: knownSessionOf(spec.resumeFromRootRunId)
       })
       if (cancelRequested()) return finishUnstarted(created.id)
       if (!verified.ok) {
@@ -531,6 +554,7 @@ export function createExecutionService(opts: ExecutionOptions) {
           workspaceId: spec.workspaceId,
           permission: spec.permission,
           agentKind: spec.agentKind,
+          dialect,
           env: envOfCwd(spec)
         })
         mcp = { serverName: MCP_SERVER_NAME, ...prepared }
@@ -587,6 +611,7 @@ export function createExecutionService(opts: ExecutionOptions) {
       permission: spec.permission,
       prompt: assembled,
       executable,
+      dialect,
       env,
       launcher,
       mcp,

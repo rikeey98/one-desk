@@ -126,3 +126,64 @@ export function opencodePermissionConfig(
   if (permission === 'edit') config['edit'] = 'allow'
   return config
 }
+
+/** opencode 2.x의 권한 규칙 하나. **`ask`가 없고 resource는 `*`뿐이다** — 둘 다 타입이다 (opencode-v2 spec FR-4) */
+export interface OpencodeRule {
+  action: string
+  /**
+   * 늘 전체다. 2.x의 판정은 도구가 뽑아 준 resource마다 규칙을 보는데, 뽑을 것이 없으면(셸의 `exit 3`) 볼 규칙도 없어
+   * 통과한다(spec 0-2 실측) — 좁힌 resource의 deny는 샌다. action 전체를 막으면 그 도구가 모델에게서 사라진다.
+   */
+  resource: '*'
+  effect: 'allow' | 'deny'
+}
+
+const rule = (action: string, effect: OpencodeRule['effect']): OpencodeRule => ({ action, resource: '*', effect })
+
+/**
+ * 읽기 전용에서 살려두는 2.x action. 2.3.2의 도구 목록(전부 허용으로 실측)에서 파일·프로세스를 건드리지 않는 것이다 —
+ * 1.x의 `list`·`lsp`·`todowrite`에 해당하는 도구는 2.x에 없다(plan §0).
+ */
+const OPENCODE_V2_READ_ACTIONS = ['read', 'grep', 'glob', 'webfetch', 'websearch']
+
+/**
+ * 권한 단계를 opencode 2.x의 규칙 목록으로 바꾼다 (opencode-v2 spec FR-4).
+ *
+ * **순서가 뜻이다** — 2.x는 뒤에 온 규칙이 이긴다. 첫 규칙 `* deny`가 앞선 출처(agent 기본값·프로젝트 설정)를 전부 덮고,
+ * 그 뒤의 allow가 다시 여는 것만 남는다. 1.x처럼 키를 전부 적을 필요가 없다.
+ *
+ * - `edit` 하나가 edit·write 두 도구를 연다(실측). 편집 허용에도 `shell`·`execute`는 없다 (전체 설계 §7).
+ * - one-desk MCP 도구는 action이 `<서버>_<도구>`다 — 와일드카드로 그 서버만 연다(1.x의 `ONE_DESK_MCP_KEY`와 같은 모양).
+ * - 전체 허용은 `* allow` 하나다. `--auto`를 붙이지 않는다(FR-7) — 권한의 출처가 이 목록 하나다.
+ */
+export function opencodeV2Rules(permission: Permission): OpencodeRule[] {
+  if (permission === 'full') return [rule('*', 'allow')]
+  const rules = [
+    rule('*', 'deny'),
+    ...OPENCODE_V2_READ_ACTIONS.map((action) => rule(action, 'allow')),
+    rule(ONE_DESK_MCP_KEY, 'allow')
+  ]
+  if (permission === 'edit') rules.push(rule('edit', 'allow'))
+  return rules
+}
+
+/** 우리가 못박는 agent. run은 늘 `--agent build`로 뜬다 (opencode-v2 spec FR-6) */
+export const OPENCODE_V2_AGENT = 'build'
+
+/**
+ * `OPENCODE_CONFIG_CONTENT`에 실을 객체 (opencode-v2 spec FR-5).
+ *
+ * **같은 목록을 두 자리에 넣는다.** 2.x가 규칙을 붙이는 순서는 agent 기본값 → 프로젝트 최상위 → 환경변수 최상위 →
+ * 프로젝트 `agents.<id>` → 환경변수 `agents.<id>`다(spec 0-1 실측). 최상위에만 넣으면 프로젝트의
+ * `agents.build.permissions`가 우리 deny 뒤에 붙어 셸을 다시 연다. **규칙 말고는 싣지 않는다** — 이 환경변수는 agent의
+ * 셸 도구가 띄우는 자식에게 물려지므로 토큰·URL이 여기 있으면 안 된다(FR-12).
+ */
+export function opencodeV2Config(permission: Permission): {
+  permissions: OpencodeRule[]
+  agents: Record<typeof OPENCODE_V2_AGENT, { permissions: OpencodeRule[] }>
+} {
+  return {
+    permissions: opencodeV2Rules(permission),
+    agents: { [OPENCODE_V2_AGENT]: { permissions: opencodeV2Rules(permission) } }
+  }
+}

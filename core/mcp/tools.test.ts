@@ -76,7 +76,7 @@ async function call(
 ): Promise<{ text: string; isError: boolean }> {
   const runId = turn.runId ?? `run-${name}-${Math.random()}`
   const p = await f.host.prepare({
-    runId, rootRunId: turn.rootRunId ?? runId, workspaceId, permission, agentKind: 'claude-code', env: HOST_ENV
+    runId, rootRunId: turn.rootRunId ?? runId, workspaceId, permission, agentKind: 'claude-code', dialect: null, env: HOST_ENV
   })
   const res = await rpc(p.url, p.token, {
     jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args }
@@ -86,7 +86,7 @@ async function call(
 }
 
 async function toolNames(workspaceId: string, permission: Permission): Promise<string[]> {
-  const p = await f.host.prepare({ runId: `list-${permission}`, rootRunId: `list-${permission}`, workspaceId, permission, agentKind: 'claude-code', env: HOST_ENV })
+  const p = await f.host.prepare({ runId: `list-${permission}`, rootRunId: `list-${permission}`, workspaceId, permission, agentKind: 'claude-code', dialect: null, env: HOST_ENV })
   const res = await rpc(p.url, p.token, { jsonrpc: '2.0', id: 1, method: 'tools/list' })
   return res.json.result.tools.map((t: { name: string }) => t.name)
 }
@@ -272,7 +272,7 @@ describe('권한이 도구 등록을 통제한다', () => {
   it('workspace 범위 서버의 tools/list는 홈 대화 이전과 바이트로 같다 (docs/sdlc/home-conversation/ NFR-1)', async () => {
     for (const permission of ['read_only', 'edit', 'full'] as const) {
       const p = await f.host.prepare({
-        runId: `snap-${permission}`, rootRunId: `snap-${permission}`, workspaceId: f.wsA, permission, agentKind: 'claude-code', env: HOST_ENV
+        runId: `snap-${permission}`, rootRunId: `snap-${permission}`, workspaceId: f.wsA, permission, agentKind: 'claude-code', dialect: null, env: HOST_ENV
       })
       const res = await rpc(p.url, p.token, { jsonrpc: '2.0', id: 1, method: 'tools/list' })
       expect(JSON.stringify(res.json.result.tools, null, 2)).toMatchSnapshot(permission)

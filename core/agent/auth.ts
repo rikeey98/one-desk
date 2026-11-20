@@ -1,4 +1,5 @@
 import type { AgentAuth, AgentKind } from '@shared/models'
+import type { OpencodeDialect } from '../runner/types'
 import type { CliOutput, RunCli } from './types'
 
 /** 인증 조회는 값싸다 — 모델을 부르지 않고 파일만 읽는다(실측 0.24초). */
@@ -92,11 +93,20 @@ async function claudeAuth(executable: string, run: RunCli): Promise<AgentAuth> {
  * 묶여 있어 버전이 오르면 깨질 수 있는데, 그때 "자격 증명 0개"라고 적으면
  * 멀쩡한 설치본에 거짓말을 하게 된다.
  */
-async function opencodeAuth(executable: string, run: RunCli): Promise<AgentAuth> {
-  const out = await run({ executable, args: ['auth', 'list'], timeoutMs: TIMEOUT_MS })
+async function opencodeAuth(executable: string, run: RunCli, dialect: OpencodeDialect | null): Promise<AgentAuth> {
+  // 2.x는 `--standalone` 없이 부르면 백그라운드 서비스를 띄우고 남긴다(실측) — one-desk 때문에 서비스가 뜨면 안 된다
+  // (docs/sdlc/opencode-v2/ spec FR-11).
+  const args = dialect === 'v2' ? ['auth', 'list', '--standalone'] : ['auth', 'list']
+  const out = await run({ executable, args, timeoutMs: TIMEOUT_MS })
 
   const problem = launchProblem(out)
   if (problem) return unknown(`자격 증명을 조회하지 못했습니다 (${problem})`)
+
+  // 2.x는 자격 증명이 없으면 이 한 줄을 찍는다(2.0.18·2.3.2 실측). 있을 때의 모양은 실측하지 못했다 — 못 읽으면 아래에서
+  // unknown이다("0개"라고 하지 않는다).
+  if (dialect === 'v2' && /No authenticated integrations/i.test(stripAnsi(out.stdout))) {
+    return { state: 'none', hint: '`opencode auth login`으로 provider에 로그인하세요.' }
+  }
 
   const match = /(\d+)\s+credentials?/i.exec(stripAnsi(out.stdout))
   if (!match) return unknown('자격 증명 목록의 출력을 읽지 못했습니다')
@@ -121,11 +131,13 @@ async function opencodeAuth(executable: string, run: RunCli): Promise<AgentAuth>
 export async function checkAuth(
   kind: AgentKind,
   executable: string,
-  run: RunCli
+  run: RunCli,
+  /** opencode의 방언 — preflight가 정한 것. 2.x면 사설 서버로 묻는다 (opencode-v2 FR-11). claude는 null */
+  dialect: OpencodeDialect | null = null
 ): Promise<AgentAuth> {
   try {
     return kind === 'opencode'
-      ? await opencodeAuth(executable, run)
+      ? await opencodeAuth(executable, run, dialect)
       : await claudeAuth(executable, run)
   } catch (err) {
     return unknown(`인증 상태를 조회하지 못했습니다 (${err instanceof Error ? err.message : String(err)})`)

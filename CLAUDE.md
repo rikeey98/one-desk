@@ -192,7 +192,8 @@ SKILL.md의 frontmatter는 평문 칸으로 뗀다. 그리고 **창을 닫기 �
   exit 1을 못 이긴다. opencode의 `{"type":"error"}` 줄은 실패 이유가 된다.
 - **세션 id는 도는 중에 저장된다**(`saveExternalSessionId`) — 첫 턴이 앱 종료로 끊겨도
   이을 수 있다. 종료 기록의 null은 그 값을 지우지 않는다.
-- **OpenCode 2.x는 preflight가 막는다**(권한 환경변수를 따른다는 보장이 없다). 판정은
+- **OpenCode 2.x는 preflight가 막는다**(권한 환경변수를 따른다는 보장이 없다 — 2026-11-19부터 지원 범위 밖의 버전만 막는다,
+  `docs/sdlc/opencode-v2/`). 판정은
   (경로, 크기, mtime)으로 캐시하되 못 읽은 판정은 캐시하지 않는다.
 - **Windows 취소는 taskkill `/T /F`로 트리째 죽인다.** 앱 종료 경로(`cancelAll`)는 그것을
   기다린다(아래 함정 절).
@@ -586,6 +587,23 @@ workspace만"을 이 대화 하나에 한해 사용자가 뒤집었다(§8에 �
 - App을 그리는 테스트의 가짜 클라이언트에 `workspaces.home`이 있어야 한다(App이 마운트하며 부른다). 가짜 MCP CLI는 `ONE_DESK_FAKE_MCP_CAPTURE`가
   있으면 `{ cwd, argv, result }`를 남긴다 — `e2e/home-conversation.e2e.ts`가 실제 프로세스의 cwd·권한 인자와 두 workspace의 대화를 본다.
 
+**OpenCode 2.x CLI를 지원한다** (`docs/sdlc/opencode-v2/`, 2026-11-19). 마이그레이션·IPC 채널 없음. `conversation-fixes` FR-17의 "2.x는
+막는다"를 뒤집었다 — 막은 이유("권한을 강제할 길이 없다")가 실측에서 틀렸다. 지원 범위는 **1.x(1.4.0 이상)와 2.x(2.0.18 이상)** 이고
+3.x와 2.0.17 이하는 preflight가 막는다. agent 종류는 `opencode` 하나 그대로이고 어댑터 안에 **방언**(`OpencodeDialect` — `v1`·`v2`)이
+생겼다: preflight가 버전으로 정해 결과에 싣고, 실행 서비스가 실행 직전 확인·MCP 준비·manager·`buildCommand`에 **필수 값**으로 넘긴다.
+- **2.x의 권한은 `OPENCODE_CONFIG_CONTENT`의 규칙 목록이다**(`opencodeV2Rules` — 순서가 뜻이고 뒤가 이긴다). 2.x 바이너리에는
+  `OPENCODE_PERMISSION`이라는 글자가 없다. 같은 목록을 **최상위와 `agents.build` 두 자리**에 넣고 run은 늘 `--agent build`다(아래 함정 절).
+- **실행 직전 확인이 긍정 확인이 됐다 — 1.x도.** "ask가 없다"가 아니라 "보낸 권한이 해결된 설정에 그대로 있다"를 본다
+  (`opencode.verify.ts`). 버전을 못 읽어 2.x가 1.x 방식으로 뜨려 하면 여기서 막힌다.
+- **`debug agents --standalone`을 모르는 2.x(2.0.18 — 데스크톱 번들의 CLI)는 전체 허용만 돈다.** 그 바이너리에는 "이 run의 환경으로
+  해결된 권한"을 묻는 길이 없다. 읽기 전용·편집 허용은 실행 전에 실패하고, 설정 화면의 CLI 상태가 미리 말한다(`AgentProbe.note`).
+- 2.x run은 `run --standalone --format json --thinking --agent build`이고 variant는 `-m model#variant`다. `--auto`를 붙이지 않는다
+  (전체 허용도 규칙의 `* allow`다). MCP 설정 파일은 `mcp.servers.<이름>`에 **`codemode: false`** 다.
+- 줄을 읽는 쪽(`parseLine`·detail)은 방언을 가르지 않고 두 모양을 다 읽는다. 픽스처는 진짜 2.0.18·2.3.2의 출력이다
+  (`core/runner/fixtures/opencode-v2/`, 원본과 실측 스크립트는 `docs/sdlc/opencode-v2/probes/`).
+- `e2e/opencode-v2.e2e.ts`와 `core/index.test.ts`의 "opencode 2.x"가 가짜 CLI의 2.x 모드로, `ONE_DESK_REAL_CLI=1 pnpm test realOpencode`가
+  진짜 CLI로 본다(`ONE_DESK_REAL_OPENCODE_PATH`로 바이너리를 고른다).
+
 ## 환경변수 — Windows에서는 해결됐고, `Workspace.env`는 필요 없다
 
 한동안 "5단계 착수 전에 정할 것"으로 잡아두고 **평문 SQLite에 자격 증명을 넣을지**를 막힌 결정으로 남겼던 항목이다. 대상 환경을 실측해 보니 **배관 자체가 불필요했다.**
@@ -921,11 +939,34 @@ junction/심링크가 밖을 가리키는 것을 못 막는다. `..` 검사 테�
 
 **asset 본문은 신뢰할 수 없는 입력이다.** 외부 repo의 SKILL.md를 그대로 화면에 그리고 프롬프트에 싣는다. 조립기는 반드시 이스케이프하고, 화면은 평문으로 그린다. 마크다운은 agent 답과 상세 본문의 읽기 화면(`BodyField`, `item-windows`)에 붙었다 — 둘 다 `renderer/components/Markdown.tsx`를 쓴다(아래 마크다운 항목). 규칙을 우회하는 렌더러를 따로 두지 말 것. 렌더링에 구멍이 있으면 그 스크립트가 preload의 앱 API로 `runs.start({ permission: 'full' })`을 부를 수 있다.
 
-**OpenCode는 설정을 병합하고, 우리가 이길 수 없는 자리가 있다.** 우선순위는 `OPENCODE_PERMISSION` 환경변수 > 프로젝트 `opencode.json` > `OPENCODE_CONFIG`가 가리키는 파일 > 전역 설정이고, `permission` 안에서 키 단위로 합쳐진다. **`"*"`는 구체 키를 이기지 못한다** — 소스 우선순위와 무관하게 구체적인 키가 와일드카드를 이긴다. 그래서 권한은 파일이 아니라 환경변수로 넘기고 알려진 키 15개를 전부 명시한다. 이름을 대지 않은 키는 남의 설정 값이 그대로 산다. **읽기 전용·편집 허용은 one-desk MCP 도구만 하나 더 연다** — `` `${MCP_SERVER_NAME}_*`: "allow" ``(`core/runner/permission.ts`, agent-proposals spec §8의 6). OpenCode는 MCP 도구를 `<서버>_<도구>`로 부르고 `"*": "deny"`가 그것까지 모델에게서 지운다(1.18.30 실측). 키는 서버 이름에서 만든다 — 리터럴로 적으면 서버 이름을 바꾼 날 조용히 닫힌다. 다른 MCP 서버는 열지 않는다. 키 모양을 바꾸면 `ONE_DESK_REAL_CLI=1 ONE_DESK_REAL_OPENCODE_MODEL=opencode/big-pickle pnpm test realOpencode`(기본 read_only, `ONE_DESK_REAL_OPENCODE_PERMISSION`)로 진짜 CLI에서 본다 — 그 둘째 테스트가 bash가 여전히 막혀 있는지 본다.
+**OpenCode는 설정을 병합하고, 우리가 이길 수 없는 자리가 있다.** (1.x 방언의 이야기다 — 2.x는 위의 규칙 목록이다.) 우선순위는 `OPENCODE_PERMISSION` 환경변수 > 프로젝트 `opencode.json` > `OPENCODE_CONFIG`가 가리키는 파일 > 전역 설정이고, `permission` 안에서 키 단위로 합쳐진다. **`"*"`는 구체 키를 이기지 못한다** — 소스 우선순위와 무관하게 구체적인 키가 와일드카드를 이긴다. 그래서 권한은 파일이 아니라 환경변수로 넘기고 알려진 키 15개를 전부 명시한다. 이름을 대지 않은 키는 남의 설정 값이 그대로 산다. **읽기 전용·편집 허용은 one-desk MCP 도구만 하나 더 연다** — `` `${MCP_SERVER_NAME}_*`: "allow" ``(`core/runner/permission.ts`, agent-proposals spec §8의 6). OpenCode는 MCP 도구를 `<서버>_<도구>`로 부르고 `"*": "deny"`가 그것까지 모델에게서 지운다(1.18.30 실측). 키는 서버 이름에서 만든다 — 리터럴로 적으면 서버 이름을 바꾼 날 조용히 닫힌다. 다른 MCP 서버는 열지 않는다. 키 모양을 바꾸면 `ONE_DESK_REAL_CLI=1 ONE_DESK_REAL_OPENCODE_MODEL=opencode/big-pickle pnpm test realOpencode`(기본 read_only, `ONE_DESK_REAL_OPENCODE_PERMISSION`)로 진짜 CLI에서 본다 — 그 둘째 테스트가 bash가 여전히 막혀 있는지 본다.
 
 **OpenCode는 설정이 잘못돼도 조용히 무시한다.** `OPENCODE_CONFIG`가 없는 파일을 가리켜도, 거기에 인라인 JSON을 넣어도(경로만 받는다), `OPENCODE_PERMISSION`이 깨진 JSON이어도 **종료 코드 0으로 사용자 설정에 그대로 되돌아간다.** 셋 다 결과가 같다 — 사용자 설정의 `ask`가 살아남는다. **1.18.x의 `run`은 그 `ask`를 자동 거부하고 조용히 exit 0으로 끝난다**(남는 것은 도구 실패뿐이다 — 소스 `run.ts` v1.18.30:801-822, 1.18.27과 바이트 동일). 예전에 여기 적혀 있던 "헤드리스 실행이 영원히 멈추고 슬롯을 점유한다"는 틀린 서술이었다(2026-09-27 정정, `docs/sdlc/conversation-fixes/` FR-14). 멈추지 않는 대신 **agent가 그 도구를 못 쓴 run이 성공으로 기록되고** 사용자는 이유를 알 길이 없다. `opencodeAdapter.verifyRunnable`이 실행 직전에 해결된 설정을 다시 읽어 `ask`가 남았는지 보는 이유이고, 그것을 실행 전의 명시적 실패로 바꾸므로 그 검사는 여전히 선택이 아니다.
 
-**OpenCode 2.x CLI는 preflight가 막는다 — 권한 정책이 조용히 무시될 수 있다** (`docs/sdlc/conversation-fixes/` FR-17). 데스크톱 번들의 `opencode-cli.exe` 2.0.18을 경로로 주면 `--variant`가 없고 바이너리에 `OPENCODE_PERMISSION` 문자열조차 없다 — **읽기 전용 run이 파일을 고칠 수 있다.** 그래서 preflight가 `--version` 첫 줄의 major를 보고 2 이상이면 거부한다(명시 경로와 PATH 탐색이 합류한 뒤, `.cmd` 거부 다음 — 한쪽 갈래에만 두면 다른 쪽으로 샌다). 버전을 못 읽으면 막지 않는다(게이트 전의 동작). 판정은 (경로, 크기, mtime)으로 **프로미스째** 캐시해 동시에 들어온 조회도 프로세스를 한 번만 띄운다. **못 읽은 판정(실패·시간 초과)은 캐시에서 뺀다** — 통과(fail-open)가 굳으면 Windows 백신이 새 바이너리의 첫 실행을 붙잡은 한 번의 시간 초과가 앱이 사는 동안 2.x 차단을 꺼 둔다. 되살리면 `opencode.version.test.ts`의 "못 읽은 판정은 캐시하지 않는다"가 빨개진다. **`--version`을 띄울 때도 stdin을 닫고 `agentCommand`를 거친다** — 닫지 않으면 stdin을 기다리는 CLI가 5초 타임아웃까지 매달리고, 런처 없이는 가짜 CLI(`.mjs`)가 Windows에서 뜨지 않는다. e2e에서는 두 agent가 모두 가짜 CLI에 물려 있어 설정 화면이 열리면 `node fake-claude.mjs --version`이 한 번 돈다 — 기본 시나리오를 찍으므로(버전이 아니다) 통과하고, `ONE_DESK_FAKE_DELAY_MS`만큼 첫 `checkAgents`가 늦어지며, `ONE_DESK_*_CAPTURE`를 세운 테스트라면 그 파일을 덮는다. **가짜 CLI가 `--version`에 버전 문자열을 찍게 "고치지" 말 것** — 2.x 모양이면 게이트가 e2e의 opencode 실행을 전부 막는다. 2.0.18의 `--version` 출력 형식은 실측하지 않았다 — 파서가 받는 것은 첫 줄의 `[opencode ]v?X.Y.Z`뿐이라 형식이 다르면 "못 읽음 → 통과"로 게이트가 무력해진다.
+**OpenCode 2.x의 권한 규칙은 두 자리에 넣고 agent를 못박는다 — 한 자리만 빠져도 프로젝트 설정이 읽기 전용을 연다**
+(`docs/sdlc/opencode-v2/` spec 0-1·FR-5·6, 진짜 2.0.18·2.3.2 실측). 2.x는 규칙이 순서 있는 목록이고 **뒤가 이긴다.** 붙는 순서는
+agent 기본값 → 프로젝트 최상위 `permissions` → 환경변수 최상위 → **프로젝트 `agents.<id>.permissions`** → 환경변수 `agents.<id>` →
+agent 꼬리다. 그래서 환경변수의 최상위에만 `* deny`를 넣으면 프로젝트의 `agents.build.permissions: [shell allow]`가 그 뒤에 붙어 셸이
+열리고, `default_agent`로 다른 agent를 지정하면 우리 규칙이 없는 agent로 돈다(둘 다 파일이 만들어지는 것까지 실측). `opencodeV2Config`의
+`agents.build`를 빼거나 `buildCommand`의 `--agent build`를 빼면 `permission.test`·`opencode.command.test`·가짜 CLI(exit 2)·
+`realOpencode`의 3·4번이 빨개진다. 조용히 깨지는 것 여섯. (1) **규칙의 `ask`와 좁힌 resource는 샌다** — `* * ask` 아래에서 `exit 3`이 묻지
+않고 실행됐다(셸이 명령에서 resource를 못 뽑으면 볼 규칙이 없다). action 전체를 `deny`하면 도구가 모델에게서 사라진다 — 그래서
+`OpencodeRule`의 타입에 `ask`가 없고 resource가 리터럴 `'*'`다. (2) **`--standalone`을 빼면 2.x가 백그라운드 서비스를 띄우고 남긴다** —
+run뿐 아니라 `auth list`·`models`·`debug agents`·`api`도 그렇다(`--version`만 무관). 서비스에 붙은 조회는 **서비스가 뜰 때의 환경**으로
+답해 우리 환경변수를 보지 않는다. (3) **`debug agents`가 `Unrecognized flag: --standalone`으로 거부하면 "확인할 수 없는 바이너리"다**
+(`capabilityOf` — 2.0.18). 다른 실패를 그것으로 치지 말 것: 시간 초과 한 번이 읽기 전용을 막거나 진짜 오류가 "전체 허용만"으로 뭉개진다.
+`unverifiable`만 (경로, 크기, mtime)으로 기억하고, `verifiable`은 턴마다 다시 읽는다(프로젝트 설정이 턴 사이에 바뀐다 — OpenCode 턴마다
+1.4~1.8초). (4) **MCP 서버의 `codemode: false`를 지우지 말 것** — 기본값이면 MCP 도구가 `execute` 도구의 JS 코드로만 불려, 2.0.18의 읽기
+전용에서는 사라지고 전체 허용에서는 대화록에 `execute` 한 줄로 보인다. (5) **2.3.2의 `--session`은 없는 id로 새 세션을 만든다** — 실행
+직전 확인이 `api --standalone session.get`으로 먼저 본다. 확인하는 것은 launch 시점에 이미 아는 세션뿐이다(`knownSessionOf` — 앞 턴이
+아직 돌고 있으면 그 세션은 쓰이는 중이라 건너뛴다). (6) **2.x의 줄은 모양이 다르다** — 호출 id가 `part.id`(`callID`가 없다), 경로가
+`input.path`, 세부가 한 겹 안쪽(`state.metadata.metadata`), 편집이 `files[]`, `execute`는 안쪽이 실패해도 `status: completed`다. 화면도
+`path`를 읽는다(`renderer/timeline.ts`의 부제 — 검색어 뒤에 본다. e2e가 찾았다). 가짜 opencode의 2.x 모드
+(`ONE_DESK_FAKE_OPENCODE_VERSION`)는 진짜와 뜻이 다른 호출을 exit 2로 거부한다 — 받아 주게 "고치지" 말 것. 무료 모델
+(`opencode/*`)은 계정 단위 한도가 있다: 2.x는 오류 줄을 내고 끝나지만 **1.18.30은 아무것도 찍지 않고 매달린다**.
+
+**지원 범위 밖의 OpenCode는 preflight가 막는다 — 권한 정책이 조용히 무시될 수 있다** (`docs/sdlc/conversation-fixes/` FR-17, 범위는
+`docs/sdlc/opencode-v2/` FR-1: 1.x는 1.4.0 이상, 2.x는 2.0.18 이상, 3.x는 막는다. 아래의 "2.x를 막는다"는 그 범위 밖의 이야기로 읽는다). 데스크톱 번들의 `opencode-cli.exe` 2.0.18을 경로로 주면 `--variant`가 없고 바이너리에 `OPENCODE_PERMISSION` 문자열조차 없다 — **읽기 전용 run이 파일을 고칠 수 있다.** 그래서 preflight가 `--version` 첫 줄의 major를 보고 2 이상이면 거부한다(명시 경로와 PATH 탐색이 합류한 뒤, `.cmd` 거부 다음 — 한쪽 갈래에만 두면 다른 쪽으로 샌다). 버전을 못 읽으면 막지 않는다(게이트 전의 동작). 판정은 (경로, 크기, mtime)으로 **프로미스째** 캐시해 동시에 들어온 조회도 프로세스를 한 번만 띄운다. **못 읽은 판정(실패·시간 초과)은 캐시에서 뺀다** — 통과(fail-open)가 굳으면 Windows 백신이 새 바이너리의 첫 실행을 붙잡은 한 번의 시간 초과가 앱이 사는 동안 2.x 차단을 꺼 둔다. 되살리면 `opencode.version.test.ts`의 "못 읽은 판정은 캐시하지 않는다"가 빨개진다. **`--version`을 띄울 때도 stdin을 닫고 `agentCommand`를 거친다** — 닫지 않으면 stdin을 기다리는 CLI가 5초 타임아웃까지 매달리고, 런처 없이는 가짜 CLI(`.mjs`)가 Windows에서 뜨지 않는다. e2e에서는 두 agent가 모두 가짜 CLI에 물려 있어 설정 화면이 열리면 `node fake-claude.mjs --version`이 한 번 돈다 — 기본 시나리오를 찍으므로(버전이 아니다) 통과하고, `ONE_DESK_FAKE_DELAY_MS`만큼 첫 `checkAgents`가 늦어지며, `ONE_DESK_*_CAPTURE`를 세운 테스트라면 그 파일을 덮는다. **가짜 CLI가 `--version`에 버전 문자열을 찍게 "고치지" 말 것** — 2.x 모양이면 게이트가 e2e의 opencode 실행을 전부 막는다. 2.0.18의 `--version` 출력 형식은 실측하지 않았다 — 파서가 받는 것은 첫 줄의 `[opencode ]v?X.Y.Z`뿐이라 형식이 다르면 "못 읽음 → 통과"로 게이트가 무력해진다.
 
 **`agentCommand`는 실행 환경(`ProcessEnvSpec`)을 필수로 받는다 — 선택으로 되돌리지 말 것** (`docs/sdlc/wsl-support/` FR-9).
 WSL repo의 프로세스는 `wsl.exe -d <distro>` 안에서 떠야 하는데, 선택이면 호출 자리 하나만 빠뜨려도 조용히 컴파일되고 그
@@ -1379,6 +1420,7 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/context-pick/` | 대화에 담는 버튼 — spec. 왼쪽 동그라미를 줄 끝의 글자 버튼으로 옮긴 이유(FR-1·2), 열린 항목의 헤더에서 담기(FR-3), 비교한 시안(§2) |
 | `docs/sdlc/issue-flow/` | 이슈 흐름 — intent·spec·plan. 새 대화의 작업 디렉토리가 이슈의 repo를 따르는 규칙(spec FR-1~4, 구현됨), 대화를 끝낼 때 이슈 완료 묻기·MCP 쓰기 범위·agent의 이슈 정리 제안(§(B) 이후, 아직 구현하지 않음), 뒤집은 결정과 우려(§6) |
 | `docs/sdlc/background-wait/` | 답을 낸 뒤 백그라운드 작업을 기다리는 턴 — spec. claude -p가 `result` 뒤에도 프로세스를 붙잡는 실측(§0), 이유를 보여 주기만 하는 결정(§2·§3), 재지 않은 것(§0) |
+| `docs/sdlc/opencode-v2/` | OpenCode 2.x CLI 지원 — intent·spec·plan과 `probes/`(실측 스크립트·원본 출력). 2.x의 권한 통로와 규칙이 붙는 순서(spec 0-1 — 구멍 둘과 막는 방법), action 이름과 `ask`가 새는 실측(0-2), 줄 모양(0-3), 2.0.18과 다른 점과 확인할 길이 없는 이유(0-5), 방언과 긍정 확인(§2), 규칙·두 자리·agent 고정·확인(FR-4~9), 확인할 수 없는 바이너리는 전체 허용만(FR-8a·§5의 4 — 사용자 결정). plan에 0단계 실측·변이 표·완료 증명 |
 | `docs/backlog.md` | **백로그** — 설계를 바꾸지 않고 할 수 있는데 아직 손대지 않은 작업. 착수하면 `docs/sdlc/<기능>/`로 뗀다 |
 | `docs/ideas.md` | **아이디어 창고** — 하기로 정하지 않은 생각을 던져 두는 곳. 할 일이 아니다. 꺼내 쓰면 백로그나 `docs/sdlc/`로 옮기고 지운다 |
 | `docs/windows-setup.md` | **Windows 개발 환경 이관 가이드** — 빌드 도구(VS 2022 고정), 앱 데이터 옮기기와 경로 재지정(§4), Windows에서 다르게 도는 것(§5), git이 안 실어 나르는 것(§6) |

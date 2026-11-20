@@ -1,5 +1,5 @@
 import type { AgentAuth, AgentKind, AgentModel, AgentProbe, AgentProbes } from '@shared/models'
-import type { PreflightResult } from '../runner/types'
+import type { OpencodeDialect, PreflightResult } from '../runner/types'
 import { HOST_ENV, type ProcessEnvSpec } from '../wsl/env'
 
 /**
@@ -13,14 +13,21 @@ export interface AgentProbeDeps {
    * 넘긴다 — 판정이 repo(실행 환경)마다 다르다. host 칸은 null이다.
    */
   preflight: (kind: AgentKind, workspaceId: string, cwd: string | null) => Promise<PreflightResult>
-  checkAuth: (kind: AgentKind, executable: string, env: ProcessEnvSpec) => Promise<AgentAuth>
+  /** `dialect`는 preflight가 정한 opencode의 방언이다 — 2.x의 조회는 사설 서버로 한다 (opencode-v2 FR-11). 필수다 */
+  checkAuth: (kind: AgentKind, executable: string, env: ProcessEnvSpec, dialect: OpencodeDialect | null) => Promise<AgentAuth>
   /** 슬래시 커맨드 probe가 실어 온 것. **캐시를 그쪽과 공유한다** */
   agentInfo: (input: { workspaceId: string; cwd: string }) => Promise<{
     model: string | null
     version: string | null
     error: string | null
   }>
-  listModels: (kind: AgentKind, executable: string) => Promise<string[]>
+  listModels: (kind: AgentKind, executable: string, dialect: OpencodeDialect | null) => Promise<string[]>
+  /**
+   * 통과한 실행 파일에 붙일 안내 (opencode-v2 FR-8a) — 실행 직전 확인을 못 하는 2.x면 "전체 허용만 실행됩니다". 없으면 null.
+   * **필수다** — 빠지면 그 버전의 사람이 실행 버튼을 누른 뒤에야 막힌 것을 안다. 프로세스를 한 번 띄우므로 빠른 칸
+   * (`checkAgents`)이 아니라 여기서 묻는다.
+   */
+  statusNote: (kind: AgentKind, preflight: PreflightResult) => Promise<string | null>
   /**
    * probe를 돌릴 cwd. 실행 패널이 쓰는 것과 같아야 한다 — repo의
    * `.claude/settings.json`이 모델을 정할 수 있어 아무 데서나 돌리면 실행과
@@ -60,17 +67,19 @@ function skipped(reason: string): AgentModel {
  * 실행을 막거나 화면을 비우면 안 된다(FR-6).
  */
 export function createAgentProbeService(deps: AgentProbeDeps) {
-  async function authOf(kind: AgentKind, executable: string, env: ProcessEnvSpec): Promise<AgentAuth> {
+  async function authOf(
+    kind: AgentKind, executable: string, env: ProcessEnvSpec, dialect: OpencodeDialect | null
+  ): Promise<AgentAuth> {
     try {
-      return await deps.checkAuth(kind, executable, env)
+      return await deps.checkAuth(kind, executable, env, dialect)
     } catch (err) {
       return unknownAuth(`인증 상태를 조회하지 못했습니다 (${message(err)})`)
     }
   }
 
-  async function modelsOf(kind: AgentKind, executable: string): Promise<string[]> {
+  async function modelsOf(kind: AgentKind, executable: string, dialect: OpencodeDialect | null): Promise<string[]> {
     try {
-      return await deps.listModels(kind, executable)
+      return await deps.listModels(kind, executable, dialect)
     } catch {
       // 제안이 없을 뿐 칸은 그대로 쓸 수 있다(FR-8).
       return []
@@ -88,16 +97,19 @@ export function createAgentProbeService(deps: AgentProbeDeps) {
         auth: unknownAuth(reason),
         model: skipped(reason),
         version: null,
-        models: []
+        models: [],
+        note: null
       }
     }
     const executable = pre.executable
+    const dialect = pre.dialect ?? null
 
     // 2) 인증. 모델 목록은 인증과 무관하게 조회된다(실측: 자격 증명 0개여도 382개)
     //    — 그래서 같이 띄운다.
-    const [auth, models] = await Promise.all([
-      authOf(kind, executable, target.env),
-      modelsOf(kind, executable)
+    const [auth, models, note] = await Promise.all([
+      authOf(kind, executable, target.env, dialect),
+      modelsOf(kind, executable, dialect),
+      noteOf(kind, pre)
     ])
 
     // 3) 모델과 버전. 둘은 **같은 probe 한 번**에서 온다 — 따로 물으면 캐시가
@@ -108,13 +120,22 @@ export function createAgentProbeService(deps: AgentProbeDeps) {
     //    `unknown`일 때는 돌린다: 모르는 것과 없는 것은 다르고, 모른다는 이유로
     //    감추면 `auth status`가 없는 옛 CLI에서 화면이 통째로 빈다.
     const resolved = await modelAndVersion(kind, workspaceId, auth, target.cwd)
-    return { auth, model: resolved.model, version: resolved.version, models }
+    return { auth, model: resolved.model, version: resolved.version, models, note }
   }
 
   /**
    * 셋째 칸. **캐시를 두지 않는다** — 슬래시 커맨드 서비스가 cwd별로 이미 쥐고
    * 있고(`agentInfo`), 여기에 하나 더 두면 `다시 확인`이 그쪽만 비워 옛 값이 남는다.
    */
+  /** 안내는 없어도 되는 것이다 — 조회가 터져도 다른 칸을 비우지 않는다 */
+  async function noteOf(kind: AgentKind, pre: PreflightResult): Promise<string | null> {
+    try {
+      return await deps.statusNote(kind, pre)
+    } catch {
+      return null
+    }
+  }
+
   async function modelAndVersion(
     kind: AgentKind, workspaceId: string, auth: AgentAuth, cwdOverride: string | null
   ): Promise<{ model: AgentModel; version: string | null }> {
@@ -165,7 +186,7 @@ export function createAgentProbeService(deps: AgentProbeDeps) {
           // 한쪽이 터져도 다른 쪽 결과는 보여준다.
           const reason = `확인하지 못했습니다 (${message(err)})`
           return [kind, {
-            auth: unknownAuth(reason), model: skipped(reason), version: null, models: []
+            auth: unknownAuth(reason), model: skipped(reason), version: null, models: [], note: null
           }] as const
         }
       }))
@@ -177,7 +198,7 @@ export function createAgentProbeService(deps: AgentProbeDeps) {
           probes.wsl = { distro: wsl.distro, ...(await probeOne('claude-code', workspaceId, { env: { kind: 'wsl', distro: wsl.distro }, cwd: wsl.cwd })) }
         } catch (err) {
           const reason = `확인하지 못했습니다 (${message(err)})`
-          probes.wsl = { distro: wsl.distro, auth: unknownAuth(reason), model: skipped(reason), version: null, models: [] }
+          probes.wsl = { distro: wsl.distro, auth: unknownAuth(reason), model: skipped(reason), version: null, models: [], note: null }
         }
       }
       return probes

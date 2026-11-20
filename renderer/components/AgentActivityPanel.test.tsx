@@ -38,8 +38,8 @@ function makeClient(over: { summary?: HomeSummary; files?: ConfigFile[]; openCon
     opencode: { ok: false, reason: 'opencode를 찾을 수 없습니다' }
   }
   const probes: AgentProbes = {
-    'claude-code': { auth: { state: 'ok', method: null, plan: null }, model: { state: 'resolved', model: 'claude-sonnet-5' }, version: '2.1.300', models: [] },
-    opencode: { auth: { state: 'unknown', reason: '실행 파일 없음' }, model: { state: 'skipped', reason: '실행 파일 없음' }, version: null, models: [] }
+    'claude-code': { auth: { state: 'ok', method: null, plan: null }, model: { state: 'resolved', model: 'claude-sonnet-5' }, version: '2.1.300', models: [], note: null },
+    opencode: { auth: { state: 'unknown', reason: '실행 파일 없음' }, model: { state: 'skipped', reason: '실행 파일 없음' }, version: null, models: [], note: null }
   }
   const client = {
     home: {

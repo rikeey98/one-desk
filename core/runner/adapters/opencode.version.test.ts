@@ -9,11 +9,10 @@ import { ORIGINAL_LD_LIBRARY_PATH } from '../userEnv'
 import { asLinuxPackage, USER_LD_LIBRARY_PATH } from '../fixtures/linuxPackageEnv'
 
 /**
- * OpenCode 버전 게이트 (`docs/sdlc/conversation-fixes/` spec FR-17).
+ * OpenCode 버전 게이트 (`docs/sdlc/conversation-fixes/` spec FR-17, 지원 범위는 `docs/sdlc/opencode-v2/` spec FR-1).
  *
- * 2.x CLI(데스크톱 번들 `opencode-cli.exe` 2.0.18)는 `--variant`가 없고 바이너리에
- * `OPENCODE_PERMISSION` 문자열이 없다 — 우리가 넘기는 권한 정책이 조용히 무시될 수 있어
- * 읽기 전용 run이 파일을 고칠 수 있다. 그래서 실행 전에(preflight) 막는다.
+ * 권한 정책이 걸리는지 확인한 버전만 띄운다 — 1.x(1.4.0 이상)와 2.x(2.0.18 이상). 그 밖의 버전은 우리가 넘기는
+ * 권한이 조용히 무시될 수 있어 읽기 전용 run이 파일을 고칠 수 있다. 그래서 실행 전에(preflight) 막는다.
  */
 
 const dirs: string[] = []
@@ -58,20 +57,58 @@ describe('parseOpencodeVersion', () => {
   })
 })
 
+/** 못 읽은 버전의 판정 — 막지 않고 v1이다 */
+const UNREAD = { rejected: null, dialect: 'v1' }
+
+describe('지원 범위와 방언 (opencode-v2 spec FR-1·2)', () => {
+  const verdictOf = (output: string | null) => createVersionGate(reader(output))(makeFile())
+
+  it.each([
+    ['opencode v2.3.2', 'v2'],
+    ['2.0.18', 'v2'],
+    ['2.10.0', 'v2'],
+    ['1.18.30', 'v1'],
+    ['1.4.0', 'v1']
+  ])('%s는 통과하고 방언은 %s다', async (output, dialect) => {
+    await expect(verdictOf(output)).resolves.toEqual({ rejected: null, dialect })
+  })
+
+  it('2.0.18보다 낮은 2.x는 거부하고 올리라고 말한다', async () => {
+    for (const old of ['2.0.17', '2.0.0']) {
+      const verdict = await verdictOf(old)
+      expect(verdict.rejected, old).toContain(old)
+      expect(verdict.rejected, old).toContain('2.0.18 이상')
+      expect(verdict.rejected, old).toContain('1.x')
+    }
+  })
+
+  it('3.x 이상은 거부한다 — 그 권한 통로는 확인한 적이 없다', async () => {
+    for (const next of ['3.0.0', '4.1.2']) {
+      const verdict = await verdictOf(next)
+      expect(verdict.rejected, next).toContain('아직 지원하지 않습니다')
+      expect(verdict.rejected, next).toContain('2.x(2.0.18 이상)')
+    }
+  })
+
+  it('못 읽으면 막지 않고 v1이다 — 틀린 방언은 실행 직전 확인이 잡는다', async () => {
+    await expect(verdictOf(null)).resolves.toEqual(UNREAD)
+    await expect(verdictOf('알 수 없는 출력')).resolves.toEqual(UNREAD)
+  })
+})
+
 describe('createVersionGate', () => {
-  it('major가 2 이상이면 거부하고 이유에 버전과 경로를 싣는다', async () => {
+  it('major가 3 이상이면 거부하고 이유에 버전과 경로를 싣는다', async () => {
     const file = makeFile()
-    const gate = createVersionGate(reader('2.0.18\n'))
-    const reason = await gate(file)
-    expect(reason).toContain('2.x')
-    expect(reason).toContain('2.0.18')
+    const gate = createVersionGate(reader('3.0.0\n'))
+    const reason = (await gate(file)).rejected
+    expect(reason).toContain('3.0.0')
     expect(reason).toContain(file)
     expect(reason).toContain('1.x')
   })
 
   it('1.x는 통과시킨다', async () => {
     const gate = createVersionGate(reader('1.18.30'))
-    await expect(gate(makeFile())).resolves.toBeNull()
+    await expect(gate(makeFile())).resolves.toMatchObject({ rejected: null })
   })
 
   it('붙이는 옵션을 모르는 1.4.0 미만은 거부한다 — 모르는 옵션이면 run이 시작하자마자 죽는다', async () => {
@@ -80,20 +117,20 @@ describe('createVersionGate', () => {
     // 찍고 exit 1이다 — 이유는 한 줄도 남기지 않는다.
     const file = makeFile()
     for (const old of ['1.3.17', '1.1.50', '1.1.49', '1.0.0', '0.9.3']) {
-      const reason = await createVersionGate(reader(old))(file)
+      const reason = (await createVersionGate(reader(old))(file)).rejected
       expect(reason, old).toContain(old)
       expect(reason, old).toContain('1.4.0')
       expect(reason, old).toContain(file)
     }
-    await expect(createVersionGate(reader('1.4.0'))(file)).resolves.toBeNull()
-    await expect(createVersionGate(reader('1.17.3'))(file)).resolves.toBeNull()
+    await expect(createVersionGate(reader('1.4.0'))(file)).resolves.toMatchObject({ rejected: null })
+    await expect(createVersionGate(reader('1.17.3'))(file)).resolves.toMatchObject({ rejected: null })
   })
 
   it('버전을 못 읽으면 막지 않는다 — 지금 동작 그대로다', async () => {
-    await expect(createVersionGate(reader(null))(makeFile())).resolves.toBeNull()
-    await expect(createVersionGate(reader('알 수 없는 출력'))(makeFile())).resolves.toBeNull()
+    await expect(createVersionGate(reader(null))(makeFile())).resolves.toMatchObject({ rejected: null })
+    await expect(createVersionGate(reader('알 수 없는 출력'))(makeFile())).resolves.toMatchObject({ rejected: null })
     const throwing = vi.fn<VersionReader>(async () => { throw new Error('spawn 실패') })
-    await expect(createVersionGate(throwing)(makeFile())).resolves.toBeNull()
+    await expect(createVersionGate(throwing)(makeFile())).resolves.toMatchObject({ rejected: null })
   })
 
   it('못 읽은 판정은 캐시하지 않는다 — 한 번의 시간 초과가 2.x 차단을 꺼 두면 안 된다', async () => {
@@ -102,11 +139,11 @@ describe('createVersionGate', () => {
     const file = makeFile()
     const read = vi.fn<VersionReader>()
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce('2.0.18')
+      .mockResolvedValueOnce('3.0.0')
     const gate = createVersionGate(read)
 
-    await expect(gate(file)).resolves.toBeNull()
-    await expect(gate(file)).resolves.toContain('2.x')
+    await expect(gate(file)).resolves.toMatchObject({ rejected: null })
+    await expect(gate(file)).resolves.toMatchObject({ rejected: expect.stringContaining('3.0.0') })
     expect(read).toHaveBeenCalledTimes(2)
   })
 
@@ -114,11 +151,11 @@ describe('createVersionGate', () => {
     const file = makeFile()
     const read = vi.fn<VersionReader>()
       .mockRejectedValueOnce(new Error('spawn 실패'))
-      .mockResolvedValueOnce('2.0.18')
+      .mockResolvedValueOnce('3.0.0')
     const gate = createVersionGate(read)
 
-    await expect(gate(file)).resolves.toBeNull()
-    await expect(gate(file)).resolves.toContain('2.x')
+    await expect(gate(file)).resolves.toMatchObject({ rejected: null })
+    await expect(gate(file)).resolves.toMatchObject({ rejected: expect.stringContaining('3.0.0') })
   })
 
   it('못 읽는 중에 동시에 들어온 조회는 그 한 번을 나눠 쓴다', async () => {
@@ -137,7 +174,7 @@ describe('createVersionGate', () => {
     await new Promise((r) => setTimeout(r, 50))
     finish(null)
 
-    await expect(Promise.all([first, second])).resolves.toEqual([null, null])
+    await expect(Promise.all([first, second])).resolves.toEqual([UNREAD, UNREAD])
     expect(read).toHaveBeenCalledTimes(1)
   })
 
@@ -151,8 +188,8 @@ describe('createVersionGate', () => {
   })
 
   it('파일이 없으면 읽지 않고 통과시킨다 — 실행 파일 확인은 preflight 앞단의 몫이다', async () => {
-    const read = reader('2.0.18')
-    await expect(createVersionGate(read)(join(tmpdir(), '없는-opencode-xyz'))).resolves.toBeNull()
+    const read = reader('3.0.0')
+    await expect(createVersionGate(read)(join(tmpdir(), '없는-opencode-xyz'))).resolves.toMatchObject({ rejected: null })
     expect(read).not.toHaveBeenCalled()
   })
 
@@ -179,12 +216,12 @@ describe('createVersionGate', () => {
     const file = makeFile('1.x 바이너리')
     const read = vi.fn<VersionReader>()
       .mockResolvedValueOnce('1.18.30')
-      .mockResolvedValueOnce('2.0.18')
+      .mockResolvedValueOnce('3.0.0')
     const gate = createVersionGate(read)
-    await expect(gate(file)).resolves.toBeNull()
+    await expect(gate(file)).resolves.toMatchObject({ rejected: null })
 
     writeFileSync(file, '2.x 바이너리 — 더 길다')
-    await expect(gate(file)).resolves.toContain('2.x')
+    await expect(gate(file)).resolves.toMatchObject({ rejected: expect.stringContaining('3.0.0') })
     expect(read).toHaveBeenCalledTimes(2)
   })
 
@@ -211,13 +248,22 @@ describe('createVersionGate', () => {
 })
 
 describe('opencodeAdapter.preflight — 버전 게이트', () => {
-  it('실행 파일이 2.x면 거부한다', async () => {
+  it('실행 파일이 지원 범위 밖(3.x)이면 거부한다', async () => {
     const file = makeFile()
     const result = await opencodeAdapter.preflight(file, {
-      versionGate: createVersionGate(reader('2.0.18'))
+      versionGate: createVersionGate(reader('3.0.0'))
     })
     expect(result.ok).toBe(false)
-    expect(result.reason).toContain('2.x')
+    expect(result.reason).toContain('3.0.0')
+    expect(result.dialect).toBeUndefined()
+  })
+
+  it('지원하는 2.x면 통과하고 방언 v2를 싣는다 (opencode-v2 FR-2)', async () => {
+    const file = makeFile()
+    const result = await opencodeAdapter.preflight(file, {
+      versionGate: createVersionGate(reader('opencode v2.3.2\n'))
+    })
+    expect(result).toEqual({ ok: true, executable: file, dialect: 'v2' })
   })
 
   it('1.x면 그 실행 파일을 그대로 쓴다', async () => {
@@ -225,7 +271,7 @@ describe('opencodeAdapter.preflight — 버전 게이트', () => {
     const result = await opencodeAdapter.preflight(file, {
       versionGate: createVersionGate(reader('1.18.30'))
     })
-    expect(result).toEqual({ ok: true, executable: file })
+    expect(result).toEqual({ ok: true, executable: file, dialect: 'v1' })
   })
 
   it('PATH에서 찾은 실행 파일도 게이트를 지난다', async () => {
@@ -235,7 +281,7 @@ describe('opencodeAdapter.preflight — 버전 게이트', () => {
     const name = process.platform === 'win32' ? 'opencode.exe' : 'opencode'
     const file = join(dir, name)
     writeFileSync(file, 'bin', { mode: 0o755 })
-    const gate = vi.fn(async () => '막았다')
+    const gate = vi.fn(async () => ({ rejected: '막았다', dialect: 'v1' as const }))
 
     const result = await opencodeAdapter.preflight(null, {
       // 후보 이름이 PATHEXT의 대소문자를 그대로 따른다 — 위에서 만든 파일 이름과 맞춘다.
@@ -252,7 +298,7 @@ describe('opencodeAdapter.preflight — 버전 게이트', () => {
     dirs.push(dir)
     const shim = join(dir, 'opencode.cmd')
     writeFileSync(shim, '', { mode: 0o755 })
-    const gate = vi.fn(async () => null)
+    const gate = vi.fn(async () => ({ rejected: null, dialect: 'v1' as const }))
 
     const result = await opencodeAdapter.preflight(shim, { versionGate: gate })
 
@@ -277,7 +323,7 @@ describe('opencodeAdapter.preflight — 기본 버전 읽기', () => {
     writeFileSync(file, [
       'process.stdin.resume()',
       "process.stdin.on('end', () => {",
-      "  if (process.argv.includes('--version')) process.stdout.write('2.0.18\\n')",
+      "  if (process.argv.includes('--version')) process.stdout.write('3.0.0\\n')",
       '})'
     ].join('\n'), { mode: 0o755 })
 
@@ -287,7 +333,7 @@ describe('opencodeAdapter.preflight — 기본 버전 읽기', () => {
       const started = Date.now()
       const result = await opencodeAdapter.preflight(file)
       expect(result.ok).toBe(false)
-      expect(result.reason).toContain('2.0.18')
+      expect(result.reason).toContain('3.0.0')
       // 타임아웃으로 끝난 것이 아니다 — stdin을 닫아 곧바로 답을 받았다.
       expect(Date.now() - started).toBeLessThan(4_000)
     } finally {
@@ -306,7 +352,7 @@ describe('opencodeAdapter.preflight — 기본 버전 읽기', () => {
       'process.stdin.resume()',
       "process.stdin.on('end', () => {",
       `  const restored = process.env.LD_LIBRARY_PATH === '${USER_LD_LIBRARY_PATH}' && process.env.${ORIGINAL_LD_LIBRARY_PATH} === undefined`,
-      "  if (process.argv.includes('--version')) process.stdout.write(restored ? '2.0.18\\n' : '1.18.30\\n')",
+      "  if (process.argv.includes('--version')) process.stdout.write(restored ? '3.0.0\\n' : '1.18.30\\n')",
       '})'
     ].join('\n'), { mode: 0o755 })
 
@@ -315,7 +361,7 @@ describe('opencodeAdapter.preflight — 기본 버전 읽기', () => {
     try {
       const result = await asLinuxPackage(() => opencodeAdapter.preflight(file))
       expect(result.ok).toBe(false)
-      expect(result.reason).toContain('2.0.18')
+      expect(result.reason).toContain('3.0.0')
     } finally {
       if (previous === undefined) delete process.env['ONE_DESK_AGENT_LAUNCHER']
       else process.env['ONE_DESK_AGENT_LAUNCHER'] = previous
