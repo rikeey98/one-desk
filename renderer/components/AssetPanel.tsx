@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Panel } from './Panel'
+import { Panel, type PanelMode } from './Panel'
 import { AddForm } from './AddForm'
 import { AssetDetail } from './AssetDetail'
 import { useAssets } from '../hooks/useAssets'
@@ -44,7 +44,7 @@ function isAttachable(item: Asset): boolean {
 }
 
 export function AssetPanel({
-  workspaceId, repos, repoId, context, layout = 'columns', expanded, openId, onOpen
+  workspaceId, repos, repoId, context, layout = 'columns', mode, openId, onOpen
 }: {
   workspaceId: string | null
   /** 지금 workspace의 repo들. 목록이 바뀌면 asset을 다시 읽고, 출처 이름을 여기서 찾는다 */
@@ -57,7 +57,7 @@ export function AssetPanel({
    * `window`면 패널 창이다 — 목록과 상세가 나란히 서고(FR-7) "새 창으로 열기"가 없다. 기본은 앱 창의 세 칸.
    */
   layout?: 'columns' | 'window'
-  expanded?: boolean
+  mode: PanelMode
   openId?: string | null
   onOpen?: (id: string) => void
 }) {
@@ -186,6 +186,7 @@ export function AssetPanel({
     />
   )
 
+  const expanded = mode.kind === 'expanded'
   return (
     <Panel
       title="스킬 / 에이전트"
@@ -193,7 +194,7 @@ export function AssetPanel({
       count={present.length}
       // 이슈·메모와 같이 열리면 세 칸을 통째로 쓴다. 이 prop이 빠져 있던 동안은
       // 상세가 좁은 세 번째 칸 안에서만 보였다.
-      expanded={Boolean(expanded)}
+      mode={mode}
       window={inWindow}
       action={(
         <>

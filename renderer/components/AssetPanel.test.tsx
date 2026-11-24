@@ -38,6 +38,7 @@ function renderPanel(client: OneDeskClient, props: Record<string, unknown> = {})
         repos={[]}
         repoId={null}
         context={{ keys: new Set<string>(), onToggle: vi.fn() }}
+        mode={{ kind: 'normal' }}
         {...props}
       />
     </ClientProvider>
@@ -109,7 +110,7 @@ describe('AssetPanel', () => {
   it('연 asset은 헤더에서 바로 담는다 — 축소하지 않아도 된다', async () => {
     const onToggle = vi.fn()
     renderPanel(makeClient([asset({ name: '알파' })]), {
-      context: { keys: new Set<string>(), onToggle }, expanded: true, openId: 'a1', onOpen: vi.fn()
+      context: { keys: new Set<string>(), onToggle }, mode: { kind: 'expanded' }, openId: 'a1', onOpen: vi.fn()
     })
     await userEvent.click(await screen.findByRole('button', { name: '대화에 담기' }))
     expect(onToggle).toHaveBeenCalledWith({ type: 'asset', id: 'a1', label: '알파' })
@@ -216,7 +217,7 @@ describe('AssetPanel — 출처와 필터', () => {
     })
 
     it('열어도 헤더에 담기 버튼이 없다', async () => {
-      renderPanel(makeClient(rows), { expanded: true, openId: 'i1', onOpen: vi.fn() })
+      renderPanel(makeClient(rows), { mode: { kind: 'expanded' }, openId: 'i1', onOpen: vi.fn() })
       await screen.findByLabelText('이름')
       expect(screen.queryByRole('button', { name: '대화에 담기' })).toBeNull()
     })

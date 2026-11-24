@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Panel } from './Panel'
+import { Panel, type PanelMode } from './Panel'
 import { AddForm } from './AddForm'
 import { MemoDetail } from './MemoDetail'
 import { useMemos } from '../hooks/useMemos'
@@ -11,10 +11,12 @@ import { OpenWindowButton } from './OpenWindowButton'
 import { ListToggleButton, WindowSplit } from './WindowSplit'
 import { ConfirmButton } from './ConfirmButton'
 import { IconCollapse, IconTrash } from './icons'
+import { previewOf, repoNamesOf } from '../itemPreview'
+import { dayLabel } from '../times'
 import type { Repo } from '@shared/models'
 
 export function MemoPanel({
-  workspaceId, repoId, repos, context, layout = 'columns', expanded, openId, onOpen,
+  workspaceId, repoId, repos, context, layout = 'columns', mode, openId, onOpen,
   focusAdd = false, onFocusAddConsumed = () => {}
 }: {
   workspaceId: string
@@ -27,7 +29,7 @@ export function MemoPanel({
    * `window`면 패널 창이다 — 목록과 상세가 나란히 서고(FR-7) "새 창으로 열기"가 없다. 기본은 앱 창의 세 칸.
    */
   layout?: 'columns' | 'window'
-  expanded: boolean
+  mode: PanelMode
   openId: string | null
   onOpen: (id: string) => void
   /** 단축키 Ctrl+M — App만 넘긴다(패널 창에는 단축키가 없다). 추가 칸에 포커스를 주고 치운다 (docs/sdlc/ux-polish/ FR-8) */
@@ -72,6 +74,7 @@ export function MemoPanel({
     }
   }
 
+  const now = Date.now()
   const list = (
     <>
       <AddForm placeholder="새 메모 (첫 줄이 제목)" onSubmit={addMemo} multiline focusRequested={focusAdd} onFocusConsumed={onFocusAddConsumed} />
@@ -85,14 +88,24 @@ export function MemoPanel({
         {memos.map((m) => {
           return (
             <li key={m.id} className={openId === m.id ? 'item item-active' : 'item'}>
-              {/* 클릭은 "열어본다"이고 맥락에 담는 것은 줄 끝의 담기 버튼이 맡는다 (설계 §5). */}
-              <button
-                type="button"
-                className={openId === m.id ? 'item-title item-open' : 'item-title'}
-                onClick={() => onOpen(m.id)}
-              >
-                {m.title}
-              </button>
+              {/* 제목 아래에 본문 첫머리와 repo·날짜가 선다 — 제목만으로는 메모끼리 갈리지 않는다 (docs/sdlc/item-look/ FR-3).
+                  클릭은 "열어본다"이고 맥락에 담는 것은 줄 끝의 담기 버튼이 맡는다 (설계 §5). */}
+              <div className="item-main">
+                <button
+                  type="button"
+                  className={openId === m.id ? 'item-title item-open' : 'item-title'}
+                  onClick={() => onOpen(m.id)}
+                >
+                  {m.title}
+                </button>
+                {previewOf(m.body) && <span className="item-preview">{previewOf(m.body)}</span>}
+                <span className="item-meta">
+                  {repoId === null && repoNamesOf(m.repoIds, repos) && (
+                    <span className="item-repo">{repoNamesOf(m.repoIds, repos)}</span>
+                  )}
+                  <span>{dayLabel(m.updatedAt, now)}</span>
+                </span>
+              </div>
               {/* 평소엔 폭 0으로 접혀 있다가 hover·포커스에 펼쳐진다 (IssuePanel과 대칭). */}
               <span className="item-actions">
                 <ConfirmButton
@@ -134,11 +147,12 @@ export function MemoPanel({
     </>
   )
 
+  const expanded = mode.kind === 'expanded'
   return (
     <Panel
       title="메모"
       count={memos.length}
-      expanded={expanded}
+      mode={mode}
       window={inWindow}
       action={(
         <>

@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ClientProvider } from '../client/ClientProvider'
 import { MemoPanel } from './MemoPanel'
-import type { Memo } from '@shared/models'
+import type { Memo, Repo } from '@shared/models'
 import type { OneDeskClient } from '@shared/client'
 
 const NOW = Date.now()
@@ -26,6 +26,7 @@ function renderPanel(memos: Memo[], over: {
   openId?: string | null
   expanded?: boolean
   onOpen?: (id: string) => void
+  repos?: Repo[]
 } = {}): PanelMocks {
   const mocks: PanelMocks = {
     // 실제 IPC처럼 매번 새 배열이다 — 같은 배열을 돌려주면 React가 갱신을 건너뛰어 '지우면 닫힌다'를 못 본다
@@ -48,9 +49,9 @@ function renderPanel(memos: Memo[], over: {
       <MemoPanel
         workspaceId="ws"
         repoId={null}
-        repos={[]}
+        repos={over.repos ?? []}
         context={{ keys: new Set(), onToggle: () => {} }}
-        expanded={over.expanded ?? false}
+        mode={over.expanded ? { kind: 'expanded' } : { kind: 'normal' }}
         openId={over.openId ?? null}
         onOpen={over.onOpen ?? (() => {})}
       />
@@ -58,6 +59,28 @@ function renderPanel(memos: Memo[], over: {
   )
   return mocks
 }
+
+describe('MemoPanel 목록 줄', () => {
+  it('제목 아래에 본문 미리보기와 repo·날짜가 선다 — 본문이 없으면 미리보기 줄이 없다', async () => {
+    const repos: Repo[] = [{
+      id: 'r1', workspaceId: 'ws', name: 'api', path: '/tmp/r1',
+      description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0
+    }]
+    const at = new Date(new Date().getFullYear(), 10, 24).getTime()
+    renderPanel([
+      makeMemo({ id: 'a', title: 'A', body: '## 결정\n- 문구 정리', repoIds: ['r1'], updatedAt: at }),
+      makeMemo({ id: 'b', title: 'B', body: '' })
+    ], { repos })
+
+    const rowA = (await screen.findByRole('button', { name: 'A' })).closest('li')!
+    expect(rowA.querySelector('.item-preview')).toHaveTextContent('결정 · 문구 정리')
+    expect(rowA.querySelector('.item-main > .item-meta')).toHaveTextContent('api')
+    expect(rowA.querySelector('.item-main > .item-meta')).toHaveTextContent('11월 24일')
+
+    const rowB = screen.getByRole('button', { name: 'B' }).closest('li')!
+    expect(rowB.querySelector('.item-preview')).toBeNull()
+  })
+})
 
 describe('MemoPanel 목록 삭제', () => {
   it('한 번 눌러서는 지우지 않는다', async () => {

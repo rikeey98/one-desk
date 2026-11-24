@@ -1311,16 +1311,26 @@ placeholder에 ⌘를 직접 쓰면 Windows 사용자에게 없는 키를 가리
 안 된다). 훑기 배너의 개수도 알약이다(`docs/sdlc/ux-polish/` FR-4) — 글자 `정리 안 됨`과 수를 따로 본다(`toHaveTextContent('정리 안 됨 1')`,
 e2e는 `getByText('정리 안 됨')` + `textContent`).
 
-**항목을 열면 그 패널이 남는 폭을 다 쓰고, 나머지 둘은 180px 목록 열로 옆에 남는다**
-(2026-09-22, CSS `.columns:has(> .panel-expanded)`). 2026-08-14 본문 설계의 "선택한 패널이 커지는
-동적 3컬럼"(flex: 3)을 사용자가 뒤집은 것이다: 셋이 비율로 남으면 상세가 좁아 갑갑했고, 둘을
-아예 숨겨 봤더니 다른 패널에 뭐가 있는지 안 보여 답답했다. **열린 패널 안에는 상세만 남는다** — 목록(`.panel-split-list`)은 CSS `:has(+ .panel-split-detail)`로
-숨긴다(DOM에는 남아 입력 중이던 추가 칸이 지워지지 않는다). 그래서 **열린 동안은 그 패널의 목록
-줄을 Playwright가 못 누른다** — 담기는 패널 헤더의 `대화에 담기`로 하고(`e2e/body.e2e.ts`), 목록 제목은 Esc나 축소로 닫고 나서 누른다.
-좁은 열은 줄 오른쪽 표식(`.item-meta`)·묶기·배너·asset 설명을 숨겨 제목만 남기고, 창 폭 1280px 아래에서는 둘을 숨긴다 — **그 폭에서는 숨은 패널의
-버튼을 Playwright가 못 누른다.** 돌아오는 길은 축소 버튼(아이콘, 이름은 aria-label "축소")과 Esc다. `AssetPanel`도 `Panel`에 `expanded`를 넘긴다(그전엔 빠져 있어
-skill 상세가 세 번째 칸 안에서만 보였다). 이슈 상세의 상태·축·repo는 `.detail-meta` 한 줄이다 —
-세로로 쌓으면 본문이 그만큼 밀려 내려간다.
+**항목을 열면 그 패널이 남는 폭을 다 쓰고 안에 목록과 상세가 나란하며, 나머지 둘은 44px 레일로 접힌다**
+(`docs/sdlc/expand-rail/`, 2026-11-24 — 2026-09-22의 "옆 둘은 180px 목록 열, 열린 패널 안에는 상세만"을 사용자가 뒤집었다:
+펼치면 그 패널의 목록을 볼 수 없었다). 패널의 모양은 `Panel`의 필수 prop `mode`(`PanelMode` — `normal`·`expanded`·`rail`)이고
+App의 `panelModeOf` 한 자리가 정한다. **레일은 `<패널> 보기` 버튼 하나이고 개수는 `aria-description`이다** — 누르면 열린 항목을
+닫고 세 패널로 돌아간다(축소·Esc와 같다). 그래서 **이슈를 연 동안 메모 줄은 보이지 않는다** — 다른 패널의 항목을 여는 e2e·단위
+테스트는 레일(또는 Esc)로 돌아온 뒤 누른다. 둘을 아예 숨기지 않고 개수를 남기는 것은 2026-09-22에 숨겨 봤다가 "다른 패널에 뭐가
+있는지 안 보여 답답하다"로 되돌린 기록 때문이다. 레일이어도 본문은 언마운트하지 않는다(`hidden`) — 추가 칸에 쓰던 글이 남는다.
+레일에 포커스가 있었으면 레일이 사라질 때 포커스를 그 패널(`section`, `tabIndex=-1`)로 옮긴다 — 사라지는 요소의 blur는 브라우저마다
+나기도 하므로 `relatedTarget`이 있을 때만 잊는다(jsdom은 안 내고 Chromium 판단은 e2e가 본다).
+펼친 패널의 목록은 300px(`.panel-split-list`)이고, 펼친 패널 본문이 760px보다 좁으면(container query `rows`) 목록을 접고 상세만 남긴다 — **그 폭에서는 목록 줄을 Playwright가 못
+누른다.** 1280px 아래에서 옆 둘을 숨기던 규칙은 없앴다(레일은 그 폭에도 들어간다). `AssetPanel`은 펼쳐도 상세가 목록을 대신한다
+(바꾸지 않았다 — spec §5). 패널 창은 늘 `normal`이고 목록·상세는 `WindowSplit`이 나란히 둔다. 이슈 상세의 상태·축·repo는
+`.detail-meta` 한 줄이다 — 세로로 쌓으면 본문이 그만큼 밀려 내려간다.
+
+**이슈·메모 줄은 두 줄이고 상세는 문서처럼 읽힌다** (`docs/sdlc/item-look/`, 2026-11-24). 줄은 `.item-main` 안에 제목 버튼과 그 아래
+흐린 `.item-meta`(이슈: 상태 글자 · 성격 · 출처 · repo · 방치 ⚠ / 메모: repo · 날짜) — 메모는 그 사이에 `.item-preview`(`previewOf`)가
+선다. **제목 버튼에 표식을 넣지 말 것** — 버튼 이름이 곧 제목이라 e2e의 `{ name: <제목>, exact: true }`가 깨진다. 줄 앞의 상태 표시
+(`IconIssueState`)는 `aria-hidden`인 표시일 뿐이다(상태 편집은 상세에만). 축 칩·상태는 `.axis-chip`·`.status` 요소 그대로이고
+둘째 줄에서만 글자로 보이게 덮는다 — 요소를 바꾸면 그것을 잡는 테스트가 깨진다. 상세의 시각·id(`DetailStamp`)는 속성 줄이 아니라
+삭제와 같은 `.detail-actions` 줄이다. 읽기 모드 본문은 `.detail-body.detail-body-read`가 상자를 걷는다(편집칸만 상자).
 
 **repo 목록은 사이드바의 고른 workspace 아래에 붙는다** (2026-09-22). `App`이 `RepoStrip`을
 `Sidebar`의 `repoTree` prop으로 넘기고, 사이드바가 `selectedId`인 workspace 줄 밑에 그린다 —
@@ -1418,6 +1428,8 @@ main의 `dialog.showOpenDialog`만 바꿔 세우고 IPC 왕복은 진짜로 탄�
 | `docs/sdlc/scheduled-runs/` | 정기 실행 — intent·spec·plan. 대화를 어디에 매다는지 비교(spec §2-1 — run 컬럼이 아니라 실행 기록 테이블), anchor 하나로 정시·놓침·절전을 한 판정에(FR-10~12), start 전에 anchor를 쓰는 이유(FR-12), 겹침·답 기다림 건너뛰기(FR-15), 한 run은 한 번 세기(FR-20 개정), 이슈화 안내를 빼는 이유(FR-22), 뒤집을 수 있는 결정 아홉(§8). plan에 croner 실측·변이 표·완료 증명 |
 | `docs/sdlc/home-conversation/` | 홈 대화 — intent·spec·plan. 저장 자리 세 안의 비교와 숨은 workspace(spec §0), 전체 설계 §8의 예외(FR-1), `list()`가 홈을 빼고 `home()`이 필요한 자리(FR-3·plan §0-1·§0-9), 가드(FR-4), 읽기 전용·홈 폴더 강제(FR-5·6), `prepare`가 정하는 범위와 읽기 여덟(FR-8·9), 도크·카드·인박스(FR-12~14), plan을 v0.30.0에 맞춰 다시 쓴 개정 열둘(plan §0), 새 대화 카드를 걷고 리포트에 홈 도크·다듬기를 홈 대화로 보낸 사용자 결정(spec §6). plan에 변이 표·완료 증명 |
 | `docs/sdlc/context-pick/` | 대화에 담는 버튼 — spec. 왼쪽 동그라미를 줄 끝의 글자 버튼으로 옮긴 이유(FR-1·2), 열린 항목의 헤더에서 담기(FR-3), 비교한 시안(§2) |
+| `docs/sdlc/expand-rail/` | 펼쳐도 목록이 보이게 — spec. 옆 패널을 레일로 접은 이유와 숨김을 버린 기록(§2), 레일을 누르면 세 패널로 돌아가는 기본(FR-3), 좁으면 상세만(FR-5), `PanelMode`(§4), 스킬 패널을 남긴 이유(§5) |
+| `docs/sdlc/item-look/` | 이슈·메모의 모습 — spec. 두 줄 목록(FR-1·3)과 줄 앞 상태 표시(FR-2), 문서형 상세(FR-4·5), 좁은 칸에서 한 줄로(FR-6), 시안과 다르게 한 것(§3) |
 | `docs/sdlc/issue-flow/` | 이슈 흐름 — intent·spec·plan. 새 대화의 작업 디렉토리가 이슈의 repo를 따르는 규칙(spec FR-1~4, 구현됨), 대화를 끝낼 때 이슈 완료 묻기·MCP 쓰기 범위·agent의 이슈 정리 제안(§(B) 이후, 아직 구현하지 않음), 뒤집은 결정과 우려(§6) |
 | `docs/sdlc/background-wait/` | 답을 낸 뒤 백그라운드 작업을 기다리는 턴 — spec. claude -p가 `result` 뒤에도 프로세스를 붙잡는 실측(§0), 이유를 보여 주기만 하는 결정(§2·§3), 재지 않은 것(§0) |
 | `docs/sdlc/opencode-v2/` | OpenCode 2.x CLI 지원 — intent·spec·plan과 `probes/`(실측 스크립트·원본 출력). 2.x의 권한 통로와 규칙이 붙는 순서(spec 0-1 — 구멍 둘과 막는 방법), action 이름과 `ask`가 새는 실측(0-2), 줄 모양(0-3), 2.0.18과 다른 점과 확인할 길이 없는 이유(0-5), 방언과 긍정 확인(§2), 규칙·두 자리·agent 고정·확인(FR-4~9), 확인할 수 없는 바이너리는 전체 허용만(FR-8a·§5의 4 — 사용자 결정). plan에 0단계 실측·변이 표·완료 증명 |

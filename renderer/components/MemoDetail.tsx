@@ -161,8 +161,6 @@ export function MemoDetail({ memo, repos, onChanged, onDeleted, onRequestClose }
       />
       <div className="detail-meta">
         <RepoTags repos={repos} picked={repoIds} onChange={changeRepos} />
-        {/* IssueDetail과 대칭 — agent가 MCP(get_memo·update_memo)로 짚는 이름이다. */}
-        <DetailStamp kind="메모" id={memo.id} times={[['만듦', memo.createdAt]]} />
       </div>
       <BodyField
         value={body}
@@ -170,7 +168,10 @@ export function MemoDetail({ memo, repos, onChanged, onDeleted, onRequestClose }
         onBlur={() => { void bodySave.flush() }}
       />
 
+      {/* 문서의 끝 — IssueDetail과 대칭 (docs/sdlc/item-look/ FR-5). */}
       <div className="detail-actions">
+        {/* agent가 MCP(get_memo·update_memo)로 짚는 이름이다. */}
+        <DetailStamp kind="메모" id={memo.id} times={[['만듦', memo.createdAt]]} />
         <ConfirmButton
           label="삭제"
           confirmLabel="정말 삭제?"

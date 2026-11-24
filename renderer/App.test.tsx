@@ -927,6 +927,30 @@ describe('패널 확장', () => {
     expect(screen.getByRole('button', { name: '토큰 만료' })).toHaveClass('item-open')
   })
 
+  it('항목을 열면 나머지 두 패널은 레일로 접히고, 레일을 누르면 세 패널로 돌아온다', async () => {
+    renderApp(makeClient({}, {
+      issues: [makeIssue({ id: 'i1', title: '토큰 만료' })],
+      memos: [makeMemo({ id: 'm1', title: '배포 메모' })]
+    }))
+    await selectWorkspace()
+    expect(screen.queryByRole('button', { name: '메모 보기' })).not.toBeInTheDocument()
+
+    await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+
+    // 펼친 패널 안에 목록이 남는다 — 열린 항목이 목록에서 보인다.
+    expect(screen.getByRole('button', { name: '토큰 만료' })).toHaveClass('item-open')
+    expect(screen.queryByRole('button', { name: '이슈 보기' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '배포 메모' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '스킬 / 에이전트 보기' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '메모 보기' }))
+
+    expect(screen.getByRole('region', { name: '이슈' })).not.toHaveClass('panel-expanded')
+    expect(screen.queryByRole('button', { name: '메모 보기' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '스킬 / 에이전트 보기' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '배포 메모' })).toBeInTheDocument()
+  })
+
   it('메모를 열면 이슈 상세가 닫힌다', async () => {
     // 한 번에 한 패널만 확장된다. 상태를 각 패널이 따로 들면 둘 다 열린다.
     renderApp(makeClient({}, {
@@ -936,6 +960,8 @@ describe('패널 확장', () => {
     await selectWorkspace()
 
     await userEvent.click(await screen.findByRole('button', { name: '토큰 만료' }))
+    // 이슈가 펼쳐진 동안 메모는 레일이다 — 레일로 세 패널에 돌아와서 연다.
+    await userEvent.click(screen.getByRole('button', { name: '메모 보기' }))
     await userEvent.click(await screen.findByRole('button', { name: '배포 메모' }))
 
     expect(screen.getByRole('region', { name: '이슈' })).not.toHaveClass('panel-expanded')

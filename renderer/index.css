@@ -234,18 +234,23 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 /* asset 절은 셋이 연달아 서므로 상자 없이 한 줄로만. */
 .asset-group .panel-empty { align-items: flex-start; text-align: left; padding: 6px 8px 8px; border: 0; }
 /* 선택한 패널이 커지고 나머지가 줄어든다 (설계 §4). JS로 픽셀을 계산하지 않는다. */
-/* 항목을 열면 그 패널이 남는 폭을 다 쓰고, 나머지 둘은 240px 목록 열로 옆에 남는다.
-   2026-08-14 본문 설계의 "선택한 패널이 커지는 동적 3컬럼"(flex: 3)을 사용자가 뒤집은
-   것이다: 셋이 비율로 나란히 남으면 상세가 좁아 갑갑했고, 둘을 아예 숨겨 봤더니 다른
-   패널에 뭐가 있는지 안 보여 답답했다(2026-09-22). 좁은 열에서는 줄 오른쪽 표식과 설명을
-   숨겨 제목이 남게 하고, 창이 좁으면 둘을 숨긴다. 돌아오는 길은 축소 버튼과 Esc다. */
-.columns:has(> .panel-expanded) > .panel:not(.panel-expanded) { flex: 0 0 180px; }
+/* 항목을 열면 그 패널이 남는 폭을 다 쓰고 안에 목록과 상세가 나란하며, 나머지 둘은 이름과
+   개수만 남은 44px 레일로 접힌다 (docs/sdlc/expand-rail/, 2026-11-24). 그전에는 둘이 180px
+   목록 열로 남고 펼친 패널 안에는 상세만 있어, 펼치면 그 패널의 목록을 볼 수 없었다. 둘을 아예
+   숨기는 것은 2026-09-22에 해 봤다가 "다른 패널에 뭐가 있는지 안 보여 답답하다"로 되돌렸다 —
+   레일이 개수를 남기는 이유다. 레일을 누르면 세 패널로 돌아간다(App의 panelModeOf). */
+.panel-rail { flex: 0 0 44px; }
+.panel-rail-button { flex: 1; display: flex; justify-content: center; align-items: flex-start; min-height: 0; padding: 14px 0; border: 0; border-radius: 10px; background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; transition: background .12s; }
+.panel-rail-button:hover { background: var(--bg-muted); }
+.panel-rail-label { display: flex; align-items: center; gap: 8px; writing-mode: vertical-rl; }
+.panel-rail-label .panel-title { letter-spacing: .12em; }
+.panel-rail-label .panel-count { writing-mode: horizontal-tb; }
 /* 좁은 목록 칸 — 줄의 정체는 제목이다. 오른쪽 표식이 제목을 0까지 누르지 못하게, 칸이 좁아지면 표식부터 접는다.
    예전에는 "항목을 열어 둔 옆의 180px 열"이라는 부모 상태에만 걸려, 창이 좁거나 200% 확대라 셋이 함께 좁아지면 이슈 줄에
    축 표식만 남고 제목은 폭 0이 되어 누를 수도 없었다(better-layout 검토, 2026-11-09). 앞의 선택자는 아래 규칙들
    (.item-meta·.asset-desc·.triage-banner …)보다 먼저 적혀도 이기게 하려는 것이다. */
 @container rows (max-width: 240px) {
-  :is(.panel-body, .panel-split-list) :is(.item-pick-text, .item-meta, .asset-desc) { display: none; }
+  :is(.panel-body, .panel-split-list) :is(.item-pick-text, .item-meta, .item-preview, .asset-desc) { display: none; }
   /* 설명이 빠지면 이름이 남는 폭을 다 써 담기 버튼을 줄 끝으로 민다 */
   :is(.panel-body, .panel-split-list) .asset-group .item-open { flex-grow: 1; }
 }
@@ -253,16 +258,15 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 @container rows (max-width: 180px) {
   :is(.panel-body, .panel-split-list) :is(.item-actions, .group-axis, .triage-banner, .panel-empty-hint, .asset-add select, .asset-add .icon-button) { display: none; }
 }
-@media (max-width: 1280px) {
-  .columns:has(> .panel-expanded) > .panel:not(.panel-expanded) { display: none; }
-}
 .columns > .panel-expanded { flex: 1; }
 .panel-expanded > .panel-body { padding: 12px 16px; }
 .panel-split { display: flex; gap: 0; height: 100%; min-height: 0; }
-.panel-split-list { flex: 0 0 200px; overflow-y: auto; min-width: 0; padding-right: 12px; margin-right: 16px; border-right: 1px solid var(--border-faint); container: rows / inline-size; }
-/* 이슈·메모를 열면 그 패널 안에는 상세만 남는다 — 목록은 축소 아이콘·Esc로 돌아온다 (2026-09-22,
-   skills 패널과 같은 동작). DOM에는 남겨 두어 상태(입력 중이던 추가 칸 등)가 지워지지 않는다. */
-.panel-split > .panel-split-list:has(+ .panel-split-detail) { display: none; }
+.panel-split-list { flex: 0 0 300px; overflow-y: auto; min-width: 0; padding-right: 12px; margin-right: 16px; border-right: 1px solid var(--border-faint); container: rows / inline-size; }
+/* 펼친 패널이 좁으면(창이 좁거나 확대) 목록을 접고 상세만 남긴다 — 2026-11-24 전의 모양이다.
+   DOM에는 남겨 두어 상태(입력 중이던 추가 칸 등)가 지워지지 않는다. */
+@container rows (max-width: 760px) {
+  .panel-expanded .panel-split > .panel-split-list:has(+ .panel-split-detail) { display: none; }
+}
 /* 바닥 여백이 없는 것은 .detail-actions 때문이다 — 그 규칙의 주석. scroll-padding도 그 띠 몫이다 */
 .panel-split-detail { flex: 1; min-width: 0; overflow-y: auto; padding: 4px 12px 0; scroll-padding-block-end: 48px; }
 /* 패널 창 (docs/sdlc/item-windows/). 창 하나에 패널 하나라 창을 다 쓰고, 목록과 상세가 나란하다(FR-7) —
@@ -302,6 +306,25 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 /* 줄 위에 겹치지 않고 흐름 안에서 폭 0으로 접혀 있다가 hover·포커스에 펼쳐진다
    (.repo-actions와 같은 이유 — 겹치면 제목을 누르는 클릭을 아이콘이 가로챈다).
    폭 0이어도 Tab으로 닿는다. */
+/* 두 줄 목록 (docs/sdlc/item-look/ FR-1~3) — 제목이 한 줄을 다 쓰고, 표식·미리보기는 아래 흐린 줄이다.
+   예전에는 표식이 제목 오른쪽에 붙어 칩이 많은 줄의 제목이 일찍 잘렸다. 둘째 줄은 넘치면 자른다. */
+.item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.item-main > .item-title { flex: none; min-width: 0; }
+.item-main > .item-meta { justify-content: flex-start; flex-wrap: nowrap; gap: 0; margin-left: 0; overflow: hidden; white-space: nowrap; font-size: .6875rem; color: var(--text-muted); }
+.item-main > .item-meta:empty { display: none; }
+.item-main > .item-meta > * + *::before { content: '·'; margin: 0 5px; color: var(--text-muted); font-weight: 400; }
+.item-main > .item-meta :is(.axis-chip, .status) { padding: 0; border: 0; border-radius: 0; background: none; color: inherit; font-size: inherit; font-weight: inherit; }
+.item-main > .item-meta > .status::before { content: none; }
+.item-main > .item-meta > .status-doing { color: var(--warn-text); font-weight: 600; }
+.item-main > .item-meta > .axis-chip-stale { color: var(--warn-text); }
+.item-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; color: var(--text-secondary); }
+/* 줄 앞의 상태 — 표시일 뿐이다. 열림 빈 원, 진행 중 반 찬 원, 완료 체크, 언젠가 점선 */
+.item-state { flex: 0 0 auto; align-self: flex-start; margin-top: 3px; fill: none; stroke: var(--border-control); stroke-width: 1.6; }
+.item-state-someday circle { stroke-dasharray: 2.2 2; }
+.item-state-doing circle { stroke: var(--warn); }
+.item-state-doing path { fill: var(--warn); stroke: none; }
+.item-state-done circle { fill: var(--success); stroke: var(--success); }
+.item-state-done path { stroke: var(--on-accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .item-actions { display: flex; flex: 0 0 auto; margin-left: auto; width: 0; overflow: hidden; opacity: 0; transition: opacity .12s; }
 .item:hover .item-actions, .item:focus-within .item-actions { width: auto; opacity: 1; }
 .status { display: inline-flex; align-items: center; gap: 5px; font-size: .6875rem; font-weight: 500; padding: 1px 8px 1px 6px; border-radius: 99px; background: var(--bg-muted); color: var(--text-secondary); flex: 0 0 auto; white-space: nowrap; }
@@ -564,11 +587,14 @@ select.pill { padding-right: 4px; cursor: pointer; text-overflow: ellipsis; }
    모르니 스크롤도 생기지 않는다. 도크를 높이 끌어 패널이 짧아지면 본문 글자가 패널 밖으로
    흘러나온다(실측: 칸 143px에 내용 283px). min-height면 모자랄 때 .detail이 내용만큼
    늘어나 부모가 스크롤한다. .conversation-panel이 같은 이유로 같은 모양이다. */
-.detail { display: flex; flex-direction: column; gap: 10px; min-height: 100%; width: 100%; max-width: 1400px; margin: 0 auto; }
+/* 문서 칸 — 한 줄이 너무 길면 읽히지 않는다(docs/sdlc/item-look/ FR-4). 넓은 칸에서는 가운데 선다. */
+.detail { display: flex; flex-direction: column; gap: 10px; min-height: 100%; width: 100%; max-width: 760px; margin: 0 auto; }
 /* 본문의 읽기 / 편집 (docs/sdlc/item-windows/ FR-20). 읽기는 편집칸과 같은 상자에 마크다운을 그린다 — 모드를
    바꿔도 본문 자리가 튀지 않는다. 대화의 .md보다 제목을 키운다: 여기서는 문서를 읽는다. */
 .body-field { flex: 1; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
 .body-field > .detail-body { flex: 1; }
+/* 보기/편집 전환은 본문 오른쪽 위에 작게 — 문서의 첫머리를 가리지 않는다 (docs/sdlc/item-look/ FR-4) */
+.body-field > .body-mode { align-self: flex-end; border-color: transparent; background: transparent; }
 .body-mode, .inbox-mode { display: flex; gap: 2px; align-self: flex-start; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-muted); }
 .body-mode-button, .inbox-mode-button { padding: 3px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: .75rem; cursor: pointer; }
 .body-mode-button[aria-pressed="true"], .inbox-mode-button[aria-pressed="true"] { background: var(--bg); color: var(--text); box-shadow: var(--shadow-panel); }
@@ -579,18 +605,20 @@ select.pill { padding-right: 4px; cursor: pointer; text-overflow: ellipsis; }
 .detail-body-read .md h3 { font-size: 1rem; }
 .body-empty { color: var(--text-muted); }
 .body-frontmatter { margin: 0 0 12px; padding: 8px 10px; border-radius: 6px; background: var(--bg-muted); color: var(--text-secondary); font-family: var(--font-mono); font-size: .8125rem; white-space: pre-wrap; overflow-wrap: anywhere; }
-.detail-title { padding: 8px 2px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; color: var(--text); font: inherit; font-size: 1.375rem; font-weight: 600; }
+.detail-title { padding: 6px 2px; border: 0; border-bottom: 1px solid transparent; border-radius: 0; background: transparent; color: var(--text); font: inherit; font-size: 1.625rem; font-weight: 700; letter-spacing: -.01em; }
+.detail-title:hover, .detail-title:focus { border-bottom-color: var(--border-control); }
 /* 배경색은 .status-open/doing/done이 그대로 준다. 나머지(크기·모서리)만 덮어쓴다. */
 .detail-status { align-self: flex-start; padding: 3px 10px; border: 1px solid var(--border-control); border-radius: 99px; font: inherit; font-size: .75rem; cursor: pointer; }
 /* 출처·성격·급함 select를 감싼 label. .detail이 column flex라 클래스가 없으면
    기본 align-items: stretch를 그대로 물려받아 폭 전체로 늘어나 쌓인다 — 바로 위
    .detail-status 알약과 같은 모양(왼쪽 정렬, 작은 크기)으로 맞춘다. 값은 새로
    만들지 않고 .detail-status 것을 그대로 재사용한다. */
-.detail-axis { align-self: flex-start; display: flex; align-items: center; gap: 4px; font-size: .75rem; }
-.detail-axis select { padding: 3px 8px; border: 1px solid var(--border-control); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; cursor: pointer; }
+/* 문서형 상세의 속성 알약 — 이름표는 알약 안의 흐린 글자다(docs/sdlc/item-look/ FR-4). 테두리는 알약이 갖는다. */
+.detail-axis { align-self: flex-start; display: flex; align-items: center; gap: 2px; padding-left: 10px; border: 1px solid var(--border-control); border-radius: 99px; font-size: .75rem; color: var(--text-muted); }
+.detail-axis select { padding: 3px 6px 3px 2px; border: 0; border-radius: 99px; background: transparent; color: var(--text); font: inherit; cursor: pointer; }
 .detail-body { flex: 1; min-height: 160px; padding: 14px 16px; border: 1px solid var(--border-control); border-radius: 8px; background: var(--bg-panel); color: var(--text); font: inherit; font-size: .9375rem; line-height: 1.65; resize: none; }
 /* 상태·축·repo 한 줄. 좁으면 줄바꿈한다. */
-.detail-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.detail-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .detail-meta .repo-tags { margin-bottom: 0; }
 /* 상세의 id 알약 — `#` + 앞 8자리, 누르면 전체 id 복사. id는 모노
    (--font-mono — 숫자와 글자 폭이 고르다). */
@@ -607,7 +635,10 @@ select.pill { padding-right: 4px; cursor: pointer; text-overflow: ellipsis; }
    본문이 비친다(메모 4px, 앱 창의 스킬 상세 12px — e2e/ui-review "상세의 바닥"). 바닥 여백은 이 띠가 갖는다.
    대신 칸의 scroll-padding-block-end가 이 띠의 높이(실측 39~40px, 100~200%)보다 커야 한다 — 없으면 Tab으로 내려간 링크가 띠 밑에 통째로
    숨는다(e2e/ui-review "좁은 창의 레이아웃"). */
-.detail-actions { display: flex; justify-content: flex-end; position: sticky; bottom: 0; padding: 8px 0; background: var(--bg); border-top: 1px solid var(--border-faint); }
+.detail-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; position: sticky; bottom: 0; padding: 8px 0; background: var(--bg); border-top: 1px solid var(--border-faint); }
+.detail-actions .detail-stamp { margin-left: 0; }
+/* 읽기는 상자 없이 문서처럼 — 편집칸만 상자다(docs/sdlc/item-look/ FR-4). .detail-body보다 뒤에 와야 이긴다. */
+.detail-body.detail-body-read { padding: 2px 0; border-color: transparent; background: transparent; line-height: 1.75; }
 .panel-expanded > .panel-body:has(> .detail) { padding-bottom: 0; scroll-padding-block-end: 48px; }
 /* discovered asset의 파일 경로. 본문이 어느 파일의 것인지 보이되 제목처럼 크면 안 된다. */
 .asset-path { font-family: var(--font-mono); font-size: .6875rem; color: var(--text-muted); word-break: break-all; }

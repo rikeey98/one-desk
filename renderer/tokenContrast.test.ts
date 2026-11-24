@@ -43,7 +43,7 @@ describe('입력 칸의 경계', () => {
   }
 
   it.each([
-    '.add-form :is(input, textarea)', '.add-repo-form input', '.pill, .composer-controls .settings-field', '.detail-status', '.detail-axis select',
+    '.add-form :is(input, textarea)', '.add-repo-form input', '.pill, .composer-controls .settings-field', '.detail-status', '.detail-axis',
     '.detail-body', '.issue-picker-input', '.group-axis select', '.settings-field :is(input, select, textarea)',
     '.asset-add select', '.report-dates input', '.code-tree-filter', '.dock-slots-input', '.composer-card'
   ])('%s 는 입력 경계 토큰을 쓴다', (selector) => {

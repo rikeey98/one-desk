@@ -7,13 +7,8 @@
 export function timesView(
   entries: ReadonlyArray<readonly [label: string, at: number | null]>, now: number
 ): { text: string; title: string } {
-  const year = new Date(now).getFullYear()
   const known = entries.filter((e): e is readonly [string, number] => e[1] !== null)
-  const day = (ms: number) => {
-    const d = new Date(ms)
-    const md = `${d.getMonth() + 1}월 ${d.getDate()}일`
-    return d.getFullYear() === year ? md : `${d.getFullYear()}년 ${md}`
-  }
+  const day = (ms: number) => dayLabel(ms, now)
   const exact = (ms: number) => {
     const d = new Date(ms)
     const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
@@ -23,4 +18,11 @@ export function timesView(
     text: known.map(([label, ms]) => `${label} ${day(ms)}`).join(' · '),
     title: known.map(([label, ms]) => `${label} ${exact(ms)}`).join('\n')
   }
+}
+
+/** `9월 28일`, 올해가 아니면 `2025년 9월 28일` — 상세의 시각 줄과 목록 줄이 같이 쓴다 */
+export function dayLabel(ms: number, now: number): string {
+  const d = new Date(ms)
+  const md = `${d.getMonth() + 1}월 ${d.getDate()}일`
+  return d.getFullYear() === new Date(now).getFullYear() ? md : `${d.getFullYear()}년 ${md}`
 }

@@ -4,6 +4,7 @@ import { RepoStrip } from './components/RepoStrip'
 import { IssuePanel } from './components/IssuePanel'
 import { MemoPanel } from './components/MemoPanel'
 import { AssetPanel } from './components/AssetPanel'
+import type { PanelMode } from './components/Panel'
 import { SettingsPanel } from './components/SettingsPanel'
 import { AgentActivityPanel } from './components/AgentActivityPanel'
 import { Dock } from './components/Dock'
@@ -223,6 +224,13 @@ export default function App() {
   /** 같은 항목을 다시 누르면 접는다. 다른 패널을 누르면 그쪽으로 옮겨간다. */
   function openIn(panel: 'issue' | 'memo' | 'asset', id: string) {
     setOpenItem((prev) => (prev?.panel === panel && prev.id === id ? null : { panel, id }))
+  }
+
+  /** 열린 항목이 없으면 셋 다 보통이고, 있으면 그 패널만 펼치고 나머지는 레일이다 (docs/sdlc/expand-rail/) */
+  function panelModeOf(panel: 'issue' | 'memo' | 'asset'): PanelMode {
+    if (openItem === null) return { kind: 'normal' }
+    if (openItem.panel === panel) return { kind: 'expanded' }
+    return { kind: 'rail', onRestore: () => setOpenItem(null) }
   }
 
   // Esc로 접는다. 상세 안의 삭제 확인은 자기가 먼저 Esc를 삼키므로(설계 §5)
@@ -706,7 +714,7 @@ export default function App() {
                   repos={repos}
                   context={contextPicker}
                   conversations={issueConversations}
-                  expanded={openItem?.panel === 'issue'}
+                  mode={panelModeOf('issue')}
                   openId={openItem?.panel === 'issue' ? openItem.id : null}
                   onOpen={(id) => openIn('issue', id)}
                   focusAdd={addFocus === 'issue'}
@@ -719,7 +727,7 @@ export default function App() {
                   repoId={repoId}
                   repos={repos}
                   context={contextPicker}
-                  expanded={openItem?.panel === 'memo'}
+                  mode={panelModeOf('memo')}
                   openId={openItem?.panel === 'memo' ? openItem.id : null}
                   onOpen={(id) => openIn('memo', id)}
                   focusAdd={addFocus === 'memo'}
@@ -730,7 +738,7 @@ export default function App() {
                   repos={repos}
                   repoId={repoId}
                   context={contextPicker}
-                  expanded={openItem?.panel === 'asset'}
+                  mode={panelModeOf('asset')}
                   openId={openItem?.panel === 'asset' ? openItem.id : null}
                   onOpen={(id) => openIn('asset', id)}
                 />

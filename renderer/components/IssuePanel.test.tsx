@@ -56,7 +56,7 @@ function renderPanel(issues: Issue[], over: {
         repoId={null}
         repos={over.repos ?? []}
         context={{ keys: new Set(), onToggle: () => {} }}
-        expanded={over.expanded ?? false}
+        mode={over.expanded ? { kind: 'expanded' } : { kind: 'normal' }}
         openId={over.openId ?? null}
         onOpen={over.onOpen ?? (() => {})}
       />
@@ -97,7 +97,7 @@ function renderControlledPanel(issues: Issue[], initialOpenId: string | null): P
         repoId={null}
         repos={[]}
         context={{ keys: new Set(), onToggle: () => {} }}
-        expanded={true}
+        mode={{ kind: 'expanded' }}
         openId={openId}
         onOpen={(id) => { opened.push(id); setOpenId((prev) => (prev === id ? null : id)) }}
       />
@@ -169,6 +169,27 @@ describe('IssuePanel 그룹', () => {
     // 물려받는 사고를 이 테스트가 함께 막는다.
     expect(screen.getByText('버그')).toHaveClass('axis-chip')
     expect(screen.getByText('고객')).toHaveClass('axis-chip')
+  })
+
+  it('줄은 두 줄이다 — 제목 아래 흐린 줄에 상태·축·repo가 서고, 줄 앞에 상태 표시가 있다', async () => {
+    const repos: Repo[] = [{
+      id: 'r1', workspaceId: 'ws', name: 'api', path: '/tmp/r1',
+      description: null, sortOrder: 0, agentEnv: 'host', createdAt: 0
+    }]
+    renderPanel([
+      makeIssue({ id: 'a', title: 'A', status: 'doing', kind: 'bug', source: 'customer', repoIds: ['r1'], priority: 'urgent' }),
+      makeIssue({ id: 'b', title: 'B', priority: 'someday' })
+    ], { repos })
+
+    const rowA = (await screen.findByRole('button', { name: 'A' })).closest('li')!
+    const metaA = rowA.querySelector('.item-main > .item-meta')!
+    expect(metaA).toHaveTextContent('진행 중')
+    expect(metaA).toHaveTextContent('버그')
+    expect(metaA).toHaveTextContent('api')
+    expect(rowA.querySelector('.item-state.item-state-doing')).not.toBeNull()
+
+    const rowB = screen.getByRole('button', { name: 'B' }).closest('li')!
+    expect(rowB.querySelector('.item-state.item-state-open.item-state-someday')).not.toBeNull()
   })
 })
 
@@ -360,7 +381,7 @@ describe('IssuePanel 훑기', () => {
           repoId={null}
           repos={[]}
           context={{ keys: new Set(), onToggle: () => {} }}
-          expanded={true}
+          mode={{ kind: 'expanded' }}
           openId="a"
           onOpen={() => {}}
         />
@@ -514,7 +535,7 @@ describe('홈의 훑기 — startTriage (docs/sdlc/home/ FR-9)', () => {
       <ClientProvider client={client}>
         <IssuePanel
           workspaceId="ws" repoId={null} repos={[]} context={{ keys: new Set(), onToggle: () => {} }}
-          expanded={false} openId={null} onOpen={(id) => opened.push(id)}
+          mode={{ kind: 'normal' }} openId={null} onOpen={(id) => opened.push(id)}
           startTriage={startTriage} onStartTriageConsumed={onConsumed}
         />
       </ClientProvider>

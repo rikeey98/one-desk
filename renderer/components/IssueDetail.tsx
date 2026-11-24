@@ -306,8 +306,6 @@ export function IssueDetail({ issue, repos, onChanged, onDeleted, onRequestClose
           onStart={conversations.start}
         />
       )}
-      {/* id는 agent가 MCP(get_issue·update_issue)로 이 이슈를 짚는 이름이다. 짧게 보이고 전체를 복사한다. */}
-      <DetailStamp kind="이슈" id={issue.id} times={[['만듦', issue.createdAt], ['시작', issue.startedAt], ['완료', issue.closedAt]]} />
       </div>
       <BodyField
         value={body}
@@ -315,7 +313,10 @@ export function IssueDetail({ issue, repos, onChanged, onDeleted, onRequestClose
         onBlur={() => { void bodySave.flush() }}
       />
 
+      {/* 문서의 끝 — 시각·id와 삭제가 한 줄이다 (docs/sdlc/item-look/ FR-5). */}
       <div className="detail-actions">
+        {/* id는 agent가 MCP(get_issue·update_issue)로 이 이슈를 짚는 이름이다. 짧게 보이고 전체를 복사한다. */}
+        <DetailStamp kind="이슈" id={issue.id} times={[['만듦', issue.createdAt], ['시작', issue.startedAt], ['완료', issue.closedAt]]} />
         <ConfirmButton
           label="삭제"
           confirmLabel="정말 삭제?"

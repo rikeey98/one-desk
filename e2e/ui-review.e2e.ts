@@ -122,11 +122,16 @@ describe('좁은 창의 레이아웃', () => {
   }
   const NO_SIDEWAYS_SCROLL = '[...document.querySelectorAll(".panel-body")].every((e) => e.scrollWidth <= e.clientWidth + 1)'
   /** 줄 오른쪽 표식이 제목·이름 위로 넘친 줄의 이름. 비어야 한다 */
+  // 표식이 이름을 덮는가 — 두 상자가 가로·세로 모두 겹칠 때만이다. 이슈·메모 줄은 표식이 제목 아래 줄이라(docs/sdlc/item-look/)
+  // 가로로만 보면 늘 겹쳐 보인다. 스킬 줄처럼 한 줄에 나란한 표식이 왼쪽으로 넘쳐 이름을 덮는 것은 그대로 잡는다.
   const META_OVER_NAME = `[...document.querySelectorAll('.item')].flatMap((row) => {
     const name = row.querySelector('.item-title, .item-open'), meta = row.querySelector('.item-meta')
     if (!name || !meta || !meta.offsetWidth) return []
-    const right = name.getBoundingClientRect().right
-    return [...meta.children].some((c) => c.getBoundingClientRect().left < right - 1) ? [name.textContent] : []
+    const n = name.getBoundingClientRect()
+    return [...meta.children].some((c) => {
+      const r = c.getBoundingClientRect()
+      return r.left < n.right - 1 && r.right > n.left + 1 && r.top < n.bottom - 1 && r.bottom > n.top + 1
+    }) ? [name.textContent] : []
   })`
 
   it('패널이 좁아져도 이슈·스킬 줄의 제목이 남아 눌린다 — 100%의 1000px 창과 200% 확대', async () => {

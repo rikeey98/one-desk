@@ -6,7 +6,11 @@ import { useWorkspaces } from '../hooks/useWorkspaces'
 import { useRepos } from '../hooks/useRepos'
 import { PANEL_KIND_LABELS } from '../panelKinds'
 import { WindowSplitProvider } from './WindowSplit'
+import type { PanelMode } from './Panel'
 import type { PanelScope } from '@shared/panelWindow'
+
+/** 패널 창에는 패널이 하나라 펼치거나 레일로 접을 일이 없다 — 목록·상세는 WindowSplit이 나란히 둔다 */
+const WINDOW_MODE: PanelMode = { kind: 'normal' }
 
 /**
  * 패널 창의 뿌리 (docs/sdlc/item-windows/). 범위(종류, workspace, repo)는 창을 연 순간 해시로 정해지고
@@ -72,15 +76,15 @@ function ScopedPanel({ scope }: { scope: PanelScope }) {
     )
   }
 
-  const common = { workspaceId: scope.workspaceId, repoId: scope.repoId, repos, layout: 'window' as const, openId }
+  const common = { workspaceId: scope.workspaceId, repoId: scope.repoId, repos, layout: 'window' as const, mode: WINDOW_MODE, openId }
   return (
     <div className="panel-window-root">
       <h1 className="panel-window-title">{title}</h1>
       {/* 목록 폭·숨김은 종류마다 이 장비에 남는다 (FR-26~28). */}
       <WindowSplitProvider kind={scope.kind}>
-        {scope.kind === 'issue' && <IssuePanel {...common} expanded={false} onOpen={onOpen} />}
-        {scope.kind === 'memo' && <MemoPanel {...common} expanded={false} onOpen={onOpen} />}
-        {scope.kind === 'asset' && <AssetPanel {...common} expanded={false} onOpen={onOpen} />}
+        {scope.kind === 'issue' && <IssuePanel {...common} onOpen={onOpen} />}
+        {scope.kind === 'memo' && <MemoPanel {...common} onOpen={onOpen} />}
+        {scope.kind === 'asset' && <AssetPanel {...common} onOpen={onOpen} />}
       </WindowSplitProvider>
     </div>
   )

@@ -1,4 +1,5 @@
 import type { SVGProps } from 'react'
+import type { IssueStatus } from '@shared/models'
 
 /**
  * 앱 안의 아이콘. 유니코드 글리프(✎ 🗑 ⧉ ▾) 대신 같은 굵기(1.5px)·같은 크기의 선으로
@@ -193,6 +194,26 @@ export function IconHome(props: SVGProps<SVGSVGElement>) {
 /** 제목 줄의 사이드바 최소화·복원 — 왼쪽 열이 갈린 창 */
 export function IconSidebar(props: SVGProps<SVGSVGElement>) {
   return <Icon {...props}><rect x="2.5" y="3" width="11" height="10" rx="1.5" /><path d="M6.5 3v10" /></Icon>
+}
+
+/**
+ * 이슈 줄 앞의 상태 — 열림은 빈 원, 진행 중은 반 찬 원, 완료는 체크 원, 급함이 언젠가면 점선 원 (docs/sdlc/item-look/ FR-1).
+ * 표시일 뿐 누르는 자리가 아니다 — 상태 편집은 상세에만 있다. 색은 `.item-state-*`가 정한다.
+ */
+export function IconIssueState({ status, someday }: { status: IssueStatus; someday: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      className={['item-state', `item-state-${status}`, someday && 'item-state-someday'].filter(Boolean).join(' ')}
+    >
+      <circle cx="8" cy="8" r="5.6" />
+      {status === 'doing' && <path d="M8 3.6a4.4 4.4 0 0 1 0 8.8z" />}
+      {status === 'done' && <path d="M5.4 8.2l1.8 1.8 3.4-3.8" />}
+    </svg>
+  )
 }
 
 /** 사이드바의 `설정` — 조절 막대 둘(톱니는 16px에서 뭉개진다) */

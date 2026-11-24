@@ -38,7 +38,7 @@ describe('OpenWindowButton (docs/sdlc/item-windows/ FR-5)', () => {
     const c = client()
     render(
       <ClientProvider client={c}>
-        <IssuePanel workspaceId="w1" repoId="r9" repos={[]} expanded={false} openId={null} onOpen={() => {}} />
+        <IssuePanel workspaceId="w1" repoId="r9" repos={[]} mode={{ kind: 'normal' }} openId={null} onOpen={() => {}} />
       </ClientProvider>
     )
     await userEvent.click(screen.getByRole('button', { name: '이슈 새 창으로 열기' }))

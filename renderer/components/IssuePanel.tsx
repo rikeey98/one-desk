@@ -1,6 +1,6 @@
 import { ISSUE_STATUS_LABELS, showsStatusBadge } from '../issueStatus'
 import { useEffect, useMemo, useState } from 'react'
-import { Panel } from './Panel'
+import { Panel, type PanelMode } from './Panel'
 import { AddForm } from './AddForm'
 import { IssueDetail } from './IssueDetail'
 import { TriageCard, type TriagePick } from './TriageCard'
@@ -14,7 +14,8 @@ import { groupIssues, nextInQueue, triageQueue } from '../issueGroups'
 import { isStale } from '@shared/issueRules'
 import { AXIS_LABELS, SOURCE_LABELS, KIND_LABELS, type GroupAxis } from '../issueAxes'
 import { ConfirmButton } from './ConfirmButton'
-import { IconChevronRight, IconCollapse, IconTrash } from './icons'
+import { IconChevronRight, IconCollapse, IconIssueState, IconTrash } from './icons'
+import { repoNamesOf } from '../itemPreview'
 import type { IssueConversations } from '../conversation'
 import { splitTitleBody } from '../titleBody'
 import type { Issue, Repo } from '@shared/models'
@@ -32,7 +33,7 @@ function AxisChips({ issue }: { issue: Issue }) {
 }
 
 export function IssuePanel({
-  workspaceId, repoId, repos, context, conversations, layout = 'columns', expanded, openId, onOpen,
+  workspaceId, repoId, repos, context, conversations, layout = 'columns', mode, openId, onOpen,
   focusAdd = false, onFocusAddConsumed = () => {}, startTriage = false, onStartTriageConsumed = () => {}
 }: {
   workspaceId: string
@@ -46,7 +47,7 @@ export function IssuePanel({
    * `window`면 패널 창이다 — 목록과 상세가 나란히 서고(FR-7) "새 창으로 열기"가 없다. 기본은 앱 창의 세 칸.
    */
   layout?: 'columns' | 'window'
-  expanded: boolean
+  mode: PanelMode
   openId: string | null
   onOpen: (id: string) => void
   /** 단축키 Ctrl+I — App만 넘긴다(패널 창에는 단축키가 없다). 추가 칸에 포커스를 주고 치운다 (docs/sdlc/ux-polish/ FR-8) */
@@ -225,27 +226,33 @@ export function IssuePanel({
                 {group.issues.map((i) => {
                   return (
                     <li key={i.id} className={openId === i.id ? 'item item-active' : 'item'}>
-                      <button
-                        type="button"
-                        className={openId === i.id ? 'item-title item-open' : 'item-title'}
-                        onClick={() => { endTriage(); onOpen(i.id) }}
-                      >
-                        {i.title}
-                      </button>
-                      {/* 오른쪽 끝의 읽기 전용 표식들. 제목이 길면 이쪽이 아니라 제목이 줄어든다. */}
-                      <span className="item-meta">
-                        <AxisChips issue={i} />
-                        {isStale(i, now) && (
-                          <span className="axis-chip axis-chip-stale" aria-label="오래 방치됨">⚠</span>
-                        )}
-                        {/* 목록의 상태와 축은 읽기 전용이다. 편집은 상세가 맡는다.
-                            여기서 잠기지 않은 update로 쓰면 그 쓰기가 updatedAt을 올려
-                            열려 있는 상세의 기대값만 낡게 만들고, 다음 자동 저장이
-                            사용자 자신의 클릭을 agent의 편집으로 착각한다. */}
-                        {showsStatusBadge(i.status) && (
-                          <span className={`status status-${i.status}`}>{ISSUE_STATUS_LABELS[i.status]}</span>
-                        )}
-                      </span>
+                      <IconIssueState status={i.status} someday={i.priority === 'someday'} />
+                      {/* 두 줄이다 — 제목이 한 줄을 다 쓰고, 표식은 그 아래 흐린 줄에 선다 (docs/sdlc/item-look/ FR-1). */}
+                      <div className="item-main">
+                        <button
+                          type="button"
+                          className={openId === i.id ? 'item-title item-open' : 'item-title'}
+                          onClick={() => { endTriage(); onOpen(i.id) }}
+                        >
+                          {i.title}
+                        </button>
+                        <span className="item-meta">
+                          {/* 목록의 상태와 축은 읽기 전용이다. 편집은 상세가 맡는다.
+                              여기서 잠기지 않은 update로 쓰면 그 쓰기가 updatedAt을 올려
+                              열려 있는 상세의 기대값만 낡게 만들고, 다음 자동 저장이
+                              사용자 자신의 클릭을 agent의 편집으로 착각한다. */}
+                          {showsStatusBadge(i.status) && (
+                            <span className={`status status-${i.status}`}>{ISSUE_STATUS_LABELS[i.status]}</span>
+                          )}
+                          <AxisChips issue={i} />
+                          {repoId === null && repoNamesOf(i.repoIds, repos) && (
+                            <span className="item-repo">{repoNamesOf(i.repoIds, repos)}</span>
+                          )}
+                          {isStale(i, now) && (
+                            <span className="axis-chip axis-chip-stale" aria-label="오래 방치됨">⚠</span>
+                          )}
+                        </span>
+                      </div>
                       {/* 평소엔 폭 0으로 접혀 있다가 hover·포커스에 펼쳐진다 (repo 줄과 같은
                           패턴). DOM에는 항상 있어야 키보드로도 닿는다. */}
                       <span className="item-actions">
@@ -330,11 +337,12 @@ export function IssuePanel({
     </>
   )
 
+  const expanded = mode.kind === 'expanded'
   return (
     <Panel
       title="이슈"
       count={issues.length}
-      expanded={expanded}
+      mode={mode}
       window={inWindow}
       action={(
         <>
